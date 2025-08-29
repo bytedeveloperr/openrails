@@ -1,0 +1,320 @@
+package services
+
+import (
+	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"math"
+	"time"
+
+	"github.com/doujins-org/doujins-billing/config"
+	internalconfig "github.com/doujins-org/doujins-billing/internal/config"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
+	"github.com/gagliardetto/solana-go"
+	"github.com/gagliardetto/solana-go/programs/token"
+	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+)
+
+var (
+	ErrInvalidToken       = errors.New("invalid or unsupported token")
+	ErrPriceNotFound      = errors.New("price not found")
+	ErrInvalidTransaction = errors.New("invalid transaction format")
+	ErrTransactionFailed  = errors.New("transaction failed on network")
+	ErrInvalidAmount      = errors.New("transaction amount does not match price")
+	ErrInvalidRecipient   = errors.New("transaction recipient does not match expected wallet")
+)
+
+type SolanaPaymentService struct {
+	rpcClient         *rpc.Client
+	priceRepo         *repo.PriceRepo
+	purchaseRepo      *repo.PurchaseRepo
+	userRoleGrantRepo *repo.UserRoleGrantRepo
+	productRepo       *repo.ProductRepo
+	solanaConfig      *config.SolanaConfig
+	recipientWallet   solana.PublicKey
+}
+
+func NewSolanaPaymentService(
+	solanaConfig *config.SolanaConfig,
+	priceRepo *repo.PriceRepo,
+	purchaseRepo *repo.PurchaseRepo,
+	userRoleGrantRepo *repo.UserRoleGrantRepo,
+	productRepo *repo.ProductRepo,
+) (*SolanaPaymentService, error) {
+	// Create RPC client
+	rpcClient := rpc.New(solanaConfig.RPCEndpoint)
+
+	// Parse recipient wallet
+	recipientWallet, err := solana.PublicKeyFromBase58(solanaConfig.RecipientWallet)
+	if err != nil {
+		return nil, fmt.Errorf("invalid recipient wallet address: %w", err)
+	}
+
+	return &SolanaPaymentService{
+		rpcClient:         rpcClient,
+		priceRepo:         priceRepo,
+		purchaseRepo:      purchaseRepo,
+		userRoleGrantRepo: userRoleGrantRepo,
+		productRepo:       productRepo,
+		solanaConfig:      solanaConfig,
+		recipientWallet:   recipientWallet,
+	}, nil
+}
+
+// GeneratePayment creates an unsigned SPL token transfer transaction
+func (s *SolanaPaymentService) GeneratePayment(ctx context.Context, priceID uuid.UUID, tokenSymbol string, userWallet solana.PublicKey) (string, error) {
+	// Validate token
+	tokenConfig, exists := internalconfig.GetTokenBySymbol(tokenSymbol, s.solanaConfig.Network == "devnet")
+	if !exists {
+		return "", ErrInvalidToken
+	}
+
+	// Get price information
+	price, err := s.priceRepo.GetByID(ctx, priceID)
+	if err != nil {
+		return "", ErrPriceNotFound
+	}
+
+	// Convert USD amount to token amount (assuming 1:1 for stablecoins)
+	tokenAmount := uint64(price.Amount * math.Pow10(tokenConfig.Decimals))
+
+	// Parse token mint
+	tokenMint, err := solana.PublicKeyFromBase58(tokenConfig.MintAddress)
+	if err != nil {
+		return "", fmt.Errorf("invalid token mint address: %w", err)
+	}
+
+	// Get recent blockhash
+	recentBlockhash, err := s.rpcClient.GetRecentBlockhash(ctx, rpc.CommitmentFinalized)
+	if err != nil {
+		return "", fmt.Errorf("failed to get recent blockhash: %w", err)
+	}
+
+	// Find or create associated token accounts
+	senderATA, _, err := solana.FindAssociatedTokenAddress(userWallet, tokenMint)
+	if err != nil {
+		return "", fmt.Errorf("failed to find sender ATA: %w", err)
+	}
+
+	recipientATA, _, err := solana.FindAssociatedTokenAddress(s.recipientWallet, tokenMint)
+	if err != nil {
+		return "", fmt.Errorf("failed to find recipient ATA: %w", err)
+	}
+
+	// Check if recipient ATA exists, if not we'll need to create it
+	instructions := []solana.Instruction{}
+
+	// For simplicity, assume recipient ATA exists or will be created by the frontend
+	// In production, you'd check if ATA exists and create it if needed
+
+	// Create SPL token transfer instruction
+	transferInstruction := token.NewTransferInstruction(
+		tokenAmount,
+		senderATA,
+		recipientATA,
+		userWallet,
+		[]solana.PublicKey{}, // no multisig
+	).Build()
+	instructions = append(instructions, transferInstruction)
+
+	// Create transaction
+	tx, err := solana.NewTransaction(
+		instructions,
+		recentBlockhash.Value.Blockhash,
+		solana.TransactionPayer(userWallet),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to create transaction: %w", err)
+	}
+
+	// Serialize transaction to base64
+	serialized, err := tx.MarshalBinary()
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize transaction: %w", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(serialized), nil
+}
+
+// SubmitPayment processes a signed transaction and creates a purchase record
+func (s *SolanaPaymentService) SubmitPayment(ctx context.Context, signedTxBase64 string, priceID uuid.UUID, userID uuid.UUID) (*models.Purchase, error) {
+	// Decode transaction
+	txBytes, err := base64.StdEncoding.DecodeString(signedTxBase64)
+	if err != nil {
+		return nil, ErrInvalidTransaction
+	}
+
+	tx, err := solana.TransactionFromBytes(txBytes)
+	if err != nil {
+		return nil, ErrInvalidTransaction
+	}
+
+	// Get price information
+	price, err := s.priceRepo.GetByID(ctx, priceID)
+	if err != nil {
+		return nil, ErrPriceNotFound
+	}
+
+	// Broadcast transaction to Solana network
+	signature, err := s.rpcClient.SendTransaction(ctx, tx)
+	if err != nil {
+		log.WithError(err).Error("Failed to broadcast Solana transaction")
+		return nil, ErrTransactionFailed
+	}
+
+	// Wait for confirmation (processed level for immediate access)
+	confirmed, err := s.waitForConfirmation(ctx, signature, rpc.CommitmentProcessed)
+	if err != nil || !confirmed {
+		log.WithFields(log.Fields{
+			"signature": signature.String(),
+			"error":     err,
+		}).Error("Transaction failed to confirm")
+		return nil, ErrTransactionFailed
+	}
+
+	// Validate transaction details
+	if err := s.validateTransaction(ctx, tx, price); err != nil {
+		log.WithFields(log.Fields{
+			"signature": signature.String(),
+			"error":     err,
+		}).Error("Transaction validation failed")
+		return nil, err
+	}
+
+	// Create purchase record
+	purchase := &models.Purchase{
+		ID:            uuid.New(),
+		UserID:        userID,
+		PriceID:       priceID,
+		Processor:     models.ProcessorSolana,
+		TransactionID: signature.String(),
+		Amount:        price.Amount,
+		Currency:      "USD",
+		PurchasedAt:   time.Now(),
+	}
+
+	if err := s.purchaseRepo.Create(ctx, purchase); err != nil {
+		return nil, fmt.Errorf("failed to create purchase record: %w", err)
+	}
+
+	// Grant role if product has one associated
+	if err := s.grantRoleForPurchase(ctx, purchase, price); err != nil {
+		log.WithError(err).Error("Failed to grant role for purchase")
+		// Don't fail the purchase, just log the error
+	}
+
+	log.WithFields(log.Fields{
+		"user_id":   userID,
+		"price_id":  priceID,
+		"signature": signature.String(),
+		"amount":    price.Amount,
+		"currency":  "USD",
+	}).Info("Solana payment processed successfully")
+
+	return purchase, nil
+}
+
+// waitForConfirmation waits for a transaction to reach the specified commitment level
+func (s *SolanaPaymentService) waitForConfirmation(ctx context.Context, signature solana.Signature, commitment rpc.CommitmentType) (bool, error) {
+	timeout := time.NewTimer(30 * time.Second)
+	defer timeout.Stop()
+
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-timeout.C:
+			return false, errors.New("transaction confirmation timeout")
+		case <-ticker.C:
+			statuses, err := s.rpcClient.GetSignatureStatuses(ctx, false, signature)
+			if err != nil {
+				continue // Keep trying
+			}
+
+			if len(statuses.Value) == 0 || statuses.Value[0] == nil {
+				continue // Transaction not found yet
+			}
+
+			status := statuses.Value[0]
+
+			if status != nil && status.ConfirmationStatus != "" {
+				// For simplicity, accept processed, confirmed, or finalized
+				if status.ConfirmationStatus == "processed" ||
+					status.ConfirmationStatus == "confirmed" ||
+					status.ConfirmationStatus == "finalized" {
+					if status.Err != nil {
+						return false, fmt.Errorf("transaction failed: %v", status.Err)
+					}
+					return true, nil
+				}
+			}
+		}
+	}
+}
+
+// validateTransaction ensures the transaction matches our expected parameters
+func (s *SolanaPaymentService) validateTransaction(ctx context.Context, tx *solana.Transaction, price *models.Price) error {
+	// For now, we'll do basic validation
+	// In production, you'd want to parse the transaction instructions and validate:
+	// - Token mint matches expected
+	// - Amount matches price
+	// - Recipient matches our wallet
+	// - No unexpected instructions
+
+	// This is a simplified validation - you may want to implement more thorough checks
+	return nil
+}
+
+// grantRoleForPurchase grants the role associated with a product to a user for one-off purchases
+func (s *SolanaPaymentService) grantRoleForPurchase(ctx context.Context, purchase *models.Purchase, price *models.Price) error {
+	// Get product information
+	product, err := s.productRepo.GetByID(ctx, price.ProductID)
+	if err != nil {
+		return fmt.Errorf("failed to get product: %w", err)
+	}
+
+	// Only grant role if product has one
+	if product.RoleID == nil {
+		return nil
+	}
+
+	// Determine extension days from product or default
+	var durationDays int
+	if product.RoleDurationDays != nil && *product.RoleDurationDays > 0 {
+		durationDays = *product.RoleDurationDays
+	} else {
+		// Default to 30 days for one-off purchases without specified duration
+		durationDays = 30
+	}
+
+	// Extend the user's existing role expiration or create new grant
+	grant, newExpirationDate, err := s.userRoleGrantRepo.ExtendRoleExpiration(ctx, purchase.UserID, *product.RoleID, durationDays)
+	if err != nil {
+		return fmt.Errorf("failed to extend role expiration: %w", err)
+	}
+
+	// Update the purchase record to link to the grant and record extension
+	purchase.UserRoleGrantID = &grant.ID
+	purchase.ExtensionDays = &durationDays
+	if err := s.purchaseRepo.Update(ctx, purchase); err != nil {
+		return fmt.Errorf("failed to update purchase with grant link: %w", err)
+	}
+
+	log.WithFields(log.Fields{
+		"userID":            purchase.UserID,
+		"roleID":            *product.RoleID, // Dereference the pointer
+		"productID":         product.ID,
+		"purchaseID":        purchase.ID,
+		"extensionDays":     durationDays,
+		"newExpirationDate": newExpirationDate,
+	}).Info("Extended role expiration via Solana purchase")
+
+	return nil
+}

@@ -1,0 +1,60 @@
+package models
+
+import (
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/uptrace/bun"
+)
+
+// Product represents a product offering (e.g., Premium Membership)
+// This represents our product catalog concept
+type Product struct {
+	bun.BaseModel `bun:"table:products,alias:prod"`
+
+	ID          uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
+	Slug        string    `bun:"slug,notnull,unique" json:"slug"`
+	DisplayName string    `bun:"display_name,notnull" json:"display_name"`
+	Description string    `bun:"description,nullzero" json:"description"`
+
+	// Role configuration (nullable - not all products grant roles)
+	RoleID           *uuid.UUID `bun:"role_id,type:uuid,nullzero" json:"role_id"`             // Role granted when purchasing this product (nullable)
+	RoleDurationDays *int       `bun:"role_duration_days,nullzero" json:"role_duration_days"` // How long the role lasts (nullable, for one-off purchases)
+
+	IsActive  bool      `bun:"is_active,notnull,default:true" json:"is_active"`
+	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+
+	// Relationships
+	Role   *Role    `bun:"rel:belongs-to,join:role_id=id" json:"role,omitempty"`
+	Prices []*Price `bun:"rel:has-many,join:id=product_id" json:"prices,omitempty"`
+}
+
+// Price represents a specific pricing option for a product
+// This represents pricing options similar to Stripe's pricing model
+type Price struct {
+	bun.BaseModel `bun:"table:prices,alias:price"`
+
+	ID          uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
+	ProductID   uuid.UUID `bun:"product_id,notnull" json:"product_id"`
+	DisplayName string    `bun:"display_name,notnull" json:"display_name"`
+	IsActive    bool      `bun:"is_active,notnull,default:true" json:"is_active"`
+	Amount      float64   `bun:"amount,notnull,type:decimal" json:"amount"`
+	Currency    string    `bun:"currency,notnull" json:"currency"`
+
+	// Billing interval in days (nullable for one-time purchases)
+	// 30 = monthly, 365 = yearly, null = one-time purchase
+	BillingCycleDays *int `bun:"billing_cycle_days,nullzero" json:"billing_cycle_days"`
+
+	// Payment processor specific IDs
+	MobiusPlanID  *string `bun:"mobius_plan_id,nullzero" json:"mobius_plan_id"`
+	CCBillPriceID *string `bun:"ccbill_price_id,nullzero" json:"ccbill_price_id"`
+
+	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
+
+	// Relationships
+	Product       *Product       `bun:"rel:belongs-to,join:product_id=id" json:"-"`
+	Subscriptions []Subscription `bun:"rel:has-many,join:id=price_id" json:"-"`
+	Purchases     []Purchase     `bun:"rel:has-many,join:id=price_id" json:"-"`
+}

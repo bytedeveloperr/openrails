@@ -1,0 +1,754 @@
+package mobius
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+
+	log "github.com/sirupsen/logrus"
+
+	"github.com/doujins-org/doujins-billing/config"
+)
+
+const (
+	DirectPostAPIURL = "https://secure.networkmerchants.com/api/transact.php"
+	QueryAPIURL      = "https://secure.mobiusgateway.com/api/query.php"
+)
+
+type MobiusClient struct {
+	config        *config.MobiusConfig
+	SecurityKey   string
+	WebhookSecret string
+	IsProd        bool
+}
+
+type CreateCustomerVaultData struct {
+	// Prefer using PaymentToken from Collect.js. If provided, cc fields are ignored.
+	PaymentToken string
+	CCNumber     string
+	CCExp        string
+	FirstName    string
+	LastName     string
+	Address1     string
+	City         string
+	State        string
+	Zip          string
+	Country      string
+	Phone        string
+	Email        string
+	Company      string
+	Address2     string
+}
+
+type UpdateCustomerVaultData struct {
+	CustomerVaultID string
+	CreateCustomerVaultData
+}
+
+type DeleteCustomerVaultData struct {
+	CustomerVaultID string
+}
+
+type CardUserData struct {
+	FirstName string
+	LastName  string
+	Address1  string
+	City      string
+	State     string
+	Zip       string
+	Country   string
+}
+
+type RecurringPaymentData struct {
+	CardUserData
+	PlanID          string
+	CustomerVaultID string
+	Email           string
+	Currency        string
+	PaymentToken    string
+	Amount          float64
+}
+
+type QueryFilter struct {
+	StartDate   string
+	EndDate     string
+	Condition   string
+	ActionType  string
+	PageNumber  int
+	ResultLimit int
+}
+
+type CreateCustomerVaultResponse struct {
+	CustomerVaultID string
+}
+
+type AddSubscriptionResponse struct {
+	Type           string
+	SubscriptionID string
+	TransactionID  string
+	Authcode       string
+}
+
+type ManualRebillParams struct {
+	VaultID        string
+	BillingID      string
+	SubscriptionID string
+}
+
+type ManualRebillResponse struct {
+	Success       bool
+	TransactionID string
+	ErrorMessage  string
+}
+
+func NewClient(cfg *config.MobiusConfig, isProd bool) (*MobiusClient, error) {
+	// Priority: Environment variable first, then config file, then empty
+	webhookSecret := os.Getenv("MOBIUS_WEBHOOK_SECRET")
+	if webhookSecret == "" && cfg != nil {
+		webhookSecret = cfg.WebhookSecret
+	}
+
+	// Log warning if webhook secret is missing
+	if webhookSecret == "" {
+		log.Warn("Mobius webhook secret not configured (neither MOBIUS_WEBHOOK_SECRET env var nor config.mobius.webhook_secret) - webhook signature verification will be disabled")
+	}
+
+	if cfg == nil {
+		if isProd {
+			return nil, errors.New("mobius config is required in production mode")
+		}
+		// In development mode, return a client with empty config that will fail gracefully when used
+		log.Warn("Mobius configuration not provided - Mobius payment processing will be disabled")
+		emptyConfig := &config.MobiusConfig{TestMode: true} // Default to test mode when no config
+		return &MobiusClient{
+			config:        emptyConfig,
+			SecurityKey:   "",
+			WebhookSecret: webhookSecret,
+			IsProd:        false,
+		}, nil
+	}
+
+	if isProd && cfg.SecurityKey == "" {
+		return nil, errors.New("mobius security key is required in production mode")
+	}
+
+	// Log warning if security key is missing in development
+	if !isProd && cfg.SecurityKey == "" {
+		log.Warn("Mobius security_key not configured - Mobius API calls will be disabled")
+	}
+
+	return &MobiusClient{
+		config:        cfg,
+		SecurityKey:   cfg.SecurityKey,
+		WebhookSecret: webhookSecret,
+		IsProd:        isProd,
+	}, nil
+}
+
+// Config returns the Mobius configuration
+func (c *MobiusClient) Config() *config.MobiusConfig {
+	return c.config
+}
+
+// isConfigured returns true if the client has valid configuration
+func (c *MobiusClient) isConfigured() bool {
+	return c.SecurityKey != ""
+}
+
+// checkConfiguration returns an error if the client is not configured properly
+func (c *MobiusClient) checkConfiguration() error {
+	if !c.isConfigured() {
+		return errors.New("mobius payment processing is not configured - this feature is disabled in development mode")
+	}
+	return nil
+}
+
+func (c *MobiusClient) CreateCustomerVault(data CreateCustomerVaultData) (*CreateCustomerVaultResponse, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return nil, err
+	}
+
+	values := url.Values{
+		"customer_vault": {"add_customer"},
+		"security_key":   {c.SecurityKey},
+	}
+
+	// Prefer tokenized flow when available
+	if strings.TrimSpace(data.PaymentToken) != "" {
+		values.Set("payment_token", strings.TrimSpace(data.PaymentToken))
+	} else {
+		if data.CCNumber == "" || data.CCExp == "" {
+			return nil, errors.New("either payment_token or (ccnumber+ccexp) is required")
+		}
+		values.Set("ccnumber", data.CCNumber)
+		values.Set("ccexp", data.CCExp)
+	}
+
+	if data.FirstName != "" {
+		values.Set("first_name", data.FirstName)
+	}
+
+	if data.LastName != "" {
+		values.Set("last_name", data.LastName)
+	}
+
+	if data.Address1 != "" {
+		values.Set("address1", data.Address1)
+	}
+
+	if data.City != "" {
+		values.Set("city", data.City)
+	}
+
+	if data.State != "" {
+		values.Set("state", data.State)
+	}
+
+	if data.Zip != "" {
+		values.Set("zip", data.Zip)
+	}
+
+	if data.Country != "" {
+		values.Set("country", data.Country)
+	}
+
+	if data.Phone != "" {
+		values.Set("phone", data.Phone)
+	}
+
+	if data.Email != "" {
+		values.Set("email", data.Email)
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return nil, err
+	}
+
+	if !strings.Contains(response, "response=1") {
+		return nil, fmt.Errorf("failed to create customer vault: %s", response)
+	}
+
+	output, err := url.ParseQuery(response)
+	if err != nil {
+		return nil, err
+	}
+
+	if output.Get("response") != "1" {
+		return nil, fmt.Errorf("failed to create customer vault: %s", output.Get("response_message"))
+	}
+
+	vaultID := output.Get("customer_vault_id")
+	if vaultID == "" {
+		return nil, fmt.Errorf("failed to create customer vault: %s", output.Get("response_message"))
+	}
+
+	return &CreateCustomerVaultResponse{CustomerVaultID: vaultID}, nil
+}
+
+func (c *MobiusClient) UpdateCustomerVault(data UpdateCustomerVaultData) error {
+	if err := c.checkConfiguration(); err != nil {
+		return err
+	}
+
+	if data.CustomerVaultID == "" {
+		return errors.New("customer vault ID is required")
+	}
+
+	values := url.Values{
+		"customer_vault":    {"update_customer"},
+		"security_key":      {c.SecurityKey},
+		"customer_vault_id": {data.CustomerVaultID},
+	}
+
+	if data.CCNumber != "" {
+		values.Set("ccnumber", data.CCNumber)
+	}
+	if data.CCExp != "" {
+		values.Set("ccexp", data.CCExp)
+	}
+	if data.FirstName != "" {
+		values.Set("first_name", data.FirstName)
+	}
+	if data.LastName != "" {
+		values.Set("last_name", data.LastName)
+	}
+	if data.Address1 != "" {
+		values.Set("address1", data.Address1)
+	}
+	if data.City != "" {
+		values.Set("city", data.City)
+	}
+	if data.State != "" {
+		values.Set("state", data.State)
+	}
+	if data.Zip != "" {
+		values.Set("zip", data.Zip)
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return err
+	}
+
+	if !strings.Contains(response, "response=1") {
+		return fmt.Errorf("failed to update customer vault: %s", response)
+	}
+
+	return nil
+}
+
+func (c *MobiusClient) DeleteCustomerVault(data DeleteCustomerVaultData) error {
+	if err := c.checkConfiguration(); err != nil {
+		return err
+	}
+
+	if data.CustomerVaultID == "" {
+		return errors.New("customer vault ID is required")
+	}
+
+	values := url.Values{
+		"customer_vault":    {"delete_customer"},
+		"security_key":      {c.SecurityKey},
+		"customer_vault_id": {data.CustomerVaultID},
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return err
+	}
+
+	if !strings.Contains(response, "response=1") {
+		return fmt.Errorf("failed to delete customer vault: %s", response)
+	}
+
+	return nil
+}
+
+func (c *MobiusClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSubscriptionResponse, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return nil, err
+	}
+
+	if data.PlanID == "" {
+		return nil, errors.New("PlanID is required")
+	}
+
+	if data.CustomerVaultID == "" && data.PaymentToken == "" {
+		return nil, errors.New("either customer vault or payment token is required")
+	}
+
+	amtStr := strconv.FormatFloat(data.Amount, 'f', 2, 64)
+
+	values := url.Values{
+		"type":              {"sale"},
+		"amount":            {amtStr},
+		"email":             {data.Email},
+		"plan_id":           {data.PlanID},
+		"billing_method":    {"recurring"},
+		"security_key":      {c.SecurityKey},
+		"currency":          {data.Currency},
+		"recurring":         {"add_subscription"},
+		"order_description": {"Doujins Subscription"},
+		"first_name":        {data.FirstName},
+		"last_name":         {data.LastName},
+		"address1":          {data.Address1},
+		"city":              {data.City},
+		"state":             {data.State},
+		"zip":               {data.Zip},
+		"country":           {data.Country},
+	}
+
+	if data.PaymentToken != "" {
+		values.Set("payment_token", data.PaymentToken)
+	}
+
+	if data.CustomerVaultID != "" {
+		values.Set("customer_vault_id", data.CustomerVaultID)
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return nil, err
+	}
+
+	output, err := url.ParseQuery(response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse response: %s", response)
+	}
+
+	if output.Get("response") != "1" {
+		return nil, fmt.Errorf("failed to add subscription: %s", output.Get("responsetext"))
+	}
+
+	return &AddSubscriptionResponse{
+		Type:           output.Get("type"),
+		Authcode:       output.Get("authcode"),
+		TransactionID:  output.Get("transactionid"),
+		SubscriptionID: output.Get("subscription_id"),
+	}, nil
+}
+
+func (c *MobiusClient) UpdateRecurringSubscription(subscriptionID, planAmount string, planPayments int) (string, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return "", err
+	}
+
+	if subscriptionID == "" || planAmount == "" {
+		return "", errors.New("missing required fields: subscriptionID, planAmount")
+	}
+
+	values := url.Values{
+		"recurring":       {"update_subscription"},
+		"security_key":    {c.SecurityKey},
+		"subscription_id": {subscriptionID},
+		"plan_amount":     {planAmount},
+		"plan_payments":   {fmt.Sprintf("%d", planPayments)},
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return "", err
+	}
+
+	if !strings.Contains(response, "response=1") {
+		return "", fmt.Errorf("failed to update subscription: %s", response)
+	}
+
+	return response, nil
+}
+
+func (c *MobiusClient) DeleteRecurringSubscription(subscriptionID string) error {
+	if err := c.checkConfiguration(); err != nil {
+		return err
+	}
+
+	if subscriptionID == "" {
+		return errors.New("subscriptionID is required")
+	}
+
+	values := url.Values{
+		"recurring":       {"delete_subscription"},
+		"security_key":    {c.SecurityKey},
+		"subscription_id": {subscriptionID},
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return err
+	}
+
+	if !strings.Contains(response, "response=1") {
+		return fmt.Errorf("failed to delete subscription: %s", response)
+	}
+
+	return nil
+}
+
+func (c *MobiusClient) AttemptManualRebill(params ManualRebillParams) (*ManualRebillResponse, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return &ManualRebillResponse{
+			Success:      false,
+			ErrorMessage: err.Error(),
+		}, err
+	}
+
+	if params.VaultID == "" || params.BillingID == "" || params.SubscriptionID == "" {
+		err := errors.New("vault ID, billing ID, and subscription ID are required")
+		return &ManualRebillResponse{
+			Success:      false,
+			ErrorMessage: err.Error(),
+		}, err
+	}
+
+	values := url.Values{
+		"type":              {"sale"},
+		"security_key":      {c.SecurityKey},
+		"customer_vault_id": {params.VaultID},
+		"billing_id":        {params.BillingID},
+		"subscription_id":   {params.SubscriptionID},
+		"recurring":         {"rebill_subscription"},
+		"order_description": {"Manual Rebill - Doujins Subscription"},
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return &ManualRebillResponse{
+			Success:      false,
+			ErrorMessage: fmt.Sprintf("request failed: %s", err.Error()),
+		}, err
+	}
+
+	output, err := url.ParseQuery(response)
+	if err != nil {
+		return &ManualRebillResponse{
+			Success:      false,
+			ErrorMessage: fmt.Sprintf("failed to parse response: %s", response),
+		}, err
+	}
+
+	if output.Get("response") == "1" {
+		return &ManualRebillResponse{
+			Success:       true,
+			TransactionID: output.Get("transactionid"),
+		}, nil
+	}
+
+	// Rebill failed
+	errorMessage := output.Get("responsetext")
+	if errorMessage == "" {
+		errorMessage = "Unknown error"
+	}
+
+	return &ManualRebillResponse{
+		Success:      false,
+		ErrorMessage: errorMessage,
+	}, nil
+}
+
+func (c *MobiusClient) GetTransactionDetails(transactionID string) (string, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return "", err
+	}
+
+	if transactionID == "" {
+		return "", errors.New("transactionID is required")
+	}
+
+	values := url.Values{
+		"report_type":    {"transaction"},
+		"security_key":   {c.SecurityKey},
+		"transaction_id": {transactionID},
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendQueryRequest(values)
+	if err != nil {
+		return "", err
+	}
+
+	return response, nil
+}
+
+func (c *MobiusClient) GetCustomerVaultData(customerVaultID string) (string, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return "", err
+	}
+
+	values := url.Values{
+		"report_type":  {"customer_vault"},
+		"security_key": {c.SecurityKey},
+	}
+
+	if customerVaultID != "" {
+		values.Set("customer_vault_id", customerVaultID)
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendQueryRequest(values)
+	if err != nil {
+		return "", err
+	}
+
+	return response, nil
+}
+
+func (c *MobiusClient) GetSubscriptionData(subscriptionID string) (string, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return "", err
+	}
+
+	values := url.Values{
+		"report_type":  {"recurring"},
+		"security_key": {c.SecurityKey},
+	}
+
+	if subscriptionID != "" {
+		values.Set("subscription_id", subscriptionID)
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendQueryRequest(values)
+	if err != nil {
+		return "", err
+	}
+
+	return response, nil
+}
+
+func (c *MobiusClient) GetRecurringPlanData() (string, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return "", err
+	}
+
+	values := url.Values{
+		"report_type":  {"recurring_plans"},
+		"security_key": {c.SecurityKey},
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendQueryRequest(values)
+	if err != nil {
+		return "", err
+	}
+
+	return response, nil
+}
+
+func (c *MobiusClient) SearchTransactions(filter QueryFilter) (string, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return "", err
+	}
+
+	values := url.Values{
+		"report_type":  {"transaction"},
+		"security_key": {c.SecurityKey},
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	if filter.StartDate != "" {
+		values.Set("start_date", filter.StartDate)
+	}
+	if filter.EndDate != "" {
+		values.Set("end_date", filter.EndDate)
+	}
+	if filter.Condition != "" {
+		values.Set("condition", filter.Condition)
+	}
+	if filter.ActionType != "" {
+		values.Set("action_type", filter.ActionType)
+	}
+	if filter.PageNumber > 0 {
+		values.Set("page_number", fmt.Sprintf("%d", filter.PageNumber))
+	}
+	if filter.ResultLimit > 0 {
+		values.Set("result_limit", fmt.Sprintf("%d", filter.ResultLimit))
+	}
+
+	response, err := c.sendQueryRequest(values)
+	if err != nil {
+		return "", err
+	}
+
+	return response, nil
+}
+func (c *MobiusClient) sendDirectRequest(data url.Values) (_ string, err error) {
+	resp, err := http.PostForm(DirectPostAPIURL, data)
+	if err != nil {
+		return "", fmt.Errorf("failed to send request: %w", err)
+	}
+	defer func() {
+		cerr := resp.Body.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	return string(body), nil
+}
+
+func (c *MobiusClient) sendQueryRequest(data url.Values) (_ string, err error) {
+	resp, err := http.PostForm(QueryAPIURL, data)
+	if err != nil {
+		return "", fmt.Errorf("failed to send query request: %w", err)
+	}
+	defer func() {
+		cerr := resp.Body.Close()
+		if err == nil {
+			err = cerr
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read query response: %w", err)
+	}
+
+	return string(body), nil
+}
+
+func (c *MobiusClient) VerifyWebhookSignature(body []byte, signature string) error {
+	if c.WebhookSecret == "" {
+		return errors.New("webhook secret not configured")
+	}
+
+	signature = strings.TrimPrefix(signature, "sha256=")
+
+	mac := hmac.New(sha256.New, []byte(c.WebhookSecret))
+	mac.Write(body)
+	expectedSignature := hex.EncodeToString(mac.Sum(nil))
+
+	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+		return errors.New("webhook signature verification failed")
+	}
+
+	return nil
+}
+
+func (c *MobiusClient) GetWebhookSecret() string {
+	return c.WebhookSecret
+}
