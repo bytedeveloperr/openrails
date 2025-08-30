@@ -19,12 +19,15 @@ const (
 
 // Purchase represents a payment event (both one-time and subscription payments)
 // This is an immutable event log of all payments received
-type Purchase struct {
-	bun.BaseModel `bun:"table:purchases,alias:purch"`
+type Payment struct {
+	bun.BaseModel `bun:"table:payments,alias:purch"`
 
 	ID      uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
 	UserID  uuid.UUID `bun:"user_id,notnull" json:"user_id"`
 	PriceID uuid.UUID `bun:"price_id,notnull" json:"price_id"`
+
+	// Optional linkage to the subscription that generated this payment
+	SubscriptionID *uuid.UUID `bun:"subscription_id,type:uuid,nullzero" json:"subscription_id,omitempty"`
 
 	Processor     ProcessorType `bun:"processor,notnull" json:"processor"`
 	TransactionID string        `bun:"transaction_id,notnull" json:"transaction_id"`
@@ -39,9 +42,9 @@ type Purchase struct {
 
 	PurchasedAt time.Time `bun:"purchased_at,notnull,default:current_timestamp" json:"purchased_at"`
 	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt   time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 
 	// Relationships
 	Price         *Price         `bun:"rel:belongs-to,join:price_id=id" json:"price,omitempty"`
+	Subscription  *Subscription  `bun:"rel:belongs-to,join:subscription_id=id" json:"subscription,omitempty"`
 	UserRoleGrant *UserRoleGrant `bun:"rel:belongs-to,join:user_role_grant_id=id" json:"user_role_grant,omitempty"`
 }

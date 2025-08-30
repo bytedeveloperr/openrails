@@ -56,5 +56,5 @@ type Price struct {
 	// Relationships
 	Product       *Product       `bun:"rel:belongs-to,join:product_id=id" json:"-"`
 	Subscriptions []Subscription `bun:"rel:has-many,join:id=price_id" json:"-"`
-	Purchases     []Purchase     `bun:"rel:has-many,join:id=price_id" json:"-"`
+	Payments      []Payment      `bun:"rel:has-many,join:id=price_id" json:"-"`
 }

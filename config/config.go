@@ -5,52 +5,60 @@ import (
 	"net/url"
 )
 
-// BillingConfig holds billing-specific configuration validation and utilities
-type BillingConfig struct {
+type Config struct {
 	Mobius *MobiusConfig `json:"mobius,omitempty"`
 	CCBill *CCBillConfig `json:"ccbill,omitempty"`
 	Solana *SolanaConfig `json:"solana,omitempty"`
+	DB     *DBConfig     `json:"db,omitempty"`
 
-	// Security settings
 	RateLimits *RateLimitConfig `json:"rate_limits,omitempty"`
-	Security   *SecurityConfig  `json:"security,omitempty"`
-
-	// Network configuration
-	Network *NetworkConfig `json:"network,omitempty"`
 }
 
-// MobiusConfig extends the main config with billing-specific validation
+type DBConfig struct {
+	URL     string `koanf:"url"`
+	Schema  string `koanf:"schema"`
+	Dialect string `koanf:"dialect"`
+}
+
 type MobiusConfig struct {
-
-	// Additional billing-specific settings
-	MaxRetries          int  `json:"max_retries,omitempty"`
-	RetryBackoffSeconds int  `json:"retry_backoff_seconds,omitempty"`
-	ManualRebillEnabled bool `json:"manual_rebill_enabled,omitempty"`
+	SecurityKey     string `koanf:"security_key"`
+	TokenizationKey string `koanf:"tokenization_key"`
+	WebhookSecret   string `koanf:"webhook_secret"`
+	TestMode        bool   `koanf:"test_mode"`
 }
 
-// CCBillConfig extends the main config with billing-specific validation
 type CCBillConfig struct {
-	*config.CCBillConfig
+	Salt               string `koanf:"salt"`
+	Language           string `koanf:"language"`
+	FormID             string `koanf:"form_id"`
+	FormName           string `koanf:"form_name"`
+	CurrencyCode       string `koanf:"currency_code"`
+	AllowedTypes       string `koanf:"allowed_types"`
+	ClientSubAcc       string `koanf:"client_sub_acc"`
+	ClientAccNum       string `koanf:"client_acc_num"`
+	SubscriptionTypeId string `koanf:"subscription_type_id"`
+	TestMode           bool   `koanf:"test_mode"`
 
-	// DataLink reconciliation settings
-	DataLinkEnabled             bool `json:"datalink_enabled,omitempty"`
-	DataLinkReconciliationHours int  `json:"datalink_reconciliation_hours,omitempty"`
+	// FlexForm integration settings
+	BaseFlexFormURL string `koanf:"base_flexform_url"`
+	IFrameWidth     string `koanf:"iframe_width"`  // Default: "100%"
+	IFrameHeight    string `koanf:"iframe_height"` // Default: "600px"
 
-	// Webhook settings
-	WebhookIPWhitelist    []string `json:"webhook_ip_whitelist,omitempty"`
-	WebhookTimeoutSeconds int      `json:"webhook_timeout_seconds,omitempty"`
+	DataLinkURL          string `koanf:"datalink_url"`
+	DataLinkUsername     string `koanf:"datalink_username"`
+	DataLinkPassword     string `koanf:"datalink_password"`
+	DataLinkClientAccNum string `koanf:"datalink_client_acc_num"`
+
+	WebhookIPs []string `koanf:"webhook_ips"`
 }
 
-// SolanaConfig holds Solana-specific billing configuration
 type SolanaConfig struct {
-	RPCEndpoint     string `json:"rpc_endpoint"`
-	Network         string `json:"network"` // mainnet, devnet, testnet
-	RecipientWallet string `json:"recipient_wallet"`
+	RPCEndpoint       string `json:"rpc_endpoint"`
+	Network           string `json:"network"` // mainnet, devnet, testnet
+	DestinationWallet string `json:"destination_wallet"`
 
-	// Supported tokens and their configurations
 	SupportedTokens map[string]TokenConfig `json:"supported_tokens,omitempty"`
 
-	// Transaction settings
 	TransactionTimeoutSeconds int     `json:"transaction_timeout_seconds,omitempty"`
 	ConfirmationBlocks        int     `json:"confirmation_blocks,omitempty"`
 	MaxTransactionFee         float64 `json:"max_transaction_fee,omitempty"`
@@ -80,81 +88,34 @@ type RateLimit struct {
 	BurstSize         int `json:"burst_size"`
 }
 
-// SecurityConfig defines security settings for billing
-type SecurityConfig struct {
-	// Webhook security
-	RequireWebhookSignatures bool     `json:"require_webhook_signatures"`
-	AllowedWebhookIPs        []string `json:"allowed_webhook_ips,omitempty"`
-
-	// Anti-fraud settings
-	MaxDailyTransactions       int     `json:"max_daily_transactions,omitempty"`
-	MaxTransactionAmount       float64 `json:"max_transaction_amount,omitempty"`
-	RequireAddressVerification bool    `json:"require_address_verification"`
-
-	// Idempotency settings
-	IdempotencyTTLHours     int `json:"idempotency_ttl_hours,omitempty"`
-	IdempotencyCleanupHours int `json:"idempotency_cleanup_hours,omitempty"`
-}
-
-// NetworkConfig defines network-specific settings
-type NetworkConfig struct {
-	PublicPort     int      `json:"public_port"`
-	PrivatePort    int      `json:"private_port"`
-	AllowedOrigins []string `json:"allowed_origins,omitempty"`
-	TrustedProxies []string `json:"trusted_proxies,omitempty"`
-
-	// Private network restrictions
-	PrivateNetworkCIDRs []string `json:"private_network_cidrs,omitempty"`
-}
-
 // Validate validates the billing configuration
-func Validate(cfg *config.Config) error {
-	isProd := cfg.Env == "production" || cfg.Env == "prod"
-
-	// Validate Mobius configuration
-	if err := validateMobius(cfg.Mobius, isProd); err != nil {
+func Validate(cfg *Config) error {
+	if err := validateMobius(cfg.Mobius); err != nil {
 		return fmt.Errorf("mobius config validation failed: %w", err)
 	}
 
 	// Validate CCBill configuration
-	if err := validateCCBill(cfg.CCBill, isProd); err != nil {
+	if err := validateCCBill(cfg.CCBill); err != nil {
 		return fmt.Errorf("ccbill config validation failed: %w", err)
-	}
-
-	// Validate Solana configuration if present
-	if cfg.S3 != nil { // Using S3 as a proxy to check if Solana config might be present
-		// We'll need to add SolanaConfig to the main config struct later
-		// For now, validate basic requirements
-	}
-
-	// Validate rate limiting configuration
-	if cfg.RateLimiter == nil {
-		return fmt.Errorf("rate limiter configuration is required")
 	}
 
 	return nil
 }
 
 // validateMobius validates Mobius-specific configuration
-func validateMobius(cfg *config.MobiusConfig, isProd bool) error {
+func validateMobius(cfg *MobiusConfig) error {
 	if cfg == nil {
-		if isProd {
-			return fmt.Errorf("mobius configuration is required in production")
-		}
-		return nil // Optional in development
+		return fmt.Errorf("mobius configuration is required")
 	}
 
-	// In production, security key is mandatory
-	if isProd && cfg.SecurityKey == "" {
+	if cfg.SecurityKey == "" {
 		return fmt.Errorf("mobius security key is required in production")
 	}
 
-	// Tokenization key is required for frontend integration
-	if cfg.TokenizationKey == "" && isProd {
+	if cfg.TokenizationKey == "" {
 		return fmt.Errorf("mobius tokenization key is required for frontend integration")
 	}
 
-	// Validate webhook secret exists (recommended)
 	if cfg.WebhookSecret == "" {
 		return fmt.Errorf("mobius webhook secret is recommended for security")
 	}
@@ -163,12 +124,9 @@ func validateMobius(cfg *config.MobiusConfig, isProd bool) error {
 }
 
 // validateCCBill validates CCBill-specific configuration
-func validateCCBill(cfg *config.CCBillConfig, isProd bool) error {
+func validateCCBill(cfg *CCBillConfig) error {
 	if cfg == nil {
-		if isProd {
-			return fmt.Errorf("ccbill configuration is required in production")
-		}
-		return nil // Optional in development
+		return fmt.Errorf("ccbill configuration is required")
 	}
 
 	// Basic required fields
@@ -210,18 +168,8 @@ func validateCCBill(cfg *config.CCBillConfig, isProd bool) error {
 }
 
 // GetDefaultBillingConfig returns a billing configuration with sensible defaults
-func GetDefaultBillingConfig() *BillingConfig {
-	return &BillingConfig{
-		Network: &NetworkConfig{
-			PublicPort:  2052,
-			PrivatePort: 8060,
-			PrivateNetworkCIDRs: []string{
-				"10.0.0.0/8",     // Private class A
-				"172.16.0.0/12",  // Private class B
-				"192.168.0.0/16", // Private class C
-				"127.0.0.0/8",    // Loopback
-			},
-		},
+func GetDefaultBillingConfig() *Config {
+	return &Config{
 		RateLimits: &RateLimitConfig{
 			SubscribeLimit: &RateLimit{
 				RequestsPerMinute: 10, // Very restrictive for payment endpoints
@@ -239,14 +187,6 @@ func GetDefaultBillingConfig() *BillingConfig {
 				RequestsPerMinute: 60,
 				BurstSize:         10,
 			},
-		},
-		Security: &SecurityConfig{
-			RequireWebhookSignatures:   true,
-			MaxDailyTransactions:       100,
-			MaxTransactionAmount:       1000.0, // USD
-			RequireAddressVerification: true,
-			IdempotencyTTLHours:        24,
-			IdempotencyCleanupHours:    168, // 1 week
 		},
 		Solana: &SolanaConfig{
 			Network:                   "mainnet",
@@ -275,21 +215,4 @@ func GetDefaultBillingConfig() *BillingConfig {
 			},
 		},
 	}
-}
-
-// ExtendWithBillingDefaults extends the main config with billing defaults
-func ExtendWithBillingDefaults(cfg *config.Config) *config.Config {
-	billingDefaults := GetDefaultBillingConfig()
-
-	// Apply rate limiting defaults if not set
-	if cfg.RateLimiter == nil {
-		cfg.RateLimiter = &config.RateLimiterConfig{
-			Default: &config.RateLimitConfig{
-				Limit:  billingDefaults.RateLimits.DefaultLimit.RequestsPerMinute,
-				Window: 60, // 1 minute
-			},
-		}
-	}
-
-	return cfg
 }
