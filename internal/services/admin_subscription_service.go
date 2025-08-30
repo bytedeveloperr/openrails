@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
@@ -23,6 +24,351 @@ var (
 
 // AdminSubscriptionService handles administrative subscription operations
 type AdminSubscriptionService struct {
+	DB *db.DB
+}
+
+// GetSubscribers retrieves subscribers with pagination and admin details
+func (s *AdminSubscriptionService) GetSubscribers(ctx context.Context, opts query.QueryOptions) ([]*models.Subscription, int64, error) {
+	var subscriptions []*models.Subscription
+	var total int64
+
+	// Count total records
+	count, err := s.DB.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
+		Count(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count subscribers: %w", err)
+	}
+	total = int64(count)
+
+	// Get paginated results
+	err = s.DB.GetDB().NewSelect().
+		Model(&subscriptions).
+		Limit(opts.Limit).
+		Offset(opts.Offset).
+		Scan(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get subscribers: %w", err)
+	}
+
+	return subscriptions, total, nil
+}
+
+// GetSubscriptionByID retrieves a subscription by its ID
+func (s *AdminSubscriptionService) GetSubscriptionByID(ctx context.Context, id uuid.UUID) (*models.Subscription, error) {
+	var subscription models.Subscription
+	err := s.DB.GetDB().NewSelect().
+		Model(&subscription).
+		Where("id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription by ID: %w", err)
+	}
+	return &subscription, nil
+}
+
+// GetSubscriptionByUserID retrieves a subscription by user ID
+func (s *AdminSubscriptionService) GetSubscriptionByUserID(ctx context.Context, userID uuid.UUID) (*models.Subscription, error) {
+	var subscription models.Subscription
+	err := s.DB.GetDB().NewSelect().
+		Model(&subscription).
+		Where("user_id = ?", userID).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription by user ID: %w", err)
+	}
+	return &subscription, nil
+}
+
+// UpdateSubscription updates a subscription
+func (s *AdminSubscriptionService) UpdateSubscription(ctx context.Context, subscription *models.Subscription) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model(subscription).
+		Where("id = ?", subscription.ID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+	return nil
+}
+
+// GetPriceByID retrieves a price by its ID
+func (s *AdminSubscriptionService) GetPriceByID(ctx context.Context, id uuid.UUID) (*models.Price, error) {
+	var price models.Price
+	err := s.DB.GetDB().NewSelect().
+		Model(&price).
+		Where("id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get price by ID: %w", err)
+	}
+	return &price, nil
+}
+
+// GetProductByID retrieves a product by its ID
+func (s *AdminSubscriptionService) GetProductByID(ctx context.Context, id uuid.UUID) (*models.Product, error) {
+	var product models.Product
+	err := s.DB.GetDB().NewSelect().
+		Model(&product).
+		Where("id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get product by ID: %w", err)
+	}
+	return &product, nil
+}
+
+// GetGoTrueUserByID retrieves a user by ID from GoTrue
+func (s *AdminSubscriptionService) GetGoTrueUserByID(ctx context.Context, userID uuid.UUID) (*types.User, error) {
+	// This would typically call the GoTrue API or database
+	// For now, return a placeholder implementation
+	return nil, fmt.Errorf("user not found: %s", userID)
+}
+
+// CreateProduct creates a new product
+func (s *AdminSubscriptionService) CreateProduct(ctx context.Context, product *models.Product) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(product).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create product: %w", err)
+	}
+	return nil
+}
+
+// UpdateProduct updates a product
+func (s *AdminSubscriptionService) UpdateProduct(ctx context.Context, product *models.Product) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model(product).
+		Where("id = ?", product.ID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update product: %w", err)
+	}
+	return nil
+}
+
+// CreatePrice creates a new price
+func (s *AdminSubscriptionService) CreatePrice(ctx context.Context, price *models.Price) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(price).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create price: %w", err)
+	}
+	return nil
+}
+
+// GetUserRoleGrants retrieves user role grants with pagination
+func (s *AdminSubscriptionService) GetUserRoleGrants(ctx context.Context, opts query.QueryOptions) ([]*models.UserRoleGrant, int64, error) {
+	var grants []*models.UserRoleGrant
+	var total int64
+
+	// Count total records
+	count, err := s.DB.GetDB().NewSelect().
+		Model((*models.UserRoleGrant)(nil)).
+		Count(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count user role grants: %w", err)
+	}
+	total = int64(count)
+
+	// Get paginated results
+	err = s.DB.GetDB().NewSelect().
+		Model(&grants).
+		Limit(opts.Limit).
+		Offset(opts.Offset).
+		Scan(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get user role grants: %w", err)
+	}
+
+	return grants, total, nil
+}
+
+// CreatePermanentGrant creates a permanent role grant
+func (s *AdminSubscriptionService) CreatePermanentGrant(ctx context.Context, userID, roleID uuid.UUID) (*models.UserRoleGrant, error) {
+	grant := &models.UserRoleGrant{
+		ID:        uuid.New(),
+		UserID:    userID,
+		RoleID:    roleID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		// ExpiresAt is nil for permanent grants
+	}
+
+	_, err := s.DB.GetDB().NewInsert().
+		Model(grant).
+		Exec(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create permanent grant: %w", err)
+	}
+	return grant, nil
+}
+
+// ExtendRoleExpiration extends role expiration for a user
+func (s *AdminSubscriptionService) ExtendRoleExpiration(ctx context.Context, userID, roleID uuid.UUID, days int) (*models.UserRoleGrant, time.Time, error) {
+	// Check if user already has this role
+	var existingGrant models.UserRoleGrant
+	err := s.DB.GetDB().NewSelect().
+		Model(&existingGrant).
+		Where("user_id = ?", userID).
+		Where("role_id = ?", roleID).
+		Where("revoked_at IS NULL").
+		Scan(ctx)
+
+	var newExpirationDate time.Time
+	if err == nil {
+		// User has existing grant, extend it
+		if existingGrant.ExpiresAt != nil {
+			newExpirationDate = existingGrant.ExpiresAt.AddDate(0, 0, days)
+		} else {
+			newExpirationDate = time.Now().AddDate(0, 0, days)
+		}
+		existingGrant.ExpiresAt = &newExpirationDate
+
+		_, updateErr := s.DB.GetDB().NewUpdate().
+			Model(&existingGrant).
+			Where("id = ?", existingGrant.ID).
+			Exec(ctx)
+		if updateErr != nil {
+			return nil, time.Time{}, fmt.Errorf("failed to update role expiration: %w", updateErr)
+		}
+		return &existingGrant, newExpirationDate, nil
+	} else {
+		// Create new role grant
+		newExpirationDate = time.Now().AddDate(0, 0, days)
+		newGrant := &models.UserRoleGrant{
+			ID:        uuid.New(),
+			UserID:    userID,
+			RoleID:    roleID,
+			ExpiresAt: &newExpirationDate,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+
+		_, insertErr := s.DB.GetDB().NewInsert().
+			Model(newGrant).
+			Exec(ctx)
+		if insertErr != nil {
+			return nil, time.Time{}, fmt.Errorf("failed to create role grant: %w", insertErr)
+		}
+		return newGrant, newExpirationDate, nil
+	}
+}
+
+// CreatePurchase creates a new purchase
+func (s *AdminSubscriptionService) CreatePurchase(ctx context.Context, purchase *models.Purchase) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(purchase).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create purchase: %w", err)
+	}
+	return nil
+}
+
+// UpdatePurchase updates a purchase
+func (s *AdminSubscriptionService) UpdatePurchase(ctx context.Context, purchase *models.Purchase) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model(purchase).
+		Where("id = ?", purchase.ID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update purchase: %w", err)
+	}
+	return nil
+}
+
+// DeleteUserRoleGrant deletes a user role grant
+func (s *AdminSubscriptionService) DeleteUserRoleGrant(ctx context.Context, grantID uuid.UUID) error {
+	_, err := s.DB.GetDB().NewDelete().
+		Model((*models.UserRoleGrant)(nil)).
+		Where("id = ?", grantID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete user role grant: %w", err)
+	}
+	return nil
+}
+
+// GetPurchases retrieves purchases with pagination
+func (s *AdminSubscriptionService) GetPurchases(ctx context.Context, opts query.QueryOptions) ([]*models.Purchase, int64, error) {
+	var purchases []*models.Purchase
+	var total int64
+
+	// Count total records
+	count, err := s.DB.GetDB().NewSelect().
+		Model((*models.Purchase)(nil)).
+		Count(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count purchases: %w", err)
+	}
+	total = int64(count)
+
+	// Get paginated results
+	err = s.DB.GetDB().NewSelect().
+		Model(&purchases).
+		Limit(opts.Limit).
+		Offset(opts.Offset).
+		Scan(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get purchases: %w", err)
+	}
+
+	return purchases, total, nil
+}
+
+// GetNotifications retrieves notifications with pagination
+func (s *AdminSubscriptionService) GetNotifications(ctx context.Context, opts query.QueryOptions) ([]*models.NotificationQueue, int64, error) {
+	var notifications []*models.NotificationQueue
+	var total int64
+
+	// Count total records
+	count, err := s.DB.GetDB().NewSelect().
+		Model((*models.NotificationQueue)(nil)).
+		Count(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to count notifications: %w", err)
+	}
+	total = int64(count)
+
+	// Get paginated results
+	err = s.DB.GetDB().NewSelect().
+		Model(&notifications).
+		Limit(opts.Limit).
+		Offset(opts.Offset).
+		Scan(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get notifications: %w", err)
+	}
+
+	return notifications, total, nil
+}
+
+// CreateNotification creates a new notification
+func (s *AdminSubscriptionService) CreateNotification(ctx context.Context, notification *models.NotificationQueue) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(notification).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create notification: %w", err)
+	}
+	return nil
+}
+
+// RevokeUserRolesBySubSourceID revokes user roles by subscription source ID
+func (s *AdminSubscriptionService) RevokeUserRolesBySubSourceID(ctx context.Context, subID uuid.UUID) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model((*models.UserRoleGrant)(nil)).
+		Set("revoked_at = ?", time.Now()).
+		Where("sub_source_id = ?", subID).
+		Where("revoked_at IS NULL").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to revoke user roles: %w", err)
+	}
+	return nil
 }
 
 // AdminSubscriptionResponse represents a subscription with enriched admin data
@@ -125,7 +471,7 @@ func (s *AdminSubscriptionService) UpdateSubscription(ctx context.Context, subsc
 		}
 	}
 
-	if err := s.SubscriptionRepo.Update(ctx, subscription); err != nil {
+	if err := s.UpdateSubscription(ctx, subscription); err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
@@ -152,7 +498,7 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 		subscription.CancelFeedback = &reason
 	}
 
-	if err := s.SubscriptionRepo.Update(ctx, subscription); err != nil {
+	if err := s.UpdateSubscription(ctx, subscription); err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
@@ -171,7 +517,7 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 		UserID:    subscription.UserID,
 		EventType: models.NotificationPremiumEnded,
 	}
-	if err := s.NotificationQueueRepo.Create(ctx, notification); err != nil {
+	if err := s.CreateNotification(ctx, notification); err != nil {
 		log.WithFields(log.Fields{
 			"subscription_id":   subscription.ID,
 			"user_id":           subscription.UserID,
@@ -203,7 +549,7 @@ func (s *AdminSubscriptionService) CancelUserSubscription(ctx context.Context, u
 		subscription.CancelFeedback = &reason
 	}
 
-	if err := s.SubscriptionRepo.Update(ctx, subscription); err != nil {
+	if err := s.UpdateSubscription(ctx, subscription); err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
@@ -222,7 +568,7 @@ func (s *AdminSubscriptionService) CancelUserSubscription(ctx context.Context, u
 		UserID:    subscription.UserID,
 		EventType: models.NotificationPremiumEnded,
 	}
-	if err := s.NotificationQueueRepo.Create(ctx, notification); err != nil {
+	if err := s.CreateNotification(ctx, notification); err != nil {
 		log.WithFields(log.Fields{
 			"subscription_id":   subscription.ID,
 			"user_id":           subscription.UserID,
@@ -258,7 +604,7 @@ func (s *AdminSubscriptionService) ExtendSubscription(ctx context.Context, subsc
 		subscription.CurrentPeriodStartsAt = &startTime
 	}
 
-	if err := s.SubscriptionRepo.Update(ctx, subscription); err != nil {
+	if err := s.UpdateSubscription(ctx, subscription); err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
@@ -434,5 +780,5 @@ func (s *AdminSubscriptionService) SendManualNotification(ctx context.Context, u
 		},
 	}
 
-	return s.NotificationQueueRepo.Create(ctx, notification)
+	return s.CreateNotification(ctx, notification)
 }

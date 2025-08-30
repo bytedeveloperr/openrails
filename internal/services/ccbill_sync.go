@@ -13,12 +13,95 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/supabase-community/gotrue-go/types"
 
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 )
 
 type CCBillSyncService struct {
+	DB *db.DB
+}
+
+// GetGoTrueUserByEmail retrieves a user by email from GoTrue
+func (s *CCBillSyncService) GetGoTrueUserByEmail(ctx context.Context, email string) (*types.User, error) {
+	// This would typically call the GoTrue API or database
+	// For now, return a placeholder implementation
+	return nil, fmt.Errorf("user not found: %s", email)
+}
+
+// GetSubscriptionByUserID retrieves a subscription by user ID
+func (s *CCBillSyncService) GetSubscriptionByUserID(ctx context.Context, userID uuid.UUID) (*models.Subscription, error) {
+	var subscription models.Subscription
+	err := s.DB.GetDB().NewSelect().
+		Model(&subscription).
+		Where("user_id = ?", userID).
+		Where("status = ?", models.StatusActive).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription by user ID: %w", err)
+	}
+	return &subscription, nil
+}
+
+// CreateNotification creates a new notification
+func (s *CCBillSyncService) CreateNotification(ctx context.Context, notification *models.NotificationQueue) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(notification).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create notification: %w", err)
+	}
+	return nil
+}
+
+// GetActiveProducts retrieves all active products
+func (s *CCBillSyncService) GetActiveProducts(ctx context.Context) ([]*models.Product, error) {
+	var products []*models.Product
+	err := s.DB.GetDB().NewSelect().
+		Model(&products).
+		Where("active = ?", true).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active products: %w", err)
+	}
+	return products, nil
+}
+
+// GetActiveProductPrices retrieves active prices for a specific product
+func (s *CCBillSyncService) GetActiveProductPrices(ctx context.Context, productID uuid.UUID) ([]*models.Price, error) {
+	var prices []*models.Price
+	err := s.DB.GetDB().NewSelect().
+		Model(&prices).
+		Where("product_id = ?", productID).
+		Where("active = ?", true).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active product prices: %w", err)
+	}
+	return prices, nil
+}
+
+// CreateSubscription creates a new subscription
+func (s *CCBillSyncService) CreateSubscription(ctx context.Context, subscription *models.Subscription) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(subscription).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create subscription: %w", err)
+	}
+	return nil
+}
+
+// UpdateSubscription updates a subscription
+func (s *CCBillSyncService) UpdateSubscription(ctx context.Context, subscription *models.Subscription) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model(subscription).
+		Where("id = ?", subscription.ID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+	return nil
 }
 
 type SyncResult struct {
@@ -52,16 +135,6 @@ type SyncOperation struct {
 	Subscription  *models.Subscription
 	OperationType string // "create", "update", "skip"
 	Error         error
-}
-
-func NewCCBillSyncService(userRepo *repo.UserRepo, subscriptionRepo *repo.SubscriptionRepo, productRepo *repo.ProductRepo, priceRepo *repo.PriceRepo, notificationRepo *repo.NotificationQueueRepo) *CCBillSyncService {
-	return &CCBillSyncService{
-		UserRepo:         userRepo,
-		SubscriptionRepo: subscriptionRepo,
-		ProductRepo:      productRepo,
-		PriceRepo:        priceRepo,
-		NotificationRepo: notificationRepo,
-	}
 }
 
 func (s *CCBillSyncService) SyncSubscriptions(ctx context.Context, records []ccbill.CCBillRecord, dryRun bool) (*SyncResult, error) {
@@ -130,14 +203,14 @@ func (s *CCBillSyncService) processRecord(ctx context.Context, record ccbill.CCB
 		Record: record,
 	}
 
-	user, err := s.UserRepo.GetGoTrueUserByEmail(ctx, record.Email)
+	user, err := s.GetGoTrueUserByEmail(ctx, record.Email)
 	if err != nil {
 		operation.Error = fmt.Errorf("user not found for email %s: %w", record.Email, err)
 		return operation
 	}
 	operation.User = user
 
-	existingSubscription, err := s.SubscriptionRepo.GetByUserID(ctx, user.ID)
+	existingSubscription, err := s.GetSubscriptionByUserID(ctx, user.ID)
 	if err != nil {
 
 		operation.OperationType = "create"
@@ -170,14 +243,14 @@ func (s *CCBillSyncService) processRecordWithChangeTracking(ctx context.Context,
 		Record: record,
 	}
 
-	user, err := s.UserRepo.GetGoTrueUserByEmail(ctx, record.Email)
+	user, err := s.GetGoTrueUserByEmail(ctx, record.Email)
 	if err != nil {
 		operation.Error = fmt.Errorf("user not found for email %s: %w", record.Email, err)
 		return operation
 	}
 	operation.User = user
 
-	existingSubscription, err := s.SubscriptionRepo.GetByUserID(ctx, user.ID)
+	existingSubscription, err := s.GetSubscriptionByUserID(ctx, user.ID)
 	if err != nil {
 		// New subscription - this indicates we missed a webhook event for subscription creation
 		operation.OperationType = "create"
@@ -292,7 +365,7 @@ func (s *CCBillSyncService) logSyncResults(ctx context.Context, result *SyncResu
 	}
 
 	// Create summary notification for admin review
-	if !dryRun && s.NotificationRepo != nil {
+	if !dryRun {
 		summaryNotification := &models.NotificationQueue{
 			ID:        uuid.New(),
 			UserID:    uuid.Nil, // System notification
@@ -308,7 +381,7 @@ func (s *CCBillSyncService) logSyncResults(ctx context.Context, result *SyncResu
 			},
 		}
 
-		if err := s.NotificationRepo.Create(ctx, summaryNotification); err != nil {
+		if err := s.CreateNotification(ctx, summaryNotification); err != nil {
 			log.WithError(err).Error("Failed to create summary notification for CCBill webhook issues")
 		}
 	}
@@ -328,14 +401,14 @@ func (s *CCBillSyncService) createSubscription(ctx context.Context, record ccbil
 	}
 
 	// Get default premium product and price for Wave 18
-	products, err := s.ProductRepo.GetActive(ctx)
+	products, err := s.GetActiveProducts(ctx)
 	if err != nil || len(products) == 0 {
 		return nil, fmt.Errorf("failed to find active products: %w", err)
 	}
 
 	// Use first active product (should be premium membership)
 	product := products[0]
-	prices, err := s.PriceRepo.GetActiveByProductID(ctx, product.ID)
+	prices, err := s.GetActiveProductPrices(ctx, product.ID)
 	if err != nil || len(prices) == 0 {
 		return nil, fmt.Errorf("failed to find active prices for product: %w", err)
 	}
@@ -351,7 +424,7 @@ func (s *CCBillSyncService) createSubscription(ctx context.Context, record ccbil
 		PriceID:             price.ID,
 	}
 
-	err = s.SubscriptionRepo.Create(ctx, subscription)
+	err = s.CreateSubscription(ctx, subscription)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create subscription: %w", err)
 	}
@@ -384,7 +457,7 @@ func (s *CCBillSyncService) updateSubscription(ctx context.Context, record ccbil
 	subscription.Status = models.SubscriptionStatus(status)
 	subscription.UpdatedAt = time.Now()
 
-	err = s.SubscriptionRepo.Update(ctx, subscription)
+	err = s.UpdateSubscription(ctx, subscription)
 	if err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}

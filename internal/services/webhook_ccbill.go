@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/database"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
@@ -17,6 +16,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/services/notification"
 	"github.com/doujins-org/doujins-billing/internal/services/webhook"
 	"github.com/google/uuid"
+	"github.com/supabase-community/gotrue-go/types"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
@@ -29,6 +29,181 @@ type CCBillWebhookService struct {
 	NotificationService *notification.NotificationService
 	DeadLetterService   *webhook.DeadLetterService
 	BillingEventService *billing.BillingEventService
+}
+
+// Repository methods for CCBillWebhookService
+
+// User repository methods
+func (s *CCBillWebhookService) GetGoTrueUserByEmail(ctx context.Context, email string) (*types.User, error) {
+	// This would typically call the GoTrue API or database
+	// For now, return a placeholder implementation
+	return nil, fmt.Errorf("user not found: %s", email)
+}
+
+func (s *CCBillWebhookService) GetGoTrueUserByID(ctx context.Context, userID uuid.UUID) (*types.User, error) {
+	// This would typically call the GoTrue API or database
+	// For now, return a placeholder implementation
+	return nil, fmt.Errorf("user not found: %s", userID)
+}
+
+// Price repository methods
+func (s *CCBillWebhookService) GetPriceByCCBillPriceID(ctx context.Context, ccbillPriceID string) (*models.Price, error) {
+	var price models.Price
+	err := s.DB.GetDB().NewSelect().
+		Model(&price).
+		Where("ccbill_price_id = ?", ccbillPriceID).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get price by CCBill price ID: %w", err)
+	}
+	return &price, nil
+}
+
+func (s *CCBillWebhookService) GetPriceByID(ctx context.Context, id uuid.UUID) (*models.Price, error) {
+	var price models.Price
+	err := s.DB.GetDB().NewSelect().
+		Model(&price).
+		Where("id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get price by ID: %w", err)
+	}
+	return &price, nil
+}
+
+// Subscription repository methods
+func (s *CCBillWebhookService) GetSubscriptionByUserIDAndPriceID(ctx context.Context, userID, priceID uuid.UUID) (*models.Subscription, error) {
+	var subscription models.Subscription
+	err := s.DB.GetDB().NewSelect().
+		Model(&subscription).
+		Where("user_id = ?", userID).
+		Where("price_id = ?", priceID).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription by user ID and price ID: %w", err)
+	}
+	return &subscription, nil
+}
+
+func (s *CCBillWebhookService) GetSubscriptionByProcessorSubscriptionID(ctx context.Context, processor, processorSubID string) (*models.Subscription, error) {
+	var subscription models.Subscription
+	err := s.DB.GetDB().NewSelect().
+		Model(&subscription).
+		Where("processor = ?", processor).
+		Where("processor_subscription_id = ?", processorSubID).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription by processor subscription ID: %w", err)
+	}
+	return &subscription, nil
+}
+
+func (s *CCBillWebhookService) CreateSubscription(ctx context.Context, subscription *models.Subscription) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(subscription).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create subscription: %w", err)
+	}
+	return nil
+}
+
+func (s *CCBillWebhookService) UpdateSubscription(ctx context.Context, subscription *models.Subscription) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model(subscription).
+		Where("id = ?", subscription.ID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+	return nil
+}
+
+// UserRoleGrant repository methods
+func (s *CCBillWebhookService) RevokeUserRolesBySubSourceID(ctx context.Context, subID uuid.UUID) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model((*models.UserRoleGrant)(nil)).
+		Set("revoked_at = ?", time.Now()).
+		Where("sub_source_id = ?", subID).
+		Where("revoked_at IS NULL").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to revoke user roles: %w", err)
+	}
+	return nil
+}
+
+// Purchase repository methods
+func (s *CCBillWebhookService) CreatePurchase(ctx context.Context, purchase *models.Purchase) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(purchase).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create purchase: %w", err)
+	}
+	return nil
+}
+
+func (s *CCBillWebhookService) UpdatePurchase(ctx context.Context, purchase *models.Purchase) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model(purchase).
+		Where("id = ?", purchase.ID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update purchase: %w", err)
+	}
+	return nil
+}
+
+// ExtendRoleExpiration method for RoleGrantService interface
+func (s *CCBillWebhookService) ExtendRoleExpiration(ctx context.Context, userID, roleID uuid.UUID, days int) (*models.UserRoleGrant, time.Time, error) {
+	// Check if user already has this role
+	var existingGrant models.UserRoleGrant
+	err := s.DB.GetDB().NewSelect().
+		Model(&existingGrant).
+		Where("user_id = ?", userID).
+		Where("role_id = ?", roleID).
+		Where("revoked_at IS NULL").
+		Scan(ctx)
+	
+	var newExpirationDate time.Time
+	if err == nil {
+		// User has existing grant, extend it
+		if existingGrant.ExpiresAt != nil {
+			newExpirationDate = existingGrant.ExpiresAt.AddDate(0, 0, days)
+		} else {
+			newExpirationDate = time.Now().AddDate(0, 0, days)
+		}
+		existingGrant.ExpiresAt = &newExpirationDate
+		
+		_, updateErr := s.DB.GetDB().NewUpdate().
+			Model(&existingGrant).
+			Where("id = ?", existingGrant.ID).
+			Exec(ctx)
+		if updateErr != nil {
+			return nil, time.Time{}, fmt.Errorf("failed to update role expiration: %w", updateErr)
+		}
+		return &existingGrant, newExpirationDate, nil
+	} else {
+		// Create new role grant
+		newExpirationDate = time.Now().AddDate(0, 0, days)
+		newGrant := &models.UserRoleGrant{
+			ID:        uuid.New(),
+			UserID:    userID,
+			RoleID:    roleID,
+			ExpiresAt: &newExpirationDate,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+		
+		_, insertErr := s.DB.GetDB().NewInsert().
+			Model(newGrant).
+			Exec(ctx)
+		if insertErr != nil {
+			return nil, time.Time{}, fmt.Errorf("failed to create role grant: %w", insertErr)
+		}
+		return newGrant, newExpirationDate, nil
+	}
 }
 
 type CCBillWebhookEventType = string
@@ -148,12 +323,8 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		processor := models.ProcessorCCBill
 
-		db := database.NewWithTx(tx)
-		userRepo := repo.NewUserRepo(db)
-		priceRepo := repo.NewPriceRepo(db)
-		subRepo := repo.NewSubscriptionRepo(db)
-
-		user, err := userRepo.GetGoTrueUserByEmail(ctx, email)
+								
+		user, err := s.GetGoTrueUserByEmail(ctx, email)
 		if err != nil {
 			return fmt.Errorf("failed to find user with email %s: %w", email, err)
 		}
@@ -167,7 +338,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			return fmt.Errorf("payment form name mismatch: got %s, want %s", formName, cfg.FormName)
 		}
 
-		price, err := priceRepo.GetByCCBillPriceID(ctx, data.FlexID)
+		price, err := s.GetPriceByCCBillPriceID(ctx, data.FlexID)
 		if err != nil {
 			return fmt.Errorf("failed to find price for CCBill price ID %s: %w", data.FlexID, err)
 		}
@@ -192,7 +363,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			return billingErr
 		}
 
-		subscription, err := subRepo.GetByUserIDAndPriceID(ctx, user.ID, price.ID)
+		subscription, err := s.GetSubscriptionByUserIDAndPriceID(ctx, user.ID, price.ID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
@@ -225,18 +396,18 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		}
 
 		if isNewSubscription {
-			if err := subRepo.Create(ctx, subscription); err != nil {
+			if err := s.CreateSubscription(ctx, subscription); err != nil {
 				return fmt.Errorf("failed to create subscription: %w", err)
 			}
 		} else {
-			if err := subRepo.Update(ctx, subscription); err != nil {
+			if err := s.UpdateSubscription(ctx, subscription); err != nil {
 				return err
 			}
 		}
 
 		if err := grantRole(
 			ctx,
-			newGrantRoleParams(user.ID, subscription.ID, processor, price, price.Product, db)); err != nil {
+			newGrantRoleParams(user.ID, subscription.ID, processor, price, price.Product, s)); err != nil {
 			return fmt.Errorf("failed to grant role: %w", err)
 		}
 
@@ -306,11 +477,9 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 	failureReason := data.FailureReason
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		userRepo := repo.NewUserRepo(db)
-
+				
 		// Find user by email
-		user, err := userRepo.GetGoTrueUserByEmail(ctx, email)
+		user, err := s.GetGoTrueUserByEmail(ctx, email)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				log.WithContext(ctx).WithFields(log.Fields{
@@ -420,12 +589,9 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		priceRepo := repo.NewPriceRepo(db)
-		subRepo := repo.NewSubscriptionRepo(db)
-
+						
 		// Find subscription by processor subscription ID
-		subscription, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), originalSubscriptionID)
+		subscription, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), originalSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", originalSubscriptionID)
@@ -433,7 +599,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to get subscription: %w", err)
 		}
 
-		newPrice, err := priceRepo.GetByCCBillPriceID(ctx, data.FlexID)
+		newPrice, err := s.GetPriceByCCBillPriceID(ctx, data.FlexID)
 		if err != nil {
 			return fmt.Errorf("failed to find new price for CCBill price ID %s: %w", data.FlexID, err)
 		}
@@ -470,12 +636,12 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to validate subscription: %w", err)
 		}
 
-		if err := subRepo.Update(ctx, subscription); err != nil {
+		if err := s.UpdateSubscription(ctx, subscription); err != nil {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
 		// Grant role for new subscription tier
-		grantParams := newGrantRoleParams(subscription.UserID, subscription.ID, models.ProcessorCCBill, newPrice, newPrice.Product, db)
+		grantParams := newGrantRoleParams(subscription.UserID, subscription.ID, models.ProcessorCCBill, newPrice, newPrice.Product, s)
 		if err := grantRole(ctx, grantParams); err != nil {
 			return fmt.Errorf("failed to grant role for upgraded subscription: %w", err)
 		}
@@ -561,11 +727,9 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 	originalSubscriptionID := data.OriginalSubscriptionID
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		userRepo := repo.NewUserRepo(db)
-
+				
 		// Find user by email
-		user, err := userRepo.GetGoTrueUserByEmail(ctx, email)
+		user, err := s.GetGoTrueUserByEmail(ctx, email)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				log.WithContext(ctx).WithFields(log.Fields{
@@ -658,11 +822,9 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 	nextRenewalDate := data.NextRenewalDate
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		subRepo := repo.NewSubscriptionRepo(db)
-
+				
 		// Find subscription by processor subscription ID
-		sub, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", pSubscriptionID)
@@ -683,7 +845,7 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 		// Update subscription billing date
 		sub.CurrentPeriodEndsAt = &newRenewalDate
 
-		if err := subRepo.Update(ctx, sub); err != nil {
+		if err := s.UpdateSubscription(ctx, sub); err != nil {
 			return fmt.Errorf("failed to update subscription billing date: %w", err)
 		}
 
@@ -743,12 +905,9 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 	email := data.Email
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		subRepo := repo.NewSubscriptionRepo(db)
-		userRepo := repo.NewUserRepo(db)
-
+						
 		// Find subscription by processor subscription ID
-		sub, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", pSubscriptionID)
@@ -757,7 +916,7 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 		}
 
 		// Get user to validate email change
-		user, err := userRepo.GetGoTrueUserByID(ctx, sub.UserID)
+		user, err := s.GetGoTrueUserByID(ctx, sub.UserID)
 		if err != nil {
 			return fmt.Errorf("failed to get user for subscription: %w", err)
 		}
@@ -837,14 +996,12 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 	nextRenewalDate := data.NextRenewalDate
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		subRepo := repo.NewSubscriptionRepo(db)
-
+				
 		// Note: We could validate that the email matches the subscription's user email here
 		// but for now we'll rely on the subscription lookup
 
 		// Find subscription by processor subscription ID
-		sub, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", pSubscriptionID)
@@ -876,13 +1033,13 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 			sub.CurrentPeriodStartsAt = &now
 		}
 
-		if err := subRepo.Update(ctx, sub); err != nil {
+		if err := s.UpdateSubscription(ctx, sub); err != nil {
 			return fmt.Errorf("failed to reactivate subscription: %w", err)
 		}
 
 		// Grant role for reactivated subscription
 		if sub.Price != nil {
-			grantParams := newGrantRoleParams(sub.UserID, sub.ID, models.ProcessorCCBill, sub.Price, sub.Price.Product, db)
+			grantParams := newGrantRoleParams(sub.UserID, sub.ID, models.ProcessorCCBill, sub.Price, sub.Price.Product, s)
 			if err := grantRole(ctx, grantParams); err != nil {
 				return fmt.Errorf("failed to grant role for reactivated subscription: %w", err)
 			}
@@ -973,12 +1130,9 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		subRepo := repo.NewSubscriptionRepo(db)
-		userRoleGrantRepo := repo.NewUserRoleGrantRepo(db)
-
+						
 		// Find subscription by processor subscription ID
-		sub, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", pSubscriptionID)
@@ -1014,7 +1168,7 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 			}
 
 			// Revoke all role grants for this subscription
-			if err := userRoleGrantRepo.RevokeBySubSourceID(ctx, sub.ID); err != nil {
+			if err := s.RevokeUserRolesBySubSourceID(ctx, sub.ID); err != nil {
 				log.WithContext(ctx).WithError(err).Error("failed to revoke role grants for refunded subscription")
 			}
 
@@ -1039,7 +1193,7 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 			}).Info("Partial refund processed - subscription remains active")
 		}
 
-		if err := subRepo.Update(ctx, sub); err != nil {
+		if err := s.UpdateSubscription(ctx, sub); err != nil {
 			return fmt.Errorf("failed to update subscription after refund: %w", err)
 		}
 
@@ -1120,12 +1274,10 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		subRepo := repo.NewSubscriptionRepo(db)
-
+				
 		// Try to find subscription by processor subscription ID
 		// Note: For voids, the subscription might not exist yet since the transaction was voided
-		sub, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				// This is expected for voids - the subscription may never have been created
@@ -1261,13 +1413,9 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		subRepo := repo.NewSubscriptionRepo(db)
-		userRoleGrantRepo := repo.NewUserRoleGrantRepo(db)
-		userRepo := repo.NewUserRepo(db)
-
+								
 		// Find subscription by processor subscription ID
-		sub, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				log.WithContext(ctx).WithFields(log.Fields{
@@ -1317,7 +1465,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 		}
 
 		// Get user for fraud flagging
-		user, err := userRepo.GetGoTrueUserByID(ctx, sub.UserID)
+		user, err := s.GetGoTrueUserByID(ctx, sub.UserID)
 		if err != nil {
 			log.WithContext(ctx).WithError(err).WithField("user_id", sub.UserID).Error("failed to get user for chargeback processing")
 			// Continue with subscription termination even if user lookup fails
@@ -1342,12 +1490,12 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 			chargebackReason, "unknown", "unknown")
 		sub.CancelFeedback = &chargebackFeedback
 
-		if err := subRepo.Update(ctx, sub); err != nil {
+		if err := s.UpdateSubscription(ctx, sub); err != nil {
 			return fmt.Errorf("failed to update subscription after chargeback: %w", err)
 		}
 
 		// Immediately revoke all role grants for this subscription
-		if err := userRoleGrantRepo.RevokeBySubSourceID(ctx, sub.ID); err != nil {
+		if err := s.RevokeUserRolesBySubSourceID(ctx, sub.ID); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to revoke role grants for chargebacked subscription")
 		}
 
@@ -1465,11 +1613,8 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		priceRepo := repo.NewPriceRepo(db)
-		subRepo := repo.NewSubscriptionRepo(db)
-
-		subscription, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
+						
+		subscription, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
@@ -1479,7 +1624,7 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 
 		price := subscription.Price
 		if price == nil {
-			price, err = priceRepo.GetByID(ctx, subscription.PriceID)
+			price, err = s.GetPriceByID(ctx, subscription.PriceID)
 			if err != nil {
 				return fmt.Errorf("failed to find new price for ID %s: %w", price.ID, err)
 			}
@@ -1513,13 +1658,13 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to validate subscription: %w", err)
 		}
 
-		if err := subRepo.Update(ctx, subscription); err != nil {
+		if err := s.UpdateSubscription(ctx, subscription); err != nil {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
 		if err := grantRole(
 			ctx,
-			newGrantRoleParams(subscription.UserID, subscription.ID, models.ProcessorCCBill, price, price.Product, db),
+			newGrantRoleParams(subscription.UserID, subscription.ID, models.ProcessorCCBill, price, price.Product, s),
 		); err != nil {
 			return fmt.Errorf("failed to grant role for renewed subscription: %w", err)
 		}
@@ -1592,11 +1737,9 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 	ccBillSubID := data.SubscriptionID
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		subRepo := repo.NewSubscriptionRepo(db)
-
+				
 		// Find subscription by processor subscription ID
-		sub, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
+		sub, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
@@ -1618,7 +1761,7 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 		}
 		sub.LastRetryAt = &now
 
-		if err := subRepo.Update(ctx, sub); err != nil {
+		if err := s.UpdateSubscription(ctx, sub); err != nil {
 			return err
 		}
 
@@ -1692,12 +1835,9 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		subRepo := repo.NewSubscriptionRepo(db)
-		userRoleGrantRepo := repo.NewUserRoleGrantRepo(db)
-
+						
 		// Find subscription by processor subscription ID
-		sub, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
+		sub, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
@@ -1717,12 +1857,12 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 			return err
 		}
 
-		if err := subRepo.Update(ctx, sub); err != nil {
+		if err := s.UpdateSubscription(ctx, sub); err != nil {
 			return err
 		}
 
 		// Revoke all role grants for this subscription
-		if err := userRoleGrantRepo.RevokeBySubSourceID(ctx, sub.ID); err != nil {
+		if err := s.RevokeUserRolesBySubSourceID(ctx, sub.ID); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to revoke role grants for cancelled subscription")
 		}
 
@@ -1789,12 +1929,9 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 
 	ccBillSubID := data.SubscriptionID
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := database.NewWithTx(tx)
-		subRepo := repo.NewSubscriptionRepo(db)
-		userRoleGrantRepo := repo.NewUserRoleGrantRepo(db)
-
+						
 		// Find subscription by processor subscription ID
-		sub, err := subRepo.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
+		sub, err := s.GetSubscriptionByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
@@ -1807,12 +1944,12 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 			return err
 		}
 
-		if err := subRepo.Update(ctx, sub); err != nil {
+		if err := s.UpdateSubscription(ctx, sub); err != nil {
 			return err
 		}
 
 		// Revoke all role grants for this subscription
-		if err := userRoleGrantRepo.RevokeBySubSourceID(ctx, sub.ID); err != nil {
+		if err := s.RevokeUserRolesBySubSourceID(ctx, sub.ID); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to revoke role grants for expired subscription")
 		}
 

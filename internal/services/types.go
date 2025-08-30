@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
@@ -763,23 +762,29 @@ func (e CCBillVoidEvent) GetClientAccnum() string          { return e.ClientAccn
 func (e CCBillVoidEvent) GetClientSubacc() string          { return e.ClientSubacc }
 func (e CCBillVoidEvent) GetTimestamp() string             { return e.Timestamp }
 
+// RoleGrantService interface defines methods needed for role granting
+type RoleGrantService interface {
+	ExtendRoleExpiration(ctx context.Context, userID, roleID uuid.UUID, days int) (*models.UserRoleGrant, time.Time, error)
+	CreatePurchase(ctx context.Context, purchase *models.Purchase) error
+}
+
 type GrantRoleForSubscriptionParams struct {
 	userID         uuid.UUID
 	subscriptionID uuid.UUID
 	price          *models.Price
 	product        *models.Product
 	processor      models.ProcessorType
+	service        RoleGrantService
 }
 
-func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.ProcessorType, price *models.Price, product *models.Product, db *db.DB) GrantRoleForSubscriptionParams {
+func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.ProcessorType, price *models.Price, product *models.Product, service RoleGrantService) GrantRoleForSubscriptionParams {
 	return GrantRoleForSubscriptionParams{
 		price:          price,
 		userID:         userID,
 		product:        product,
 		processor:      processor,
 		subscriptionID: subscriptionID,
-		purchaseRepo:   repo.NewPurchaseRepo(db),
-		roleGrantRepo:  repo.NewUserRoleGrantRepo(db),
+		service:        service,
 	}
 }
 
@@ -787,8 +792,7 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 	price := params.price
 	userID := params.userID
 	product := params.product
-	purchaseRepo := params.purchaseRepo
-	roleGrantRepo := params.roleGrantRepo
+	service := params.service
 	subscriptionID := params.subscriptionID
 
 	if product.RoleID == nil {
@@ -820,13 +824,13 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 		UpdatedAt:     time.Now(),
 	}
 
-	grant, _, err := roleGrantRepo.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDays)
+	grant, _, err := service.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDays)
 	if err != nil {
 		return fmt.Errorf("failed to extend role expiration: %w", err)
 	}
 
 	purchase.UserRoleGrantID = &grant.ID
-	if err := purchaseRepo.Create(ctx, purchase); err != nil {
+	if err := service.CreatePurchase(ctx, purchase); err != nil {
 		return fmt.Errorf("failed to create purchase event: %w", err)
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
