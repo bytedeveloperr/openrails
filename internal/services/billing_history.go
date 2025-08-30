@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/services/analytics"
 	"github.com/google/uuid"
 )
 

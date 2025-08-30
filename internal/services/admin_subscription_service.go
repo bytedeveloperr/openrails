@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
-	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/supabase-community/gotrue-go/types"

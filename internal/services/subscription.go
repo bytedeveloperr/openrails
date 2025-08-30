@@ -9,7 +9,6 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/database"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/google/uuid"

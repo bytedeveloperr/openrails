@@ -7,7 +7,6 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/database"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"

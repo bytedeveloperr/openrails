@@ -5,7 +5,6 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/api/models/common"
 	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/query"
 )
 
 // -------------------------------- Subscription Responses --------------------------------
