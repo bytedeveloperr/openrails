@@ -47,7 +47,7 @@ func (s *AdminSubscriptionService) GetAllSubscriptions(ctx context.Context, quer
 		}
 
 		// Enrich with user data
-		if user, err := s.UserRepo.GetGoTrueUserByID(ctx, sub.UserID); err == nil {
+		if user, err := servic.GetGoTrueUserByID(ctx, sub.UserID); err == nil {
 			responses[i].User = user
 		}
 
@@ -85,7 +85,7 @@ func (s *AdminSubscriptionService) GetSubscriptionByID(ctx context.Context, subs
 	}
 
 	// Enrich with user data
-	if user, err := s.UserRepo.GetGoTrueUserByID(ctx, subscription.UserID); err == nil {
+	if user, err := servic.GetGoTrueUserByID(ctx, subscription.UserID); err == nil {
 		response.User = user
 	}
 

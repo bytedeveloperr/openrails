@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/database"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/google/uuid"
@@ -772,7 +771,7 @@ type GrantRoleForSubscriptionParams struct {
 	processor      models.ProcessorType
 }
 
-func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.ProcessorType, price *models.Price, product *models.Product, db *database.DB) GrantRoleForSubscriptionParams {
+func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.ProcessorType, price *models.Price, product *models.Product, db *db.DB) GrantRoleForSubscriptionParams {
 	return GrantRoleForSubscriptionParams{
 		price:          price,
 		userID:         userID,

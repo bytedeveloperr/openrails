@@ -32,6 +32,107 @@ type SolanaPaymentService struct {
 	rpcClient       *rpc.Client
 	solanaConfig    *config.SolanaConfig
 	recipientWallet solana.PublicKey
+	DB              *db.DB
+}
+
+// GetPriceByID retrieves a price by its ID
+func (s *SolanaPaymentService) GetPriceByID(ctx context.Context, id uuid.UUID) (*models.Price, error) {
+	var price models.Price
+	err := s.DB.GetDB().NewSelect().
+		Model(&price).
+		Where("id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get price by ID: %w", err)
+	}
+	return &price, nil
+}
+
+// CreatePurchase creates a new purchase
+func (s *SolanaPaymentService) CreatePurchase(ctx context.Context, purchase *models.Purchase) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(purchase).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create purchase: %w", err)
+	}
+	return nil
+}
+
+// GetProductByID retrieves a product by its ID
+func (s *SolanaPaymentService) GetProductByID(ctx context.Context, id uuid.UUID) (*models.Product, error) {
+	var product models.Product
+	err := s.DB.GetDB().NewSelect().
+		Model(&product).
+		Where("id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get product by ID: %w", err)
+	}
+	return &product, nil
+}
+
+// ExtendRoleExpiration extends role expiration for a user
+func (s *SolanaPaymentService) ExtendRoleExpiration(ctx context.Context, userID, roleID uuid.UUID, days int) (*models.UserRoleGrant, time.Time, error) {
+	// Check if user already has this role
+	var existingGrant models.UserRoleGrant
+	err := s.DB.GetDB().NewSelect().
+		Model(&existingGrant).
+		Where("user_id = ?", userID).
+		Where("role_id = ?", roleID).
+		Where("revoked_at IS NULL").
+		Scan(ctx)
+
+	var newExpirationDate time.Time
+	if err == nil {
+		// User has existing grant, extend it
+		if existingGrant.ExpiresAt != nil {
+			newExpirationDate = existingGrant.ExpiresAt.AddDate(0, 0, days)
+		} else {
+			newExpirationDate = time.Now().AddDate(0, 0, days)
+		}
+		existingGrant.ExpiresAt = &newExpirationDate
+
+		_, updateErr := s.DB.GetDB().NewUpdate().
+			Model(&existingGrant).
+			Where("id = ?", existingGrant.ID).
+			Exec(ctx)
+		if updateErr != nil {
+			return nil, time.Time{}, fmt.Errorf("failed to update role expiration: %w", updateErr)
+		}
+		return &existingGrant, newExpirationDate, nil
+	} else {
+		// Create new role grant
+		newExpirationDate = time.Now().AddDate(0, 0, days)
+		newGrant := &models.UserRoleGrant{
+			ID:        uuid.New(),
+			UserID:    userID,
+			RoleID:    roleID,
+			ExpiresAt: &newExpirationDate,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+
+		_, insertErr := s.DB.GetDB().NewInsert().
+			Model(newGrant).
+			Exec(ctx)
+		if insertErr != nil {
+			return nil, time.Time{}, fmt.Errorf("failed to create role grant: %w", insertErr)
+		}
+		return newGrant, newExpirationDate, nil
+	}
+}
+
+// UpdatePurchase updates a purchase
+func (s *SolanaPaymentService) UpdatePurchase(ctx context.Context, purchase *models.Purchase) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model(purchase).
+		Where("id = ?", purchase.ID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update purchase: %w", err)
+	}
+	return nil
 }
 
 func NewSolanaPaymentService(
@@ -70,7 +171,7 @@ func (s *SolanaPaymentService) GeneratePayment(ctx context.Context, priceID uuid
 	}
 
 	// Get price information
-	price, err := s.priceRepo.GetByID(ctx, priceID)
+	price, err := s.GetPriceByID(ctx, priceID)
 	if err != nil {
 		return "", ErrPriceNotFound
 	}
@@ -150,7 +251,7 @@ func (s *SolanaPaymentService) SubmitPayment(ctx context.Context, signedTxBase64
 	}
 
 	// Get price information
-	price, err := s.priceRepo.GetByID(ctx, priceID)
+	price, err := s.GetPriceByID(ctx, priceID)
 	if err != nil {
 		return nil, ErrPriceNotFound
 	}
@@ -193,7 +294,7 @@ func (s *SolanaPaymentService) SubmitPayment(ctx context.Context, signedTxBase64
 		PurchasedAt:   time.Now(),
 	}
 
-	if err := s.purchaseRepo.Create(ctx, purchase); err != nil {
+	if err := s.CreatePurchase(ctx, purchase); err != nil {
 		return nil, fmt.Errorf("failed to create purchase record: %w", err)
 	}
 
@@ -271,7 +372,7 @@ func (s *SolanaPaymentService) validateTransaction(ctx context.Context, tx *sola
 // grantRoleForPurchase grants the role associated with a product to a user for one-off purchases
 func (s *SolanaPaymentService) grantRoleForPurchase(ctx context.Context, purchase *models.Purchase, price *models.Price) error {
 	// Get product information
-	product, err := s.productRepo.GetByID(ctx, price.ProductID)
+	product, err := s.GetProductByID(ctx, price.ProductID)
 	if err != nil {
 		return fmt.Errorf("failed to get product: %w", err)
 	}
@@ -291,7 +392,7 @@ func (s *SolanaPaymentService) grantRoleForPurchase(ctx context.Context, purchas
 	}
 
 	// Extend the user's existing role expiration or create new grant
-	grant, newExpirationDate, err := s.userRoleGrantRepo.ExtendRoleExpiration(ctx, purchase.UserID, *product.RoleID, durationDays)
+	grant, newExpirationDate, err := s.ExtendRoleExpiration(ctx, purchase.UserID, *product.RoleID, durationDays)
 	if err != nil {
 		return fmt.Errorf("failed to extend role expiration: %w", err)
 	}
@@ -299,7 +400,7 @@ func (s *SolanaPaymentService) grantRoleForPurchase(ctx context.Context, purchas
 	// Update the purchase record to link to the grant and record extension
 	purchase.UserRoleGrantID = &grant.ID
 	purchase.ExtensionDays = &durationDays
-	if err := s.purchaseRepo.Update(ctx, purchase); err != nil {
+	if err := s.UpdatePurchase(ctx, purchase); err != nil {
 		return fmt.Errorf("failed to update purchase with grant link: %w", err)
 	}
 

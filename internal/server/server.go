@@ -25,7 +25,7 @@ type Server struct {
 	cfg *config.Config
 
 	// Database and cache
-	db    *database.DB
+	db    *db.DB
 	cache cache.Cache
 
 	// External integrations

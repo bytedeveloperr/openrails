@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/database"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
@@ -33,7 +32,109 @@ type SubscribeData struct {
 type SubscriptionService struct {
 	CCBillRESTClient *ccbill.RESTClient
 	MobiusClient     *mobius.MobiusClient
-	DB               *database.DB
+	DB               *db.DB
+}
+
+// GetPriceByID retrieves a price by its ID
+func (s *SubscriptionService) GetPriceByID(ctx context.Context, id uuid.UUID) (*models.Price, error) {
+	var price models.Price
+	err := s.DB.GetDB().NewSelect().
+		Model(&price).
+		Where("id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get price by ID: %w", err)
+	}
+	return &price, nil
+}
+
+// GetSubscriptionByUserID retrieves a subscription by user ID
+func (s *SubscriptionService) GetSubscriptionByUserID(ctx context.Context, userID uuid.UUID) (*models.Subscription, error) {
+	var subscription models.Subscription
+	err := s.DB.GetDB().NewSelect().
+		Model(&subscription).
+		Where("user_id = ?", userID).
+		Where("status = ?", models.StatusActive).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get subscription by user ID: %w", err)
+	}
+	return &subscription, nil
+}
+
+// CreateSubscription creates a new subscription
+func (s *SubscriptionService) CreateSubscription(ctx context.Context, subscription *models.Subscription) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(subscription).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create subscription: %w", err)
+	}
+	return nil
+}
+
+// UpdateSubscription updates a subscription
+func (s *SubscriptionService) UpdateSubscription(ctx context.Context, subscription *models.Subscription) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model(subscription).
+		Where("id = ?", subscription.ID).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+	return nil
+}
+
+// RevokeUserRolesBySubSourceID revokes user roles by subscription source ID
+func (s *SubscriptionService) RevokeUserRolesBySubSourceID(ctx context.Context, subID uuid.UUID) error {
+	_, err := s.DB.GetDB().NewUpdate().
+		Model((*models.UserRoleGrant)(nil)).
+		Set("revoked_at = ?", time.Now()).
+		Where("sub_source_id = ?", subID).
+		Where("revoked_at IS NULL").
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to revoke user roles: %w", err)
+	}
+	return nil
+}
+
+// CreateNotification creates a new notification
+func (s *SubscriptionService) CreateNotification(ctx context.Context, notification *models.NotificationQueue) error {
+	_, err := s.DB.GetDB().NewInsert().
+		Model(notification).
+		Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create notification: %w", err)
+	}
+	return nil
+}
+
+// GetActiveProducts retrieves all active products
+func (s *SubscriptionService) GetActiveProducts(ctx context.Context) ([]*models.Product, error) {
+	var products []*models.Product
+	err := s.DB.GetDB().NewSelect().
+		Model(&products).
+		Where("active = ?", true).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active products: %w", err)
+	}
+	return products, nil
+}
+
+// GetActiveProductPrices retrieves active prices for a specific product
+func (s *SubscriptionService) GetActiveProductPrices(ctx context.Context, productID uuid.UUID) ([]*models.Price, error) {
+	var prices []*models.Price
+	err := s.DB.GetDB().NewSelect().
+		Model(&prices).
+		Where("product_id = ?", productID).
+		Where("active = ?", true).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active product prices: %w", err)
+	}
+	return prices, nil
 }
 
 type PaymentProcessor = int
@@ -84,13 +185,13 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 		return nil, fmt.Errorf("invalid price ID: %w", err)
 	}
 
-	price, err := s.PriceRepo.GetByID(ctx, priceID)
+	price, err := s.GetPriceByID(ctx, priceID)
 	if err != nil {
 		return nil, fmt.Errorf("price not found: %w", err)
 	}
 
 	// Check for existing active subscription
-	existingSub, err := s.SubscriptionRepo.GetByUserID(ctx, user.ID)
+	existingSub, err := s.GetSubscriptionByUserID(ctx, user.ID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("failed to check existing subscription: %w", err)
 	}
@@ -150,7 +251,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 
 // ensureSubscription creates or gets existing subscription for Wave 18
 func (s *SubscriptionService) ensureSubscription(ctx context.Context, user *types.User, price *models.Price) (*models.Subscription, error) {
-	subscription, err := s.SubscriptionRepo.GetByUserID(ctx, user.ID)
+	subscription, err := s.GetSubscriptionByUserID(ctx, user.ID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			return nil, errors.New("an error occurred while retrieving subscription")
@@ -166,7 +267,7 @@ func (s *SubscriptionService) ensureSubscription(ctx context.Context, user *type
 			Processor:               models.ProcessorCCBill, // Default processor
 			ProcessorSubscriptionID: "",                     // Will be set by payment processor
 		}
-		if err := s.SubscriptionRepo.Create(ctx, subscription); err != nil {
+		if err := s.CreateSubscription(ctx, subscription); err != nil {
 			return nil, err
 		}
 	}
@@ -176,12 +277,12 @@ func (s *SubscriptionService) ensureSubscription(ctx context.Context, user *type
 
 // GetUserSubscription retrieves the current subscription for a user
 func (s *SubscriptionService) GetUserSubscription(ctx context.Context, userID uuid.UUID) (*models.Subscription, error) {
-	return s.SubscriptionRepo.GetByUserID(ctx, userID)
+	return s.GetSubscriptionByUserID(ctx, userID)
 }
 
 // CancelUserSubscription cancels a user's subscription
 func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID uuid.UUID, feedback string) error {
-	subscription, err := s.SubscriptionRepo.GetByUserID(ctx, userID)
+	subscription, err := s.GetSubscriptionByUserID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %w", err)
 	}
@@ -199,12 +300,12 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 		subscription.CancelFeedback = &feedback
 	}
 
-	if err := s.SubscriptionRepo.Update(ctx, subscription); err != nil {
+	if err := s.UpdateSubscription(ctx, subscription); err != nil {
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
 	// Revoke role grants
-	if err := s.UserRoleGrantRepo.RevokeBySubSourceID(ctx, subscription.ID); err != nil {
+	if err := s.RevokeUserRolesBySubSourceID(ctx, subscription.ID); err != nil {
 		log.WithError(err).Error("failed to revoke role grants for cancelled subscription")
 	}
 
@@ -214,7 +315,7 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 		UserID:    userID,
 		EventType: models.NotificationPremiumEnded,
 	}
-	if err := s.NotificationQueueRepo.Create(ctx, notification); err != nil {
+	if err := s.CreateNotification(ctx, notification); err != nil {
 		log.WithError(err).Error("failed to create cancellation notification")
 	}
 
@@ -223,14 +324,14 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 
 // GetAvailableProducts returns all active products with their prices
 func (s *SubscriptionService) GetAvailableProducts(ctx context.Context) ([]*models.Product, error) {
-	products, err := s.ProductRepo.GetActive(ctx)
+	products, err := s.GetActiveProducts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active products: %w", err)
 	}
 
 	// Load prices for each product
 	for _, product := range products {
-		prices, err := s.PriceRepo.GetActiveByProductID(ctx, product.ID)
+		prices, err := s.GetActiveProductPrices(ctx, product.ID)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"product_id": product.ID,

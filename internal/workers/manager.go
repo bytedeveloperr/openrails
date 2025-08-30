@@ -8,7 +8,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	database "github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/internal/services"
@@ -16,7 +15,7 @@ import (
 
 // Manager coordinates and manages all background workers
 type Manager struct {
-	db                  *database.DB
+	db                  *db.DB
 	mobiusClient        *mobius.MobiusClient
 	ccbillClient        *ccbill.Client
 	subscriptionService *services.SubscriptionService
@@ -33,7 +32,7 @@ type Manager struct {
 }
 
 // NewManager creates a new worker manager
-func NewManager(db *database.DB, mobiusClient *mobius.MobiusClient, ccbillClient *ccbill.Client, subscriptionService *services.SubscriptionService) *Manager {
+func NewManager(db *db.DB, mobiusClient *mobius.MobiusClient, ccbillClient *ccbill.Client, subscriptionService *services.SubscriptionService) *Manager {
 	return &Manager{
 		db:                  db,
 		mobiusClient:        mobiusClient,
@@ -109,12 +108,12 @@ func (m *Manager) Stop(ctx context.Context) error {
 
 // CCBillDataLinkWorker handles CCBill DataLink reconciliation
 type CCBillDataLinkWorker struct {
-	db           *database.DB
+	db           *db.DB
 	ccbillClient *ccbill.Client
 }
 
 // NewCCBillDataLinkWorker creates a new CCBill DataLink worker
-func NewCCBillDataLinkWorker(db *database.DB, ccbillClient *ccbill.Client) *CCBillDataLinkWorker {
+func NewCCBillDataLinkWorker(db *db.DB, ccbillClient *ccbill.Client) *CCBillDataLinkWorker {
 	return &CCBillDataLinkWorker{
 		db:           db,
 		ccbillClient: ccbillClient,
@@ -158,13 +157,13 @@ func (w *CCBillDataLinkWorker) reconcile(ctx context.Context) {
 
 // MobiusRebillWorker handles Mobius failed payment retries
 type MobiusRebillWorker struct {
-	db                  *database.DB
+	db                  *db.DB
 	mobiusClient        *mobius.MobiusClient
 	subscriptionService *services.SubscriptionService
 }
 
 // NewMobiusRebillWorker creates a new Mobius rebill worker
-func NewMobiusRebillWorker(db *database.DB, mobiusClient *mobius.MobiusClient, subscriptionService *services.SubscriptionService) *MobiusRebillWorker {
+func NewMobiusRebillWorker(db *db.DB, mobiusClient *mobius.MobiusClient, subscriptionService *services.SubscriptionService) *MobiusRebillWorker {
 	return &MobiusRebillWorker{
 		db:                  db,
 		mobiusClient:        mobiusClient,
@@ -210,11 +209,11 @@ func (w *MobiusRebillWorker) processRetries(ctx context.Context) {
 
 // IdempotencyCleanupWorker cleans up expired idempotency records
 type IdempotencyCleanupWorker struct {
-	db *database.DB
+	db *db.DB
 }
 
 // NewIdempotencyCleanupWorker creates a new idempotency cleanup worker
-func NewIdempotencyCleanupWorker(db *database.DB) *IdempotencyCleanupWorker {
+func NewIdempotencyCleanupWorker(db *db.DB) *IdempotencyCleanupWorker {
 	return &IdempotencyCleanupWorker{
 		db: db,
 	}

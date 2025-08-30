@@ -5,12 +5,40 @@ import (
 	"fmt"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
 // PublicSubscriptionService handles public-facing subscription operations
 type PublicSubscriptionService struct {
+	DB *db.DB
+}
+
+// GetActiveProducts retrieves all active products
+func (s *PublicSubscriptionService) GetActiveProducts(ctx context.Context) ([]*models.Product, error) {
+	var products []*models.Product
+	err := s.DB.GetDB().NewSelect().
+		Model(&products).
+		Where("active = ?", true).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active products: %w", err)
+	}
+	return products, nil
+}
+
+// GetPricesByProductID retrieves prices for a specific product
+func (s *PublicSubscriptionService) GetPricesByProductID(ctx context.Context, productID uuid.UUID) ([]*models.Price, error) {
+	var prices []*models.Price
+	err := s.DB.GetDB().NewSelect().
+		Model(&prices).
+		Where("product_id = ?", productID).
+		Where("active = ?", true).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get prices by product ID: %w", err)
+	}
+	return prices, nil
 }
 
 // PublicProductResponse represents a product with pricing for public display
@@ -21,7 +49,7 @@ type PublicProductResponse struct {
 
 // GetAvailableProducts returns all active products with their prices for public consumption
 func (s *PublicSubscriptionService) GetAvailableProducts(ctx context.Context) ([]*PublicProductResponse, error) {
-	products, err := s.ProductRepo.GetActive(ctx)
+	products, err := s.GetActiveProducts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get products: %w", err)
 	}
@@ -33,7 +61,7 @@ func (s *PublicSubscriptionService) GetAvailableProducts(ctx context.Context) ([
 		}
 
 		// Get prices for this product
-		prices, err := s.PriceRepo.GetByProductID(ctx, product.ID)
+		prices, err := s.GetPricesByProductID(ctx, product.ID)
 		if err != nil {
 			log.WithFields(log.Fields{
 				"product_id": product.ID,

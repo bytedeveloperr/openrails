@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/database"
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -15,7 +16,33 @@ import (
 // SubscriptionLifecycleService handles the complete lifecycle of subscriptions
 // including membership creation, renewal, cancellation, and expiration
 type SubscriptionLifecycleService struct {
-	DB *database.DB
+	DB *db.DB
+}
+
+// GetPriceByID retrieves a price by its ID
+func (s *SubscriptionLifecycleService) GetPriceByID(ctx context.Context, id uuid.UUID) (*models.Price, error) {
+	var price models.Price
+	err := s.DB.GetDB().NewSelect().
+		Model(&price).
+		Where("id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get price by ID: %w", err)
+	}
+	return &price, nil
+}
+
+// GetProductByID retrieves a product by its ID
+func (s *SubscriptionLifecycleService) GetProductByID(ctx context.Context, id uuid.UUID) (*models.Product, error) {
+	var product models.Product
+	err := s.DB.GetDB().NewSelect().
+		Model(&product).
+		Where("id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get product by ID: %w", err)
+	}
+	return &product, nil
 }
 
 // CreateMembership creates a new subscription and grants associated roles
@@ -29,12 +56,12 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 		notificationRepo := repo.NewNotificationQueueRepo(db)
 
 		// Get price and product information
-		price, err := s.PriceRepo.GetByID(ctx, params.PriceID)
+		price, err := s.GetPriceByID(ctx, params.PriceID)
 		if err != nil {
 			return fmt.Errorf("failed to get price: %w", err)
 		}
 
-		product, err := s.ProductRepo.GetByID(ctx, price.ProductID)
+		product, err := s.GetProductByID(ctx, price.ProductID)
 		if err != nil {
 			return fmt.Errorf("failed to get product: %w", err)
 		}
@@ -144,12 +171,12 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 		}
 
 		// Get price for billing period calculation
-		price, err := s.PriceRepo.GetByID(ctx, subscription.PriceID)
+		price, err := s.GetPriceByID(ctx, subscription.PriceID)
 		if err != nil {
 			return fmt.Errorf("failed to get price: %w", err)
 		}
 
-		product, err := s.ProductRepo.GetByID(ctx, price.ProductID)
+		product, err := s.GetProductByID(ctx, price.ProductID)
 		if err != nil {
 			return fmt.Errorf("failed to get product: %w", err)
 		}

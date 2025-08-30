@@ -5,22 +5,20 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/database"
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	log "github.com/sirupsen/logrus"
 )
 
 // BillingAnalyticsService provides dashboard metrics by querying PostgreSQL
 type BillingAnalyticsService struct {
-	db *database.DB
+	db *db.DB
 }
 
 // NewBillingAnalyticsService creates a new billing analytics service
-func NewBillingAnalyticsService(db *database.DB) *BillingAnalyticsService {
+func NewBillingAnalyticsService(db *db.DB) *BillingAnalyticsService {
 	return &BillingAnalyticsService{
-		db:               db,
-		subscriptionRepo: repo.NewSubscriptionRepo(db),
+		db: db,
 	}
 }
 

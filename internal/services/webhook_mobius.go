@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/database"
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/internal/services/billing"
@@ -23,7 +24,7 @@ import (
 const MobiusProcessorName string = "Mobius"
 
 type MobiusWebhookService struct {
-	DB                   *database.DB
+	DB                   *db.DB
 	Data                 MobiusWebhookEvent
 	MobiusClient         *mobius.MobiusClient
 	DeadLetterService    *webhook.DeadLetterService
