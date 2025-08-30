@@ -769,9 +769,7 @@ type GrantRoleForSubscriptionParams struct {
 	subscriptionID uuid.UUID
 	price          *models.Price
 	product        *models.Product
-	purchaseRepo   *repo.PurchaseRepo
 	processor      models.ProcessorType
-	roleGrantRepo  *repo.UserRoleGrantRepo
 }
 
 func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.ProcessorType, price *models.Price, product *models.Product, db *database.DB) GrantRoleForSubscriptionParams {

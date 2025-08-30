@@ -15,12 +15,7 @@ import (
 // SubscriptionLifecycleService handles the complete lifecycle of subscriptions
 // including membership creation, renewal, cancellation, and expiration
 type SubscriptionLifecycleService struct {
-	DB                    *database.DB
-	SubscriptionRepo      *repo.SubscriptionRepo
-	ProductRepo           *repo.ProductRepo
-	PriceRepo             *repo.PriceRepo
-	UserRoleGrantRepo     *repo.UserRoleGrantRepo
-	NotificationQueueRepo *repo.NotificationQueueRepo
+	DB *database.DB
 }
 
 // CreateMembership creates a new subscription and grants associated roles

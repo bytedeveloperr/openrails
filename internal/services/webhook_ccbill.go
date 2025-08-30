@@ -11,7 +11,6 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/database"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/services/billing"
 	"github.com/doujins-org/doujins-billing/internal/services/notification"
@@ -23,16 +22,12 @@ import (
 )
 
 type CCBillWebhookService struct {
-	Data                  CCBillWebhookEvent
-	DB                    *database.DB
-	CCBillClient          *ccbill.RESTClient
-	ProductRepo           *repo.ProductRepo
-	PriceRepo             *repo.PriceRepo
-	UserRoleGrantRepo     *repo.UserRoleGrantRepo
-	NotificationQueueRepo *repo.NotificationQueueRepo
-	NotificationService   *notification.NotificationService
-	DeadLetterService     *webhook.DeadLetterService
-	BillingEventService   *billing.BillingEventService
+	Data                CCBillWebhookEvent
+	DB                  *database.DB
+	CCBillClient        *ccbill.RESTClient
+	NotificationService *notification.NotificationService
+	DeadLetterService   *webhook.DeadLetterService
+	BillingEventService *billing.BillingEventService
 }
 
 type CCBillWebhookEventType = string

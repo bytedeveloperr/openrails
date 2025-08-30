@@ -12,9 +12,6 @@ import (
 )
 
 type ManageSubscriptionService struct {
-	SubscriptionRepo      *repo.SubscriptionRepo
-	UserRoleGrantRepo     *repo.UserRoleGrantRepo
-	NotificationQueueRepo *repo.NotificationQueueRepo
 }
 
 type UpdateSubscriptionStatusParams struct {

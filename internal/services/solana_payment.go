@@ -29,13 +29,9 @@ var (
 )
 
 type SolanaPaymentService struct {
-	rpcClient         *rpc.Client
-	priceRepo         *repo.PriceRepo
-	purchaseRepo      *repo.PurchaseRepo
-	userRoleGrantRepo *repo.UserRoleGrantRepo
-	productRepo       *repo.ProductRepo
-	solanaConfig      *config.SolanaConfig
-	recipientWallet   solana.PublicKey
+	rpcClient       *rpc.Client
+	solanaConfig    *config.SolanaConfig
+	recipientWallet solana.PublicKey
 }
 
 func NewSolanaPaymentService(

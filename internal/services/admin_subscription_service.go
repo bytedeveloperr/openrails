@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/supabase-community/gotrue-go/types"
@@ -22,13 +23,6 @@ var (
 
 // AdminSubscriptionService handles administrative subscription operations
 type AdminSubscriptionService struct {
-	SubscriptionRepo      *repo.SubscriptionRepo
-	ProductRepo           *repo.ProductRepo
-	PriceRepo             *repo.PriceRepo
-	UserRoleGrantRepo     *repo.UserRoleGrantRepo
-	NotificationQueueRepo *repo.NotificationQueueRepo
-	PurchaseRepo          *repo.PurchaseRepo
-	UserRepo              *repo.UserRepo
 }
 
 // AdminSubscriptionResponse represents a subscription with enriched admin data

@@ -13,8 +13,7 @@ import (
 
 // BillingAnalyticsService provides dashboard metrics by querying PostgreSQL
 type BillingAnalyticsService struct {
-	db               *database.DB
-	subscriptionRepo *repo.SubscriptionRepo
+	db *database.DB
 }
 
 // NewBillingAnalyticsService creates a new billing analytics service

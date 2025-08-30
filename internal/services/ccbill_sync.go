@@ -19,11 +19,6 @@ import (
 )
 
 type CCBillSyncService struct {
-	UserRepo         *repo.UserRepo
-	SubscriptionRepo *repo.SubscriptionRepo
-	ProductRepo      *repo.ProductRepo
-	PriceRepo        *repo.PriceRepo
-	NotificationRepo *repo.NotificationQueueRepo
 }
 
 type SyncResult struct {

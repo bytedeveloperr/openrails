@@ -11,8 +11,6 @@ import (
 
 // PublicSubscriptionService handles public-facing subscription operations
 type PublicSubscriptionService struct {
-	ProductRepo *repo.ProductRepo
-	PriceRepo   *repo.PriceRepo
 }
 
 // PublicProductResponse represents a product with pricing for public display

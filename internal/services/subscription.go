@@ -31,16 +31,9 @@ type SubscribeData struct {
 }
 
 type SubscriptionService struct {
-	SubscriptionRepo      *repo.SubscriptionRepo
-	ProductRepo           *repo.ProductRepo
-	PriceRepo             *repo.PriceRepo
-	PurchaseRepo          *repo.PurchaseRepo
-	UserRoleGrantRepo     *repo.UserRoleGrantRepo
-	NotificationQueueRepo *repo.NotificationQueueRepo
-	MobiusPaymentRepo     *repo.MobiusPaymentMethodRepo
-	CCBillRESTClient      *ccbill.RESTClient
-	MobiusClient          *mobius.MobiusClient
-	DB                    *database.DB
+	CCBillRESTClient *ccbill.RESTClient
+	MobiusClient     *mobius.MobiusClient
+	DB               *database.DB
 }
 
 type PaymentProcessor = int

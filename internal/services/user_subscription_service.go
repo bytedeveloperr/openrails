@@ -23,12 +23,6 @@ var (
 
 // UserSubscriptionService handles user-facing subscription operations
 type UserSubscriptionService struct {
-	SubscriptionRepo      *repo.SubscriptionRepo
-	ProductRepo           *repo.ProductRepo
-	PriceRepo             *repo.PriceRepo
-	PurchaseRepo          *repo.PurchaseRepo
-	NotificationQueueRepo *repo.NotificationQueueRepo
-	UserRoleGrantRepo     *repo.UserRoleGrantRepo
 }
 
 // UserSubscriptionResponse represents a user's subscription with enriched data

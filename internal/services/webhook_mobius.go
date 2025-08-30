@@ -23,17 +23,13 @@ import (
 const MobiusProcessorName string = "Mobius"
 
 type MobiusWebhookService struct {
-	DB                    *database.DB
-	PriceRepo             *repo.PriceRepo
-	ProductRepo           *repo.ProductRepo
-	Data                  MobiusWebhookEvent
-	MobiusClient          *mobius.MobiusClient
-	UserRoleGrantRepo     *repo.UserRoleGrantRepo
-	DeadLetterService     *webhook.DeadLetterService
-	NotificationQueueRepo *repo.NotificationQueueRepo
-	NotificationService   *notification.NotificationService
-	BillingEventService   *billing.BillingEventService
-	DeduplicationService  *webhook.DeduplicationService
+	DB                   *database.DB
+	Data                 MobiusWebhookEvent
+	MobiusClient         *mobius.MobiusClient
+	DeadLetterService    *webhook.DeadLetterService
+	NotificationService  *notification.NotificationService
+	BillingEventService  *billing.BillingEventService
+	DeduplicationService *webhook.DeduplicationService
 }
 
 type MobiusWebhookEventType = string
