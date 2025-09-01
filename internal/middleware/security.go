@@ -58,11 +58,11 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 // RateLimitStore holds rate limiters for different IPs
 type RateLimitStore struct {
 	limiters map[string]*rate.Limiter
-	config   *config.RateLimiterConfig
+	config   *config.RateLimitConfig
 }
 
 // NewRateLimitStore creates a new rate limit store
-func NewRateLimitStore(config *config.RateLimiterConfig) *RateLimitStore {
+func NewRateLimitStore(config *config.RateLimitConfig) *RateLimitStore {
 	return &RateLimitStore{
 		limiters: make(map[string]*rate.Limiter),
 		config:   config,
@@ -70,7 +70,7 @@ func NewRateLimitStore(config *config.RateLimiterConfig) *RateLimitStore {
 }
 
 // RateLimit middleware implements rate limiting per IP address
-func RateLimit(rateLimiterConfig *config.RateLimiterConfig) gin.HandlerFunc {
+func RateLimit(rateLimiterConfig *config.RateLimitConfig) gin.HandlerFunc {
 	store := NewRateLimitStore(rateLimiterConfig)
 
 	return func(c *gin.Context) {
@@ -78,42 +78,42 @@ func RateLimit(rateLimiterConfig *config.RateLimiterConfig) gin.HandlerFunc {
 		clientIP := getClientIP(c)
 
 		// Get appropriate rate limit based on endpoint
-		var limit *config.RateLimitConfig
+		var limit *config.RateLimit
 
 		path := c.Request.URL.Path
 		switch {
 		case strings.Contains(path, "/subscriptions/") && c.Request.Method == http.MethodPost:
 			// Very strict for subscription creation
-			limit = &config.RateLimitConfig{
-				Limit:  10, // 10 requests per minute
-				Window: 1 * time.Minute,
+			limit = &config.RateLimit{
+				RequestsPerMinute: 10,
+				BurstSize:         3,
 			}
 		case strings.Contains(path, "/webhook/"):
 			// Higher limit for webhooks
-			limit = &config.RateLimitConfig{
-				Limit:  100, // 100 requests per minute
-				Window: 1 * time.Minute,
+			limit = &config.RateLimit{
+				RequestsPerMinute: 100,
+				BurstSize:         20,
 			}
 		case strings.Contains(path, "/payment-methods/"):
 			// Moderate limit for payment methods
-			limit = &config.RateLimitConfig{
-				Limit:  20, // 20 requests per minute
-				Window: 1 * time.Minute,
+			limit = &config.RateLimit{
+				RequestsPerMinute: 20,
+				BurstSize:         5,
 			}
 		default:
 			// Use default limit
-			if rateLimiterConfig != nil && rateLimiterConfig.Default != nil {
-				limit = rateLimiterConfig.Default
+			if rateLimiterConfig != nil && rateLimiterConfig.DefaultLimit != nil {
+				limit = rateLimiterConfig.DefaultLimit
 			} else {
-				limit = &config.RateLimitConfig{
-					Limit:  60, // 60 requests per minute
-					Window: 1 * time.Minute,
+				limit = &config.RateLimit{
+					RequestsPerMinute: 60,
+					BurstSize:         10,
 				}
 			}
 		}
 
 		// Get or create rate limiter for this IP
-		limiter := store.getLimiter(clientIP, limit)
+		limiter := store.getLimiterForRate(clientIP, limit)
 
 		// Check if request is allowed
 		if !limiter.Allow() {
@@ -141,10 +141,20 @@ func RateLimit(rateLimiterConfig *config.RateLimiterConfig) gin.HandlerFunc {
 func (s *RateLimitStore) getLimiter(ip string, config *config.RateLimitConfig) *rate.Limiter {
 	limiter, exists := s.limiters[ip]
 	if !exists {
-		// Create new rate limiter
-		// Convert limit per window to requests per second
-		rps := float64(config.Limit) / config.Window.Seconds()
-		limiter = rate.NewLimiter(rate.Limit(rps), config.Limit)
+		// Create new rate limiter with default values
+		// This is a simplified version - in production you'd use config values
+		limiter = rate.NewLimiter(rate.Limit(1), 60) // 1 req/sec, burst of 60
+		s.limiters[ip] = limiter
+	}
+	return limiter
+}
+
+func (s *RateLimitStore) getLimiterForRate(ip string, rateCfg *config.RateLimit) *rate.Limiter {
+	limiter, exists := s.limiters[ip]
+	if !exists {
+		// Convert requests per minute to requests per second
+		rps := float64(rateCfg.RequestsPerMinute) / 60.0
+		limiter = rate.NewLimiter(rate.Limit(rps), rateCfg.BurstSize)
 		s.limiters[ip] = limiter
 	}
 	return limiter

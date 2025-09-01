@@ -20,9 +20,9 @@ func IsExpired(s *models.Subscription) bool {
 // -------------------------------- Mobius Webhook Types --------------------------------
 
 type MobiusWebhookEvent struct {
-	EventID   string                 `json:"event_id" validate:"required"`
-	EventType MobiusWebhookEventType `json:"event_type" validate:"required"`
-	EventBody MobiusEventBody        `json:"event_body" validate:"required"`
+	EventID string `json:"event_id" validate:"required"`
+	// EventType MobiusWebhookEventType `json:"event_type" validate:"required"`
+	EventBody MobiusEventBody `json:"event_body" validate:"required"`
 }
 
 type MobiusEventBody struct {
@@ -30,7 +30,6 @@ type MobiusEventBody struct {
 	AttemptedPayments int                   `json:"attempted_payments"`
 	CompletedPayments int                   `json:"completed_payments"`
 	BillingAddress    *MobiusBillingAddress `json:"billing_address"`
-	Card              *MobiusCard           `json:"card"`
 	Features          *MobiusFeatures       `json:"features"`
 	Merchant          *MobiusMerchant       `json:"merchant"`
 	NextChargeDate    string                `json:"next_charge_date"`
@@ -73,25 +72,6 @@ type MobiusBillingAddress struct {
 	State      string `json:"state"`
 }
 
-type MobiusCard struct {
-	AVSResponse          string `json:"avs_response"`
-	CardAvailableBalance string `json:"card_available_balance"`
-	CardBalance          string `json:"card_balance"`
-	CardholderAuth       string `json:"cardholder_auth"`
-	CAVV                 string `json:"cavv"`
-	CAVVResult           string `json:"cavv_result"`
-	CCBin                string `json:"cc_bin"`
-	CCExp                string `json:"cc_exp"`
-	CCIssueNumber        string `json:"cc_issue_number"`
-	CCNumber             string `json:"cc_number"`
-	CCStartDate          string `json:"cc_start_date"`
-	CCType               string `json:"cc_type"`
-	CSCResponse          string `json:"csc_response"`
-	ECI                  string `json:"eci"`
-	EntryMode            string `json:"entry_mode"`
-	XID                  string `json:"xid"`
-}
-
 type MobiusMerchant struct {
 	ID   string `json:"id" validate:"required"`
 	Name string `json:"name" validate:"required"`
@@ -114,7 +94,7 @@ type MobiusFeatures struct {
 // -------------------------------- CCBill Webhook Types --------------------------------
 
 type CCBillWebhookEvent struct {
-	EventType CCBillWebhookEventType
+	// EventType CCBillWebhookEventType
 	EventBody []byte
 	Version   string // Detected or provided webhook version
 }
@@ -773,11 +753,11 @@ type GrantRoleForSubscriptionParams struct {
 	subscriptionID uuid.UUID
 	price          *models.Price
 	product        *models.Product
-	processor      models.ProcessorType
+	processor      models.Processor
 	service        RoleGrantService
 }
 
-func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.ProcessorType, price *models.Price, product *models.Product, service RoleGrantService) GrantRoleForSubscriptionParams {
+func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.Processor, price *models.Price, product *models.Product, service RoleGrantService) GrantRoleForSubscriptionParams {
 	return GrantRoleForSubscriptionParams{
 		price:          price,
 		userID:         userID,
@@ -810,7 +790,7 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 	}
 
 	// Create Purchase event for this subscription payment
-	purchase := &models.Purchase{
+	purchase := &models.Payment{
 		ID:            uuid.New(),
 		UserID:        userID,
 		PriceID:       price.ID,
@@ -821,7 +801,6 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 		TransactionID: subscriptionID.String(),
 		PurchasedAt:   time.Now(),
 		CreatedAt:     time.Now(),
-		UpdatedAt:     time.Now(),
 	}
 
 	grant, _, err := service.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDays)

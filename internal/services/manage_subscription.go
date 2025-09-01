@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
@@ -80,11 +80,9 @@ type ExtendSubscriptionParams struct {
 	Duration       time.Duration
 }
 
-func NewManageSubscriptionService(subscriptionRepo *repo.SubscriptionRepo, userRoleGrantRepo *repo.UserRoleGrantRepo, notificationQueueRepo *repo.NotificationQueueRepo) *ManageSubscriptionService {
+func NewManageSubscriptionService(db *db.DB) *ManageSubscriptionService {
 	return &ManageSubscriptionService{
-		SubscriptionRepo:      subscriptionRepo,
-		UserRoleGrantRepo:     userRoleGrantRepo,
-		NotificationQueueRepo: notificationQueueRepo,
+		DB: db,
 	}
 }
 

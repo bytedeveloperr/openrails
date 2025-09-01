@@ -7,17 +7,7 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// ProcessorType represents the payment processor used for a purchase
-type ProcessorType string
-
-const (
-	ProcessorPayPal ProcessorType = "paypal"
-	ProcessorSolana ProcessorType = "solana"
-	ProcessorCCBill ProcessorType = "ccbill"
-	ProcessorMobius ProcessorType = "mobius"
-)
-
-// Purchase represents a payment event (both one-time and subscription payments)
+// Payment represents a payment event (both one-time and subscription payments)
 // This is an immutable event log of all payments received
 type Payment struct {
 	bun.BaseModel `bun:"table:payments,alias:purch"`
@@ -29,8 +19,8 @@ type Payment struct {
 	// Optional linkage to the subscription that generated this payment
 	SubscriptionID *uuid.UUID `bun:"subscription_id,type:uuid,nullzero" json:"subscription_id,omitempty"`
 
-	Processor     ProcessorType `bun:"processor,notnull" json:"processor"`
-	TransactionID string        `bun:"transaction_id,notnull" json:"transaction_id"`
+	Processor     Processor `bun:"processor,notnull" json:"processor"`
+	TransactionID string    `bun:"transaction_id,notnull" json:"transaction_id"`
 
 	// Payment details
 	Amount   float64 `bun:"amount,notnull,type:numeric" json:"amount"`
@@ -48,3 +38,6 @@ type Payment struct {
 	Subscription  *Subscription  `bun:"rel:belongs-to,join:subscription_id=id" json:"subscription,omitempty"`
 	UserRoleGrant *UserRoleGrant `bun:"rel:belongs-to,join:user_role_grant_id=id" json:"user_role_grant,omitempty"`
 }
+
+// Purchase is an alias for Payment for backward compatibility
+type Purchase = Payment

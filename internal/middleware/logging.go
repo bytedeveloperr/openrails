@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"time"
@@ -74,7 +75,7 @@ func RequestID() gin.HandlerFunc {
 		
 		// Add to request context for downstream services
 		ctx := c.Request.Context()
-		ctx = log.WithField("request_id", requestID).WithContext(ctx)
+		ctx = context.WithValue(ctx, "request_id", requestID)
 		c.Request = c.Request.WithContext(ctx)
 		
 		c.Next()

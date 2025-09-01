@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/config"
-	internalconfig "github.com/doujins-org/doujins-billing/internal/config"
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/gagliardetto/solana-go"
 	"github.com/gagliardetto/solana-go/programs/token"
 	"github.com/gagliardetto/solana-go/rpc"
@@ -28,9 +27,58 @@ var (
 	ErrInvalidRecipient   = errors.New("transaction recipient does not match expected wallet")
 )
 
+// Default token configurations
+var defaultTokens = map[string]*config.TokenConfig{
+	"SOL": {
+		Mint:     "So11111111111111111111111111111111111111112",
+		Symbol:   "SOL",
+		Name:     "Solana",
+		Decimals: 9,
+		Enabled:  true,
+	},
+	"USDC": {
+		Mint:     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		Symbol:   "USDC",
+		Name:     "USD Coin",
+		Decimals: 6,
+		Enabled:  true,
+	},
+	"USDT": {
+		Mint:     "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+		Symbol:   "USDT",
+		Name:     "Tether USD",
+		Decimals: 6,
+		Enabled:  true,
+	},
+	"PYUSD": {
+		Mint:     "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+		Symbol:   "PYUSD",
+		Name:     "PayPal USD",
+		Decimals: 6,
+		Enabled:  true,
+	},
+}
+
+// GetTokenBySymbol retrieves token configuration by symbol
+func GetTokenBySymbol(symbol string, cfg *config.SolanaConfig) *config.TokenConfig {
+	// Check custom configured tokens first
+	if cfg != nil && cfg.SupportedTokens != nil {
+		if token, exists := cfg.SupportedTokens[symbol]; exists {
+			return &token
+		}
+	}
+
+	// Fall back to default tokens
+	if token, exists := defaultTokens[symbol]; exists {
+		return token
+	}
+
+	return nil
+}
+
 type SolanaPaymentService struct {
 	rpcClient       *rpc.Client
-	solanaConfig    *config.SolanaConfig
+	config          *config.SolanaConfig
 	recipientWallet solana.PublicKey
 	DB              *db.DB
 }
@@ -86,12 +134,12 @@ func (s *SolanaPaymentService) ExtendRoleExpiration(ctx context.Context, userID,
 	var newExpirationDate time.Time
 	if err == nil {
 		// User has existing grant, extend it
-		if existingGrant.ExpiresAt != nil {
-			newExpirationDate = existingGrant.ExpiresAt.AddDate(0, 0, days)
+		if existingGrant.AutoExpiresAt != nil {
+			newExpirationDate = existingGrant.AutoExpiresAt.AddDate(0, 0, days)
 		} else {
 			newExpirationDate = time.Now().AddDate(0, 0, days)
 		}
-		existingGrant.ExpiresAt = &newExpirationDate
+		existingGrant.AutoExpiresAt = &newExpirationDate
 
 		_, updateErr := s.DB.GetDB().NewUpdate().
 			Model(&existingGrant).
@@ -105,12 +153,12 @@ func (s *SolanaPaymentService) ExtendRoleExpiration(ctx context.Context, userID,
 		// Create new role grant
 		newExpirationDate = time.Now().AddDate(0, 0, days)
 		newGrant := &models.UserRoleGrant{
-			ID:        uuid.New(),
-			UserID:    userID,
-			RoleID:    roleID,
-			ExpiresAt: &newExpirationDate,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
+			ID:            uuid.New(),
+			UserID:        userID,
+			RoleID:        roleID,
+			AutoExpiresAt: &newExpirationDate,
+			CreatedAt:     time.Now(),
+			UpdatedAt:     time.Now(),
 		}
 
 		_, insertErr := s.DB.GetDB().NewInsert().
@@ -136,37 +184,31 @@ func (s *SolanaPaymentService) UpdatePurchase(ctx context.Context, purchase *mod
 }
 
 func NewSolanaPaymentService(
-	solanaConfig *config.SolanaConfig,
-	priceRepo *repo.PriceRepo,
-	purchaseRepo *repo.PurchaseRepo,
-	userRoleGrantRepo *repo.UserRoleGrantRepo,
-	productRepo *repo.ProductRepo,
+	db *db.DB,
+	config *config.SolanaConfig,
 ) (*SolanaPaymentService, error) {
 	// Create RPC client
-	rpcClient := rpc.New(solanaConfig.RPCEndpoint)
+	rpcClient := rpc.New(config.RPCEndpoint)
 
 	// Parse recipient wallet
-	recipientWallet, err := solana.PublicKeyFromBase58(solanaConfig.RecipientWallet)
+	recipientWallet, err := solana.PublicKeyFromBase58(config.RecipientWallet)
 	if err != nil {
 		return nil, fmt.Errorf("invalid recipient wallet address: %w", err)
 	}
 
 	return &SolanaPaymentService{
-		rpcClient:         rpcClient,
-		priceRepo:         priceRepo,
-		purchaseRepo:      purchaseRepo,
-		userRoleGrantRepo: userRoleGrantRepo,
-		productRepo:       productRepo,
-		solanaConfig:      solanaConfig,
-		recipientWallet:   recipientWallet,
+		rpcClient:       rpcClient,
+		DB:              db,
+		config:          config,
+		recipientWallet: recipientWallet,
 	}, nil
 }
 
 // GeneratePayment creates an unsigned SPL token transfer transaction
 func (s *SolanaPaymentService) GeneratePayment(ctx context.Context, priceID uuid.UUID, tokenSymbol string, userWallet solana.PublicKey) (string, error) {
 	// Validate token
-	tokenConfig, exists := internalconfig.GetTokenBySymbol(tokenSymbol, s.solanaConfig.Network == "devnet")
-	if !exists {
+	tokenConfig := GetTokenBySymbol(tokenSymbol, s.config)
+	if tokenConfig == nil {
 		return "", ErrInvalidToken
 	}
 
@@ -180,7 +222,7 @@ func (s *SolanaPaymentService) GeneratePayment(ctx context.Context, priceID uuid
 	tokenAmount := uint64(price.Amount * math.Pow10(tokenConfig.Decimals))
 
 	// Parse token mint
-	tokenMint, err := solana.PublicKeyFromBase58(tokenConfig.MintAddress)
+	tokenMint, err := solana.PublicKeyFromBase58(tokenConfig.Mint)
 	if err != nil {
 		return "", fmt.Errorf("invalid token mint address: %w", err)
 	}

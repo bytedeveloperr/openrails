@@ -31,9 +31,17 @@ type SubscribeData struct {
 }
 
 type SubscriptionService struct {
-	CCBillRESTClient *ccbill.RESTClient
+	CCBillRESTClient *ccbill.CCBillClient
 	MobiusClient     *mobius.MobiusClient
 	DB               *db.DB
+}
+
+func NewSubscriptionService(db *db.DB, ccbillClient *ccbill.CCBillClient, mobiusClient *mobius.MobiusClient) *SubscriptionService {
+	return &SubscriptionService{
+		CCBillRESTClient: ccbillClient,
+		MobiusClient:     mobiusClient,
+		DB:               db,
+	}
 }
 
 // GetPriceByID retrieves a price by its ID

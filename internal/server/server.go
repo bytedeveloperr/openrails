@@ -6,17 +6,16 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/config"
-	billingConfig "github.com/doujins-org/doujins-billing/internal/config"
-	database "github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/handlers"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/internal/workers"
 	"github.com/doujins-org/doujins-billing/pkg/cache"
 )
 
@@ -30,17 +29,10 @@ type Server struct {
 
 	// External integrations
 	mobiusClient *mobius.MobiusClient
-	ccbillClient *ccbill.Client
+	ccbillClient *ccbill.CCBillClient
 
 	// Services
-	subscriptionService  *services.SubscriptionService
-	paymentMethodService *services.PaymentMethodService
-	solanaService        *services.SolanaService
-	webhookService       *services.WebhookService
-	idempotencyService   *services.IdempotencyService
-
-	// Workers
-	workerManager *workers.Manager
+	subscriptionService *services.SubscriptionService
 
 	// HTTP handlers
 	publicHandler  http.Handler
@@ -52,12 +44,12 @@ func New(cfg *config.Config) (*Server, error) {
 	log.Info("Initializing billing service...")
 
 	// Validate billing configuration
-	if err := billingConfig.Validate(cfg); err != nil {
+	if err := config.Validate(cfg); err != nil {
 		return nil, fmt.Errorf("invalid billing configuration: %w", err)
 	}
 
 	// Initialize database
-	db, err := database.NewDB(cfg.DB)
+	database, err := db.NewDB(cfg.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
@@ -65,7 +57,13 @@ func New(cfg *config.Config) (*Server, error) {
 	// Initialize cache
 	var cacheClient cache.Cache
 	if cfg.Redis != nil {
-		cacheClient = cache.NewRedisCache(cfg.Redis)
+		// Create Redis client from config
+		redisClient := redis.NewClient(&redis.Options{
+			Addr:     fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
+			Password: cfg.Redis.Password,
+			DB:       cfg.Redis.DB,
+		})
+		cacheClient = cache.NewRedisCache(redisClient)
 	} else {
 		log.Warn("Redis not configured, using in-memory cache")
 		cacheClient = cache.NewMemoryCache()
@@ -76,36 +74,25 @@ func New(cfg *config.Config) (*Server, error) {
 
 	mobiusClient, err := mobius.NewClient(cfg.Mobius, isProd)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize Mobius client: %w", err)
+		return nil, err
 	}
 
-	ccbillClient, err := ccbill.NewClient(cfg.CCBill, isProd)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize CCBill client: %w", err)
-	}
+	ccbillClient := ccbill.NewClient(cfg.CCBill, isProd)
 
 	// Initialize services
-	subscriptionService := services.NewSubscriptionService(db, mobiusClient, ccbillClient)
-	paymentMethodService := services.NewPaymentMethodService(db, mobiusClient)
-	solanaService := services.NewSolanaService(db, cfg)
-	webhookService := services.NewWebhookService(db, mobiusClient, ccbillClient, subscriptionService)
-	idempotencyService := services.NewIdempotencyService(db, cacheClient)
-
-	// Initialize worker manager
-	workerManager := workers.NewManager(db, mobiusClient, ccbillClient, subscriptionService)
+	subscriptionService := services.NewSubscriptionService(database, ccbillClient, mobiusClient)
+	_, err = services.NewSolanaPaymentService(database, cfg.Solana)
+	if err != nil {
+		return nil, err
+	}
 
 	s := &Server{
-		cfg:                  cfg,
-		db:                   db,
-		cache:                cacheClient,
-		mobiusClient:         mobiusClient,
-		ccbillClient:         ccbillClient,
-		subscriptionService:  subscriptionService,
-		paymentMethodService: paymentMethodService,
-		solanaService:        solanaService,
-		webhookService:       webhookService,
-		idempotencyService:   idempotencyService,
-		workerManager:        workerManager,
+		cfg:                 cfg,
+		db:                  database,
+		cache:               cacheClient,
+		mobiusClient:        mobiusClient,
+		ccbillClient:        ccbillClient,
+		subscriptionService: subscriptionService,
 	}
 
 	// Initialize HTTP handlers
@@ -122,7 +109,7 @@ func (s *Server) setupHandlers() {
 	publicRouter.Use(gin.Recovery())
 	publicRouter.Use(middleware.Logger())
 	publicRouter.Use(middleware.CORS(s.cfg.CorsOrigins))
-	publicRouter.Use(middleware.RateLimit(s.cfg.RateLimiter))
+	publicRouter.Use(middleware.RateLimit(s.cfg.RateLimits))
 
 	// Create private router (api-server communication)
 	privateRouter := gin.New()
@@ -131,16 +118,10 @@ func (s *Server) setupHandlers() {
 	privateRouter.Use(middleware.InternalOnly()) // Restrict to internal network
 
 	// Initialize handlers
-	subscriptionHandler := handlers.NewSubscriptionHandler(s.subscriptionService, s.idempotencyService)
-	paymentMethodHandler := handlers.NewPaymentMethodHandler(s.paymentMethodService)
-	solanaHandler := handlers.NewSolanaHandler(s.solanaService)
-	webhookHandler := handlers.NewWebhookHandler(s.webhookService)
+	subscriptionHandler := handlers.NewSubscriptionHandler(s.subscriptionService, nil)
 	adminHandler := handlers.NewAdminHandler(s.subscriptionService)
 
-	// Setup public routes
-	s.setupPublicRoutes(publicRouter, subscriptionHandler, paymentMethodHandler, solanaHandler, webhookHandler)
-
-	// Setup private routes
+	s.setupPublicRoutes(publicRouter, subscriptionHandler, nil, nil, nil)
 	s.setupPrivateRoutes(privateRouter, adminHandler, subscriptionHandler)
 
 	s.publicHandler = publicRouter
@@ -231,18 +212,6 @@ func (s *Server) PrivateHandler() http.Handler {
 	return s.privateHandler
 }
 
-// StartWorkers starts the background workers
-func (s *Server) StartWorkers(ctx context.Context) error {
-	log.Info("Starting billing service background workers...")
-	return s.workerManager.Start(ctx)
-}
-
-// StopWorkers stops the background workers
-func (s *Server) StopWorkers(ctx context.Context) error {
-	log.Info("Stopping billing service background workers...")
-	return s.workerManager.Stop(ctx)
-}
-
 // Close performs cleanup when shutting down the server
 func (s *Server) Close(ctx context.Context) error {
 	var errs []error
@@ -255,11 +224,6 @@ func (s *Server) Close(ctx context.Context) error {
 	// Close cache connections
 	if err := s.cache.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to close cache: %w", err))
-	}
-
-	// Stop workers if running
-	if err := s.workerManager.Stop(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("failed to stop workers: %w", err))
 	}
 
 	if len(errs) > 0 {

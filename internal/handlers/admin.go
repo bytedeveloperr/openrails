@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/api/validation"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/message"
@@ -32,7 +31,8 @@ import (
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/admin/users/{user_id}/subscription/extend [post]
 func (h *AdminHandler) ExtendSubscription(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &ExtendSubscriptionRequest{})
+	var req ExtendSubscriptionRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind extend subscription request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -102,7 +102,8 @@ func (h *AdminHandler) ExtendSubscription(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/admin/users/{user_id}/subscription/cancel [post]
 func (h *AdminHandler) CancelSubscription(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &CancelSubscriptionRequest{})
+	var req CancelSubscriptionRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind cancel subscription request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -169,7 +170,8 @@ func (h *AdminHandler) CancelSubscription(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/admin/users/{user_id}/subscription [get]
 func (h *AdminHandler) GetSubscriptionDetails(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &GetSubscriptionDetailsRequest{})
+	var req GetSubscriptionDetailsRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind get subscription details request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -238,7 +240,8 @@ func (h *AdminHandler) GetSubscriptionDetails(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/admin/users/{user_id}/refund [post]
 func (h *AdminHandler) ProcessRefund(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &ProcessRefundRequest{})
+	var req ProcessRefundRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind process refund request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))

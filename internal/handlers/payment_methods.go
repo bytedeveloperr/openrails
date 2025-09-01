@@ -9,7 +9,6 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/api/validation"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/message"
@@ -29,7 +28,8 @@ import (
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/payment-methods [post]
 func (h *PaymentMethodHandler) CreatePaymentMethod(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &CreatePaymentMethodRequest{})
+	var req CreatePaymentMethodRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind create payment method request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -79,7 +79,8 @@ func (h *PaymentMethodHandler) CreatePaymentMethod(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/payment-methods [get]
 func (h *PaymentMethodHandler) ListPaymentMethods(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &ListPaymentMethodsRequest{})
+	var req ListPaymentMethodsRequest
+	err := c.ShouldBindQuery(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind list payment methods request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -123,7 +124,8 @@ func (h *PaymentMethodHandler) ListPaymentMethods(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/payment-methods/{id} [put]
 func (h *PaymentMethodHandler) UpdatePaymentMethod(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &UpdatePaymentMethodRequest{})
+	var req UpdatePaymentMethodRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind update payment method request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -217,7 +219,8 @@ func (h *PaymentMethodHandler) UpdatePaymentMethod(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/payment-methods/{id}/activate [post]
 func (h *PaymentMethodHandler) ActivatePaymentMethod(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &ActivatePaymentMethodRequest{})
+	var req ActivatePaymentMethodRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind activate payment method request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -271,7 +274,8 @@ func (h *PaymentMethodHandler) ActivatePaymentMethod(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/payment-methods/{id} [delete]
 func (h *PaymentMethodHandler) DeletePaymentMethod(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &DeletePaymentMethodRequest{})
+	var req DeletePaymentMethodRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind delete payment method request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))

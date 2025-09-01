@@ -3,8 +3,8 @@ package handlers
 import (
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/api/models/common"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/query"
 )
 
 // -------------------------------- Subscription Responses --------------------------------
@@ -64,6 +64,7 @@ type SubscriptionHistoryItem struct {
 }
 
 type GetSubscriptionHistoryResponse = query.PaginatedResponse[*SubscriptionHistoryItem]
+type ListSubscriptionHistoryResponse = query.PaginatedResponse[*SubscriptionHistoryItem]
 
 func NewGetSubscriptionHistoryResponse(subscriptions []*services.UserSubscriptionResponse, page, pageSize int, totalItems int64) *GetSubscriptionHistoryResponse {
 	items := make([]*SubscriptionHistoryItem, len(subscriptions))
@@ -81,7 +82,16 @@ func NewGetSubscriptionHistoryResponse(subscriptions []*services.UserSubscriptio
 			BillingCycleDays:      sub.BillingCycleDays,
 		}
 	}
-	return common.NewPaginatedResponse(items, page, pageSize, totalItems)
+	opts := query.QueryOptions[any]{Page: page, PageSize: pageSize}
+	resp := opts.PaginatedResponse(items, totalItems)
+	return &GetSubscriptionHistoryResponse{
+		Items:      items,
+		Page:       resp.Page,
+		PageSize:   resp.PageSize,
+		TotalItems: resp.TotalItems,
+		TotalPages: resp.TotalPages,
+		HasMore:    resp.HasMore,
+	}
 }
 
 type GenerateFlexFormURLResponse struct {
@@ -153,7 +163,16 @@ func NewListPaymentMethodsResponse(paymentMethods []*services.PaymentMethodRespo
 	for i, pm := range paymentMethods {
 		items[i] = NewPaymentMethodResponse(pm)
 	}
-	return common.NewPaginatedResponse(items, page, pageSize, totalItems)
+	opts := query.QueryOptions[any]{Page: page, PageSize: pageSize}
+	resp := opts.PaginatedResponse(items, totalItems)
+	return &GetSubscriptionHistoryResponse{
+		Items:      items,
+		Page:       resp.Page,
+		PageSize:   resp.PageSize,
+		TotalItems: resp.TotalItems,
+		TotalPages: resp.TotalPages,
+		HasMore:    resp.HasMore,
+	}
 }
 
 type UpdatePaymentMethodResponse struct {

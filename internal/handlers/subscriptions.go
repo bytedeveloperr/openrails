@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/api/validation"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/message"
@@ -28,7 +27,8 @@ import (
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/subscribe [post]
 func (h *SubscriptionHandler) Subscribe(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &SubscribeRequest{})
+	var req SubscribeRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind subscribe request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -90,7 +90,8 @@ func (h *SubscriptionHandler) Subscribe(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/flexform [post]
 func (h *SubscriptionHandler) GenerateFlexFormURL(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &GenerateFlexFormURLRequest{})
+	var req GenerateFlexFormURLRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind flex form request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -199,7 +200,8 @@ func (h *SubscriptionHandler) GetSubscriptionStatus(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/subscription/history [get]
 func (h *SubscriptionHandler) GetSubscriptionHistory(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &GetSubscriptionHistoryRequest{})
+	var req GetSubscriptionHistoryRequest
+	err := c.ShouldBindQuery(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind subscription history request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))

@@ -11,12 +11,76 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/auth"
 	"github.com/doujins-org/doujins-billing/pkg/message"
 )
 
 // UserContextKey is the key for user context in gin.Context
 const UserContextKey = "user"
+
+// UserContext represents the authenticated user context
+type UserContext struct {
+	User struct {
+		ID       string   `json:"id"`
+		Email    string   `json:"email"`
+		Username string   `json:"username"`
+		Roles    []string `json:"roles"`
+	} `json:"user"`
+	SessionID string `json:"session_id"`
+	ExpiresAt int64  `json:"exp"`
+}
+
+// HasRole checks if the user has a specific role
+func (u *UserContext) HasRole(role string) bool {
+	for _, r := range u.User.Roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// ExtractUserContextFromClaims extracts user context from JWT claims
+func ExtractUserContextFromClaims(claims jwt.MapClaims) (*UserContext, error) {
+	userCtx := &UserContext{}
+	
+	// Extract user ID
+	if userID, ok := claims["sub"].(string); ok {
+		userCtx.User.ID = userID
+	}
+	
+	// Extract email
+	if email, ok := claims["email"].(string); ok {
+		userCtx.User.Email = email
+	}
+	
+	// Extract username
+	if username, ok := claims["username"].(string); ok {
+		userCtx.User.Username = username
+	}
+	
+	// Extract roles
+	if rolesInterface, ok := claims["roles"].([]interface{}); ok {
+		roles := make([]string, 0, len(rolesInterface))
+		for _, r := range rolesInterface {
+			if role, ok := r.(string); ok {
+				roles = append(roles, role)
+			}
+		}
+		userCtx.User.Roles = roles
+	}
+	
+	// Extract session ID
+	if sessionID, ok := claims["session_id"].(string); ok {
+		userCtx.SessionID = sessionID
+	}
+	
+	// Extract expiration
+	if exp, ok := claims["exp"].(float64); ok {
+		userCtx.ExpiresAt = int64(exp)
+	}
+	
+	return userCtx, nil
+}
 
 // AuthRequired middleware verifies JWT tokens and sets user context
 func AuthRequired(jwtConfig *config.JWTConfig) gin.HandlerFunc {
@@ -68,7 +132,7 @@ func AdminRequired() gin.HandlerFunc {
 			return
 		}
 
-		userCtx, ok := userCtxInterface.(*auth.UserContext)
+		userCtx, ok := userCtxInterface.(*UserContext)
 		if !ok {
 			c.JSON(http.StatusInternalServerError, message.Message("Invalid user context"))
 			c.Abort()
@@ -127,7 +191,7 @@ func OptionalAuth(jwtConfig *config.JWTConfig) gin.HandlerFunc {
 }
 
 // validateJWTToken parses and validates a JWT token
-func validateJWTToken(tokenString string, jwtConfig *config.JWTConfig) (*auth.UserContext, error) {
+func validateJWTToken(tokenString string, jwtConfig *config.JWTConfig) (*UserContext, error) {
 	// Parse token
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// Validate signing method
@@ -152,7 +216,7 @@ func validateJWTToken(tokenString string, jwtConfig *config.JWTConfig) (*auth.Us
 	}
 
 	// Extract user information from claims
-	userCtx, err := auth.ExtractUserContextFromClaims(claims)
+	userCtx, err := ExtractUserContextFromClaims(claims)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract user context: %w", err)
 	}
@@ -161,13 +225,13 @@ func validateJWTToken(tokenString string, jwtConfig *config.JWTConfig) (*auth.Us
 }
 
 // GetUserContext retrieves user context from gin.Context
-func GetUserContext(c *gin.Context) *auth.UserContext {
+func GetUserContext(c *gin.Context) *UserContext {
 	userCtxInterface, exists := c.Get(UserContextKey)
 	if !exists {
 		return nil
 	}
 
-	userCtx, ok := userCtxInterface.(*auth.UserContext)
+	userCtx, ok := userCtxInterface.(*UserContext)
 	if !ok {
 		return nil
 	}
@@ -176,7 +240,7 @@ func GetUserContext(c *gin.Context) *auth.UserContext {
 }
 
 // RequireUserContext ensures user context exists (helper for handlers)
-func RequireUserContext(c *gin.Context) (*auth.UserContext, bool) {
+func RequireUserContext(c *gin.Context) (*UserContext, bool) {
 	userCtx := GetUserContext(c)
 	if userCtx == nil {
 		c.JSON(http.StatusUnauthorized, message.Message("Authentication required"))

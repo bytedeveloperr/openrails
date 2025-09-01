@@ -100,14 +100,6 @@ func (c *CCBillClient) GenerateFlexFormURL(params *GenerateFlexFormURLParams) (*
 		"country":        {params.Country},
 	}
 
-	// Add success and decline URLs
-	if c.config.SuccessURL != "" {
-		q.Set("successURL", c.config.SuccessURL)
-	}
-	if c.config.DeclineURL != "" {
-		q.Set("declineURL", c.config.DeclineURL)
-	}
-
 	// Generate signature if salt is configured
 	if c.config.Salt != "" {
 		sigInput := url.Values{"username": {params.Username}}
@@ -118,11 +110,9 @@ func (c *CCBillClient) GenerateFlexFormURL(params *GenerateFlexFormURLParams) (*
 	flexFormURL := fmt.Sprintf("%s/%s?%s", baseURL, params.FlexID, q.Encode())
 
 	return &FlexFormResponse{
-		IFrameURL:  flexFormURL,
-		Width:      c.getConfigOrDefault(c.config.IFrameWidth, "100%"),
-		Height:     c.getConfigOrDefault(c.config.IFrameHeight, "600px"),
-		SuccessURL: c.config.SuccessURL,
-		DeclineURL: c.config.DeclineURL,
+		IFrameURL: flexFormURL,
+		Width:     c.getConfigOrDefault(c.config.IFrameWidth, "100%"),
+		Height:    c.getConfigOrDefault(c.config.IFrameHeight, "600px"),
 	}, nil
 }
 

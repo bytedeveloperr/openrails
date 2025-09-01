@@ -2,9 +2,6 @@ package handlers
 
 import (
 	"time"
-
-	"github.com/doujins-org/doujins-billing/internal/api/models"
-	"github.com/doujins-org/doujins-billing/internal/api/models/common"
 )
 
 // -------------------------------- Subscription Requests --------------------------------
@@ -24,7 +21,6 @@ type SubscribeBodyParams struct {
 }
 
 type SubscribeRequest struct {
-	models.BaseRequest
 	SubscribeBodyParams
 }
 
@@ -44,7 +40,6 @@ type GenerateFlexFormURLBodyParams struct {
 }
 
 type GenerateFlexFormURLRequest struct {
-	models.BaseRequest
 	GenerateFlexFormURLBodyParams
 }
 
@@ -53,13 +48,15 @@ func (r *GenerateFlexFormURLRequest) Body() any {
 }
 
 type GetSubscriptionHistoryQueryParams struct {
-	common.PaginationParams
+	Page     int    `form:"page" json:"page"`
+	PageSize int    `form:"page_size" json:"page_size"`
+	Sort     string `form:"sort" json:"sort"`
+	Order    string `form:"order" json:"order"`
 	StartDate *time.Time `form:"start_date" time_format:"2006-01-02"`
 	EndDate   *time.Time `form:"end_date" time_format:"2006-01-02"`
 }
 
 type GetSubscriptionHistoryRequest struct {
-	models.BaseRequest
 	GetSubscriptionHistoryQueryParams
 }
 
@@ -86,7 +83,6 @@ type CreatePaymentMethodBodyParams struct {
 }
 
 type CreatePaymentMethodRequest struct {
-	models.BaseRequest
 	CreatePaymentMethodBodyParams
 }
 
@@ -99,7 +95,6 @@ type ListPaymentMethodsQueryParams struct {
 }
 
 type ListPaymentMethodsRequest struct {
-	models.BaseRequest
 	ListPaymentMethodsQueryParams
 }
 
@@ -128,7 +123,6 @@ type UpdatePaymentMethodBodyParams struct {
 }
 
 type UpdatePaymentMethodRequest struct {
-	models.BaseRequest
 	UpdatePaymentMethodPathParams
 	UpdatePaymentMethodBodyParams
 }
@@ -146,7 +140,6 @@ type DeletePaymentMethodPathParams struct {
 }
 
 type DeletePaymentMethodRequest struct {
-	models.BaseRequest
 	DeletePaymentMethodPathParams
 }
 
@@ -159,7 +152,6 @@ type ActivatePaymentMethodPathParams struct {
 }
 
 type ActivatePaymentMethodRequest struct {
-	models.BaseRequest
 	ActivatePaymentMethodPathParams
 }
 
@@ -176,7 +168,6 @@ type GenerateQRBodyParams struct {
 }
 
 type GenerateQRRequest struct {
-	models.BaseRequest
 	GenerateQRBodyParams
 }
 
@@ -191,7 +182,6 @@ type GenerateTransactionBodyParams struct {
 }
 
 type GenerateTransactionRequest struct {
-	models.BaseRequest
 	GenerateTransactionBodyParams
 }
 
@@ -204,7 +194,6 @@ type SubmitTransactionBodyParams struct {
 }
 
 type SubmitTransactionRequest struct {
-	models.BaseRequest
 	SubmitTransactionBodyParams
 }
 
@@ -224,7 +213,6 @@ type ExtendSubscriptionBodyParams struct {
 }
 
 type ExtendSubscriptionRequest struct {
-	models.BaseRequest
 	ExtendSubscriptionPathParams
 	ExtendSubscriptionBodyParams
 }
@@ -246,7 +234,6 @@ type CancelSubscriptionBodyParams struct {
 }
 
 type CancelSubscriptionRequest struct {
-	models.BaseRequest
 	CancelSubscriptionPathParams
 	CancelSubscriptionBodyParams
 }
@@ -264,7 +251,6 @@ type GetSubscriptionDetailsPathParams struct {
 }
 
 type GetSubscriptionDetailsRequest struct {
-	models.BaseRequest
 	GetSubscriptionDetailsPathParams
 }
 
@@ -283,7 +269,6 @@ type ProcessRefundBodyParams struct {
 }
 
 type ProcessRefundRequest struct {
-	models.BaseRequest
 	ProcessRefundPathParams
 	ProcessRefundBodyParams
 }

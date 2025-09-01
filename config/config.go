@@ -10,8 +10,12 @@ type Config struct {
 	CCBill *CCBillConfig `json:"ccbill,omitempty"`
 	Solana *SolanaConfig `json:"solana,omitempty"`
 	DB     *DBConfig     `json:"db,omitempty"`
+	Redis  *RedisConfig  `json:"redis,omitempty"`
+	JWT    *JWTConfig    `json:"jwt,omitempty"`
 
-	RateLimits *RateLimitConfig `json:"rate_limits,omitempty"`
+	Env         string           `json:"env,omitempty"`
+	CorsOrigins []string         `json:"cors_origins,omitempty"`
+	RateLimits  *RateLimitConfig `json:"rate_limits,omitempty"`
 }
 
 type DBConfig struct {
@@ -52,10 +56,23 @@ type CCBillConfig struct {
 	WebhookIPs []string `koanf:"webhook_ips"`
 }
 
+type RedisConfig struct {
+	Host     string `koanf:"host"`
+	Port     int    `koanf:"port"`
+	Password string `koanf:"password"`
+	DB       int    `koanf:"db"`
+}
+
+type JWTConfig struct {
+	Secret string `koanf:"secret"`
+	Issuer string `koanf:"issuer"`
+}
+
 type SolanaConfig struct {
 	RPCEndpoint       string `json:"rpc_endpoint"`
 	Network           string `json:"network"` // mainnet, devnet, testnet
-	DestinationWallet string `json:"destination_wallet"`
+	RecipientWallet   string `json:"recipient_wallet"`
+	DestinationWallet string `json:"destination_wallet"` // Alias for RecipientWallet
 
 	SupportedTokens map[string]TokenConfig `json:"supported_tokens,omitempty"`
 

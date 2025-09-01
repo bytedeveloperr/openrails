@@ -7,7 +7,6 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/api/validation"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/message"
@@ -49,7 +48,8 @@ func (h *SolanaHandler) GetSupportedTokens(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/solana/qr [post]
 func (h *SolanaHandler) GenerateQR(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &GenerateQRRequest{})
+	var req GenerateQRRequest
+	err := c.ShouldBindQuery(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind generate QR request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -104,7 +104,8 @@ func (h *SolanaHandler) GenerateQR(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/solana/transaction [post]
 func (h *SolanaHandler) GenerateTransaction(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &GenerateTransactionRequest{})
+	var req GenerateTransactionRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind generate transaction request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
@@ -160,7 +161,8 @@ func (h *SolanaHandler) GenerateTransaction(c *gin.Context) {
 // @Failure 500 {object} message.MessageResponse "Internal server error"
 // @Router /billing/solana/submit [post]
 func (h *SolanaHandler) SubmitTransaction(c *gin.Context) {
-	req, err := validation.BindingInterface(c, &SubmitTransactionRequest{})
+	var req SubmitTransactionRequest
+	err := c.ShouldBindJSON(&req)
 	if err != nil {
 		log.WithError(err).Error("Failed to bind submit transaction request")
 		c.JSON(http.StatusBadRequest, message.Message("Invalid request"))
