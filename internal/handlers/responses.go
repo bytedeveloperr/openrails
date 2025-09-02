@@ -4,367 +4,364 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/query"
 )
 
-// -------------------------------- Subscription Responses --------------------------------
+type GetSubscriptionResponse = services.UserSubscriptionResponse
 
-type SubscribeResponse struct {
-	SubscriptionID string `json:"subscription_id"`
-	Status         string `json:"status"`
-	Message        string `json:"message"`
+type SubscribeResponse = services.SubscribeResponse
+
+type GetProductsResponse = []*services.PublicProductResponse
+
+func NewGetProductsResponse(products []*services.PublicProductResponse) GetProductsResponse {
+	return GetProductsResponse(products)
 }
 
-func NewSubscribeResponse(serviceResponse *services.SubscribeResponse) *SubscribeResponse {
-	return &SubscribeResponse{
-		SubscriptionID: serviceResponse.SubscriptionID,
-		Status:         serviceResponse.Status,
-		Message:        serviceResponse.Message,
-	}
+type PublicPriceResponse struct {
+	ID               string  `json:"id"`
+	Name             string  `json:"name"`
+	Amount           float64 `json:"amount"`
+	Currency         string  `json:"currency"`
+	BillingCycleDays int     `json:"billing_cycle_days"`
 }
 
-type ActiveSubscriptionResponse struct {
-	ID                    string     `json:"id"`
-	Status                string     `json:"status"`
-	Processor             string     `json:"processor"`
-	CurrentPeriodStartsAt *time.Time `json:"current_period_starts_at,omitempty"`
-	CurrentPeriodEndsAt   *time.Time `json:"current_period_ends_at,omitempty"`
-	PriceAmount           float64    `json:"price_amount"`
-	Currency              string     `json:"currency"`
-	BillingCycleDays      int        `json:"billing_cycle_days"`
+// (Removed) Mobius setup response and nonce: no longer needed because
+// the Collect.js tokenization key is injected into the frontend template.
+
+type GetSubscribePageDataResponse = map[string]any
+
+func NewGetSubscribePageDataResponse(data map[string]any) GetSubscribePageDataResponse {
+	return GetSubscribePageDataResponse(data)
 }
 
-func NewActiveSubscriptionResponse(subscription *services.UserSubscriptionResponse) *ActiveSubscriptionResponse {
-	if subscription == nil {
-		return nil
-	}
-	return &ActiveSubscriptionResponse{
-		ID:                    subscription.ID,
-		Status:                subscription.Status,
-		Processor:             subscription.Processor,
-		CurrentPeriodStartsAt: subscription.CurrentPeriodStartsAt,
-		CurrentPeriodEndsAt:   subscription.CurrentPeriodEndsAt,
-		PriceAmount:           subscription.PriceAmount,
-		Currency:              subscription.Currency,
-		BillingCycleDays:      subscription.BillingCycleDays,
-	}
-}
-
-type SubscriptionHistoryItem struct {
-	ID                    string     `json:"id"`
-	Status                string     `json:"status"`
-	Processor             string     `json:"processor"`
-	StartedAt             time.Time  `json:"started_at"`
-	EndedAt               *time.Time `json:"ended_at,omitempty"`
-	CurrentPeriodStartsAt *time.Time `json:"current_period_starts_at,omitempty"`
-	CurrentPeriodEndsAt   *time.Time `json:"current_period_ends_at,omitempty"`
-	PriceAmount           float64    `json:"price_amount"`
-	Currency              string     `json:"currency"`
-	BillingCycleDays      int        `json:"billing_cycle_days"`
-}
-
-type GetSubscriptionHistoryResponse = query.PaginatedResponse[*SubscriptionHistoryItem]
-type ListSubscriptionHistoryResponse = query.PaginatedResponse[*SubscriptionHistoryItem]
-
-func NewGetSubscriptionHistoryResponse(subscriptions []*services.UserSubscriptionResponse, page, pageSize int, totalItems int64) *GetSubscriptionHistoryResponse {
-	items := make([]*SubscriptionHistoryItem, len(subscriptions))
-	for i, sub := range subscriptions {
-		items[i] = &SubscriptionHistoryItem{
-			ID:                    sub.ID,
-			Status:                sub.Status,
-			Processor:             sub.Processor,
-			StartedAt:             sub.StartedAt,
-			EndedAt:               sub.EndedAt,
-			CurrentPeriodStartsAt: sub.CurrentPeriodStartsAt,
-			CurrentPeriodEndsAt:   sub.CurrentPeriodEndsAt,
-			PriceAmount:           sub.PriceAmount,
-			Currency:              sub.Currency,
-			BillingCycleDays:      sub.BillingCycleDays,
-		}
-	}
-	opts := query.QueryOptions[any]{Page: page, PageSize: pageSize}
-	resp := opts.PaginatedResponse(items, totalItems)
-	return &GetSubscriptionHistoryResponse{
-		Items:      items,
-		Page:       resp.Page,
-		PageSize:   resp.PageSize,
-		TotalItems: resp.TotalItems,
-		TotalPages: resp.TotalPages,
-		HasMore:    resp.HasMore,
-	}
+type CancelSubscriptionResponse struct {
+	Message string `json:"message"`
+	Success bool   `json:"success"`
 }
 
 type GenerateFlexFormURLResponse struct {
-	IFrameURL  string `json:"iframe_url"`
-	Width      string `json:"width"`
-	Height     string `json:"height"`
+	IFrameURL  string `json:"iframe_url" binding:"required"`
+	Width      string `json:"width" binding:"required"`
+	Height     string `json:"height" binding:"required"`
 	SuccessURL string `json:"success_url,omitempty"`
 	DeclineURL string `json:"decline_url,omitempty"`
 }
 
-func NewGenerateFlexFormURLResponse(serviceResponse *services.FlexFormURLResponse) *GenerateFlexFormURLResponse {
-	return &GenerateFlexFormURLResponse{
-		IFrameURL:  serviceResponse.IFrameURL,
-		Width:      serviceResponse.Width,
-		Height:     serviceResponse.Height,
-		SuccessURL: serviceResponse.SuccessURL,
-		DeclineURL: serviceResponse.DeclineURL,
-	}
+// -------------------------------- Enhanced Billing History Responses --------------------------------
+
+// SubscriptionHistoryItem represents a subscription record with price details
+type SubscriptionHistoryItem struct {
+	ID                      string                 `json:"id"`
+	Status                  string                 `json:"status"`
+	Processor               string                 `json:"processor"`
+	ProcessorSubscriptionID string                 `json:"processor_subscription_id"`
+	StartedAt               time.Time              `json:"started_at"`
+	EndedAt                 *time.Time             `json:"ended_at,omitempty"`
+	CurrentPeriodStartsAt   *time.Time             `json:"current_period_starts_at,omitempty"`
+	CurrentPeriodEndsAt     *time.Time             `json:"current_period_ends_at,omitempty"`
+	CancelledAt             *time.Time             `json:"cancelled_at,omitempty"`
+	CancelType              *string                `json:"cancel_type,omitempty"`
+	CancelFeedback          *string                `json:"cancel_feedback,omitempty"`
+	CreatedAt               time.Time              `json:"created_at"`
+	UpdatedAt               time.Time              `json:"updated_at"`
+	Price                   *PriceInfo             `json:"price,omitempty"`
+	PaymentMethod           *PaymentMethodInfo     `json:"payment_method,omitempty"`
+	Metadata                map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// -------------------------------- Payment Method Responses --------------------------------
-
-type PaymentMethodResponse struct {
-	ID               string    `json:"id"`
-	Processor        string    `json:"processor"`
-	IsActive         bool      `json:"is_active"`
-	CardLast4        string    `json:"card_last4,omitempty"`
-	CardType         string    `json:"card_type,omitempty"`
-	ExpirationMonth  int       `json:"expiration_month,omitempty"`
-	ExpirationYear   int       `json:"expiration_year,omitempty"`
-	BillingFirstName string    `json:"billing_first_name,omitempty"`
-	BillingLastName  string    `json:"billing_last_name,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
-	UpdatedAt        time.Time `json:"updated_at"`
+// PriceInfo represents price information for billing history
+type PriceInfo struct {
+	ID               string  `json:"id"`
+	Name             string  `json:"name"`
+	Amount           float64 `json:"amount"`
+	Currency         string  `json:"currency"`
+	BillingCycleDays int     `json:"billing_cycle_days"`
 }
 
-func NewPaymentMethodResponse(serviceResponse *services.PaymentMethodResponse) *PaymentMethodResponse {
-	return &PaymentMethodResponse{
-		ID:               serviceResponse.ID,
-		Processor:        serviceResponse.Processor,
-		IsActive:         serviceResponse.IsActive,
-		CardLast4:        serviceResponse.CardLast4,
-		CardType:         serviceResponse.CardType,
-		ExpirationMonth:  serviceResponse.ExpirationMonth,
-		ExpirationYear:   serviceResponse.ExpirationYear,
-		BillingFirstName: serviceResponse.BillingFirstName,
-		BillingLastName:  serviceResponse.BillingLastName,
-		CreatedAt:        serviceResponse.CreatedAt,
-		UpdatedAt:        serviceResponse.UpdatedAt,
-	}
+// PaymentMethodInfo represents payment method information for billing history
+type PaymentMethodInfo struct {
+	ID        string `json:"id"`
+	Processor string `json:"processor"`
+	IsActive  bool   `json:"is_active"`
 }
 
-type CreatePaymentMethodResponse struct {
-	PaymentMethod *PaymentMethodResponse `json:"payment_method"`
-	Message       string                 `json:"message"`
+// PaymentItem represents a canonical payment record from Postgres
+type PaymentItem struct {
+	ID              string     `json:"id"`
+	SubscriptionID  *string    `json:"subscription_id,omitempty"`
+	Processor       string     `json:"processor"`
+	TransactionID   string     `json:"transaction_id"`
+	Amount          float64    `json:"amount"`
+	Currency        string     `json:"currency"`
+	Price           *PriceInfo `json:"price,omitempty"`
+	ExtensionDays   *int       `json:"extension_days,omitempty"`
+	UserRoleGrantID *string    `json:"user_role_grant_id,omitempty"`
+	PurchasedAt     time.Time  `json:"purchased_at"`
 }
 
-func NewCreatePaymentMethodResponse(serviceResponse *services.PaymentMethodResponse, message string) *CreatePaymentMethodResponse {
-	return &CreatePaymentMethodResponse{
-		PaymentMethod: NewPaymentMethodResponse(serviceResponse),
-		Message:       message,
-	}
+// PaymentEventItem represents a payment transaction event
+type PaymentEventItem struct {
+	EventID                string                 `json:"event_id"`
+	SubscriptionID         *string                `json:"subscription_id,omitempty"`
+	EventType              string                 `json:"event_type"`
+	Processor              string                 `json:"processor"`
+	ProcessorTransactionID *string                `json:"processor_transaction_id,omitempty"`
+	Amount                 *float64               `json:"amount,omitempty"`
+	Currency               string                 `json:"currency"`
+	BillingInfo            map[string]interface{} `json:"billing_info,omitempty"`
+	WebhookSource          *string                `json:"webhook_source,omitempty"`
+	Metadata               map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp              time.Time              `json:"timestamp"`
+	CreatedAt              time.Time              `json:"created_at"`
 }
 
-type ListPaymentMethodsResponse = query.PaginatedResponse[*PaymentMethodResponse]
-
-func NewListPaymentMethodsResponse(paymentMethods []*services.PaymentMethodResponse, page, pageSize int, totalItems int64) *ListPaymentMethodsResponse {
-	items := make([]*PaymentMethodResponse, len(paymentMethods))
-	for i, pm := range paymentMethods {
-		items[i] = NewPaymentMethodResponse(pm)
-	}
-	opts := query.QueryOptions[any]{Page: page, PageSize: pageSize}
-	resp := opts.PaginatedResponse(items, totalItems)
-	return &GetSubscriptionHistoryResponse{
-		Items:      items,
-		Page:       resp.Page,
-		PageSize:   resp.PageSize,
-		TotalItems: resp.TotalItems,
-		TotalPages: resp.TotalPages,
-		HasMore:    resp.HasMore,
-	}
+// SubscriptionEventItem represents a subscription lifecycle event
+type SubscriptionEventItem struct {
+	EventID                 string                 `json:"event_id"`
+	SubscriptionID          string                 `json:"subscription_id"`
+	EventType               string                 `json:"event_type"`
+	Processor               string                 `json:"processor"`
+	ProcessorSubscriptionID *string                `json:"processor_subscription_id,omitempty"`
+	ProcessorTransactionID  *string                `json:"processor_transaction_id,omitempty"`
+	Amount                  *float64               `json:"amount,omitempty"`
+	Currency                string                 `json:"currency"`
+	Metadata                map[string]interface{} `json:"metadata,omitempty"`
+	Timestamp               time.Time              `json:"timestamp"`
+	CreatedAt               time.Time              `json:"created_at"`
 }
 
-type UpdatePaymentMethodResponse struct {
-	PaymentMethod *PaymentMethodResponse `json:"payment_method"`
-	Message       string                 `json:"message"`
+// BillingHistoryStats represents aggregated billing statistics
+type BillingHistoryStats struct {
+	TotalCharged       float64                       `json:"total_charged"`
+	TotalCharges       int                           `json:"total_charges"`
+	SuccessfulCharges  int                           `json:"successful_charges"`
+	FailedCharges      int                           `json:"failed_charges"`
+	Refunds            int                           `json:"refunds"`
+	TotalRefunded      float64                       `json:"total_refunded"`
+	FirstChargeDate    *time.Time                    `json:"first_charge_date,omitempty"`
+	LastChargeDate     *time.Time                    `json:"last_charge_date,omitempty"`
+	ProcessorBreakdown map[string]ProcessorStatsInfo `json:"processor_breakdown"`
 }
 
-func NewUpdatePaymentMethodResponse(serviceResponse *services.PaymentMethodResponse, message string) *UpdatePaymentMethodResponse {
-	return &UpdatePaymentMethodResponse{
-		PaymentMethod: NewPaymentMethodResponse(serviceResponse),
-		Message:       message,
-	}
+// ProcessorStatsInfo represents statistics for a specific payment processor
+type ProcessorStatsInfo struct {
+	TotalCharged      float64 `json:"total_charged"`
+	TotalCharges      int     `json:"total_charges"`
+	SuccessfulCharges int     `json:"successful_charges"`
+	FailedCharges     int     `json:"failed_charges"`
 }
 
-type DeletePaymentMethodResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
+// GetBillingHistoryResponse represents the enhanced billing history response
+type GetBillingHistoryResponse struct {
+	Subscriptions      []SubscriptionHistoryItem `json:"subscriptions"`
+	Payments           []PaymentItem             `json:"payments"`
+	PaymentEvents      []PaymentEventItem        `json:"payment_events,omitempty"`
+	SubscriptionEvents []SubscriptionEventItem   `json:"subscription_events,omitempty"`
+	Stats              *BillingHistoryStats      `json:"stats,omitempty"`
+	Page               int                       `json:"page"`
+	PageSize           int                       `json:"page_size"`
+	TotalItems         int64                     `json:"total_items"`
+	TotalPages         int                       `json:"total_pages"`
+	HasMore            bool                      `json:"has_more"`
 }
 
-func NewDeletePaymentMethodResponse(success bool, message string) *DeletePaymentMethodResponse {
-	return &DeletePaymentMethodResponse{
-		Success: success,
-		Message: message,
-	}
-}
+// NewGetBillingHistoryResponse creates a new billing history response
+// func NewGetBillingHistoryResponse(
+// 	subscriptions []models.Subscription,
+// 	payments []*models.Payment,
+// 	paymentEvents []services.BillingEvent,
+// 	subscriptionEvents []services.SubscriptionEvent,
+// 	stats *services.BillingHistoryStats,
+// 	page, pageSize int,
+// 	totalItems int64,
+// ) *GetBillingHistoryResponse {
+// 	// Calculate pagination
+// 	totalPages, hasMore := common.CalculatePagination(page, pageSize, totalItems)
 
-type ActivatePaymentMethodResponse struct {
-	PaymentMethod *PaymentMethodResponse `json:"payment_method"`
-	Message       string                 `json:"message"`
-}
+// 	// Convert subscriptions
+// 	subscriptionItems := make([]SubscriptionHistoryItem, len(subscriptions))
+// 	for i, sub := range subscriptions {
+// 		item := SubscriptionHistoryItem{
+// 			ID:                      sub.ID.String(),
+// 			Status:                  string(sub.Status),
+// 			Processor:               string(sub.Processor),
+// 			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
+// 			StartedAt:               sub.StartedAt,
+// 			EndedAt:                 sub.EndedAt,
+// 			CurrentPeriodStartsAt:   sub.CurrentPeriodStartsAt,
+// 			CurrentPeriodEndsAt:     sub.CurrentPeriodEndsAt,
+// 			CancelledAt:             sub.CancelledAt,
+// 			CreatedAt:               sub.CreatedAt,
+// 			UpdatedAt:               sub.UpdatedAt,
+// 		}
 
-func NewActivatePaymentMethodResponse(serviceResponse *services.PaymentMethodResponse, message string) *ActivatePaymentMethodResponse {
-	return &ActivatePaymentMethodResponse{
-		PaymentMethod: NewPaymentMethodResponse(serviceResponse),
-		Message:       message,
-	}
-}
+// 		if sub.CancelType != nil {
+// 			cancelType := string(*sub.CancelType)
+// 			item.CancelType = &cancelType
+// 		}
+// 		if sub.CancelFeedback != nil {
+// 			item.CancelFeedback = sub.CancelFeedback
+// 		}
 
-// -------------------------------- Solana Responses --------------------------------
+// 		// Include price information if available
+// 		if sub.Price != nil {
+// 			billingCycleDays := 0
+// 			if sub.Price.BillingCycleDays != nil {
+// 				billingCycleDays = *sub.Price.BillingCycleDays
+// 			}
+// 			item.Price = &PriceInfo{
+// 				ID:               sub.Price.ID.String(),
+// 				Name:             sub.Price.DisplayName,
+// 				Amount:           sub.Price.Amount,
+// 				Currency:         sub.Price.Currency,
+// 				BillingCycleDays: billingCycleDays,
+// 			}
+// 		}
 
-type SupportedTokenResponse struct {
-	Symbol       string `json:"symbol"`
-	Name         string `json:"name"`
-	Decimals     int    `json:"decimals"`
-	MintAddress  string `json:"mint_address"`
-	LogoURI      string `json:"logo_uri,omitempty"`
-	IsStablecoin bool   `json:"is_stablecoin"`
-}
+// 		// Include payment method information if available
+// 		if sub.PaymentMethod != nil {
+// 			item.PaymentMethod = &PaymentMethodInfo{
+// 				ID:        sub.PaymentMethod.ID.String(),
+// 				Processor: string(sub.PaymentMethod.Processor),
+// 				IsActive:  sub.PaymentMethod.IsActive,
+// 			}
+// 		}
 
-type GetSupportedTokensResponse struct {
-	Tokens []SupportedTokenResponse `json:"tokens"`
-}
+// 		// Parse metadata if available
+// 		if len(sub.Metadata) > 0 {
+// 			// Metadata is already a json.RawMessage, try to parse it
+// 			var metadata map[string]interface{}
+// 			if err := json.Unmarshal(sub.Metadata, &metadata); err == nil {
+// 				item.Metadata = metadata
+// 			}
+// 		}
 
-func NewGetSupportedTokensResponse(tokens []services.SupportedToken) *GetSupportedTokensResponse {
-	items := make([]SupportedTokenResponse, len(tokens))
-	for i, token := range tokens {
-		items[i] = SupportedTokenResponse{
-			Symbol:       token.Symbol,
-			Name:         token.Name,
-			Decimals:     token.Decimals,
-			MintAddress:  token.MintAddress,
-			LogoURI:      token.LogoURI,
-			IsStablecoin: token.IsStablecoin,
-		}
-	}
-	return &GetSupportedTokensResponse{
-		Tokens: items,
-	}
-}
+// 		subscriptionItems[i] = item
+// 	}
 
-type GenerateQRResponse struct {
-	URL         string  `json:"url"`
-	Amount      float64 `json:"amount"`
-	TokenAmount string  `json:"token_amount"`
-	TokenSymbol string  `json:"token_symbol"`
-	Label       string  `json:"label"`
-	Message     string  `json:"message"`
-	ExpiresAt   int64   `json:"expires_at"`
-}
+// 	// Convert payments (Postgres canonical)
+// 	paymentItems := make([]PaymentItem, 0, len(payments))
+// 	for _, p := range payments {
+// 		if p == nil {
+// 			continue
+// 		}
+// 		item := PaymentItem{
+// 			ID:             p.ID.String(),
+// 			SubscriptionID: nil,
+// 			Processor:      string(p.Processor),
+// 			TransactionID:  p.TransactionID,
+// 			Amount:         p.Amount,
+// 			Currency:       p.Currency,
+// 			PurchasedAt:    p.PurchasedAt,
+// 		}
+// 		if p.SubscriptionID != nil {
+// 			sid := p.SubscriptionID.String()
+// 			item.SubscriptionID = &sid
+// 		}
+// 		if p.ExtensionDays != nil {
+// 			item.ExtensionDays = p.ExtensionDays
+// 		}
+// 		if p.UserRoleGrantID != nil {
+// 			uid := p.UserRoleGrantID.String()
+// 			item.UserRoleGrantID = &uid
+// 		}
+// 		if p.Price != nil {
+// 			billingCycleDays := 0
+// 			if p.Price.BillingCycleDays != nil {
+// 				billingCycleDays = *p.Price.BillingCycleDays
+// 			}
+// 			item.Price = &PriceInfo{
+// 				ID:               p.Price.ID.String(),
+// 				Name:             p.Price.DisplayName,
+// 				Amount:           p.Price.Amount,
+// 				Currency:         p.Price.Currency,
+// 				BillingCycleDays: billingCycleDays,
+// 			}
+// 		}
+// 		paymentItems = append(paymentItems, item)
+// 	}
 
-func NewGenerateQRResponse(serviceResponse *services.QRCodeResponse) *GenerateQRResponse {
-	return &GenerateQRResponse{
-		URL:         serviceResponse.URL,
-		Amount:      serviceResponse.Amount,
-		TokenAmount: serviceResponse.TokenAmount,
-		TokenSymbol: serviceResponse.TokenSymbol,
-		Label:       serviceResponse.Label,
-		Message:     serviceResponse.Message,
-		ExpiresAt:   serviceResponse.ExpiresAt,
-	}
-}
+// 	// Convert payment events
+// 	var paymentEventItems []PaymentEventItem
+// 	if paymentEvents != nil {
+// 		paymentEventItems = make([]PaymentEventItem, len(paymentEvents))
+// 		for i, event := range paymentEvents {
+// 			paymentEventItems[i] = PaymentEventItem{
+// 				EventID:                event.EventID,
+// 				SubscriptionID:         event.SubscriptionID,
+// 				EventType:              event.EventType,
+// 				Processor:              event.Processor,
+// 				ProcessorTransactionID: event.ProcessorTransactionID,
+// 				Amount:                 event.Amount,
+// 				Currency:               event.Currency,
+// 				BillingInfo:            event.BillingInfo,
+// 				WebhookSource:          event.WebhookSource,
+// 				Metadata:               event.Metadata,
+// 				Timestamp:              event.Timestamp,
+// 				CreatedAt:              event.CreatedAt,
+// 			}
+// 		}
+// 	}
 
-type GenerateTransactionResponse struct {
-	Transaction string `json:"transaction"`
-	Message     string `json:"message"`
-}
+// 	// Convert subscription events
+// 	var subscriptionEventItems []SubscriptionEventItem
+// 	if subscriptionEvents != nil {
+// 		subscriptionEventItems = make([]SubscriptionEventItem, len(subscriptionEvents))
+// 		for i, event := range subscriptionEvents {
+// 			subscriptionEventItems[i] = SubscriptionEventItem{
+// 				EventID:                 event.EventID,
+// 				SubscriptionID:          event.SubscriptionID,
+// 				EventType:               event.EventType,
+// 				Processor:               event.Processor,
+// 				ProcessorSubscriptionID: event.ProcessorSubscriptionID,
+// 				ProcessorTransactionID:  event.ProcessorTransactionID,
+// 				Amount:                  event.Amount,
+// 				Currency:                event.Currency,
+// 				Metadata:                event.Metadata,
+// 				Timestamp:               event.Timestamp,
+// 				CreatedAt:               event.CreatedAt,
+// 			}
+// 		}
+// 	}
 
-func NewGenerateTransactionResponse(serviceResponse *services.TransactionResponse) *GenerateTransactionResponse {
-	return &GenerateTransactionResponse{
-		Transaction: serviceResponse.Transaction,
-		Message:     serviceResponse.Message,
-	}
-}
+// 	// Convert stats
+// 	var statsResponse *BillingHistoryStats
+// 	if stats != nil {
+// 		processorBreakdown := make(map[string]ProcessorStatsInfo)
+// 		for processor, processorStats := range stats.ProcessorBreakdown {
+// 			processorBreakdown[processor] = ProcessorStatsInfo{
+// 				TotalCharged:      processorStats.TotalCharged,
+// 				TotalCharges:      processorStats.TotalCharges,
+// 				SuccessfulCharges: processorStats.SuccessfulCharges,
+// 				FailedCharges:     processorStats.FailedCharges,
+// 			}
+// 		}
 
-type SubmitTransactionResponse struct {
-	PurchaseID    string `json:"purchase_id"`
-	TransactionID string `json:"transaction_id"`
-	Status        string `json:"status"`
-	Message       string `json:"message"`
-}
+// 		statsResponse = &BillingHistoryStats{
+// 			TotalCharged:       stats.TotalCharged,
+// 			TotalCharges:       stats.TotalCharges,
+// 			SuccessfulCharges:  stats.SuccessfulCharges,
+// 			FailedCharges:      stats.FailedCharges,
+// 			Refunds:            stats.Refunds,
+// 			TotalRefunded:      stats.TotalRefunded,
+// 			FirstChargeDate:    stats.FirstChargeDate,
+// 			LastChargeDate:     stats.LastChargeDate,
+// 			ProcessorBreakdown: processorBreakdown,
+// 		}
+// 	}
 
-func NewSubmitTransactionResponse(serviceResponse *services.TransactionSubmissionResponse) *SubmitTransactionResponse {
-	return &SubmitTransactionResponse{
-		PurchaseID:    serviceResponse.PurchaseID,
-		TransactionID: serviceResponse.TransactionID,
-		Status:        serviceResponse.Status,
-		Message:       serviceResponse.Message,
-	}
-}
+// 	return &GetBillingHistoryResponse{
+// 		Subscriptions:      subscriptionItems,
+// 		Payments:           paymentItems,
+// 		PaymentEvents:      paymentEventItems,
+// 		SubscriptionEvents: subscriptionEventItems,
+// 		Stats:              statsResponse,
+// 		Page:               page,
+// 		PageSize:           pageSize,
+// 		TotalItems:         totalItems,
+// 		TotalPages:         totalPages,
+// 		HasMore:            hasMore,
+// 	}
+// }
 
-// -------------------------------- Webhook Responses --------------------------------
-
-type ProcessWebhookResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	EventID string `json:"event_id,omitempty"`
-}
-
-func NewProcessWebhookResponse(serviceResponse *services.WebhookProcessResult) *ProcessWebhookResponse {
-	return &ProcessWebhookResponse{
-		Success: serviceResponse.Success,
-		Message: serviceResponse.Message,
-		EventID: serviceResponse.EventID,
-	}
-}
-
-// -------------------------------- Admin Responses --------------------------------
-
-type ExtendSubscriptionResponse struct {
-	SubscriptionID string     `json:"subscription_id"`
-	ExtendedUntil  *time.Time `json:"extended_until"`
-	Message        string     `json:"message"`
-}
-
-func NewExtendSubscriptionResponse(subscriptionID string, extendedUntil *time.Time, message string) *ExtendSubscriptionResponse {
-	return &ExtendSubscriptionResponse{
-		SubscriptionID: subscriptionID,
-		ExtendedUntil:  extendedUntil,
-		Message:        message,
-	}
-}
-
-type CancelSubscriptionResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-}
-
-func NewCancelSubscriptionResponse(success bool, message string) *CancelSubscriptionResponse {
-	return &CancelSubscriptionResponse{
-		Success: success,
-		Message: message,
-	}
-}
-
-type GetSubscriptionDetailsResponse struct {
-	Subscription  *ActiveSubscriptionResponse `json:"subscription"`
-	PaymentMethod *PaymentMethodResponse      `json:"payment_method,omitempty"`
-}
-
-func NewGetSubscriptionDetailsResponse(subscription *services.UserSubscriptionResponse, paymentMethod *services.PaymentMethodResponse) *GetSubscriptionDetailsResponse {
-	var pmResponse *PaymentMethodResponse
-	if paymentMethod != nil {
-		pmResponse = NewPaymentMethodResponse(paymentMethod)
-	}
-	return &GetSubscriptionDetailsResponse{
-		Subscription:  NewActiveSubscriptionResponse(subscription),
-		PaymentMethod: pmResponse,
-	}
-}
-
-type ProcessRefundResponse struct {
-	RefundID string  `json:"refund_id"`
-	Amount   float64 `json:"amount"`
-	Status   string  `json:"status"`
-	Message  string  `json:"message"`
-}
-
-func NewProcessRefundResponse(refundID string, amount float64, status, message string) *ProcessRefundResponse {
-	return &ProcessRefundResponse{
-		RefundID: refundID,
-		Amount:   amount,
-		Status:   status,
-		Message:  message,
-	}
-}
+// Type alias for admin endpoint (same structure)
+type GetUserBillingHistoryResponse = GetBillingHistoryResponse

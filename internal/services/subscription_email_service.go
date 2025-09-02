@@ -14,27 +14,27 @@ import (
 // SubscriptionEmailService handles subscription-related email notifications
 // This service is called directly by other services when subscription events occur
 type SubscriptionEmailService struct {
-	emailService     *EmailService
-	userRepository   *UserService // Unified repository
-	subscriptionRepo *SubscriptionService
-	productRepo      *ProductService
-	priceRepo        *PriceService
+	emailService        *EmailService
+	userServicesitory   *UserService // Unified repository
+	subscriptionService *SubscriptionService
+	productService      *ProductService
+	priceService        *PriceService
 }
 
 // NewSubscriptionEmailService creates a new subscription email service
 func NewSubscriptionEmailService(
 	emailService *EmailService,
-	userRepo *UserService,
-	subscriptionRepo *SubscriptionService,
-	productRepo *ProductService,
-	priceRepo *PriceService,
+	userService *UserService,
+	subscriptionService *SubscriptionService,
+	productService *ProductService,
+	priceService *PriceService,
 ) *SubscriptionEmailService {
 	return &SubscriptionEmailService{
-		emailService:     emailService,
-		userRepository:   userRepo,
-		subscriptionRepo: subscriptionRepo,
-		productRepo:      productRepo,
-		priceRepo:        priceRepo,
+		emailService:        emailService,
+		userServicesitory:   userService,
+		subscriptionService: subscriptionService,
+		productService:      productService,
+		priceService:        priceService,
 	}
 }
 
@@ -141,13 +141,13 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID uuid
 	}
 
 	// Get the user's active subscription
-	subscription, err := s.subscriptionRepo.GetActiveSubscription(ctx, userID)
+	subscription, err := s.subscriptionService.GetActiveSubscription(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active subscription: %w", err)
 	}
 
 	// Get the price details
-	price, err := s.priceRepo.GetByID(ctx, subscription.PriceID)
+	price, err := s.priceService.GetByID(ctx, subscription.PriceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get price: %w", err)
 	}
@@ -183,13 +183,13 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID uuid
 // getUserProfile gets user profile and validates email exists
 func (s *SubscriptionEmailService) getUserProfile(ctx context.Context, userID uuid.UUID) (*models.Profile, string, error) {
 	// Get user profile
-	profile, err := s.userRepository.GetByUserID(ctx, userID)
+	profile, err := s.userServicesitory.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get profile for user %s: %w", userID, err)
 	}
 
 	// Get user data including email
-	user, err := s.userRepository.GetByID(ctx, userID)
+	user, err := s.userServicesitory.GetByID(ctx, userID)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get user data for %s: %w", userID, err)
 	}

@@ -3,7 +3,12 @@ package config
 import (
 	"fmt"
 	"net/url"
+
+	"github.com/spf13/cobra"
 )
+
+const EnvProd string = "prod"
+const EnvDev string = "prod"
 
 type Config struct {
 	Mobius     *MobiusConfig     `json:"mobius,omitempty"`
@@ -59,8 +64,7 @@ type CCBillConfig struct {
 }
 
 type RedisConfig struct {
-	Host     string `koanf:"host"`
-	Port     int    `koanf:"port"`
+	Addr     string `koanf:"host"`
 	Password string `koanf:"password"`
 	DB       int    `koanf:"db"`
 }
@@ -247,4 +251,8 @@ func GetDefaultBillingConfig() *Config {
 			},
 		},
 	}
+}
+
+func Load(cmd *cobra.Command) (*Config, error) {
+	return nil, nil
 }

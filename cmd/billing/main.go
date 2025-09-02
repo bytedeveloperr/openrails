@@ -148,19 +148,9 @@ func runWorker(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create billing server: %w", err)
 	}
 
-	// Setup graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// Channel to receive OS signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	// Start background workers
-	log.Info("Starting billing service background workers...")
-	if err := billingServer.StartWorkers(ctx); err != nil {
-		return fmt.Errorf("failed to start workers: %w", err)
-	}
 
 	// Wait for interrupt signal
 	<-sigChan
@@ -169,11 +159,6 @@ func runWorker(cmd *cobra.Command, args []string) error {
 	// Graceful shutdown with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
-
-	// Stop workers
-	if err := billingServer.StopWorkers(shutdownCtx); err != nil {
-		log.WithError(err).Error("Error stopping workers")
-	}
 
 	// Cleanup resources
 	if err := billingServer.Close(shutdownCtx); err != nil {

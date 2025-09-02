@@ -765,26 +765,26 @@ func (e CCBillVoidEvent) GetClientSubacc() string          { return e.ClientSuba
 func (e CCBillVoidEvent) GetTimestamp() string             { return e.Timestamp }
 
 type GrantRoleForSubscriptionParams struct {
-	userID         uuid.UUID
-	subscriptionID uuid.UUID
-	price          *models.Price
-	product        *models.Product
-	paymentRepo    *PaymentService
-	extRepo        *UserRoleGrantExtensionService
-	processor      models.Processor
-	roleGrantRepo  *UserRoleGrantService
+	userID           uuid.UUID
+	subscriptionID   uuid.UUID
+	price            *models.Price
+	product          *models.Product
+	paymentService   *PaymentService
+	extService       *UserRoleGrantExtensionService
+	processor        models.Processor
+	roleGrantService *UserRoleGrantService
 }
 
 func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.Processor, price *models.Price, product *models.Product, db *db.DB) GrantRoleForSubscriptionParams {
 	return GrantRoleForSubscriptionParams{
-		price:          price,
-		userID:         userID,
-		product:        product,
-		processor:      processor,
-		subscriptionID: subscriptionID,
-		paymentRepo:    NewPaymentService(db),
-		extRepo:        NewUserRoleGrantExtensionService(db),
-		roleGrantRepo:  NewUserRoleGrantService(db),
+		price:            price,
+		userID:           userID,
+		product:          product,
+		processor:        processor,
+		subscriptionID:   subscriptionID,
+		paymentService:   NewPaymentService(db),
+		extService:       NewUserRoleGrantExtensionService(db),
+		roleGrantService: NewUserRoleGrantService(db),
 	}
 }
 
@@ -792,8 +792,8 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 	price := params.price
 	userID := params.userID
 	product := params.product
-	paymentRepo := params.paymentRepo
-	roleGrantRepo := params.roleGrantRepo
+	paymentService := params.paymentService
+	roleGrantService := params.roleGrantService
 	subscriptionID := params.subscriptionID
 
 	if product.RoleID == nil {
@@ -814,7 +814,7 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 	// Compute using extensions table: sum grace after last real payment
 	var extensionDaysFinal = extensionDays
 	if subscriptionID != uuid.Nil {
-		db := paymentRepo.GetDB().GetDB()
+		db := paymentService.GetDB().GetDB()
 		var lastPaidAt *time.Time
 		_ = db.NewSelect().
 			ColumnExpr("MAX(purchased_at)").
@@ -824,7 +824,7 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 			Scan(ctx, &lastPaidAt)
 		var graceSum int
 		var err error
-		graceSum, err = params.extRepo.SumGraceSince(ctx, subscriptionID, lastPaidAt)
+		graceSum, err = params.extService.SumGraceSince(ctx, subscriptionID, lastPaidAt)
 		if err == nil && graceSum > 0 {
 			if graceSum >= extensionDaysFinal {
 				extensionDaysFinal = 0
@@ -851,13 +851,13 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 	// Link to the subscription explicitly
 	payment.SubscriptionID = &subscriptionID
 
-	grant, _, err := roleGrantRepo.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDaysFinal)
+	grant, _, err := roleGrantService.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDaysFinal)
 	if err != nil {
 		return fmt.Errorf("failed to extend role expiration: %w", err)
 	}
 
 	payment.UserRoleGrantID = &grant.ID
-	if err := paymentRepo.Create(ctx, payment); err != nil {
+	if err := paymentService.Create(ctx, payment); err != nil {
 		return fmt.Errorf("failed to create purchase event: %w", err)
 	}
 

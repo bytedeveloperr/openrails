@@ -13,17 +13,17 @@ import (
 
 // NotificationService handles both db storage and immediate external delivery
 type NotificationService struct {
-	notificationRepo     *NotificationQueueService
+	notificationService  *NotificationQueueService
 	subscriptionEmailSvc *SubscriptionEmailService
 }
 
 // NewNotificationService creates a new notification service
 func NewNotificationService(
-	notificationRepo *NotificationQueueService,
+	notificationService *NotificationQueueService,
 	subscriptionEmailSvc *SubscriptionEmailService,
 ) *NotificationService {
 	return &NotificationService{
-		notificationRepo:     notificationRepo,
+		notificationService:  notificationService,
 		subscriptionEmailSvc: subscriptionEmailSvc,
 	}
 }
@@ -37,7 +37,7 @@ func (s *NotificationService) CreateAndDeliver(ctx context.Context, notification
 	}
 
 	// 2. Store in db
-	if err := s.notificationRepo.Create(ctx, notification); err != nil {
+	if err := s.notificationService.Create(ctx, notification); err != nil {
 		log.WithContext(ctx).WithError(err).Error("failed to create notification in db")
 		return fmt.Errorf("failed to create notification: %w", err)
 	}
@@ -161,7 +161,7 @@ func (s *NotificationService) cleanupObsoleteNotifications(ctx context.Context, 
 func (s *NotificationService) removeObsoleteNotifications(ctx context.Context, userID uuid.UUID, eventTypes []models.NotificationEventType) (int, error) {
 	// Get unseen notifications for this user that match the obsolete types
 	falseVal := false
-	notifications, _, err := s.notificationRepo.GetNotifications(ctx, query.QueryOptions[GetNotificationsFilters]{
+	notifications, _, err := s.notificationService.GetNotifications(ctx, query.QueryOptions[GetNotificationsFilters]{
 		Filters: GetNotificationsFilters{
 			UserID: userID,
 			Seen:   &falseVal, // Only unseen notifications
@@ -178,7 +178,7 @@ func (s *NotificationService) removeObsoleteNotifications(ctx context.Context, u
 		// Check if this notification's type is in the obsolete list
 		for _, obsoleteType := range eventTypes {
 			if notification.EventType == obsoleteType {
-				if err := s.notificationRepo.Delete(ctx, notification.ID); err != nil {
+				if err := s.notificationService.Delete(ctx, notification.ID); err != nil {
 					log.WithContext(ctx).WithError(err).WithFields(log.Fields{
 						"notification_id": notification.ID,
 						"event_type":      notification.EventType,

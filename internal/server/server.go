@@ -16,6 +16,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/internal/state"
 	"github.com/doujins-org/doujins-billing/pkg/cache"
 )
 
@@ -26,6 +27,8 @@ type Server struct {
 	// Database and cache
 	db    *db.DB
 	cache cache.Cache
+
+	state *state.State
 
 	// External integrations
 	mobiusClient *mobius.MobiusClient
@@ -59,7 +62,7 @@ func New(cfg *config.Config) (*Server, error) {
 	if cfg.Redis != nil {
 		// Create Redis client from config
 		redisClient := redis.NewClient(&redis.Options{
-			Addr:     fmt.Sprintf("%s:%d", cfg.Redis.Host, cfg.Redis.Port),
+			Addr:     cfg.Redis.Addr,
 			Password: cfg.Redis.Password,
 			DB:       cfg.Redis.DB,
 		})
@@ -117,62 +120,29 @@ func (s *Server) setupHandlers() {
 	privateRouter.Use(middleware.InternalOnly()) // Restrict to internal network
 
 	// Initialize handlers
-	subscriptionHandler := handlers.NewSubscriptionHandler(s.subscriptionService, nil)
-	adminHandler := handlers.NewAdminHandler(s.subscriptionService)
-
-	s.setupPublicRoutes(publicRouter, subscriptionHandler, nil, nil, nil)
-	s.setupPrivateRoutes(privateRouter, adminHandler, subscriptionHandler)
 
 	s.publicHandler = publicRouter
 	s.privateHandler = privateRouter
 }
 
 // setupPublicRoutes configures routes for the public listener
-func (s *Server) setupPublicRoutes(router *gin.Engine, subscriptionHandler *handlers.SubscriptionHandler, paymentMethodHandler *handlers.PaymentMethodHandler, solanaHandler *handlers.SolanaHandler, webhookHandler *handlers.WebhookHandler) {
+func (s *Server) setupPublicRoutes(router *gin.Engine) {
 	api := router.Group("/api/v1")
 
 	// Subscription routes (authenticated)
 	subscriptions := api.Group("/subscriptions")
 	subscriptions.Use(middleware.AuthRequired(s.cfg.JWT))
 	{
-		subscriptions.POST("/:processor", subscriptionHandler.Subscribe)
-		subscriptions.POST("/ccbill/flexform-url", subscriptionHandler.GenerateFlexFormURL)
-		subscriptions.GET("/active", subscriptionHandler.GetActiveSubscription)
-		subscriptions.GET("/:id/status", subscriptionHandler.GetSubscriptionStatus)
-		subscriptions.GET("/history", subscriptionHandler.GetSubscriptionHistory)
-	}
-
-	// Payment methods (authenticated)
-	paymentMethods := api.Group("/user/payment-methods")
-	paymentMethods.Use(middleware.AuthRequired(s.cfg.JWT))
-	{
-		paymentMethods.POST("", paymentMethodHandler.CreatePaymentMethod)
-		paymentMethods.GET("", paymentMethodHandler.ListPaymentMethods)
-		paymentMethods.PUT("/:id", paymentMethodHandler.UpdatePaymentMethod)
-		paymentMethods.POST("/:id/activate", paymentMethodHandler.ActivatePaymentMethod)
-		paymentMethods.DELETE("/:id", paymentMethodHandler.DeletePaymentMethod)
-	}
-
-	// Solana payment routes
-	solana := api.Group("/payment/solana")
-	{
-		// Public routes
-		solana.GET("/tokens", solanaHandler.GetSupportedTokens)
-		solana.GET("/qr", solanaHandler.GenerateQR)
-
-		// Authenticated routes
-		authenticated := solana.Group("")
-		authenticated.Use(middleware.AuthRequired(s.cfg.JWT))
-		{
-			authenticated.POST("/generate", solanaHandler.GenerateTransaction)
-			authenticated.POST("/submit", solanaHandler.SubmitTransaction)
-		}
+		subscriptions.POST("/:processor", s.wrap(handlers.Subscribe))
+		subscriptions.POST("/ccbill/flexform-url", s.wrap(handlers.GenerateFlexFormURL))
+		subscriptions.GET("/active", s.wrap(handlers.GetSubscription))
+		subscriptions.GET("/history", s.wrap(handlers.GetSubscriptionHistory))
 	}
 
 	// Webhook routes (public, but with signature verification)
 	webhooks := api.Group("/subscriptions/webhook")
 	{
-		webhooks.POST("/:processor", webhookHandler.ProcessWebhook)
+		webhooks.POST("/:processor", s.wrap(handlers.Webhook))
 	}
 
 	// Health check
@@ -182,23 +152,29 @@ func (s *Server) setupPublicRoutes(router *gin.Engine, subscriptionHandler *hand
 }
 
 // setupPrivateRoutes configures routes for the private listener (api-server only)
-func (s *Server) setupPrivateRoutes(router *gin.Engine, adminHandler *handlers.AdminHandler, subscriptionHandler *handlers.SubscriptionHandler) {
+func (s *Server) setupPrivateRoutes(router *gin.Engine) {
 	api := router.Group("/api/v1")
 
 	// Admin-only routes
 	admin := api.Group("")
 	admin.Use(middleware.AdminRequired())
 	{
-		admin.PUT("/subscriptions/:id/extend", adminHandler.ExtendSubscription)
-		admin.POST("/subscriptions/:id/cancel", adminHandler.CancelSubscription)
-		admin.GET("/subscriptions/:id/details", adminHandler.GetSubscriptionDetails)
-		admin.POST("/subscriptions/:id/refund", adminHandler.ProcessRefund)
+		admin.PUT("/subscriptions/:id/extend", s.wrap(handlers.ExtendSubscription))
+		admin.POST("/subscriptions/:id/cancel", s.wrap(handlers.CancelSubscription))
+		admin.GET("/subscriptions/:id/details", s.wrap(handlers.GetSubscription))
+
 	}
 
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing-private"})
 	})
+}
+
+func (s *Server) wrap(fn func(r *handlers.Request)) func(c *gin.Context) {
+	return func(c *gin.Context) {
+		fn(handlers.NewRequest(c, s.state))
+	}
 }
 
 // PublicHandler returns the public HTTP handler

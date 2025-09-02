@@ -32,7 +32,7 @@ func (j Json) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 
 // Message creates a unified message response structure with consistent "message" field.
 // This ensures all responses across the application use the same JSON structure
-// as the existing api.Request.ErrorJSON() method.
+// as the existing Request.ErrorJSON() method.
 //
 // Usage: c.JSON(http.StatusBadRequest, json.Message("Invalid request"))
 func Message(message string) Json {

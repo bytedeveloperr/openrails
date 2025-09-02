@@ -89,7 +89,7 @@ type SubscribeResponse struct {
 	SubscriptionID string `json:"subscription_id,omitempty"`
 }
 
-func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData, user *types.User) (any, error) {
+func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData, user *models.User) (any, error) {
 	// Get price and product information
 	priceID, err := uuid.Parse(data.PriceID)
 	if err != nil {
@@ -145,7 +145,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			PlanID:       *price.MobiusPlanID, // Use price's Mobius plan ID
 			Amount:       price.Amount,        // Use price amount
 			Currency:     price.Currency,      // Use price currency
-			Email:        user.Email,
+			Email:        *user.Email,
 			PaymentToken: data.PaymentToken, // CollectJS payment token
 		}
 

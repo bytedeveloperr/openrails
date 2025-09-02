@@ -8,9 +8,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/config"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/pkg/message"
 )
 
@@ -19,14 +21,9 @@ const UserContextKey = "user"
 
 // UserContext represents the authenticated user context
 type UserContext struct {
-	User struct {
-		ID       string   `json:"id"`
-		Email    string   `json:"email"`
-		Username string   `json:"username"`
-		Roles    []string `json:"roles"`
-	} `json:"user"`
-	SessionID string `json:"session_id"`
-	ExpiresAt int64  `json:"exp"`
+	User      *models.User `json:"user"`
+	SessionID string       `json:"session_id"`
+	ExpiresAt int64        `json:"exp"`
 }
 
 // HasRole checks if the user has a specific role
@@ -45,12 +42,12 @@ func ExtractUserContextFromClaims(claims jwt.MapClaims) (*UserContext, error) {
 
 	// Extract user ID
 	if userID, ok := claims["sub"].(string); ok {
-		userCtx.User.ID = userID
+		userCtx.User.ID = uuid.MustParse(userID)
 	}
 
 	// Extract email
 	if email, ok := claims["email"].(string); ok {
-		userCtx.User.Email = email
+		userCtx.User.Email = &email
 	}
 
 	// Extract username

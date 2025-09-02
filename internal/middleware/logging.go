@@ -25,23 +25,23 @@ func Logger() gin.HandlerFunc {
 				requestID = id.(string)
 			}
 		}
-		
+
 		// Log to structured logger
 		fields := log.Fields{
-			"method":      param.Method,
-			"path":        param.Path,
-			"status":      param.StatusCode,
-			"latency":     param.Latency,
-			"client_ip":   param.ClientIP,
-			"user_agent":  param.Request.UserAgent(),
-			"request_id":  requestID,
+			"method":     param.Method,
+			"path":       param.Path,
+			"status":     param.StatusCode,
+			"latency":    param.Latency,
+			"client_ip":  param.ClientIP,
+			"user_agent": param.Request.UserAgent(),
+			"request_id": requestID,
 		}
-		
+
 		// Add error information if present
 		if param.ErrorMessage != "" {
 			fields["error"] = param.ErrorMessage
 		}
-		
+
 		// Log at different levels based on status code
 		switch {
 		case param.StatusCode >= 500:
@@ -53,7 +53,7 @@ func Logger() gin.HandlerFunc {
 		default:
 			log.WithFields(fields).Info("HTTP request completed successfully")
 		}
-		
+
 		// Return empty string as we're using structured logging
 		return ""
 	})
@@ -68,16 +68,16 @@ func RequestID() gin.HandlerFunc {
 			// Generate new UUID for request ID
 			requestID = uuid.New().String()
 		}
-		
+
 		// Set request ID in context and headers
 		c.Set(RequestIDKey, requestID)
 		c.Header("X-Request-ID", requestID)
-		
+
 		// Add to request context for downstream services
 		ctx := c.Request.Context()
 		ctx = context.WithValue(ctx, "request_id", requestID)
 		c.Request = c.Request.WithContext(ctx)
-		
+
 		c.Next()
 	}
 }
@@ -97,76 +97,76 @@ func (r *responseBodyWriter) Write(b []byte) (int, error) {
 func BillingAuditLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
-		
+
 		// Capture request body for sensitive operations
 		var requestBody []byte
 		if shouldLogRequestBody(c) {
 			requestBody, _ = io.ReadAll(c.Request.Body)
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
 		}
-		
+
 		// Capture response body for audit purposes
 		var responseWriter *responseBodyWriter
 		if shouldLogResponseBody(c) {
 			responseWriter = &responseBodyWriter{
 				ResponseWriter: c.Writer,
-				body:          bytes.NewBufferString(""),
+				body:           bytes.NewBufferString(""),
 			}
 			c.Writer = responseWriter
 		}
-		
+
 		c.Next()
-		
+
 		// Log detailed audit information for billing operations
 		if isBillingOperation(c) {
 			fields := log.Fields{
-				"operation":     getBillingOperation(c),
-				"method":        c.Request.Method,
-				"path":          c.Request.URL.Path,
-				"status_code":   c.Writer.Status(),
-				"duration_ms":   time.Since(start).Milliseconds(),
-				"client_ip":     getClientIP(c),
-				"user_agent":    c.Request.UserAgent(),
-				"content_type":  c.GetHeader("Content-Type"),
+				"operation":    getBillingOperation(c),
+				"method":       c.Request.Method,
+				"path":         c.Request.URL.Path,
+				"status_code":  c.Writer.Status(),
+				"duration_ms":  time.Since(start).Milliseconds(),
+				"client_ip":    getClientIP(c),
+				"user_agent":   c.Request.UserAgent(),
+				"content_type": c.GetHeader("Content-Type"),
 			}
-			
+
 			// Add request ID
 			if requestID, exists := c.Get(RequestIDKey); exists {
 				fields["request_id"] = requestID
 			}
-			
+
 			// Add user information if available
 			if userCtx := GetUserContext(c); userCtx != nil {
 				fields["user_id"] = userCtx.User.ID
-				if userCtx.User.Email != "" {
+				if userCtx.User.Email != nil {
 					fields["user_email"] = userCtx.User.Email
 				}
 			}
-			
+
 			// Add processor information if present in path
 			if processor := extractProcessor(c.Request.URL.Path); processor != "" {
 				fields["processor"] = processor
 			}
-			
+
 			// Log request body for POST/PUT operations (excluding sensitive fields)
 			if len(requestBody) > 0 {
 				if sanitizedBody := sanitizeRequestBody(requestBody); sanitizedBody != "" {
 					fields["request_body"] = sanitizedBody
 				}
 			}
-			
+
 			// Log response body for audit (excluding sensitive information)
 			if responseWriter != nil && responseWriter.body.Len() > 0 {
 				if sanitizedResponse := sanitizeResponseBody(responseWriter.body.Bytes()); sanitizedResponse != "" {
 					fields["response_body"] = sanitizedResponse
 				}
 			}
-			
+
 			// Add error information if present
 			if len(c.Errors) > 0 {
 				fields["errors"] = c.Errors.String()
 			}
-			
+
 			log.WithFields(fields).Info("Billing operation audit log")
 		}
 	}
@@ -176,42 +176,42 @@ func BillingAuditLog() gin.HandlerFunc {
 func shouldLogRequestBody(c *gin.Context) bool {
 	path := c.Request.URL.Path
 	method := c.Request.Method
-	
+
 	// Log request body for sensitive operations
 	return (method == http.MethodPost || method == http.MethodPut) &&
 		(contains(path, "/subscriptions/") ||
-		 contains(path, "/payment-methods/") ||
-		 contains(path, "/webhook/") ||
-		 contains(path, "/solana/"))
+			contains(path, "/payment-methods/") ||
+			contains(path, "/webhook/") ||
+			contains(path, "/solana/"))
 }
 
 // shouldLogResponseBody determines if response body should be captured for audit
 func shouldLogResponseBody(c *gin.Context) bool {
 	path := c.Request.URL.Path
-	
+
 	// Log response body for critical operations
 	return contains(path, "/subscriptions/") ||
-		   contains(path, "/payment-methods/") ||
-		   contains(path, "/solana/generate") ||
-		   contains(path, "/solana/submit")
+		contains(path, "/payment-methods/") ||
+		contains(path, "/solana/generate") ||
+		contains(path, "/solana/submit")
 }
 
 // isBillingOperation checks if the request is a billing-related operation
 func isBillingOperation(c *gin.Context) bool {
 	path := c.Request.URL.Path
-	
+
 	return contains(path, "/subscriptions/") ||
-		   contains(path, "/payment-methods/") ||
-		   contains(path, "/webhook/") ||
-		   contains(path, "/solana/") ||
-		   contains(path, "/billing/")
+		contains(path, "/payment-methods/") ||
+		contains(path, "/webhook/") ||
+		contains(path, "/solana/") ||
+		contains(path, "/billing/")
 }
 
 // getBillingOperation extracts the billing operation type from the request
 func getBillingOperation(c *gin.Context) string {
 	path := c.Request.URL.Path
 	method := c.Request.Method
-	
+
 	switch {
 	case contains(path, "/subscriptions/") && method == http.MethodPost:
 		return "subscription_create"
@@ -268,7 +268,7 @@ func sanitizeResponseBody(body []byte) string {
 
 // contains checks if a string contains a substring
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) && 
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || 
-		 bytes.Contains([]byte(s), []byte(substr)))))
+	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) &&
+		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
+			bytes.Contains([]byte(s), []byte(substr)))))
 }
