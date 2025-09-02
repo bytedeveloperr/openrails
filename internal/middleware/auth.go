@@ -42,22 +42,22 @@ func (u *UserContext) HasRole(role string) bool {
 // ExtractUserContextFromClaims extracts user context from JWT claims
 func ExtractUserContextFromClaims(claims jwt.MapClaims) (*UserContext, error) {
 	userCtx := &UserContext{}
-	
+
 	// Extract user ID
 	if userID, ok := claims["sub"].(string); ok {
 		userCtx.User.ID = userID
 	}
-	
+
 	// Extract email
 	if email, ok := claims["email"].(string); ok {
 		userCtx.User.Email = email
 	}
-	
+
 	// Extract username
 	if username, ok := claims["username"].(string); ok {
 		userCtx.User.Username = username
 	}
-	
+
 	// Extract roles
 	if rolesInterface, ok := claims["roles"].([]interface{}); ok {
 		roles := make([]string, 0, len(rolesInterface))
@@ -68,17 +68,17 @@ func ExtractUserContextFromClaims(claims jwt.MapClaims) (*UserContext, error) {
 		}
 		userCtx.User.Roles = roles
 	}
-	
+
 	// Extract session ID
 	if sessionID, ok := claims["session_id"].(string); ok {
 		userCtx.SessionID = sessionID
 	}
-	
+
 	// Extract expiration
 	if exp, ok := claims["exp"].(float64); ok {
 		userCtx.ExpiresAt = int64(exp)
 	}
-	
+
 	return userCtx, nil
 }
 

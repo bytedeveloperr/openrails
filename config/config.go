@@ -6,12 +6,14 @@ import (
 )
 
 type Config struct {
-	Mobius *MobiusConfig `json:"mobius,omitempty"`
-	CCBill *CCBillConfig `json:"ccbill,omitempty"`
-	Solana *SolanaConfig `json:"solana,omitempty"`
-	DB     *DBConfig     `json:"db,omitempty"`
-	Redis  *RedisConfig  `json:"redis,omitempty"`
-	JWT    *JWTConfig    `json:"jwt,omitempty"`
+	Mobius     *MobiusConfig     `json:"mobius,omitempty"`
+	CCBill     *CCBillConfig     `json:"ccbill,omitempty"`
+	Solana     *SolanaConfig     `json:"solana,omitempty"`
+	DB         *DBConfig         `json:"db,omitempty"`
+	Redis      *RedisConfig      `json:"redis,omitempty"`
+	JWT        *JWTConfig        `json:"jwt,omitempty"`
+	ClickHouse *ClickHouseConfig `json:"clickhouse,omitempty"`
+	SendGrid   *SendGridConfig   `json:"sendgrid,omitempty"`
 
 	Env         string           `json:"env,omitempty"`
 	CorsOrigins []string         `json:"cors_origins,omitempty"`
@@ -97,6 +99,19 @@ type RateLimitConfig struct {
 	WebhookLimit   *RateLimit `json:"webhook_limit,omitempty"`   // POST /webhooks/*
 	PaymentLimit   *RateLimit `json:"payment_limit,omitempty"`   // Payment method operations
 	DefaultLimit   *RateLimit `json:"default_limit,omitempty"`   // Default for other endpoints
+}
+
+type ClickHouseConfig struct {
+	ServerURL string `koanf:"server_url"` // HTTP URL for ClickHouse server (e.g., http://localhost:8123)
+	Database  string `koanf:"database"`   // ClickHouse database name (e.g., analytics)
+	Username  string `koanf:"username"`   // Optional username for authentication
+	Password  string `koanf:"password"`   // Optional password for authentication
+}
+
+type SendGridConfig struct {
+	APIKey    string `koanf:"api_key"`
+	FromEmail string `koanf:"from_email"`
+	FromName  string `koanf:"from_name"`
 }
 
 // RateLimit defines a rate limit policy

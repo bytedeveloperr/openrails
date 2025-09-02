@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"github.com/uptrace/bun"
 )
 
-// Subscription helper functions (moved from database model to service layer)
+// Subscription helper functions (moved from db model to service layer)
 
 // IsExpired checks if a subscription has expired
 func IsExpired(s *models.Subscription) bool {
@@ -20,9 +22,9 @@ func IsExpired(s *models.Subscription) bool {
 // -------------------------------- Mobius Webhook Types --------------------------------
 
 type MobiusWebhookEvent struct {
-	EventID string `json:"event_id" validate:"required"`
-	// EventType MobiusWebhookEventType `json:"event_type" validate:"required"`
-	EventBody MobiusEventBody `json:"event_body" validate:"required"`
+	EventID   string                 `json:"event_id" validate:"required"`
+	EventType MobiusWebhookEventType `json:"event_type" validate:"required"`
+	EventBody MobiusEventBody        `json:"event_body" validate:"required"`
 }
 
 type MobiusEventBody struct {
@@ -30,6 +32,7 @@ type MobiusEventBody struct {
 	AttemptedPayments int                   `json:"attempted_payments"`
 	CompletedPayments int                   `json:"completed_payments"`
 	BillingAddress    *MobiusBillingAddress `json:"billing_address"`
+	Card              *MobiusCard           `json:"card"`
 	Features          *MobiusFeatures       `json:"features"`
 	Merchant          *MobiusMerchant       `json:"merchant"`
 	NextChargeDate    string                `json:"next_charge_date"`
@@ -72,6 +75,25 @@ type MobiusBillingAddress struct {
 	State      string `json:"state"`
 }
 
+type MobiusCard struct {
+	AVSResponse          string `json:"avs_response"`
+	CardAvailableBalance string `json:"card_available_balance"`
+	CardBalance          string `json:"card_balance"`
+	CardholderAuth       string `json:"cardholder_auth"`
+	CAVV                 string `json:"cavv"`
+	CAVVResult           string `json:"cavv_result"`
+	CCBin                string `json:"cc_bin"`
+	CCExp                string `json:"cc_exp"`
+	CCIssueNumber        string `json:"cc_issue_number"`
+	CCNumber             string `json:"cc_number"`
+	CCStartDate          string `json:"cc_start_date"`
+	CCType               string `json:"cc_type"`
+	CSCResponse          string `json:"csc_response"`
+	ECI                  string `json:"eci"`
+	EntryMode            string `json:"entry_mode"`
+	XID                  string `json:"xid"`
+}
+
 type MobiusMerchant struct {
 	ID   string `json:"id" validate:"required"`
 	Name string `json:"name" validate:"required"`
@@ -94,7 +116,7 @@ type MobiusFeatures struct {
 // -------------------------------- CCBill Webhook Types --------------------------------
 
 type CCBillWebhookEvent struct {
-	// EventType CCBillWebhookEventType
+	EventType CCBillWebhookEventType
 	EventBody []byte
 	Version   string // Detected or provided webhook version
 }
@@ -742,29 +764,27 @@ func (e CCBillVoidEvent) GetClientAccnum() string          { return e.ClientAccn
 func (e CCBillVoidEvent) GetClientSubacc() string          { return e.ClientSubacc }
 func (e CCBillVoidEvent) GetTimestamp() string             { return e.Timestamp }
 
-// RoleGrantService interface defines methods needed for role granting
-type RoleGrantService interface {
-	ExtendRoleExpiration(ctx context.Context, userID, roleID uuid.UUID, days int) (*models.UserRoleGrant, time.Time, error)
-	CreatePurchase(ctx context.Context, purchase *models.Purchase) error
-}
-
 type GrantRoleForSubscriptionParams struct {
 	userID         uuid.UUID
 	subscriptionID uuid.UUID
 	price          *models.Price
 	product        *models.Product
+	paymentRepo    *PaymentService
+	extRepo        *UserRoleGrantExtensionService
 	processor      models.Processor
-	service        RoleGrantService
+	roleGrantRepo  *UserRoleGrantService
 }
 
-func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.Processor, price *models.Price, product *models.Product, service RoleGrantService) GrantRoleForSubscriptionParams {
+func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.Processor, price *models.Price, product *models.Product, db *db.DB) GrantRoleForSubscriptionParams {
 	return GrantRoleForSubscriptionParams{
 		price:          price,
 		userID:         userID,
 		product:        product,
 		processor:      processor,
 		subscriptionID: subscriptionID,
-		service:        service,
+		paymentRepo:    NewPaymentService(db),
+		extRepo:        NewUserRoleGrantExtensionService(db),
+		roleGrantRepo:  NewUserRoleGrantService(db),
 	}
 }
 
@@ -772,7 +792,8 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 	price := params.price
 	userID := params.userID
 	product := params.product
-	service := params.service
+	paymentRepo := params.paymentRepo
+	roleGrantRepo := params.roleGrantRepo
 	subscriptionID := params.subscriptionID
 
 	if product.RoleID == nil {
@@ -789,27 +810,54 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 		extensionDays = 30 // Default fallback
 	}
 
+	// Deduct any grace days granted since last successful payment for this subscription
+	// Compute using extensions table: sum grace after last real payment
+	var extensionDaysFinal = extensionDays
+	if subscriptionID != uuid.Nil {
+		db := paymentRepo.GetDB().GetDB()
+		var lastPaidAt *time.Time
+		_ = db.NewSelect().
+			ColumnExpr("MAX(purchased_at)").
+			TableExpr("payments").
+			Where("subscription_id = ?", subscriptionID).
+			Where("processor IN (?)", bun.In([]models.Processor{models.ProcessorMobius, models.ProcessorCCBill})).
+			Scan(ctx, &lastPaidAt)
+		var graceSum int
+		var err error
+		graceSum, err = params.extRepo.SumGraceSince(ctx, subscriptionID, lastPaidAt)
+		if err == nil && graceSum > 0 {
+			if graceSum >= extensionDaysFinal {
+				extensionDaysFinal = 0
+			} else {
+				extensionDaysFinal -= graceSum
+			}
+		}
+	}
+
 	// Create Purchase event for this subscription payment
-	purchase := &models.Payment{
+	payment := &models.Payment{
 		ID:            uuid.New(),
 		UserID:        userID,
 		PriceID:       price.ID,
 		Amount:        price.Amount,
 		Currency:      price.Currency,
-		ExtensionDays: &extensionDays,
+		ExtensionDays: &extensionDaysFinal,
 		Processor:     params.processor,
 		TransactionID: subscriptionID.String(),
 		PurchasedAt:   time.Now(),
 		CreatedAt:     time.Now(),
 	}
 
-	grant, _, err := service.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDays)
+	// Link to the subscription explicitly
+	payment.SubscriptionID = &subscriptionID
+
+	grant, _, err := roleGrantRepo.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDaysFinal)
 	if err != nil {
 		return fmt.Errorf("failed to extend role expiration: %w", err)
 	}
 
-	purchase.UserRoleGrantID = &grant.ID
-	if err := service.CreatePurchase(ctx, purchase); err != nil {
+	payment.UserRoleGrantID = &grant.ID
+	if err := paymentRepo.Create(ctx, payment); err != nil {
 		return fmt.Errorf("failed to create purchase event: %w", err)
 	}
 

@@ -12,13 +12,15 @@ import (
 
 // BillingAnalyticsService provides dashboard metrics by querying PostgreSQL
 type BillingAnalyticsService struct {
-	db *db.DB
+	db               *db.DB
+	subscriptionRepo *SubscriptionService
 }
 
 // NewBillingAnalyticsService creates a new billing analytics service
 func NewBillingAnalyticsService(db *db.DB) *BillingAnalyticsService {
 	return &BillingAnalyticsService{
-		db: db,
+		db:               db,
+		subscriptionRepo: NewSubscriptionService(db),
 	}
 }
 

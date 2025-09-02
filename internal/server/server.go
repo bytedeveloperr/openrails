@@ -80,8 +80,7 @@ func New(cfg *config.Config) (*Server, error) {
 	ccbillClient := ccbill.NewClient(cfg.CCBill, isProd)
 
 	// Initialize services
-	subscriptionService := services.NewSubscriptionService(database, ccbillClient, mobiusClient)
-	_, err = services.NewSolanaPaymentService(database, cfg.Solana)
+	subscriptionService := services.NewSubscriptionService(database)
 	if err != nil {
 		return nil, err
 	}

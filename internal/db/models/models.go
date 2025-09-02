@@ -9,7 +9,7 @@ type GrantSource string
 
 const (
 	GrantSourceSubscription GrantSource = "subscription"
-	GrantSourcePurchase     GrantSource = "purchase" 
+	GrantSourcePurchase     GrantSource = "purchase"
 	GrantSourceAdmin        GrantSource = "admin"
 )
 
@@ -20,6 +20,7 @@ const (
 	ProcessorMobius Processor = "mobius"
 	ProcessorCCBill Processor = "ccbill"
 	ProcessorSolana Processor = "solana"
+	ProcessorPayPal Processor = "paypal"
 )
 
 var ModelRegistry = []any{

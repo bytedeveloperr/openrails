@@ -3,67 +3,17 @@ package services
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
 type ManageSubscriptionService struct {
-	DB *db.DB
-}
-
-// GetSubscriptionByID retrieves a subscription by its ID
-func (s *ManageSubscriptionService) GetSubscriptionByID(ctx context.Context, id uuid.UUID) (*models.Subscription, error) {
-	var subscription models.Subscription
-	err := s.DB.GetDB().NewSelect().
-		Model(&subscription).
-		Where("id = ?", id).
-		Scan(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get subscription by ID: %w", err)
-	}
-	return &subscription, nil
-}
-
-// UpdateSubscription updates a subscription
-func (s *ManageSubscriptionService) UpdateSubscription(ctx context.Context, subscription *models.Subscription) error {
-	_, err := s.DB.GetDB().NewUpdate().
-		Model(subscription).
-		Where("id = ?", subscription.ID).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to update subscription: %w", err)
-	}
-	return nil
-}
-
-// RevokeUserRolesBySubSourceID revokes user roles by subscription source ID
-func (s *ManageSubscriptionService) RevokeUserRolesBySubSourceID(ctx context.Context, subID uuid.UUID) error {
-	_, err := s.DB.GetDB().NewUpdate().
-		Model((*models.UserRoleGrant)(nil)).
-		Set("revoked_at = ?", time.Now()).
-		Where("sub_source_id = ?", subID).
-		Where("revoked_at IS NULL").
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to revoke user roles: %w", err)
-	}
-	return nil
-}
-
-// CreateNotification creates a new notification
-func (s *ManageSubscriptionService) CreateNotification(ctx context.Context, notification *models.NotificationQueue) error {
-	_, err := s.DB.GetDB().NewInsert().
-		Model(notification).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to create notification: %w", err)
-	}
-	return nil
+	SubscriptionService      *SubscriptionService
+	UserRoleGrantService     *UserRoleGrantService
+	NotificationQueueService *NotificationQueueService
 }
 
 type UpdateSubscriptionStatusParams struct {
@@ -80,14 +30,16 @@ type ExtendSubscriptionParams struct {
 	Duration       time.Duration
 }
 
-func NewManageSubscriptionService(db *db.DB) *ManageSubscriptionService {
+func NewManageSubscriptionService(subscriptionService *SubscriptionService, userRoleGrantService *UserRoleGrantService, notificationQueueService *NotificationQueueService) *ManageSubscriptionService {
 	return &ManageSubscriptionService{
-		DB: db,
+		SubscriptionService:      subscriptionService,
+		UserRoleGrantService:     userRoleGrantService,
+		NotificationQueueService: notificationQueueService,
 	}
 }
 
 func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *UpdateSubscriptionStatusParams) error {
-	subscription, err := s.GetSubscriptionByID(ctx, uuid.MustParse(params.SubscriptionID))
+	subscription, err := s.SubscriptionService.GetByID(ctx, uuid.MustParse(params.SubscriptionID))
 	if err != nil {
 		return err
 	}
@@ -117,7 +69,7 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 		subscription.EndedAt = &cancelledAt
 	}
 
-	if err := s.UpdateSubscription(ctx, subscription); err != nil {
+	if err := s.SubscriptionService.Update(ctx, subscription); err != nil {
 		return err
 	}
 
@@ -125,7 +77,7 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 	switch params.Status {
 	case models.StatusCancelled, models.StatusPastDue:
 		// Revoke role grants for inactive subscriptions
-		if err := s.RevokeUserRolesBySubSourceID(ctx, subscription.ID); err != nil {
+		if err := s.UserRoleGrantService.RevokeBySubSourceID(ctx, subscription.ID); err != nil {
 			log.WithFields(log.Fields{
 				"subscription_id": subscription.ID,
 				"user_id":         subscription.UserID,
@@ -139,7 +91,7 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 			UserID:    subscription.UserID,
 			EventType: models.NotificationPremiumEnded,
 		}
-		if err := s.CreateNotification(ctx, notification); err != nil {
+		if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
 			log.WithFields(log.Fields{
 				"subscription_id":   subscription.ID,
 				"user_id":           subscription.UserID,
@@ -156,7 +108,7 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 }
 
 func (s *ManageSubscriptionService) ExtendSubscription(ctx context.Context, params *ExtendSubscriptionParams) error {
-	subscription, err := s.GetSubscriptionByID(ctx, uuid.MustParse(params.SubscriptionID))
+	subscription, err := s.SubscriptionService.GetByID(ctx, uuid.MustParse(params.SubscriptionID))
 	if err != nil {
 		return err
 	}
@@ -179,7 +131,7 @@ func (s *ManageSubscriptionService) ExtendSubscription(ctx context.Context, para
 		subscription.CurrentPeriodStartsAt = &startTime
 	}
 
-	if err := s.UpdateSubscription(ctx, subscription); err != nil {
+	if err := s.SubscriptionService.Update(ctx, subscription); err != nil {
 		return err
 	}
 

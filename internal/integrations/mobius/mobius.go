@@ -552,7 +552,7 @@ func (c *MobiusClient) GetTransactionDetails(transactionID string) (string, erro
 	}
 
 	values := url.Values{
-		"report_type":    {"transaction"},
+		"Servicert_type": {"transaction"},
 		"security_key":   {c.SecurityKey},
 		"transaction_id": {transactionID},
 	}
@@ -575,8 +575,8 @@ func (c *MobiusClient) GetCustomerVaultData(customerVaultID string) (string, err
 	}
 
 	values := url.Values{
-		"report_type":  {"customer_vault"},
-		"security_key": {c.SecurityKey},
+		"Servicert_type": {"customer_vault"},
+		"security_key":   {c.SecurityKey},
 	}
 
 	if customerVaultID != "" {
@@ -601,8 +601,8 @@ func (c *MobiusClient) GetSubscriptionData(subscriptionID string) (string, error
 	}
 
 	values := url.Values{
-		"report_type":  {"recurring"},
-		"security_key": {c.SecurityKey},
+		"Servicert_type": {"recurring"},
+		"security_key":   {c.SecurityKey},
 	}
 
 	if subscriptionID != "" {
@@ -627,8 +627,8 @@ func (c *MobiusClient) GetRecurringPlanData() (string, error) {
 	}
 
 	values := url.Values{
-		"report_type":  {"recurring_plans"},
-		"security_key": {c.SecurityKey},
+		"Servicert_type": {"recurring_plans"},
+		"security_key":   {c.SecurityKey},
 	}
 
 	if !c.IsProd {
@@ -649,8 +649,8 @@ func (c *MobiusClient) SearchTransactions(filter QueryFilter) (string, error) {
 	}
 
 	values := url.Values{
-		"report_type":  {"transaction"},
-		"security_key": {c.SecurityKey},
+		"Servicert_type": {"transaction"},
+		"security_key":   {c.SecurityKey},
 	}
 
 	if !c.IsProd {
