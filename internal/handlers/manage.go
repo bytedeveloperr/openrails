@@ -18,6 +18,7 @@ func UpdateStatus(r *Request) {
 	service := services.NewManageSubscriptionService(
 		r.State.SubscriptionService,
 		r.State.UserRoleGrantService,
+		r.State.UserRoleInterfaceService,
 		r.State.NotificationQueueService,
 	)
 
@@ -40,6 +41,7 @@ func ExtendSubscription(r *Request) {
 	service := services.NewManageSubscriptionService(
 		r.State.SubscriptionService,
 		r.State.UserRoleGrantService,
+		r.State.UserRoleInterfaceService,
 		r.State.NotificationQueueService,
 	)
 

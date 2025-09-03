@@ -3,12 +3,18 @@ package config
 import (
 	"fmt"
 	"net/url"
+	"os"
+	"strings"
 
+	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/env"
+	"github.com/knadh/koanf/providers/file"
+	"github.com/knadh/koanf/v2"
 	"github.com/spf13/cobra"
 )
 
 const EnvProd string = "prod"
-const EnvDev string = "prod"
+const EnvDev string = "dev"
 
 type Config struct {
 	Mobius     *MobiusConfig     `json:"mobius,omitempty"`
@@ -126,13 +132,23 @@ type RateLimit struct {
 
 // Validate validates the billing configuration
 func Validate(cfg *Config) error {
-	if err := validateMobius(cfg.Mobius); err != nil {
-		return fmt.Errorf("mobius config validation failed: %w", err)
+	// Skip strict validation in development environments
+	isDev := cfg.Env == "development" || cfg.Env == "dev" || cfg.Env == ""
+	
+	if !isDev {
+		if err := validateMobius(cfg.Mobius); err != nil {
+			return fmt.Errorf("mobius config validation failed: %w", err)
+		}
+
+		// Validate CCBill configuration
+		if err := validateCCBill(cfg.CCBill); err != nil {
+			return fmt.Errorf("ccbill config validation failed: %w", err)
+		}
 	}
 
-	// Validate CCBill configuration
-	if err := validateCCBill(cfg.CCBill); err != nil {
-		return fmt.Errorf("ccbill config validation failed: %w", err)
+	// Always validate database configuration
+	if err := validateDatabase(cfg.DB); err != nil {
+		return fmt.Errorf("database config validation failed: %w", err)
 	}
 
 	return nil
@@ -203,9 +219,33 @@ func validateCCBill(cfg *CCBillConfig) error {
 	return nil
 }
 
+// validateDatabase validates database configuration
+func validateDatabase(cfg *DBConfig) error {
+	if cfg == nil {
+		return fmt.Errorf("database configuration is required")
+	}
+	
+	if cfg.URL == "" {
+		return fmt.Errorf("database URL is required")
+	}
+	
+	return nil
+}
+
 // GetDefaultBillingConfig returns a billing configuration with sensible defaults
 func GetDefaultBillingConfig() *Config {
 	return &Config{
+		Env: "development",
+		DB: &DBConfig{
+			URL:     "postgres://billing:billing123@localhost:5432/billing?sslmode=disable",
+			Schema:  "public",
+			Dialect: "postgres",
+		},
+		Redis: &RedisConfig{
+			Addr:     "localhost:6379",
+			Password: "",
+			DB:       0,
+		},
 		RateLimits: &RateLimitConfig{
 			SubscribeLimit: &RateLimit{
 				RequestsPerMinute: 10, // Very restrictive for payment endpoints
@@ -254,5 +294,128 @@ func GetDefaultBillingConfig() *Config {
 }
 
 func Load(cmd *cobra.Command) (*Config, error) {
-	return nil, nil
+	k := koanf.New(".")
+	
+	// Start with default configuration
+	cfg := GetDefaultBillingConfig()
+	
+	// Determine config file path
+	configPath, _ := cmd.Flags().GetString("config")
+	if configPath == "" {
+		// Look for config.yaml in current directory and ./config/
+		candidates := []string{
+			"config.yaml",
+			"config/config.yaml",
+			"./config.yaml",
+			"./config/config.yaml",
+		}
+		
+		for _, candidate := range candidates {
+			if _, err := os.Stat(candidate); err == nil {
+				configPath = candidate
+				break
+			}
+		}
+	}
+	
+	// Load from YAML file if it exists
+	if configPath != "" {
+		if _, err := os.Stat(configPath); err == nil {
+			if err := k.Load(file.Provider(configPath), yaml.Parser()); err != nil {
+				return nil, fmt.Errorf("loading config file %s: %w", configPath, err)
+			}
+		}
+	}
+	
+	// Load environment variables with prefix
+	if err := k.Load(env.Provider("BILLING_", ".", func(s string) string {
+		// Convert BILLING_DATABASE_URL to database.url
+		s = strings.ToLower(strings.TrimPrefix(s, "BILLING_"))
+		s = strings.ReplaceAll(s, "_", ".")
+		return s
+	}), nil); err != nil {
+		return nil, fmt.Errorf("loading environment variables: %w", err)
+	}
+	
+	// Load common environment variables without prefix
+	envMappings := map[string]string{
+		"DATABASE_URL": "db.url",
+		"REDIS_URL":    "redis.host", 
+		"ENV":          "env",
+		"ENVIRONMENT":  "env",
+		
+		// JWT
+		"JWT_SECRET": "jwt.secret",
+		"JWT_ISSUER": "jwt.issuer",
+		
+		// CCBill
+		"CCBILL_CLIENT_ACCOUNT":     "ccbill.client_acc_num",
+		"CCBILL_CLIENT_SUBACCOUNT":  "ccbill.client_sub_acc",
+		"CCBILL_SALT":              "ccbill.salt",
+		"CCBILL_FORM_ID":           "ccbill.form_id",
+		"CCBILL_FLEXFORM_ID":       "ccbill.form_id",
+		
+		// Mobius
+		"MOBIUS_SECURITY_KEY":      "mobius.security_key",
+		"MOBIUS_TOKENIZATION_KEY":  "mobius.tokenization_key",
+		"MOBIUS_WEBHOOK_SECRET":    "mobius.webhook_secret",
+		
+		// SendGrid
+		"SENDGRID_API_KEY":   "sendgrid.api_key",
+		"SENDGRID_FROM_EMAIL": "sendgrid.from_email",
+		"SENDGRID_FROM_NAME":  "sendgrid.from_name",
+		
+		// ClickHouse
+		"CLICKHOUSE_URL":      "clickhouse.server_url",
+		"CLICKHOUSE_DATABASE": "clickhouse.database",
+		"CLICKHOUSE_USERNAME": "clickhouse.username", 
+		"CLICKHOUSE_PASSWORD": "clickhouse.password",
+	}
+	
+	for envVar, configKey := range envMappings {
+		if val := os.Getenv(envVar); val != "" {
+			k.Set(configKey, val)
+		}
+	}
+	
+	// Parse Redis URL if provided
+	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
+		if parsedURL, err := url.Parse(redisURL); err == nil {
+			k.Set("redis.host", parsedURL.Host)
+			if parsedURL.User != nil {
+				if password, ok := parsedURL.User.Password(); ok {
+					k.Set("redis.password", password)
+				}
+			}
+			// Extract database number from path
+			if len(parsedURL.Path) > 1 {
+				if db := strings.TrimPrefix(parsedURL.Path, "/"); db != "" {
+					k.Set("redis.db", db)
+				}
+			}
+		}
+	}
+	
+	// Unmarshal into config struct
+	if err := k.Unmarshal("", cfg); err != nil {
+		return nil, fmt.Errorf("unmarshaling config: %w", err)
+	}
+	
+	// Set environment if not already set
+	if cfg.Env == "" {
+		if env := os.Getenv("ENV"); env != "" {
+			cfg.Env = env
+		} else if env := os.Getenv("ENVIRONMENT"); env != "" {
+			cfg.Env = env
+		} else {
+			cfg.Env = "development"
+		}
+	}
+	
+	// Validate the loaded configuration
+	if err := Validate(cfg); err != nil {
+		return nil, fmt.Errorf("config validation failed: %w", err)
+	}
+	
+	return cfg, nil
 }

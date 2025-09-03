@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -13,6 +14,7 @@ import (
 type ManageSubscriptionService struct {
 	SubscriptionService      *SubscriptionService
 	UserRoleGrantService     *UserRoleGrantService
+	UserRoleInterfaceService *UserRoleInterfaceService
 	NotificationQueueService *NotificationQueueService
 }
 
@@ -30,10 +32,11 @@ type ExtendSubscriptionParams struct {
 	Duration       time.Duration
 }
 
-func NewManageSubscriptionService(subscriptionService *SubscriptionService, userRoleGrantService *UserRoleGrantService, notificationQueueService *NotificationQueueService) *ManageSubscriptionService {
+func NewManageSubscriptionService(subscriptionService *SubscriptionService, userRoleGrantService *UserRoleGrantService, userRoleInterfaceService *UserRoleInterfaceService, notificationQueueService *NotificationQueueService) *ManageSubscriptionService {
 	return &ManageSubscriptionService{
 		SubscriptionService:      subscriptionService,
 		UserRoleGrantService:     userRoleGrantService,
+		UserRoleInterfaceService: userRoleInterfaceService,
 		NotificationQueueService: notificationQueueService,
 	}
 }
@@ -76,13 +79,32 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 	// Handle role grants based on status change
 	switch params.Status {
 	case models.StatusCancelled, models.StatusPastDue:
-		// Revoke role grants for inactive subscriptions
-		if err := s.UserRoleGrantService.RevokeBySubSourceID(ctx, subscription.ID); err != nil {
-			log.WithFields(log.Fields{
-				"subscription_id": subscription.ID,
-				"user_id":         subscription.UserID,
-				"error":           err.Error(),
-			}).Error("Failed to revoke role grants during subscription status update")
+		// Revoke role grants for inactive subscriptions using proper interface
+		if s.UserRoleInterfaceService != nil {
+			result, err := s.UserRoleInterfaceService.HandleImmediateCancelOrRefund(
+				ctx,
+				subscription.UserID,
+				"premium",
+				subscription.ID,
+				fmt.Sprintf("status_change_%s_%d", params.Status, time.Now().Unix()),
+				string(params.Status),
+			)
+			if err != nil {
+				log.WithFields(log.Fields{
+					"subscription_id": subscription.ID,
+					"user_id":         subscription.UserID,
+					"status":          params.Status,
+					"error":           err.Error(),
+				}).Error("Failed to revoke role grants during subscription status update")
+			} else {
+				log.WithFields(log.Fields{
+					"subscription_id": subscription.ID,
+					"user_id":         subscription.UserID,
+					"status":          params.Status,
+					"action":          result.Action,
+					"user_role_id":    result.UserRoleID,
+				}).Info("Successfully revoked premium role during subscription status update")
+			}
 		}
 
 		// Add notification for membership ended

@@ -1,0 +1,143 @@
+# Billing Service Configuration Example
+# Copy this to config.yaml and fill in your actual values
+
+# Environment: prod, dev, development, production
+env: "development"
+
+# CORS origins for frontend access
+cors_origins:
+  - "http://localhost:3000"
+  - "https://your-frontend-domain.com"
+
+# Database configuration
+db:
+  url: "postgres://billing:billing123@localhost:5432/billing?sslmode=disable"
+  schema: "public"
+  dialect: "postgres"
+
+# Redis configuration for caching and sessions
+redis:
+  host: "localhost:6379"
+  password: ""
+  db: 0
+
+# JWT configuration for authentication
+jwt:
+  secret: "your-jwt-secret-key-change-this"
+  issuer: "doujins-billing"
+
+# CCBill payment processor configuration
+ccbill:
+  # Basic CCBill settings
+  client_acc_num: "your-ccbill-account-number"
+  client_sub_acc: "your-ccbill-subaccount"
+  salt: "your-ccbill-salt-key"
+  
+  # Form configuration
+  form_id: "your-flexform-id"
+  form_name: "your-form-name"
+  language: "English"
+  currency_code: "840" # USD
+  allowed_types: "0000000000000000000000000000000000000000000000000000000000000000"
+  subscription_type_id: "0001"
+  
+  # Test mode
+  test_mode: true
+  
+  # FlexForm integration
+  base_flexform_url: "https://api.ccbill.com/wap-frontflex/flexforms/"
+  iframe_width: "100%"
+  iframe_height: "600px"
+  
+  # DataLink API for transaction data
+  datalink_url: "https://datalink.ccbill.com/data/main.cgi"
+  datalink_username: "your-datalink-username"
+  datalink_password: "your-datalink-password"
+  datalink_client_acc_num: "your-datalink-account-number"
+  
+  # Webhook security - CCBill IP addresses
+  webhook_ips:
+    - "64.38.212.8"
+    - "64.38.215.8"
+    - "64.38.240.8"
+    - "64.38.241.8"
+
+# Mobius payment processor configuration
+mobius:
+  security_key: "your-mobius-security-key"
+  tokenization_key: "your-mobius-tokenization-key"
+  webhook_secret: "your-mobius-webhook-secret"
+  test_mode: true
+
+# Solana blockchain configuration
+solana:
+  rpc_endpoint: "https://api.mainnet-beta.solana.com"
+  network: "mainnet" # mainnet, devnet, testnet
+  recipient_wallet: "your-solana-wallet-address"
+  destination_wallet: "your-solana-wallet-address" # alias for recipient_wallet
+  
+  # Transaction settings
+  transaction_timeout_seconds: 300 # 5 minutes
+  confirmation_blocks: 1
+  max_transaction_fee: 0.01 # SOL
+  
+  # Supported tokens
+  supported_tokens:
+    SOL:
+      mint: "" # Native SOL doesn't have a mint address
+      symbol: "SOL"
+      name: "Solana"
+      decimals: 9
+      price: 0.0 # Will be fetched dynamically
+      enabled: true
+    
+    USDC:
+      mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+      symbol: "USDC"
+      name: "USD Coin"
+      decimals: 6
+      price: 1.0
+      enabled: true
+    
+    PYUSD:
+      mint: "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"
+      symbol: "PYUSD" 
+      name: "PayPal USD"
+      decimals: 6
+      price: 1.0
+      enabled: true
+
+# ClickHouse analytics database
+clickhouse:
+  server_url: "http://localhost:8123"
+  database: "analytics"
+  username: "default"
+  password: ""
+
+# SendGrid email service
+sendgrid:
+  api_key: "your-sendgrid-api-key"
+  from_email: "noreply@your-domain.com"
+  from_name: "Doujins Billing"
+
+# Rate limiting configuration
+rate_limits:
+  # Subscription endpoints (very restrictive)
+  subscribe_limit:
+    requests_per_minute: 10
+    burst_size: 3
+  
+  # Webhook endpoints (higher limit)
+  webhook_limit:
+    requests_per_minute: 100
+    burst_size: 20
+  
+  # Payment method operations
+  payment_limit:
+    requests_per_minute: 20
+    burst_size: 5
+  
+  # Default for other endpoints
+  default_limit:
+    requests_per_minute: 60
+    burst_size: 10

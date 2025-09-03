@@ -1,0 +1,136 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+billing
+*.test
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Build artifacts
+dist/
+build/
+bin/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Configuration files (keep examples)
+config.yaml
+config.local.yaml
+config.dev.yaml
+config.prod.yaml
+*.local.yaml
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# Logs
+*.log
+logs/
+log/
+
+# Runtime data
+pids/
+*.pid
+*.seed
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.cover
+*.coverprofile
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Docker override files
+docker-compose.override.yml
+docker-compose.local.yml
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# SSL certificates and keys
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+
+# Backup files
+*.backup
+*.bak
+
+# Cache directories
+.cache/
+node_modules/ # if any frontend assets
+
+# Build tools
+Makefile.local
+
+# Local development scripts
+dev.sh
+local.sh
+
+# API documentation output
+docs/api/
+
+# Terraform state files (if using terraform)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Helm charts (if using helm)
+charts/*/values.local.yaml
+
+# Local storage
+storage/
+uploads/
+files/
+
+# Migration backups
+migrations/backups/
+
+# Test databases
+test.db
+test.sqlite
+
+# Local configuration overrides
+docker-compose.dev.yml
+docker-compose.test.yml

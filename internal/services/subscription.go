@@ -43,6 +43,7 @@ type SubscriptionService struct {
 	PriceService             *PriceService
 	ProductService           *ProductService
 	UserRoleGrantService     *UserRoleGrantService
+	UserRoleInterfaceService *UserRoleInterfaceService
 	NotificationQueueService *NotificationQueueService
 	CCBillRESTClient         *ccbill.RESTClient
 	MobiusClient             *mobius.MobiusClient
@@ -215,9 +216,26 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
-	// Revoke role grants
-	if err := s.UserRoleGrantService.RevokeBySubSourceID(ctx, subscription.ID); err != nil {
-		log.WithError(err).Error("failed to revoke role grants for cancelled subscription")
+	// Revoke role grants using proper interface
+	if s.UserRoleInterfaceService != nil {
+		result, err := s.UserRoleInterfaceService.HandleImmediateCancelOrRefund(
+			ctx,
+			userID,
+			"premium", // The role slug being managed
+			subscription.ID,
+			fmt.Sprintf("user_cancel_%d", time.Now().Unix()), // event ID
+			"user_requested",
+		)
+		if err != nil {
+			log.WithError(err).Error("failed to revoke role grants for cancelled subscription")
+		} else {
+			log.WithFields(log.Fields{
+				"user_id":         userID,
+				"subscription_id": subscription.ID,
+				"action":          result.Action,
+				"user_role_id":    result.UserRoleID,
+			}).Info("Successfully revoked premium role for cancelled subscription")
+		}
 	}
 
 	// Add notification

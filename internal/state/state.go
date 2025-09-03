@@ -28,6 +28,7 @@ type State struct {
 	UserService              *services.UserService
 	SubscriptionService      *services.SubscriptionService
 	UserRoleGrantService     *services.UserRoleGrantService
+	UserRoleInterfaceService *services.UserRoleInterfaceService
 	ProductService           *services.ProductService
 	PriceService             *services.PriceService
 	NotificationQueueService *services.NotificationQueueService
