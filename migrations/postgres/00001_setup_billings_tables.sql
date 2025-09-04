@@ -236,7 +236,7 @@ CREATE INDEX IF NOT EXISTS idx_payment_methods_vault_id ON payment_methods(vault
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_processor_vault_id ON payment_methods(processor, vault_id);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_is_active ON payment_methods(is_active) WHERE is_active = true;
 
-COMMENT ON TABLE payment_methods IS 'Generalized payment method table supporting multiple processors. Replaces processor-specific tables like mobius_payment_methods.';
+COMMENT ON TABLE payment_methods IS 'Generalized payment method table supporting multiple processors.';
 COMMENT ON COLUMN payment_methods.processor IS 'Payment processor type: mobius, ccbill, stripe, etc.';
 COMMENT ON COLUMN payment_methods.vault_id IS 'Primary payment method identifier in the processor system';
 
@@ -321,36 +321,6 @@ CREATE INDEX IF NOT EXISTS idx_notification_queue_created_at ON notification_que
 -- ============================================================================
 -- SECTION 6: DATA MIGRATION FROM LEGACY TABLES
 -- ============================================================================
-
--- 6.1: Migrate data from mobius_payment_methods if it exists
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'mobius_payment_methods') THEN
-        INSERT INTO payment_methods (
-            id, 
-            user_id, 
-            processor, 
-            vault_id, 
-            billing_id, 
-            initial_transaction_id,
-            is_active, 
-            created_at, 
-            updated_at
-        )
-        SELECT 
-            id,
-            user_id,
-            'mobius'::VARCHAR(50) as processor,
-            vault_id,
-            billing_id,
-            COALESCE(initial_tx_id, initial_transaction_id, ''),
-            COALESCE(status, is_active, true),
-            created_at,
-            updated_at
-        FROM mobius_payment_methods
-        ON CONFLICT (processor, vault_id) DO NOTHING;
-    END IF;
-END$$;
 
 -- 6.2: Migrate data from purchases table if it exists and hasn't been renamed yet
 DO $$

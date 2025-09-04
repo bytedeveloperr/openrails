@@ -1,0 +1,135 @@
+services:
+  # PostgreSQL database (Supabase image and config)
+  postgres:
+    image: supabase/postgres:17.4.1.051
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: supadb
+      POSTGRES_USER: supabase_admin
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Run initial SQL on first init from our migrations/postgres
+      - ./migrations/postgres:/docker-entrypoint-initdb.d:ro
+    # Ensure Postgres listens on container network interface
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - log_min_messages=warning
+      - -c
+      - client_min_messages=warning
+      - -c
+      - log_statement=none
+      - -c
+      - log_min_duration_statement=-1
+    networks:
+      - local-doujins
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "supabase_admin", "-d", "supadb", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      start_period: 90s
+      retries: 12
+
+  # Redis-compatible cache (Microsoft Garnet)
+  garnet:
+    image: ghcr.io/microsoft/garnet:latest
+    volumes:
+      - garnet_data:/data
+    ports:
+      - "6381:6379"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "timeout 1 bash -c 'exec 3<>/dev/tcp/localhost/6379' 2>/dev/null",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 5
+    networks:
+      - local-doujins
+
+  # ClickHouse for analytics
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8-alpine
+    restart: unless-stopped
+    ports:
+      - "8123:8123"  # HTTP interface
+      - "9002:9000"  # Native client (avoid MinIO conflict)
+    volumes:
+      - ./clickhouse/config.yaml:/etc/clickhouse-server/config.yaml:ro
+      - clickhouse_data:/var/lib/clickhouse
+      - clickhouse_logs:/var/log/clickhouse-server
+    environment:
+      CLICKHOUSE_DB: analytics
+      CLICKHOUSE_USER: analytics_user
+      CLICKHOUSE_PASSWORD: analytics_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user=analytics_user", "--password=analytics_password", "--query", "SELECT 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
+    networks:
+      - local-doujins
+
+  # One-shot migrator for ClickHouse. Applies all SQL in migrations/clickhouse
+  clickhouse-init:
+    # Use the server image; it includes `clickhouse-client`
+    image: clickhouse/clickhouse-server:25.8-alpine
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    environment:
+      CLICKHOUSE_HOST: clickhouse
+      CLICKHOUSE_PORT: "9000"
+      CLICKHOUSE_USER: analytics_user
+      CLICKHOUSE_PASSWORD: analytics_password
+    volumes:
+      - ./migrations/clickhouse:/migrations:ro
+    # Apply each .sql file once ClickHouse is healthy
+    command: >
+      sh -lc 'for f in /migrations/*.sql; do [ -e "$f" ] || continue; echo "Applying $f"; clickhouse-client --host=$CLICKHOUSE_HOST --port=$CLICKHOUSE_PORT --user=$CLICKHOUSE_USER --password=$CLICKHOUSE_PASSWORD --database analytics --multiquery --queries-file "$f" || exit 1; done && echo "ClickHouse migrations complete"'
+    restart: "no"
+    networks:
+      - local-doujins
+
+  # Billing service (server + in-process workers)
+  billing:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      garnet:
+        condition: service_healthy
+    ports:
+      - "2052:2052"  # Public API
+    expose:
+      - "8060"       # Private API (internal-only)
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:2052/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - local-doujins
+
+volumes:
+  postgres_data:
+  garnet_data:
+  clickhouse_data:
+  clickhouse_logs:
+
+networks:
+  local-doujins:
+    driver: bridge

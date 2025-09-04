@@ -5,6 +5,7 @@
 *.so
 *.dylib
 billing
+doujins-billing
 *.test
 
 # Test binary, built with `go test -c`

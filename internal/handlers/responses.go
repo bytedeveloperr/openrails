@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"time"
+    "time"
 
-	"github.com/doujins-org/doujins-billing/internal/services"
+    "github.com/doujins-org/doujins-billing/internal/services"
 )
 
 type GetSubscriptionResponse = services.UserSubscriptionResponse
@@ -13,7 +13,48 @@ type SubscribeResponse = services.SubscribeResponse
 type GetProductsResponse = []*services.PublicProductResponse
 
 func NewGetProductsResponse(products []*services.PublicProductResponse) GetProductsResponse {
-	return GetProductsResponse(products)
+    return GetProductsResponse(products)
+}
+
+// -------------------------------- Solana / Payments Responses --------------------------------
+
+// GeneratePaymentResponse represents a generated on-chain transaction with helper info
+type GeneratePaymentResponse struct {
+    Transaction  string  `json:"transaction"`             // base64-encoded tx (placeholder if not available)
+    Amount       float64 `json:"amount"`                  // fiat price amount
+    Currency     string  `json:"currency"`                // fiat currency (e.g., USD)
+    TokenAmount  uint64  `json:"token_amount"`            // smallest unit amount
+    TokenSymbol  string  `json:"token_symbol"`            // SOL/USDC/etc.
+    ExpiresAt    int64   `json:"expires_at"`              // unix epoch expiry
+    Instructions string  `json:"instructions,omitempty"`  // human-readable instructions
+}
+
+// PaymentStatusResponse represents the status of a payment
+type PaymentStatusResponse struct {
+    PurchaseID    string     `json:"purchase_id"`
+    TransactionID string     `json:"transaction_id"`
+    Status        string     `json:"status"`
+    Amount        float64    `json:"amount"`
+    Currency      string     `json:"currency"`
+    CreatedAt     time.Time  `json:"created_at"`
+    ConfirmedAt   *time.Time `json:"confirmed_at,omitempty"`
+}
+
+// ErrorResponse represents an error response
+type ErrorResponse struct {
+    Error   string `json:"error"`
+    Message string `json:"message,omitempty"`
+}
+
+// SolanaPayQRResponse contains the Solana Pay URL metadata
+type SolanaPayQRResponse struct {
+    URL         string  `json:"url"`          // Solana Pay URL for QR code
+    Amount      float64 `json:"amount"`       // USD amount
+    TokenAmount string  `json:"token_amount"` // human-readable token amount
+    TokenSymbol string  `json:"token_symbol"` // SOL, USDC, etc.
+    Label       string  `json:"label"`        // Merchant label
+    Message     string  `json:"message"`      // Payment message
+    ExpiresAt   int64   `json:"expires_at"`   // Unix timestamp when QR expires
 }
 
 type PublicPriceResponse struct {

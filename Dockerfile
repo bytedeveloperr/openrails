@@ -1,5 +1,4 @@
-# syntax=docker/dockerfile:1
-# Build stage
+# Stage 1: build
 FROM golang:1.24.2-alpine AS builder
 
 # Install build dependencies
@@ -22,13 +21,15 @@ COPY . .
 # Build the application with cache mount
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o billing ./cmd/billing/
+    mkdir -p bin && \
+    CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/billing ./
 
-# Production stage
+
+# Stage 2: production
 FROM alpine:3.19
 
-# Install runtime dependencies
-RUN apk --no-cache add ca-certificates tzdata
+# Install runtime dependencies (include wget for healthcheck)
+RUN apk --no-cache add ca-certificates tzdata wget
 
 WORKDIR /app
 
@@ -37,7 +38,7 @@ RUN addgroup -g 1001 -S billing && \
     adduser -S -D -H -u 1001 -s /sbin/nologin -G billing billing
 
 # Copy binary from builder stage
-COPY --from=builder /app/billing .
+COPY --from=builder /app/bin/billing ./bin/billing
 
 # Copy migrations directory
 COPY --from=builder /app/migrations ./migrations/
@@ -48,7 +49,7 @@ RUN chown -R billing:billing /app
 # Switch to non-root user
 USER billing
 
-# Expose ports
+# Expose ports (2052 public; 8060 private/internal)
 EXPOSE 2052 8060
 
 # Health check
@@ -56,4 +57,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:2052/health || exit 1
 
 # Default command
-CMD ["./billing", "server"]
+CMD ["./bin/billing", "server"]

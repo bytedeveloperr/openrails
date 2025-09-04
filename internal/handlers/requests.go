@@ -86,7 +86,7 @@ type GetProductsRequest struct {
 // -------------------------------- GetSubscribePageData Request --------------------------------
 
 type GetSubscribePageDataRequest struct {
-	BaseRequest
+    BaseRequest
 }
 
 // -------------------------------- CancelSubscription Request --------------------------------
@@ -101,7 +101,7 @@ type CancelSubscriptionRequest struct {
 }
 
 func (r *CancelSubscriptionRequest) Body() any {
-	return &r.CancelSubscriptionBodyParams
+    return &r.CancelSubscriptionBodyParams
 }
 
 // -------------------------------- GenerateFlexFormURL Request --------------------------------
@@ -123,7 +123,41 @@ type GenerateFlexFormURLRequest struct {
 }
 
 func (r *GenerateFlexFormURLRequest) Body() any {
-	return &r.GenerateFlexFormURLBodyParams
+    return &r.GenerateFlexFormURLBodyParams
+}
+
+// -------------------------------- Solana Generate Payment Request --------------------------------
+
+type GeneratePaymentBodyParams struct {
+    PriceID     string `json:"price_id" validate:"required,uuid"`
+    Token       string `json:"token" validate:"required"`      // e.g., SOL, USDC
+    UserWallet  string `json:"user_wallet" validate:"required"` // base58 address
+}
+
+type GeneratePaymentRequest struct {
+    BaseRequest
+    GeneratePaymentBodyParams
+}
+
+func (r *GeneratePaymentRequest) Body() any {
+    return &r.GeneratePaymentBodyParams
+}
+
+// -------------------------------- Solana Generate QR Request --------------------------------
+
+type GenerateSolanaPayQRBodyParams struct {
+    PriceID    string `json:"price_id" validate:"required,uuid"`
+    Token      string `json:"token" validate:"required"`
+    UserWallet string `json:"user_wallet" validate:"required"`
+}
+
+type GenerateSolanaPayQRRequest struct {
+    BaseRequest
+    GenerateSolanaPayQRBodyParams
+}
+
+func (r *GenerateSolanaPayQRRequest) Body() any {
+    return &r.GenerateSolanaPayQRBodyParams
 }
 
 // -------------------------------- GetBillingHistory Request --------------------------------

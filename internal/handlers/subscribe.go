@@ -9,12 +9,12 @@ import (
 )
 
 func Subscribe(r *Request) {
-	var req *SubscribeRequest
-	if err := r.Bind(req); err != nil {
-		log.WithError(err).Error("Failed to bind subscribe request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request")
-		return
-	}
+    req := new(SubscribeRequest)
+    if err := r.Bind(req); err != nil {
+        log.WithError(err).Error("Failed to bind subscribe request")
+        r.ErrorJSON(http.StatusBadRequest, "Invalid request")
+        return
+    }
 
 	userCtx := middleware.GetUserContext(r.GinCtx)
 	if userCtx.User == nil {

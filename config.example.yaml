@@ -11,13 +11,15 @@ cors_origins:
 
 # Database configuration
 db:
-  url: "postgres://billing:billing123@localhost:5432/billing?sslmode=disable"
+  # Matches docker-compose Postgres (service name: postgres)
+  url: "postgres://supabase_admin:password@postgres:5432/supadb?sslmode=disable"
   schema: "public"
   dialect: "postgres"
 
 # Redis configuration for caching and sessions
 redis:
-  host: "localhost:6379"
+  # Matches docker-compose Garnet (service name: garnet)
+  host: "garnet:6379"
   password: ""
   db: 0
 
@@ -109,10 +111,11 @@ solana:
 
 # ClickHouse analytics database
 clickhouse:
-  server_url: "http://localhost:8123"
+  # Matches docker-compose ClickHouse (service name: clickhouse)
+  server_url: "http://clickhouse:8123"
   database: "analytics"
-  username: "default"
-  password: ""
+  username: "analytics_user"
+  password: "analytics_password"
 
 # SendGrid email service
 sendgrid:

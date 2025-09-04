@@ -8,7 +8,7 @@ import (
 )
 
 // PaymentMethod represents a stored payment method across multiple processors
-// This replaces the processor-specific payment method tables (e.g., MobiusPaymentMethod)
+// This replaces processor-specific payment method tables
 type PaymentMethod struct {
 	bun.BaseModel `bun:"table:payment_methods,alias:pm"`
 

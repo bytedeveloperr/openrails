@@ -237,23 +237,38 @@ func validateDatabase(cfg *DBConfig) error {
 
 // GetDefaultBillingConfig returns a billing configuration with sensible defaults
 func GetDefaultBillingConfig() *Config {
-	return &Config{
-		Env: "development",
-		DB: &DBConfig{
-			URL:     "postgres://billing:billing123@localhost:5432/billing?sslmode=disable",
-			Schema:  "public",
-			Dialect: "postgres",
-		},
-		Redis: &RedisConfig{
-			Addr:     "localhost:6379",
-			Password: "",
-			DB:       0,
-		},
-		RateLimits: &RateLimitConfig{
-			SubscribeLimit: &RateLimit{
-				RequestsPerMinute: 10, // Very restrictive for payment endpoints
-				BurstSize:         3,
-			},
+    return &Config{
+        Env:  "development",
+        Host: "0.0.0.0",
+        Port: 2052,
+        DB: &DBConfig{
+            // Match docker-compose Postgres (service: postgres)
+            URL:     "postgres://supabase_admin:password@postgres:5432/supadb?sslmode=disable",
+            Schema:  "public",
+            Dialect: "postgres",
+        },
+        Redis: &RedisConfig{
+            // Match docker-compose Garnet (service: garnet)
+            Addr:     "garnet:6379",
+            Password: "",
+            DB:       0,
+        },
+        JWT: &JWTConfig{
+            Secret: "dev-jwt-secret-change-in-production",
+            Issuer: "doujins-billing",
+        },
+        // Match docker-compose ClickHouse (service: clickhouse)
+        ClickHouse: &ClickHouseConfig{
+            ServerURL: "http://clickhouse:8123",
+            Database:  "analytics",
+            Username:  "analytics_user",
+            Password:  "analytics_password",
+        },
+        RateLimits: &RateLimitConfig{
+            SubscribeLimit: &RateLimit{
+                RequestsPerMinute: 10, // Very restrictive for payment endpoints
+                BurstSize:         3,
+            },
 			WebhookLimit: &RateLimit{
 				RequestsPerMinute: 100, // Higher for webhooks
 				BurstSize:         20,

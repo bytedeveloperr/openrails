@@ -1,0 +1,75 @@
+version: "3"
+
+vars:
+  BINARY_NAME: billing
+  BIN_DIR: bin
+  GIT_COMMIT:
+    sh: git rev-parse HEAD
+  GIT_TAG:
+    sh: git describe --tags --always --dirty
+  LDFLAGS: '-X main.Version={{.GIT_TAG}} -X main.Commit={{.GIT_COMMIT}}'
+
+tasks:
+  default:
+    cmds:
+      - task -l
+
+  build:
+    desc: Build the binary locally
+    cmds:
+      - echo "Building {{.BINARY_NAME}}..."
+      - mkdir -p {{.BIN_DIR}}
+      - go build -ldflags "{{.LDFLAGS}}" -o {{.BIN_DIR}}/{{.BINARY_NAME}} ./
+
+  run:
+    desc: Build and run the application server
+    deps: [build]
+    cmds:
+      - echo "Running {{.BINARY_NAME}}..."
+      - ./{{.BIN_DIR}}/{{.BINARY_NAME}} server
+
+  dev:
+    desc: Run the application in development mode with hot reload
+    cmds:
+      - echo "Running in development mode..."
+      - go run ./ server
+
+  test:
+    desc: Run tests
+    cmds:
+      - echo "Running tests..."
+      - go test -v -race ./...
+
+  fmt:
+    desc: Format code
+    cmds:
+      - echo "Formatting code..."
+      - go fmt ./...
+      - goimports -w .
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - echo "Cleaning..."
+      - rm -f {{.BIN_DIR}}/{{.BINARY_NAME}}
+      - rmdir {{.BIN_DIR}} 2>/dev/null || true
+      - rm -f coverage.out coverage.html
+      - rm -rf vendor/
+      - go clean -cache
+
+  docker-up:
+    desc: Start services with docker-compose
+    cmds:
+      - echo "Starting services..."
+      - docker-compose up -d
+
+  docker-down:
+    desc: Stop services with docker-compose
+    cmds:
+      - echo "Stopping services..."
+      - docker-compose down
+
+  docker-logs:
+    desc: View docker-compose logs
+    cmds:
+      - docker-compose logs -f
