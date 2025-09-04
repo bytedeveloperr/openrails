@@ -1,15 +1,11 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/internal/middleware"
-	"github.com/doujins-org/doujins-billing/internal/services"
-
-	"github.com/google/uuid"
 )
 
 func Subscribe(r *Request) {
@@ -27,32 +23,32 @@ func Subscribe(r *Request) {
 	}
 
 	// Idempotency for Mobius tokenized subscribe
-	var userID *uuid.UUID
-	if userCtx.User != nil {
-		uid := userCtx.User.ID
-		userID = &uid
-	}
-	if req.Data.Processor == "mobius" && req.Data.PaymentToken != "" {
-		idems := services.NewIdempotencyService(r.State.DB)
-		prev, exists, err := idems.Begin(r.Request.Context(), "subscribe.add", req.Data.PaymentToken, userID)
-		if err != nil {
-			log.WithError(err).Warn("idempotency begin failed; proceeding without cache")
-		} else if exists {
-			// Return previous result (raw JSON)
-			r.Inner().Data(200, "application/json", json.RawMessage(prev.ResultJSON))
-			return
-		}
-		// proceed and on success, complete
-		res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.Data, userCtx.User)
-		if err != nil {
-			log.WithError(err).Error("failed to subscribe")
-			r.ErrorJSON(500, "Internal server error")
-			return
-		}
-		_ = idems.Complete(r.Request.Context(), "subscribe.add", req.Data.PaymentToken, prev.ResultJSON)
-		r.SuccessJSON(res)
-		return
-	}
+	// var userID *uuid.UUID
+	// if userCtx.User != nil {
+	// uid := userCtx.User.ID
+	// userID = &uid
+	// }
+	// if req.Data.Processor == "mobius" && req.Data.PaymentToken != "" {
+	// 	idems := services.NewIdempotencyService(r.State.DB)
+	// 	prev, exists, err := idems.Begin(r.Request.Context(), "subscribe.add", req.Data.PaymentToken, userID)
+	// 	if err != nil {
+	// 		log.WithError(err).Warn("idempotency begin failed; proceeding without cache")
+	// 	} else if exists {
+	// 		// Return previous result (raw JSON)
+	// 		r.Inner().Data(200, "application/json", json.RawMessage(prev.ResultJSON))
+	// 		return
+	// 	}
+	// 	// proceed and on success, complete
+	// 	res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.Data, userCtx.User)
+	// 	if err != nil {
+	// 		log.WithError(err).Error("failed to subscribe")
+	// 		r.ErrorJSON(500, "Internal server error")
+	// 		return
+	// 	}
+	// 	_ = idems.Complete(r.Request.Context(), "subscribe.add", req.Data.PaymentToken, prev.ResultJSON)
+	// 	r.SuccessJSON(res)
+	// 	return
+	// }
 
 	res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.Data, userCtx.User)
 	if err != nil {

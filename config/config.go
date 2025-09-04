@@ -25,6 +25,7 @@ type Config struct {
 	CCBill      *CCBillConfig     `json:"ccbill,omitempty"`
 	Solana      *SolanaConfig     `json:"solana,omitempty"`
 	DB          *DBConfig         `json:"db,omitempty"`
+	ExternalDB  *DBConfig         `json:"external_db,omitempty"` // Client app database for role management
 	Redis       *RedisConfig      `json:"redis,omitempty"`
 	JWT         *JWTConfig        `json:"jwt,omitempty"`
 	ClickHouse  *ClickHouseConfig `json:"clickhouse,omitempty"`
@@ -342,6 +343,7 @@ func Load(configPath string) (*Config, error) {
 	// Load common environment variables without prefix
 	envMappings := map[string]string{
 		"DATABASE_URL": "db.url",
+		"EXTERNAL_DATABASE_URL": "external_db.url", // Client app database
 		"REDIS_URL":    "redis.host",
 		"ENV":          "env",
 		"ENVIRONMENT":  "env",

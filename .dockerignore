@@ -69,4 +69,5 @@ node_modules/
 npm-debug.log*
 
 # Go specific
-vendor/
+# Comment out vendor if you want to use vendored dependencies in Docker
+# vendor/

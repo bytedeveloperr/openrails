@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -24,26 +23,26 @@ func NewDeduplicationService(db *db.DB) *DeduplicationService {
 // Returns (shouldProcess, webhookRecord, error)
 func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, eventType string, processor models.Processor, payload interface{}, processingFunc func(ctx context.Context) error) error {
 	// Convert payload to JSON string for storage
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return fmt.Errorf("failed to marshal webhook payload: %w", err)
-	}
-	payloadJSON := string(payloadBytes)
+	// payloadBytes, err := json.Marshal(payload)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to marshal webhook payload: %w", err)
+	// }
+	// payloadJSON := string(payloadBytes)
 
-	op := fmt.Sprintf("webhook.%s.%s", processor, eventType)
-	_, exists, err := s.idem.Begin(ctx, op, eventID, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin idempotency: %w", err)
-	}
+	// op := fmt.Sprintf("webhook.%s.%s", processor, eventType)
+	// _, exists, err := s.idem.Begin(ctx, op, eventID, nil)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to begin idempotency: %w", err)
+	// }
 
-	if exists {
-		log.WithContext(ctx).WithFields(log.Fields{
-			"eventID":   eventID,
-			"eventType": eventType,
-			"processor": processor,
-		}).Info("Webhook already processed successfully, skipping")
-		return nil
-	}
+	// if exists {
+	// 	log.WithContext(ctx).WithFields(log.Fields{
+	// 		"eventID":   eventID,
+	// 		"eventType": eventType,
+	// 		"processor": processor,
+	// 	}).Info("Webhook already processed successfully, skipping")
+	// 	return nil
+	// }
 
 	// Execute the webhook processing function
 	processingErr := processingFunc(ctx)
@@ -63,7 +62,7 @@ func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, even
 	}
 
 	// Processing succeeded - mark idempotency success and store payload for audit
-	_ = s.idem.Complete(ctx, op, eventID, json.RawMessage(payloadJSON))
+	// _ = s.idem.Complete(ctx, op, eventID, json.RawMessage(payloadJSON))
 	log.WithContext(ctx).WithFields(log.Fields{
 		"eventID":   eventID,
 		"eventType": eventType,

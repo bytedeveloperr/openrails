@@ -79,6 +79,18 @@ func runServer(cmd *cobra.Command, args []string) error {
 		Addr:    fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 	}
 
+	// Start server in a goroutine
+	go func() {
+		log.Infof("Starting billing server on %s", server.Addr)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.WithError(err).Fatal("Failed to start server")
+		}
+	}()
+
+	// Wait for interrupt signal to gracefully shutdown the server
+	<-sigChan
+	log.Info("Shutdown signal received, shutting down server...")
+
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 

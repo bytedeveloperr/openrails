@@ -1,6 +1,5 @@
--- 00002_billing_user_roles_interface.up.sql  
--- CLIENT DATABASE MIGRATION - Install these functions in your app's database
--- This creates the interface for billing service to manage user roles directly
+-- -- 00002_billing_user_roles_interface.up.sql
+-- -- Minimal billing ↔ authorization interface for simple user_roles schema
 
 -- BEGIN;
 
@@ -167,3 +166,4 @@
 -- -- GRANT billing_writer TO billing_service_user;
 
 -- COMMIT;
+
