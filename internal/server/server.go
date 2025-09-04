@@ -20,47 +20,35 @@ import (
 	"github.com/doujins-org/doujins-billing/pkg/cache"
 )
 
-// Server represents the billing service server
 type Server struct {
 	cfg *config.Config
 
-	// Database and cache
 	db    *db.DB
 	cache cache.Cache
 
 	state *state.State
 
-	// External integrations
 	mobiusClient *mobius.MobiusClient
 	ccbillClient *ccbill.CCBillClient
 
-	// Services
 	subscriptionService *services.SubscriptionService
-
-	// HTTP handlers
-	publicHandler  http.Handler
-	privateHandler http.Handler
+	handler             *gin.Engine
 }
 
-// New creates a new billing service server
 func New(cfg *config.Config) (*Server, error) {
 	log.Info("Initializing billing service...")
 
-	// Validate billing configuration
 	if err := config.Validate(cfg); err != nil {
 		return nil, fmt.Errorf("invalid billing configuration: %w", err)
 	}
 
-	// Initialize database
 	database, err := db.NewDB(cfg.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize database: %w", err)
 	}
 
-	// Initialize cache
 	var cacheClient cache.Cache
 	if cfg.Redis != nil {
-		// Create Redis client from config
 		redisClient := redis.NewClient(&redis.Options{
 			Addr:     cfg.Redis.Addr,
 			Password: cfg.Redis.Password,
@@ -72,9 +60,7 @@ func New(cfg *config.Config) (*Server, error) {
 		cacheClient = cache.NewMemoryCache()
 	}
 
-	// Initialize payment integrations
 	isProd := cfg.Env == "production" || cfg.Env == "prod"
-
 	mobiusClient, err := mobius.NewClient(cfg.Mobius, isProd)
 	if err != nil {
 		return nil, err
@@ -82,7 +68,6 @@ func New(cfg *config.Config) (*Server, error) {
 
 	ccbillClient := ccbill.NewClient(cfg.CCBill, isProd)
 
-	// Initialize services
 	subscriptionService := services.NewSubscriptionService(database)
 	if err != nil {
 		return nil, err
@@ -97,39 +82,22 @@ func New(cfg *config.Config) (*Server, error) {
 		subscriptionService: subscriptionService,
 	}
 
-	// Initialize HTTP handlers
-	s.setupHandlers()
+	s.setupHandler()
 
 	log.Info("Billing service initialized successfully")
 	return s, nil
 }
 
-// setupHandlers initializes the HTTP handlers for both public and private listeners
-func (s *Server) setupHandlers() {
-	// Create public router (frontend and webhooks)
-	publicRouter := gin.New()
-	publicRouter.Use(gin.Recovery())
-	publicRouter.Use(middleware.Logger())
-	publicRouter.Use(middleware.CORS(s.cfg.CorsOrigins))
-	publicRouter.Use(middleware.RateLimit(s.cfg.RateLimits))
-
-	// Create private router (api-server communication)
-	privateRouter := gin.New()
-	privateRouter.Use(gin.Recovery())
-	privateRouter.Use(middleware.Logger())
-	privateRouter.Use(middleware.InternalOnly()) // Restrict to internal network
-
-	// Initialize handlers
-
-	s.publicHandler = publicRouter
-	s.privateHandler = privateRouter
+func (s *Server) setupHandler() {
+	s.handler = gin.Default()
+	s.handler.
+		Use(middleware.CORS(s.cfg.CorsOrigins)).
+		Use(middleware.RateLimit(s.cfg.RateLimits))
 }
 
-// setupPublicRoutes configures routes for the public listener
-func (s *Server) setupPublicRoutes(router *gin.Engine) {
-	api := router.Group("/api/v1")
+func (s *Server) Setup() {
+	api := s.handler.Group("/api/v1")
 
-	// Subscription routes (authenticated)
 	subscriptions := api.Group("/subscriptions")
 	subscriptions.Use(middleware.AuthRequired(s.cfg.JWT))
 	{
@@ -139,23 +107,6 @@ func (s *Server) setupPublicRoutes(router *gin.Engine) {
 		subscriptions.GET("/history", s.wrap(handlers.GetSubscriptionHistory))
 	}
 
-	// Webhook routes (public, but with signature verification)
-	webhooks := api.Group("/subscriptions/webhook")
-	{
-		webhooks.POST("/:processor", s.wrap(handlers.Webhook))
-	}
-
-	// Health check
-	router.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})
-	})
-}
-
-// setupPrivateRoutes configures routes for the private listener (api-server only)
-func (s *Server) setupPrivateRoutes(router *gin.Engine) {
-	api := router.Group("/api/v1")
-
-	// Admin-only routes
 	admin := api.Group("")
 	admin.Use(middleware.AdminRequired())
 	{
@@ -165,8 +116,12 @@ func (s *Server) setupPrivateRoutes(router *gin.Engine) {
 
 	}
 
-	// Health check
-	router.GET("/health", func(c *gin.Context) {
+	webhooks := api.Group("/subscriptions/webhook")
+	{
+		webhooks.POST("/:processor", s.wrap(handlers.Webhook))
+	}
+
+	s.handler.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing-private"})
 	})
 }
@@ -177,26 +132,16 @@ func (s *Server) wrap(fn func(r *handlers.Request)) func(c *gin.Context) {
 	}
 }
 
-// PublicHandler returns the public HTTP handler
-func (s *Server) PublicHandler() http.Handler {
-	return s.publicHandler
+func (s *Server) Handler() http.Handler {
+	return s.handler
 }
 
-// PrivateHandler returns the private HTTP handler
-func (s *Server) PrivateHandler() http.Handler {
-	return s.privateHandler
-}
-
-// Close performs cleanup when shutting down the server
 func (s *Server) Close(ctx context.Context) error {
 	var errs []error
-
-	// Close database connections
 	if err := s.db.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to close database: %w", err))
 	}
 
-	// Close cache connections
 	if err := s.cache.Close(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to close cache: %w", err))
 	}

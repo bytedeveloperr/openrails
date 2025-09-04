@@ -5,7 +5,6 @@ import (
 
 	"github.com/go-redis/redis"
 	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
 	"github.com/uptrace/bun"
 
 	"github.com/doujins-org/doujins-billing/config"
@@ -16,16 +15,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
-// NewState creates a new State instance with all dependencies manually constructed
-// This replaces the Wire dependency injection system with explicit construction
-func NewState(cmd *cobra.Command) (*State, error) {
-	// Load configuration
-	cfg, err := config.Load(cmd)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Build infrastructure components
+func NewState(cfg *config.Config) (*State, error) {
 	db, err := createDatabase(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db: %w", err)

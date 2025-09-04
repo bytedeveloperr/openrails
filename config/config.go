@@ -10,25 +10,27 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
-	"github.com/spf13/cobra"
 )
 
 const EnvProd string = "prod"
 const EnvDev string = "dev"
 
-type Config struct {
-	Mobius     *MobiusConfig     `json:"mobius,omitempty"`
-	CCBill     *CCBillConfig     `json:"ccbill,omitempty"`
-	Solana     *SolanaConfig     `json:"solana,omitempty"`
-	DB         *DBConfig         `json:"db,omitempty"`
-	Redis      *RedisConfig      `json:"redis,omitempty"`
-	JWT        *JWTConfig        `json:"jwt,omitempty"`
-	ClickHouse *ClickHouseConfig `json:"clickhouse,omitempty"`
-	SendGrid   *SendGridConfig   `json:"sendgrid,omitempty"`
+const ConfigContextKey string = "config"
 
-	Env         string           `json:"env,omitempty"`
-	CorsOrigins []string         `json:"cors_origins,omitempty"`
-	RateLimits  *RateLimitConfig `json:"rate_limits,omitempty"`
+type Config struct {
+	Env         string            `json:"env,omitempty"`
+	Port        int16             `json:"port,omitempty"`
+	Host        string            `json:"host,omitempty"`
+	Mobius      *MobiusConfig     `json:"mobius,omitempty"`
+	CCBill      *CCBillConfig     `json:"ccbill,omitempty"`
+	Solana      *SolanaConfig     `json:"solana,omitempty"`
+	DB          *DBConfig         `json:"db,omitempty"`
+	Redis       *RedisConfig      `json:"redis,omitempty"`
+	JWT         *JWTConfig        `json:"jwt,omitempty"`
+	ClickHouse  *ClickHouseConfig `json:"clickhouse,omitempty"`
+	SendGrid    *SendGridConfig   `json:"sendgrid,omitempty"`
+	CorsOrigins []string          `json:"cors_origins,omitempty"`
+	RateLimits  *RateLimitConfig  `json:"rate_limits,omitempty"`
 }
 
 type DBConfig struct {
@@ -134,7 +136,7 @@ type RateLimit struct {
 func Validate(cfg *Config) error {
 	// Skip strict validation in development environments
 	isDev := cfg.Env == "development" || cfg.Env == "dev" || cfg.Env == ""
-	
+
 	if !isDev {
 		if err := validateMobius(cfg.Mobius); err != nil {
 			return fmt.Errorf("mobius config validation failed: %w", err)
@@ -224,11 +226,11 @@ func validateDatabase(cfg *DBConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("database configuration is required")
 	}
-	
+
 	if cfg.URL == "" {
 		return fmt.Errorf("database URL is required")
 	}
-	
+
 	return nil
 }
 
@@ -293,14 +295,14 @@ func GetDefaultBillingConfig() *Config {
 	}
 }
 
-func Load(cmd *cobra.Command) (*Config, error) {
+func Load(configPath string) (*Config, error) {
 	k := koanf.New(".")
-	
+
 	// Start with default configuration
 	cfg := GetDefaultBillingConfig()
-	
+
 	// Determine config file path
-	configPath, _ := cmd.Flags().GetString("config")
+
 	if configPath == "" {
 		// Look for config.yaml in current directory and ./config/
 		candidates := []string{
@@ -309,7 +311,7 @@ func Load(cmd *cobra.Command) (*Config, error) {
 			"./config.yaml",
 			"./config/config.yaml",
 		}
-		
+
 		for _, candidate := range candidates {
 			if _, err := os.Stat(candidate); err == nil {
 				configPath = candidate
@@ -317,7 +319,7 @@ func Load(cmd *cobra.Command) (*Config, error) {
 			}
 		}
 	}
-	
+
 	// Load from YAML file if it exists
 	if configPath != "" {
 		if _, err := os.Stat(configPath); err == nil {
@@ -326,7 +328,7 @@ func Load(cmd *cobra.Command) (*Config, error) {
 			}
 		}
 	}
-	
+
 	// Load environment variables with prefix
 	if err := k.Load(env.Provider("BILLING_", ".", func(s string) string {
 		// Convert BILLING_DATABASE_URL to database.url
@@ -336,48 +338,48 @@ func Load(cmd *cobra.Command) (*Config, error) {
 	}), nil); err != nil {
 		return nil, fmt.Errorf("loading environment variables: %w", err)
 	}
-	
+
 	// Load common environment variables without prefix
 	envMappings := map[string]string{
 		"DATABASE_URL": "db.url",
-		"REDIS_URL":    "redis.host", 
+		"REDIS_URL":    "redis.host",
 		"ENV":          "env",
 		"ENVIRONMENT":  "env",
-		
+
 		// JWT
 		"JWT_SECRET": "jwt.secret",
 		"JWT_ISSUER": "jwt.issuer",
-		
+
 		// CCBill
-		"CCBILL_CLIENT_ACCOUNT":     "ccbill.client_acc_num",
-		"CCBILL_CLIENT_SUBACCOUNT":  "ccbill.client_sub_acc",
+		"CCBILL_CLIENT_ACCOUNT":    "ccbill.client_acc_num",
+		"CCBILL_CLIENT_SUBACCOUNT": "ccbill.client_sub_acc",
 		"CCBILL_SALT":              "ccbill.salt",
 		"CCBILL_FORM_ID":           "ccbill.form_id",
 		"CCBILL_FLEXFORM_ID":       "ccbill.form_id",
-		
+
 		// Mobius
-		"MOBIUS_SECURITY_KEY":      "mobius.security_key",
-		"MOBIUS_TOKENIZATION_KEY":  "mobius.tokenization_key",
-		"MOBIUS_WEBHOOK_SECRET":    "mobius.webhook_secret",
-		
+		"MOBIUS_SECURITY_KEY":     "mobius.security_key",
+		"MOBIUS_TOKENIZATION_KEY": "mobius.tokenization_key",
+		"MOBIUS_WEBHOOK_SECRET":   "mobius.webhook_secret",
+
 		// SendGrid
-		"SENDGRID_API_KEY":   "sendgrid.api_key",
+		"SENDGRID_API_KEY":    "sendgrid.api_key",
 		"SENDGRID_FROM_EMAIL": "sendgrid.from_email",
 		"SENDGRID_FROM_NAME":  "sendgrid.from_name",
-		
+
 		// ClickHouse
 		"CLICKHOUSE_URL":      "clickhouse.server_url",
 		"CLICKHOUSE_DATABASE": "clickhouse.database",
-		"CLICKHOUSE_USERNAME": "clickhouse.username", 
+		"CLICKHOUSE_USERNAME": "clickhouse.username",
 		"CLICKHOUSE_PASSWORD": "clickhouse.password",
 	}
-	
+
 	for envVar, configKey := range envMappings {
 		if val := os.Getenv(envVar); val != "" {
 			k.Set(configKey, val)
 		}
 	}
-	
+
 	// Parse Redis URL if provided
 	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
 		if parsedURL, err := url.Parse(redisURL); err == nil {
@@ -395,12 +397,12 @@ func Load(cmd *cobra.Command) (*Config, error) {
 			}
 		}
 	}
-	
+
 	// Unmarshal into config struct
 	if err := k.Unmarshal("", cfg); err != nil {
 		return nil, fmt.Errorf("unmarshaling config: %w", err)
 	}
-	
+
 	// Set environment if not already set
 	if cfg.Env == "" {
 		if env := os.Getenv("ENV"); env != "" {
@@ -411,11 +413,11 @@ func Load(cmd *cobra.Command) (*Config, error) {
 			cfg.Env = "development"
 		}
 	}
-	
+
 	// Validate the loaded configuration
 	if err := Validate(cfg); err != nil {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
-	
+
 	return cfg, nil
 }

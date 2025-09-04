@@ -19,115 +19,73 @@ import (
 
 func main() {
 	rootCmd := &cobra.Command{
-		Use:   "billing-service",
+		Use:   "billing",
 		Short: "Doujins Billing Service",
-		Long:  "Standalone billing service for handling payments and subscriptions",
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			configPath, err := cmd.Flags().GetString("config")
+			if err != nil {
+				return fmt.Errorf("failed to get config flag: %w", err)
+			}
+
+			cfg, err := config.Load(configPath)
+			if err != nil {
+				return fmt.Errorf("failed to load config: %w", err)
+			}
+
+			cmd.SetContext(context.WithValue(cmd.Context(), config.ConfigContextKey, cfg))
+			return nil
+		},
+		Long: "Standalone billing service for handling payments and subscriptions",
 	}
 
-	rootCmd.PersistentFlags().StringP("config", "c", "", "Path to config file (default: config.yaml)")
+	rootCmd.PersistentFlags().
+		StringP("config", "c", "config.yaml", "Path to config file")
 
-	// Server command
 	serverCmd := &cobra.Command{
 		Use:   "server",
-		Short: "Start the billing service server",
 		RunE:  runServer,
+		Short: "Start the billing service server",
 	}
 
-	// Server flags
-	serverCmd.Flags().IntP("public-port", "", 2052, "Public listener port (frontend and webhooks)")
-	serverCmd.Flags().IntP("private-port", "", 8060, "Private listener port (api-server communication)")
-	serverCmd.Flags().StringP("host", "", "0.0.0.0", "Host to bind to")
-
-	// Worker command
 	workerCmd := &cobra.Command{
 		Use:   "worker",
-		Short: "Start the billing service background workers",
 		RunE:  runWorker,
+		Short: "Start the billing service background workers",
 	}
 
 	rootCmd.AddCommand(serverCmd, workerCmd)
-
 	if err := rootCmd.Execute(); err != nil {
 		log.WithError(err).Fatal("Failed to execute command")
 	}
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load(cmd)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
+	cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
 
-	// Set gin mode based on environment
 	if cfg.Env == "production" || cfg.Env == "prod" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	// Get ports from flags or config
-	publicPort, _ := cmd.Flags().GetInt("public-port")
-	privatePort, _ := cmd.Flags().GetInt("private-port")
-	host, _ := cmd.Flags().GetString("host")
-
-	// Create billing server
 	billingServer, err := server.New(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create billing server: %w", err)
 	}
 
-	// Setup graceful shutdown
-	_, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Channel to receive OS signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Start public listener (frontend and webhooks)
-	publicAddr := fmt.Sprintf("%s:%d", host, publicPort)
-	publicServer := &http.Server{
-		Addr:    publicAddr,
-		Handler: billingServer.PublicHandler(),
+	server := &http.Server{
+		Handler: billingServer.Handler(),
+		Addr:    fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 	}
 
-	go func() {
-		log.Infof("Starting public billing service on %s", publicAddr)
-		if err := publicServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.WithError(err).Fatal("Public server failed to start")
-		}
-	}()
-
-	// Start private listener (api-server communication)
-	privateAddr := fmt.Sprintf("%s:%d", host, privatePort)
-	privateServer := &http.Server{
-		Addr:    privateAddr,
-		Handler: billingServer.PrivateHandler(),
-	}
-
-	go func() {
-		log.Infof("Starting private billing service on %s", privateAddr)
-		if err := privateServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.WithError(err).Fatal("Private server failed to start")
-		}
-	}()
-
-	// Wait for interrupt signal
-	<-sigChan
-	log.Info("Shutdown signal received, gracefully shutting down...")
-
-	// Graceful shutdown with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Shutdown both servers
-	if err := publicServer.Shutdown(shutdownCtx); err != nil {
-		log.WithError(err).Error("Public server forced to shutdown")
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.WithError(err).Error("Server forced to shutdown")
 	}
 
-	if err := privateServer.Shutdown(shutdownCtx); err != nil {
-		log.WithError(err).Error("Private server forced to shutdown")
-	}
-
-	// Cleanup resources
 	if err := billingServer.Close(shutdownCtx); err != nil {
 		log.WithError(err).Error("Error during billing server cleanup")
 	}
@@ -137,30 +95,21 @@ func runServer(cmd *cobra.Command, args []string) error {
 }
 
 func runWorker(cmd *cobra.Command, args []string) error {
-	cfg, err := config.Load(cmd)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	// Create billing server for worker access to dependencies
+	cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
 	billingServer, err := server.New(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to create billing server: %w", err)
 	}
 
-	// Channel to receive OS signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Wait for interrupt signal
 	<-sigChan
 	log.Info("Shutdown signal received, stopping workers...")
 
-	// Graceful shutdown with timeout
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	// Cleanup resources
 	if err := billingServer.Close(shutdownCtx); err != nil {
 		log.WithError(err).Error("Error during billing server cleanup")
 	}
