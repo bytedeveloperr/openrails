@@ -8,7 +8,7 @@ Stack
 - Postgres: `supabase/postgres` (DB `supadb`, user `supabase_admin`, pass `password`)
 - Garnet (Redis-compatible): `ghcr.io/microsoft/garnet` on `6379`
 - ClickHouse: `clickhouse/clickhouse-server` (DB `analytics`, user `analytics_user`, pass `analytics_password`)
-- Billing service: this server exposing public API on `:2052` and a private/internal port `:8060` (exposed to the compose network only)
+- Billing service: this server exposing public API on `:2052` and a private/internal port `:8060` (exposed to the compose network only). Admin routes require an internal shared secret.
 
 Quick Start
 - Start services: `task docker-up` (or `docker-compose up -d`)
@@ -45,7 +45,15 @@ Service endpoints
 
 Networking
 - Public: port `2052` is published to the host.
-- Private: port `8060` is exposed to the Docker network for intra-service communication. The current server binds a single HTTP listener; private routes are namespaced by path. The `8060` exposure is reserved for future separation if needed.
+- Private: port `8060` is exposed to the Docker network for intra-service communication. Optionally, you can enable a private TLS listener with client cert verification (mTLS) via config.
+
+Admin access
+- Shared secret: admin routes are protected by header `X-Internal-Token: <token>`. Configure with env `INTERNAL_ADMIN_TOKEN`.
+- mTLS (optional): set `tls.private.enabled: true` and provide `tls.private.cert_file`, `tls.private.key_file`. To require client certs, also set `tls.private.client_ca_file` and `tls.private.require_client_cert: true`.
+
+JWT verification (Zitadel)
+- The server verifies JWTs and extracts only `sub` (user ID) and `email`. Roles/claims are not used for authorization.
+- For development, HMAC (`JWT_SECRET`) is supported. For Zitadel RS256, set `JWT_PUBLIC_KEY_PEM` to the issuer's RSA public key PEM.
 
 Data stores and migrations
 - Postgres

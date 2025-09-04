@@ -143,6 +143,22 @@ func (r *GeneratePaymentRequest) Body() any {
     return &r.GeneratePaymentBodyParams
 }
 
+// -------------------------------- Solana Submit Payment Request --------------------------------
+
+type SubmitPaymentBodyParams struct {
+    SignedTransaction string `json:"signed_transaction" validate:"required"`
+    PriceID           string `json:"price_id" validate:"required,uuid"`
+}
+
+type SubmitPaymentRequest struct {
+    BaseRequest
+    SubmitPaymentBodyParams
+}
+
+func (r *SubmitPaymentRequest) Body() any {
+    return &r.SubmitPaymentBodyParams
+}
+
 // -------------------------------- Solana Generate QR Request --------------------------------
 
 type GenerateSolanaPayQRBodyParams struct {
@@ -158,6 +174,52 @@ type GenerateSolanaPayQRRequest struct {
 
 func (r *GenerateSolanaPayQRRequest) Body() any {
     return &r.GenerateSolanaPayQRBodyParams
+}
+
+// -------------------------------- Payment Methods Requests --------------------------------
+
+type ListPaymentMethodsQueryParams struct {
+    PaginationParams
+    IncludeInactive bool `form:"include_inactive"`
+}
+
+type ListPaymentMethodsRequest struct {
+    BaseRequest
+    ListPaymentMethodsQueryParams
+}
+
+func (r *ListPaymentMethodsRequest) Query() any {
+    return &r.ListPaymentMethodsQueryParams
+}
+
+func (r *ListPaymentMethodsRequest) SetDefaults() {
+    r.SetPaginationDefaults(20)
+}
+
+type DeletePaymentMethodPathParams struct {
+    ID string `uri:"id" binding:"required,uuid"`
+}
+
+type DeletePaymentMethodRequest struct {
+    BaseRequest
+    DeletePaymentMethodPathParams
+}
+
+func (r *DeletePaymentMethodRequest) Path() any {
+    return &r.DeletePaymentMethodPathParams
+}
+
+type ActivatePaymentMethodPathParams struct {
+    ID string `uri:"id" binding:"required,uuid"`
+}
+
+type ActivatePaymentMethodRequest struct {
+    BaseRequest
+    ActivatePaymentMethodPathParams
+}
+
+func (r *ActivatePaymentMethodRequest) Path() any {
+    return &r.ActivatePaymentMethodPathParams
 }
 
 // -------------------------------- GetBillingHistory Request --------------------------------

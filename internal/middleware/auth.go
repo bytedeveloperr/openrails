@@ -1,19 +1,22 @@
 package middleware
 
 import (
-	"context"
-	"fmt"
-	"net/http"
-	"strings"
+    "context"
+    "crypto/rsa"
+    "crypto/x509"
+    "encoding/pem"
+    "fmt"
+    "net/http"
+    "strings"
 
-	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
+    "github.com/gin-gonic/gin"
+    "github.com/golang-jwt/jwt/v5"
+    "github.com/google/uuid"
+    log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/pkg/message"
+    "github.com/doujins-org/doujins-billing/config"
+    "github.com/doujins-org/doujins-billing/internal/services"
+    "github.com/doujins-org/doujins-billing/pkg/message"
 )
 
 // UserContextKey is the key for user context in gin.Context
@@ -21,7 +24,7 @@ const UserContextKey = "user"
 
 // UserContext represents the authenticated user context
 type UserContext struct {
-	User      *models.User `json:"user"`
+	User      *services.UserIdentity `json:"user"`
 	SessionID string       `json:"session_id"`
 	ExpiresAt int64        `json:"exp"`
 }
@@ -40,6 +43,8 @@ func (u *UserContext) HasRole(role string) bool {
 func ExtractUserContextFromClaims(claims jwt.MapClaims) (*UserContext, error) {
 	userCtx := &UserContext{}
 
+	userCtx.User = &services.UserIdentity{}
+
 	// Extract user ID
 	if userID, ok := claims["sub"].(string); ok {
 		userCtx.User.ID = uuid.MustParse(userID)
@@ -47,7 +52,8 @@ func ExtractUserContextFromClaims(claims jwt.MapClaims) (*UserContext, error) {
 
 	// Extract email
 	if email, ok := claims["email"].(string); ok {
-		userCtx.User.Email = &email
+		emailCopy := email
+		userCtx.User.Email = &emailCopy
 	}
 
 	// Extract username
@@ -189,14 +195,37 @@ func OptionalAuth(jwtConfig *config.JWTConfig) gin.HandlerFunc {
 
 // validateJWTToken parses and validates a JWT token
 func validateJWTToken(tokenString string, jwtConfig *config.JWTConfig) (*UserContext, error) {
-	// Parse token
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Validate signing method
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
-		}
-		return []byte(jwtConfig.Secret), nil
-	})
+    // Parse token with dynamic keyfunc supporting HMAC (dev) or RSA public key (Zitadel)
+    keyFunc := func(token *jwt.Token) (interface{}, error) {
+        switch alg := token.Method.Alg(); alg {
+        case jwt.SigningMethodHS256.Alg(), jwt.SigningMethodHS384.Alg(), jwt.SigningMethodHS512.Alg():
+            if jwtConfig.Secret == "" {
+                return nil, fmt.Errorf("HMAC secret not configured")
+            }
+            return []byte(jwtConfig.Secret), nil
+        case jwt.SigningMethodRS256.Alg(), jwt.SigningMethodRS384.Alg(), jwt.SigningMethodRS512.Alg():
+            if jwtConfig.PublicKeyPEM == "" {
+                return nil, fmt.Errorf("RSA public key not configured")
+            }
+            block, _ := pem.Decode([]byte(jwtConfig.PublicKeyPEM))
+            if block == nil {
+                return nil, fmt.Errorf("invalid PEM for JWT public key")
+            }
+            pubAny, err := x509.ParsePKIXPublicKey(block.Bytes)
+            if err != nil {
+                return nil, fmt.Errorf("parse RSA public key: %w", err)
+            }
+            pub, ok := pubAny.(*rsa.PublicKey)
+            if !ok {
+                return nil, fmt.Errorf("not an RSA public key")
+            }
+            return pub, nil
+        default:
+            return nil, fmt.Errorf("unsupported signing algorithm: %s", alg)
+        }
+    }
+
+    token, err := jwt.Parse(tokenString, keyFunc)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse token: %w", err)

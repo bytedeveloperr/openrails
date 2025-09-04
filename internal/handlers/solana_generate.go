@@ -1,13 +1,14 @@
 package handlers
 
 import (
+    "errors"
     "fmt"
-    "math"
     "net/http"
-    "time"
 
     "github.com/google/uuid"
     log "github.com/sirupsen/logrus"
+
+    "github.com/doujins-org/doujins-billing/internal/services"
 )
 
 // GeneratePayment handles generating Solana payment transactions (scaffold)
@@ -29,49 +30,33 @@ func GeneratePayment(r *Request) {
         return
     }
 
-    // Load price
-    price, err := r.State.PriceService.GetByID(r.Request.Context(), priceID)
+    // Build via service (creates pending solana_transactions row)
+    user := r.GetUser()
+    svc := services.NewSolanaPaymentService(r.State.DB, r.State.Config, r.State.PriceService, r.State.PaymentService)
+    amount, currency, tokenAmount, expiresAt, _, err := svc.Generate(r.Request.Context(), &user.ID, priceID, req.Token, req.UserWallet)
     if err != nil {
-        log.WithFields(log.Fields{"price_id": priceID, "error": err.Error()}).Error("Failed to get price information")
-        r.ErrorJSON(http.StatusNotFound, "Price not found")
+        log.WithError(err).Error("Failed to prepare solana payment")
+        if errors.Is(err, services.ErrPriceNotFound) {
+            r.ErrorJSON(http.StatusNotFound, "Price not found")
+            return
+        }
+        if errors.Is(err, services.ErrInvalidToken) {
+            r.ErrorJSON(http.StatusBadRequest, "Invalid or unsupported token")
+            return
+        }
+        r.ErrorJSON(http.StatusInternalServerError, "Failed to prepare payment")
         return
     }
-
-    // Validate token via config
-    solCfg := r.State.Config.Solana
-    if solCfg == nil {
-        log.Error("Solana configuration not found")
-        r.ErrorJSON(http.StatusInternalServerError, "Payment system configuration error")
-        return
-    }
-
-    tokenSymbol := req.Token
-    tokenCfg, ok := solCfg.SupportedTokens[tokenSymbol]
-    if !ok || !tokenCfg.Enabled {
-        r.ErrorJSON(http.StatusBadRequest, "Invalid or unsupported token")
-        return
-    }
-
-    // Calculate token amount in smallest units
-    pow := math.Pow10(tokenCfg.Decimals)
-    tokenAmount := uint64(math.Round(price.Amount * pow))
 
     response := GeneratePaymentResponse{
-        Transaction:  "", // Real transaction generation requires on-chain libs; intentionally empty
-        Amount:       price.Amount,
-        Currency:     price.Currency,
+        Transaction:  "", // intentionally empty until on-chain builder is wired
+        Amount:       amount,
+        Currency:     currency,
         TokenAmount:  tokenAmount,
-        TokenSymbol:  tokenSymbol,
-        ExpiresAt:    time.Now().Add(10 * time.Minute).Unix(),
-        Instructions: fmt.Sprintf("Please sign this transaction to pay %.2f %s using %s.", price.Amount, price.Currency, tokenSymbol),
+        TokenSymbol:  req.Token,
+        ExpiresAt:    expiresAt.Unix(),
+        Instructions: fmt.Sprintf("Please sign this transaction to pay %.2f %s using %s.", amount, currency, req.Token),
     }
-
-    log.WithFields(log.Fields{
-        "price_id":     priceID,
-        "amount":       price.Amount,
-        "token_symbol": tokenSymbol,
-        "token_amount": tokenAmount,
-    }).Info("Prepared Solana payment transaction response")
 
     r.SuccessJSON(response)
 }

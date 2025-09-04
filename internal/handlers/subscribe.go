@@ -50,7 +50,7 @@ func Subscribe(r *Request) {
 	// 	return
 	// }
 
-	res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.Data, userCtx.User)
+    res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.Data, userCtx.User)
 	if err != nil {
 		log.WithError(err).Error("failed to subscribe")
 		r.ErrorJSON(500, "Internal server error")

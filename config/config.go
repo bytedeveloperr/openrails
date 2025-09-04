@@ -32,6 +32,8 @@ type Config struct {
 	SendGrid    *SendGridConfig   `json:"sendgrid,omitempty"`
 	CorsOrigins []string          `json:"cors_origins,omitempty"`
 	RateLimits  *RateLimitConfig  `json:"rate_limits,omitempty"`
+	Admin       *AdminConfig      `json:"admin,omitempty"`
+	TLS         *TLSConfig        `json:"tls,omitempty"`
 }
 
 type DBConfig struct {
@@ -81,6 +83,8 @@ type RedisConfig struct {
 type JWTConfig struct {
 	Secret string `koanf:"secret"`
 	Issuer string `koanf:"issuer"`
+	// Optional RSA public key PEM for verifying RS256 JWTs (e.g., from Zitadel)
+	PublicKeyPEM string `koanf:"public_key_pem"`
 }
 
 type SolanaConfig struct {
@@ -125,6 +129,26 @@ type SendGridConfig struct {
 	APIKey    string `koanf:"api_key"`
 	FromEmail string `koanf:"from_email"`
 	FromName  string `koanf:"from_name"`
+}
+
+// AdminConfig controls private admin access
+type AdminConfig struct {
+    // Shared secret required in 'X-Internal-Token' header for admin routes
+    InternalToken string `koanf:"internal_token"`
+}
+
+// TLSConfig controls optional private mTLS listener
+type TLSConfig struct {
+    Private *PrivateTLSConfig `koanf:"private"`
+}
+
+type PrivateTLSConfig struct {
+    Enabled           bool   `koanf:"enabled"`
+    Addr              string `koanf:"addr"`                // default ":8060"
+    CertFile          string `koanf:"cert_file"`
+    KeyFile           string `koanf:"key_file"`
+    ClientCAFile      string `koanf:"client_ca_file"`      // optional client CA
+    RequireClientCert bool   `koanf:"require_client_cert"` // enable mTLS if true and ClientCAFile provided
 }
 
 // RateLimit defines a rate limit policy
@@ -264,6 +288,15 @@ func GetDefaultBillingConfig() *Config {
             Username:  "analytics_user",
             Password:  "analytics_password",
         },
+        Admin: &AdminConfig{
+            InternalToken: "", // Provide via env INTERNAL_ADMIN_TOKEN
+        },
+        TLS: &TLSConfig{
+            Private: &PrivateTLSConfig{
+                Enabled: false,
+                Addr:    ":8060",
+            },
+        },
         RateLimits: &RateLimitConfig{
             SubscribeLimit: &RateLimit{
                 RequestsPerMinute: 10, // Very restrictive for payment endpoints
@@ -364,8 +397,9 @@ func Load(configPath string) (*Config, error) {
 		"ENVIRONMENT":  "env",
 
 		// JWT
-		"JWT_SECRET": "jwt.secret",
-		"JWT_ISSUER": "jwt.issuer",
+		"JWT_SECRET":        "jwt.secret",
+		"JWT_ISSUER":        "jwt.issuer",
+		"JWT_PUBLIC_KEY_PEM": "jwt.public_key_pem",
 
 		// CCBill
 		"CCBILL_CLIENT_ACCOUNT":    "ccbill.client_acc_num",
@@ -389,6 +423,9 @@ func Load(configPath string) (*Config, error) {
 		"CLICKHOUSE_DATABASE": "clickhouse.database",
 		"CLICKHOUSE_USERNAME": "clickhouse.username",
 		"CLICKHOUSE_PASSWORD": "clickhouse.password",
+
+		// Admin shared secret
+		"INTERNAL_ADMIN_TOKEN": "admin.internal_token",
 	}
 
 	for envVar, configKey := range envMappings {

@@ -5,10 +5,11 @@ import (
     "math"
     "net/http"
     "net/url"
-    "time"
 
     "github.com/google/uuid"
     log "github.com/sirupsen/logrus"
+
+    "github.com/doujins-org/doujins-billing/internal/services"
 )
 
 // GenerateSolanaPayQR generates a Solana Pay URL for wallet apps to scan
@@ -63,6 +64,15 @@ func GenerateSolanaPayQR(r *Request) {
         return
     }
 
+    // Create pending solana transaction (captures reference via pending ID)
+    user := r.GetUser()
+    svc := services.NewSolanaPaymentService(r.State.DB, r.State.Config, r.State.PriceService, r.State.PaymentService)
+    _, _, _, exp, pendingID, err := svc.Generate(r.Request.Context(), &user.ID, price.ID, tokenSymbol, req.UserWallet)
+    if err != nil {
+        r.ErrorJSON(http.StatusInternalServerError, "Failed to prepare payment")
+        return
+    }
+
     // Calculate smallest unit amount
     tokenAmount := price.Amount * math.Pow10(tokenCfg.Decimals)
 
@@ -71,6 +81,8 @@ func GenerateSolanaPayQR(r *Request) {
     params := url.Values{}
     params.Set("amount", fmt.Sprintf("%.0f", tokenAmount))
     params.Set("spl-token", tokenCfg.Mint)
+    // Include a reference (pending ID) to correlate chain tx to server record
+    params.Add("reference", pendingID.String())
     params.Set("label", "Doujins Purchase")
     params.Set("message", fmt.Sprintf("Purchase for %.2f %s using %s", price.Amount, price.Currency, tokenSymbol))
     solanaPayURL.RawQuery = params.Encode()
@@ -82,7 +94,7 @@ func GenerateSolanaPayQR(r *Request) {
         TokenSymbol: tokenSymbol,
         Label:       "Doujins Purchase",
         Message:     fmt.Sprintf("Purchase for %.2f %s using %s", price.Amount, price.Currency, tokenSymbol),
-        ExpiresAt:   time.Now().Add(10 * time.Minute).Unix(),
+        ExpiresAt:   exp.Unix(),
     }
 
     log.WithFields(log.Fields{

@@ -160,8 +160,8 @@ func (s *RateLimitStore) getLimiterForRate(ip string, rateCfg *config.RateLimit)
 	return limiter
 }
 
-// InternalOnly middleware restricts access to internal networks only
-func InternalOnly() gin.HandlerFunc {
+// InternalIPWhitelist restricts access to internal networks only (not used by default)
+func InternalIPWhitelist() gin.HandlerFunc {
 	// Define internal network ranges
 	internalNetworks := []*net.IPNet{
 		{IP: net.ParseIP("10.0.0.0"), Mask: net.CIDRMask(8, 32)},     // 10.0.0.0/8

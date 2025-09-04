@@ -29,6 +29,17 @@ type GeneratePaymentResponse struct {
     Instructions string  `json:"instructions,omitempty"`  // human-readable instructions
 }
 
+// SubmitPaymentResponse represents the result of submitting a signed transaction
+type SubmitPaymentResponse struct {
+    PurchaseID    string    `json:"purchase_id"`
+    TransactionID string    `json:"transaction_id"`
+    Status        string    `json:"status"`
+    Amount        float64   `json:"amount"`
+    Currency      string    `json:"currency"`
+    ProcessedAt   time.Time `json:"processed_at"`
+    Message       string    `json:"message"`
+}
+
 // PaymentStatusResponse represents the status of a payment
 type PaymentStatusResponse struct {
     PurchaseID    string     `json:"purchase_id"`
@@ -55,6 +66,18 @@ type SolanaPayQRResponse struct {
     Label       string  `json:"label"`        // Merchant label
     Message     string  `json:"message"`      // Payment message
     ExpiresAt   int64   `json:"expires_at"`   // Unix timestamp when QR expires
+}
+
+// SupportedTokensResponse lists available Solana tokens from config
+type SupportedTokensResponse struct {
+    Tokens []TokenInfo `json:"tokens"`
+}
+
+type TokenInfo struct {
+    Symbol string `json:"symbol"`
+    Name   string `json:"name"`
+    Mint   string `json:"mint"`
+    Decimals int  `json:"decimals"`
 }
 
 type PublicPriceResponse struct {

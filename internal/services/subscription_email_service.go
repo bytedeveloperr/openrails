@@ -1,14 +1,12 @@
 package services
 
 import (
-	"context"
-	"fmt"
-	"log"
-	"time"
+    "context"
+    "fmt"
+    "log"
+    "time"
 
-	"github.com/google/uuid"
-
-	"github.com/doujins-org/doujins-billing/internal/db/models"
+    "github.com/google/uuid"
 )
 
 // SubscriptionEmailService handles subscription-related email notifications
@@ -77,7 +75,7 @@ func (s *SubscriptionEmailService) SendSubscriptionCancelled(ctx context.Context
 
 	// For cancelled subscriptions, we might not have active subscription data
 	// so we accept the subscription details as parameters
-	profile, email, err := s.getUserProfile(ctx, userID)
+    username, email, err := s.getUserEmail(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get user profile: %w", err)
 	}
@@ -88,9 +86,9 @@ func (s *SubscriptionEmailService) SendSubscriptionCancelled(ctx context.Context
 		amountFloat = 0 // Default if parsing fails
 	}
 
-	emailData := SubscriptionEmailData{
-		UserEmail:      email,
-		Username:       profile.Username,
+    emailData := SubscriptionEmailData{
+        UserEmail:      email,
+        Username:       username,
 		SubscriptionID: uuid.Nil, // We don't have the subscription ID in this context
 		Amount:         amountFloat,
 		Currency:       "USD", // Default for cancellation emails without price context
@@ -125,17 +123,17 @@ func (s *SubscriptionEmailService) SendRoleExpired(ctx context.Context, userID u
 		return nil
 	}
 
-	profile, email, err := s.getUserProfile(ctx, userID)
+    username, email, err := s.getUserEmail(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get user profile: %w", err)
 	}
 
-	return s.emailService.SendRoleExpiration(ctx, email, profile.Username, roleName, expiresAt)
+    return s.emailService.SendRoleExpiration(ctx, email, username, roleName, expiresAt)
 }
 
 // getEmailData fetches subscription data for email notifications
 func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID uuid.UUID) (*SubscriptionEmailData, error) {
-	profile, email, err := s.getUserProfile(ctx, userID)
+    username, email, err := s.getUserEmail(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -167,9 +165,9 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID uuid
 		}
 	}
 
-	return &SubscriptionEmailData{
-		UserEmail:      email,
-		Username:       profile.Username,
+    return &SubscriptionEmailData{
+        UserEmail:      email,
+        Username:       username,
 		SubscriptionID: subscription.ID,
 		Amount:         price.Amount,
 		Currency:       price.Currency,
@@ -181,23 +179,12 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID uuid
 }
 
 // getUserProfile gets user profile and validates email exists
-func (s *SubscriptionEmailService) getUserProfile(ctx context.Context, userID uuid.UUID) (*models.Profile, string, error) {
-	// Get user profile
-	profile, err := s.userServicesitory.GetByUserID(ctx, userID)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to get profile for user %s: %w", userID, err)
-	}
-
-	// Get user data including email
-	user, err := s.userServicesitory.GetByID(ctx, userID)
-	if err != nil {
-		return nil, "", fmt.Errorf("failed to get user data for %s: %w", userID, err)
-	}
-
-	if user.Email == nil || *user.Email == "" {
-		return nil, "", fmt.Errorf("user %s has no email address", userID)
-	}
-
-	email := *user.Email
-	return profile, email, nil
+func (s *SubscriptionEmailService) getUserEmail(ctx context.Context, userID uuid.UUID) (username string, email string, err error) {
+    // Fetch email from auth.users via minimal UserService
+    email, err = s.userServicesitory.GetEmailByUserID(ctx, userID)
+    if err != nil {
+        return "", "", fmt.Errorf("failed to get user email for %s: %w", userID, err)
+    }
+    // Username not managed here; return empty
+    return "", email, nil
 }

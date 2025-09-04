@@ -37,8 +37,8 @@ func NewState(cfg *config.Config) (*State, error) {
 	// Build all repositories
 	serviceInstances := createServices(db)
 
-	// Assemble State
-	state := &State{
+    // Assemble State
+    state := &State{
 		// Infrastructure
 		DB:               db,
 		RedisClient:      redisClient,
@@ -57,8 +57,18 @@ func NewState(cfg *config.Config) (*State, error) {
 		UserRoleGrantService:     serviceInstances.UserRoleGrantService,
 		NotificationQueueService: serviceInstances.NotificationQueueService,
 		PaymentMethodService:     serviceInstances.PaymentMethodService,
-		PaymentService:           serviceInstances.PurchaseService,
-	}
+        PaymentService:           serviceInstances.PurchaseService,
+        SolanaWalletStore:        services.NewSolanaWalletStore(),
+    }
+
+    // Initialize optional analytics/event logging (ClickHouse)
+    if cfg.ClickHouse != nil {
+        if bes, err := services.NewBillingEventService(cfg.ClickHouse); err != nil {
+            log.WithError(err).Warn("BillingEventService init failed; analytics disabled")
+        } else {
+            state.BillingEventService = bes
+        }
+    }
 
 	return state, nil
 }

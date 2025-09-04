@@ -74,18 +74,28 @@ func (s *Server) setupHandler() {
 func (s *Server) Setup() {
     api := s.handler.Group("/api/v1")
 
+    // Public subscription data (no auth)
+    publicSubs := api.Group("/subscriptions/public")
+    {
+        publicSubs.GET("/products", s.wrap(handlers.GetProducts))
+        publicSubs.GET("/subscribe-page-data", s.wrap(handlers.GetSubscribePageData))
+    }
+
     subscriptions := api.Group("/subscriptions")
     subscriptions.Use(middleware.AuthRequired(s.cfg.JWT))
     {
         // Avoid wildcard conflict with admin routes by namespacing processor
         subscriptions.POST("/processor/:processor", s.wrap(handlers.Subscribe))
         subscriptions.POST("/ccbill/flexform-url", s.wrap(handlers.GenerateFlexFormURL))
+        subscriptions.POST("/cancel", s.wrap(handlers.CancelSubscription))
         subscriptions.GET("/active", s.wrap(handlers.GetSubscription))
         subscriptions.GET("/history", s.wrap(handlers.GetSubscriptionHistory))
+        subscriptions.GET("/purchases", s.wrap(handlers.GetUserPurchases))
     }
 
-	admin := api.Group("")
-	admin.Use(middleware.AdminRequired())
+    admin := api.Group("")
+    // Protect admin routes with internal shared secret
+    admin.Use(middleware.InternalOnly(s.cfg.Admin))
 	{
 		admin.PUT("/subscriptions/:id/extend", s.wrap(handlers.ExtendSubscription))
 		admin.POST("/subscriptions/:id/cancel", s.wrap(handlers.CancelSubscription))
@@ -98,12 +108,42 @@ func (s *Server) Setup() {
         webhooks.POST("/:processor", s.wrap(handlers.Webhook))
     }
 
+    // Payment methods
+    pms := api.Group("/payment-methods")
+    pms.Use(middleware.AuthRequired(s.cfg.JWT))
+    {
+        pms.GET("", s.wrap(handlers.ListPaymentMethods))
+        pms.DELETE(":id", s.wrap(handlers.DeletePaymentMethod))
+        pms.PUT(":id/activate", s.wrap(handlers.ActivatePaymentMethod))
+    }
+
+    // Notifications
+    notifications := api.Group("/notifications")
+    notifications.Use(middleware.AuthRequired(s.cfg.JWT))
+    {
+        notifications.GET("", s.wrap(handlers.GetNotifications))
+        notifications.GET("/unread-count", s.wrap(handlers.GetUnreadNotificationCount))
+        notifications.POST(":id/read", s.wrap(handlers.MarkNotificationRead))
+    }
+
+    // Wallet (Solana) - scaffold endpoints
+    wallet := api.Group("/wallet/solana")
+    wallet.Use(middleware.AuthRequired(s.cfg.JWT))
+    {
+        wallet.GET("", s.wrap(handlers.ListSolanaWallets))
+        wallet.POST("/connect", s.wrap(handlers.ConnectSolanaWallet))
+        wallet.POST("/verify", s.wrap(handlers.VerifySolanaWallet))
+        wallet.DELETE("", s.wrap(handlers.DeleteSolanaWallet))
+    }
+
     // Solana payments (generate transaction and QR)
     solana := api.Group("/solana")
     solana.Use(middleware.AuthRequired(s.cfg.JWT))
     {
         solana.POST("/generate", s.wrap(handlers.GeneratePayment))
+        solana.POST("/submit", s.wrap(handlers.SubmitPayment))
         solana.POST("/qr", s.wrap(handlers.GenerateSolanaPayQR))
+        solana.GET("/supported-tokens", s.wrap(handlers.GetSupportedTokens))
     }
 
 	s.handler.GET("/health", func(c *gin.Context) {

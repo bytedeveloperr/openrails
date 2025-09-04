@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
+    "github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/pkg/query"
@@ -90,7 +90,7 @@ type SubscribeResponse struct {
 	SubscriptionID string `json:"subscription_id,omitempty"`
 }
 
-func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData, user *models.User) (any, error) {
+func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData, user *UserIdentity) (any, error) {
 	// Get price and product information
 	priceID, err := uuid.Parse(data.PriceID)
 	if err != nil {
