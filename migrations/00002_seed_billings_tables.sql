@@ -1,0 +1,138 @@
+-- 00002_seed_billings_tables.sql
+-- Seed data for billing tables - products, prices, and default subscription plans
+
+-- Set timeouts to prevent hanging migrations
+SET lock_timeout = '10s';
+SET statement_timeout = '300s';
+
+-- ============================================================================
+-- SECTION 0: CLEANUP LEGACY DATA
+-- ============================================================================
+
+-- Update any NULL processor_subscription_id values with defaults
+UPDATE subscriptions 
+SET processor_subscription_id = 'LEGACY-' || id::text
+WHERE processor_subscription_id IS NULL OR processor_subscription_id = '';
+
+-- Set default started_at for subscriptions that don't have it
+UPDATE subscriptions 
+SET started_at = created_at 
+WHERE started_at IS NULL;
+
+-- ============================================================================
+-- SECTION 1: SEED SUBSCRIPTION PLANS
+-- ============================================================================
+
+-- Insert default subscription plans (for backward compatibility)
+INSERT INTO subscription_plans (name, display_name, description, price_usd, billing_cycle, features) VALUES 
+('basic_monthly', 'Basic Plan - Monthly', 'Basic subscription plan billed monthly', 15.00, 30, ARRAY['Access to premium content', 'HD streaming', 'Basic support']),
+('premium_monthly', 'Premium Plan - Monthly', 'Premium subscription plan billed monthly', 19.00, 30, ARRAY['Access to premium content', 'HD streaming', 'Priority support', 'Exclusive releases']),
+('enterprise_monthly', 'Enterprise Plan - Monthly', 'Enterprise subscription plan billed monthly', 23.00, 30, ARRAY['Access to premium content', 'HD streaming', 'Priority support', 'Exclusive releases', 'API access']),
+('legacy_plan', 'Legacy Plan', 'Migrated from old system', 0.00, 30, ARRAY['Legacy features'])
+ON CONFLICT (name) DO NOTHING;
+
+-- ============================================================================
+-- SECTION 2: SEED PRODUCTS CATALOG
+-- ============================================================================
+
+-- Insert product catalog
+INSERT INTO products (slug, display_name, description, role_slug) VALUES
+-- Basic tier
+('basic_membership', 'Basic Membership', 'Access to standard content library and community features', 'basic'),
+
+-- Premium tier  
+('premium_membership', 'Premium Membership', 'Full access to exclusive content, HD streaming, and priority support', 'premium'),
+
+-- Creator tier
+('creator_membership', 'Creator Membership', 'Everything in Premium plus creator tools, analytics, and revenue sharing', 'creator'),
+
+-- Enterprise tier
+('enterprise_membership', 'Enterprise Membership', 'Custom solutions for teams with API access, SSO, and dedicated support', 'enterprise')
+
+ON CONFLICT (slug) DO UPDATE SET 
+    display_name = EXCLUDED.display_name,
+    description = EXCLUDED.description,
+    role_slug = EXCLUDED.role_slug,
+    updated_at = current_timestamp;
+
+-- ============================================================================
+-- SECTION 3: SEED PRICING TIERS
+-- ============================================================================
+
+-- Insert pricing tiers
+DO $$
+DECLARE
+    basic_id UUID;
+    premium_id UUID;
+    creator_id UUID;
+    enterprise_id UUID;
+BEGIN
+    -- Get product IDs
+    SELECT id INTO basic_id FROM products WHERE slug = 'basic_membership';
+    SELECT id INTO premium_id FROM products WHERE slug = 'premium_membership';
+    SELECT id INTO creator_id FROM products WHERE slug = 'creator_membership';
+    SELECT id INTO enterprise_id FROM products WHERE slug = 'enterprise_membership';
+
+    -- Basic tier pricing
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
+    (basic_id, 'Basic Monthly', 9.99, 'USD', 30, 'ccbill_basic_monthly', 'mobius_basic_monthly', true),
+    (basic_id, 'Basic Annual', 99.99, 'USD', 365, 'ccbill_basic_annual', 'mobius_basic_annual', true)
+    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
+
+    -- Premium tier pricing
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
+    (premium_id, 'Premium Monthly', 19.99, 'USD', 30, 'ccbill_premium_monthly', 'mobius_premium_monthly', true),
+    (premium_id, 'Premium Annual', 199.99, 'USD', 365, 'ccbill_premium_annual', 'mobius_premium_annual', true),
+    (premium_id, 'Premium Lifetime', 499.99, 'USD', NULL, 'ccbill_premium_lifetime', 'mobius_premium_lifetime', true)
+    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
+
+    -- Creator tier pricing
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
+    (creator_id, 'Creator Monthly', 39.99, 'USD', 30, 'ccbill_creator_monthly', 'mobius_creator_monthly', true),
+    (creator_id, 'Creator Annual', 399.99, 'USD', 365, 'ccbill_creator_annual', 'mobius_creator_annual', true),
+    (creator_id, 'Creator Lifetime', 999.99, 'USD', NULL, 'ccbill_creator_lifetime', 'mobius_creator_lifetime', true)
+    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
+
+    -- Enterprise tier pricing
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
+    (enterprise_id, 'Enterprise Monthly', 99.99, 'USD', 30, 'ccbill_enterprise_monthly', 'mobius_enterprise_monthly', true),
+    (enterprise_id, 'Enterprise Annual', 999.99, 'USD', 365, 'ccbill_enterprise_annual', 'mobius_enterprise_annual', true)
+    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
+
+    -- ============================================================================
+    -- SECTION 4: PROMOTIONAL PRICING (Disabled by Default)
+    -- ============================================================================
+
+    -- Special promotional pricing (disabled by default, can be activated for campaigns)
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
+    (premium_id, 'Premium Monthly - Black Friday', 9.99, 'USD', 30, 'ccbill_premium_bf', 'mobius_premium_bf', false),
+    (premium_id, 'Premium Monthly - New Year', 14.99, 'USD', 30, 'ccbill_premium_ny', 'mobius_premium_ny', false),
+    (premium_id, 'Premium Trial - 7 Days', 0.99, 'USD', 7, 'ccbill_premium_trial', 'mobius_premium_trial', false),
+    (basic_id, 'Basic Trial - 14 Days', 0.99, 'USD', 14, 'ccbill_basic_trial', 'mobius_basic_trial', false),
+    (creator_id, 'Creator Trial - 30 Days', 9.99, 'USD', 30, 'ccbill_creator_trial', 'mobius_creator_trial', false)
+    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
+
+    -- ============================================================================
+    -- SECTION 5: ALTERNATIVE CURRENCIES (Future Expansion)
+    -- ============================================================================
+
+    -- EUR pricing (disabled by default, enable when ready)
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
+    (premium_id, 'Premium Monthly - EUR', 18.99, 'EUR', 30, 'ccbill_premium_monthly_eur', 'mobius_premium_monthly_eur', false),
+    (premium_id, 'Premium Annual - EUR', 189.99, 'EUR', 365, 'ccbill_premium_annual_eur', 'mobius_premium_annual_eur', false)
+    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
+
+    -- GBP pricing (disabled by default)
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
+    (premium_id, 'Premium Monthly - GBP', 16.99, 'GBP', 30, 'ccbill_premium_monthly_gbp', 'mobius_premium_monthly_gbp', false),
+    (premium_id, 'Premium Annual - GBP', 169.99, 'GBP', 365, 'ccbill_premium_annual_gbp', 'mobius_premium_annual_gbp', false)
+    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
+
+END$$;
+
+-- Add helpful comments
+COMMENT ON TABLE products IS 'Product catalog - modify these via your application, not directly in billing service';
+COMMENT ON TABLE prices IS 'Pricing tiers with processor integration - modify these via your application for new campaigns';
+COMMENT ON COLUMN prices.is_active IS 'Set to false to disable pricing tier without deleting (useful for campaigns)';
+COMMENT ON COLUMN prices.ccbill_price_id IS 'CCBill FlexForm price identifier - update when creating new CCBill products';
+COMMENT ON COLUMN prices.mobius_plan_id IS 'Mobius plan identifier - update when creating new Mobius plans';

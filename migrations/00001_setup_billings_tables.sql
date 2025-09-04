@@ -25,14 +25,6 @@ CREATE INDEX IF NOT EXISTS idx_subscription_plans_name ON subscription_plans(nam
 
 COMMENT ON TABLE subscription_plans IS 'Defines available subscription plans with pricing and features';
 
--- Insert default subscription plans
-INSERT INTO subscription_plans (name, display_name, description, price_usd, billing_cycle, features) VALUES 
-('basic_monthly', 'Basic Plan - Monthly', 'Basic subscription plan billed monthly', 15.00, 30, ARRAY['Access to premium content', 'HD streaming', 'Basic support']),
-('premium_monthly', 'Premium Plan - Monthly', 'Premium subscription plan billed monthly', 19.00, 30, ARRAY['Access to premium content', 'HD streaming', 'Priority support', 'Exclusive releases']),
-('enterprise_monthly', 'Enterprise Plan - Monthly', 'Enterprise subscription plan billed monthly', 23.00, 30, ARRAY['Access to premium content', 'HD streaming', 'Priority support', 'Exclusive releases', 'API access']),
-('legacy_plan', 'Legacy Plan', 'Migrated from old system', 0.00, 30, ARRAY['Legacy features'])
-ON CONFLICT (name) DO NOTHING;
-
 -- 1.2: Create subscription status enum
 DROP TYPE IF EXISTS subscription_status CASCADE;
 CREATE TYPE subscription_status AS ENUM ('pending', 'active', 'expired', 'cancelled', 'failed', 'past_due');
@@ -135,15 +127,6 @@ CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug);
 CREATE INDEX IF NOT EXISTS idx_products_role_slug ON products(role_slug);
 CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
 
--- Insert default product (no external dependencies)
-INSERT INTO products (slug, display_name, description, role_slug) VALUES
-('premium_membership', 'Premium Membership', 'Access to exclusive premium content and features', 'premium')
-ON CONFLICT (slug) DO UPDATE SET 
-    display_name = EXCLUDED.display_name,
-    description = EXCLUDED.description,
-    role_slug = EXCLUDED.role_slug,
-    updated_at = current_timestamp;
-
 -- 2.2: Create prices table
 CREATE TABLE IF NOT EXISTS prices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -167,17 +150,6 @@ CREATE INDEX IF NOT EXISTS idx_prices_is_active ON prices(is_active);
 ALTER TABLE prices DROP CONSTRAINT IF EXISTS unique_prices_product_amount_cycle;
 ALTER TABLE prices ADD CONSTRAINT unique_prices_product_amount_cycle 
     UNIQUE (product_id, amount, currency, billing_cycle_days);
-
--- Insert default pricing tier
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM products WHERE slug = 'premium_membership') THEN
-        INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, is_active) 
-        SELECT id, 'Premium Monthly', 23.00, 'USD', 30, true
-        FROM products WHERE slug = 'premium_membership'
-        ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
-    END IF;
-END$$;
 
 -- Add foreign key reference from subscriptions to prices
 DO $$
@@ -208,7 +180,7 @@ CREATE TABLE IF NOT EXISTS user_role_grants (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_role_grants_user_id ON user_role_grants(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_role_grants_role_id ON user_role_grants(role_id);
+CREATE INDEX IF NOT EXISTS idx_user_role_grants_role_slug ON user_role_grants(role_slug);
 CREATE INDEX IF NOT EXISTS idx_user_role_grants_expires ON user_role_grants(auto_expires_at) WHERE auto_expires_at IS NOT NULL;
 
 -- 3.2: Create extension_kind enum
@@ -399,15 +371,6 @@ END$$;
 -- SECTION 7: CLEANUP AND FINAL ADJUSTMENTS
 -- ============================================================================
 
--- 7.1: Update any NULL processor_subscription_id values with defaults
-UPDATE subscriptions 
-SET processor_subscription_id = 'LEGACY-' || id::text
-WHERE processor_subscription_id IS NULL OR processor_subscription_id = '';
-
--- 7.2: Set default started_at for subscriptions that don't have it
-UPDATE subscriptions 
-SET started_at = created_at 
-WHERE started_at IS NULL;
 
 -- 7.3: Add comments for documentation
 COMMENT ON TABLE subscriptions IS 'Core subscription records tracking user billing relationships';
