@@ -13,7 +13,7 @@ type IdempotencyRequest struct {
     ID        uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
     Operation string    `bun:"operation,notnull" json:"operation"`
     Key       string    `bun:"key,notnull" json:"key"`
-    UserID    *uuid.UUID `bun:"user_id,nullzero,type:uuid" json:"user_id,omitempty"`
+    UserID    *string    `bun:"user_id,nullzero" json:"user_id,omitempty"`
     Status    string    `bun:"status,notnull" json:"status"` // pending|success|failed
     ResultJSON []byte   `bun:"result_json,type:jsonb,nullzero" json:"result_json,omitempty"`
     CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
@@ -21,4 +21,3 @@ type IdempotencyRequest struct {
 }
 
 func (IdempotencyRequest) TableName() string { return "idempotency_requests" }
-

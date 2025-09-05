@@ -22,7 +22,9 @@ type Server struct {
     cache cache.Cache
 
     state *state.State
-    handler             *gin.Engine
+
+    publicHandler *gin.Engine
+    adminHandler  *gin.Engine
 }
 
 func New(cfg *config.Config) (*Server, error) {
@@ -57,22 +59,29 @@ func New(cfg *config.Config) (*Server, error) {
         state:               st,
     }
 
-    s.setupHandler()
-    s.Setup()
+    s.setupHandlers()
+    s.setupPublicRoutes()
+    s.setupAdminRoutes()
 
 	log.Info("Billing service initialized successfully")
 	return s, nil
 }
 
-func (s *Server) setupHandler() {
-    s.handler = gin.Default()
-    s.handler.
+func (s *Server) setupHandlers() {
+    // Public handler
+    s.publicHandler = gin.Default()
+    s.publicHandler.
         Use(middleware.CORS(s.cfg.CorsOrigins)).
         Use(middleware.RateLimit(s.cfg.RateLimits))
+
+    // Admin handler (internal only, protected by API key)
+    s.adminHandler = gin.New()
+    s.adminHandler.Use(gin.Recovery())
+    s.adminHandler.Use(middleware.InternalOnly(s.cfg.Admin))
 }
 
-func (s *Server) Setup() {
-    api := s.handler.Group("/api/v1")
+func (s *Server) setupPublicRoutes() {
+    api := s.publicHandler.Group("/api/v1")
 
     // Public subscription data (no auth)
     publicSubs := api.Group("/subscriptions/public")
@@ -92,16 +101,6 @@ func (s *Server) Setup() {
         subscriptions.GET("/history", s.wrap(handlers.GetSubscriptionHistory))
         subscriptions.GET("/purchases", s.wrap(handlers.GetUserPurchases))
     }
-
-    admin := api.Group("")
-    // Protect admin routes with internal shared secret
-    admin.Use(middleware.InternalOnly(s.cfg.Admin))
-	{
-		admin.PUT("/subscriptions/:id/extend", s.wrap(handlers.ExtendSubscription))
-		admin.POST("/subscriptions/:id/cancel", s.wrap(handlers.CancelSubscription))
-		admin.GET("/subscriptions/:id/details", s.wrap(handlers.GetSubscription))
-
-	}
 
     webhooks := api.Group("/subscriptions/webhook")
     {
@@ -146,9 +145,26 @@ func (s *Server) Setup() {
         solana.GET("/supported-tokens", s.wrap(handlers.GetSupportedTokens))
     }
 
-	s.handler.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing-private"})
-	})
+    s.publicHandler.GET("/health", func(c *gin.Context) {
+        c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing-private"})
+    })
+}
+
+func (s *Server) setupAdminRoutes() {
+    api := s.adminHandler.Group("/api/v1")
+    {
+        api.PUT("/subscriptions/:id/extend", s.wrap(handlers.ExtendSubscription))
+        api.POST("/subscriptions/:id/cancel", s.wrap(handlers.CancelSubscription))
+        api.GET("/subscriptions/:id/details", s.wrap(handlers.GetSubscription))
+
+        // Analytics for admin dashboard (private)
+        api.GET("/subscriptions/dashboard-metrics", s.wrap(handlers.GetAdminDashboardMetrics))
+        api.GET("/subscriptions/daily-metrics", s.wrap(handlers.GetAdminDailyMetrics))
+        api.GET("/subscriptions/processor-metrics", s.wrap(handlers.GetAdminProcessorMetrics))
+    }
+    s.adminHandler.GET("/health", func(c *gin.Context) {
+        c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing-admin"})
+    })
 }
 
 func (s *Server) wrap(fn func(r *handlers.Request)) func(c *gin.Context) {
@@ -157,9 +173,8 @@ func (s *Server) wrap(fn func(r *handlers.Request)) func(c *gin.Context) {
 	}
 }
 
-func (s *Server) Handler() http.Handler {
-    return s.handler
-}
+func (s *Server) Handler() http.Handler { return s.publicHandler }
+func (s *Server) AdminHandler() http.Handler { return s.adminHandler }
 
 func (s *Server) Close(ctx context.Context) error {
     var errs []error

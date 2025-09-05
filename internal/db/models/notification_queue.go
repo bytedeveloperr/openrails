@@ -35,8 +35,8 @@ const (
 type NotificationQueue struct {
 	bun.BaseModel `bun:"table:notification_queue,alias:nq"`
 
-	ID        uuid.UUID             `bun:"id,pk,type:uuid" json:"id"`
-	UserID    uuid.UUID             `bun:"user_id,notnull" json:"user_id"`
+    ID        uuid.UUID             `bun:"id,pk,type:uuid" json:"id"`
+    UserID    string                `bun:"user_id,notnull" json:"user_id"`
 	EventType NotificationEventType `bun:"event_type,notnull" json:"event_type"`
 	Data      map[string]any        `bun:"data,type:jsonb" json:"data,omitempty"`
 	Seen      bool                  `bun:"seen,notnull,default:false" json:"seen"` // Whether user has seen this notification

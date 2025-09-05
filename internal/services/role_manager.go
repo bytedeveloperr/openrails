@@ -34,8 +34,8 @@ type RoleManager struct {
 
 // RoleResult represents the result of a role operation
 type RoleResult struct {
-	UserRoleID uuid.UUID  `bun:"user_role_id"`
-	Action     RoleAction `bun:"action"`
+    UserRoleID uuid.UUID  `bun:"user_role_id"`
+    Action     RoleAction `bun:"action"`
 }
 
 // NewRoleManager creates a new role manager
@@ -156,26 +156,26 @@ func (rm *RoleManager) Close() error {
 // Parameter structs for role operations
 
 type OpenRoleParams struct {
-	UserID         uuid.UUID
-	RoleSlug       string
-	StartAt        *time.Time // Optional
-	EndAt          *time.Time // Optional
-	SourceType     string     // 'subscription', 'one_off', etc.
-	SourceID       *uuid.UUID // Optional subscription/payment ID
-	IdempotencyKey *uuid.UUID // Optional for idempotency
+    UserID         string
+    RoleSlug       string
+    StartAt        *time.Time // Optional
+    EndAt          *time.Time // Optional
+    SourceType     string     // 'subscription', 'one_off', etc.
+    SourceID       *uuid.UUID // Optional subscription/payment ID
+    IdempotencyKey *uuid.UUID // Optional for idempotency
 }
 
 type ExtendRoleParams struct {
-	UserID         uuid.UUID
-	RoleSlug       string
-	NewEndAt       *time.Time // New expiration time
-	IdempotencyKey *uuid.UUID // Optional for idempotency
+    UserID         string
+    RoleSlug       string
+    NewEndAt       *time.Time // New expiration time
+    IdempotencyKey *uuid.UUID // Optional for idempotency
 }
 
 type CloseRoleParams struct {
-	UserID         uuid.UUID
-	RoleSlug       string
-	EffectiveAt    *time.Time // When to revoke (nil = now)
-	RevokeReason   string     // 'admin', 'expired', 'cancelled', etc.
-	IdempotencyKey *uuid.UUID // Optional for idempotency
+    UserID         string
+    RoleSlug       string
+    EffectiveAt    *time.Time // When to revoke (nil = now)
+    RevokeReason   string     // 'admin', 'expired', 'cancelled', etc.
+    IdempotencyKey *uuid.UUID // Optional for idempotency
 }

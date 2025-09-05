@@ -77,7 +77,7 @@ func (s *BillingEventService) Close() error {
 type SubscriptionEventData struct {
     EventID                 uuid.UUID `json:"event_id"`
     SubscriptionID          uuid.UUID `json:"subscription_id"`
-    UserID                  uuid.UUID `json:"user_id"`
+    UserID                  string    `json:"user_id"`
     EventType               string    `json:"event_type"`
     Processor               string    `json:"processor"`
     ProcessorSubscriptionID *string   `json:"processor_subscription_id,omitempty"`
@@ -90,7 +90,7 @@ type SubscriptionEventData struct {
 type PaymentEventData struct {
 	EventID                uuid.UUID  `json:"event_id"`
 	SubscriptionID         *uuid.UUID `json:"subscription_id,omitempty"`
-	UserID                 uuid.UUID  `json:"user_id"`
+    UserID                 string     `json:"user_id"`
 	EventType              string     `json:"event_type"`
 	Processor              string     `json:"processor"`
 	ProcessorTransactionID *string    `json:"processor_transaction_id,omitempty"`
@@ -108,7 +108,7 @@ type WebhookEventData struct {
 	WebhookSource           string     `json:"webhook_source"`
 	EventType               string     `json:"event_type"`
 	SubscriptionID          *uuid.UUID `json:"subscription_id,omitempty"`
-	UserID                  *uuid.UUID `json:"user_id,omitempty"`
+    UserID                  *string    `json:"user_id,omitempty"`
 	ProcessorSubscriptionID *string    `json:"processor_subscription_id,omitempty"`
 	ProcessorTransactionID  *string    `json:"processor_transaction_id,omitempty"`
 	ProcessingStatus        string     `json:"processing_status"`
@@ -122,15 +122,15 @@ type WebhookEventData struct {
 
 // TransactionEventData represents data for transaction events
 type TransactionEventData struct {
-	EventID                uuid.UUID  `json:"event_id"`
-	TransactionID          string     `json:"transaction_id"`
-	SubscriptionID         *uuid.UUID `json:"subscription_id,omitempty"`
-	UserID                 *uuid.UUID `json:"user_id,omitempty"`
-	EventType              string     `json:"event_type"`
-	Processor              string     `json:"processor"`
-	ProcessorTransactionID *string    `json:"processor_transaction_id,omitempty"`
-	Amount                 *float64   `json:"amount,omitempty"`
-	Currency               string     `json:"currency"`
+    EventID                uuid.UUID  `json:"event_id"`
+    TransactionID          string     `json:"transaction_id"`
+    SubscriptionID         *uuid.UUID `json:"subscription_id,omitempty"`
+    UserID                 *string    `json:"user_id,omitempty"`
+    EventType              string     `json:"event_type"`
+    Processor              string     `json:"processor"`
+    ProcessorTransactionID *string    `json:"processor_transaction_id,omitempty"`
+    Amount                 *float64   `json:"amount,omitempty"`
+    Currency               string     `json:"currency"`
 	Status                 string     `json:"status"`
 	Metadata               string     `json:"metadata"`
 	Timestamp              time.Time  `json:"timestamp"`
@@ -138,14 +138,14 @@ type TransactionEventData struct {
 
 // ACUEventData represents data for Automatic Card Updater events
 type ACUEventData struct {
-	EventID                 uuid.UUID  `json:"event_id"`
-	SubscriptionID          *uuid.UUID `json:"subscription_id,omitempty"`
-	UserID                  *uuid.UUID `json:"user_id,omitempty"`
-	EventType               string     `json:"event_type"`
-	Processor               string     `json:"processor"`
-	ProcessorSubscriptionID *string    `json:"processor_subscription_id,omitempty"`
-	CardInfo                string     `json:"card_info"`
-	UpdateStatus            string     `json:"update_status"`
+    EventID                 uuid.UUID  `json:"event_id"`
+    SubscriptionID          *uuid.UUID `json:"subscription_id,omitempty"`
+    UserID                  *string    `json:"user_id,omitempty"`
+    EventType               string     `json:"event_type"`
+    Processor               string     `json:"processor"`
+    ProcessorSubscriptionID *string    `json:"processor_subscription_id,omitempty"`
+    CardInfo                string     `json:"card_info"`
+    UpdateStatus            string     `json:"update_status"`
 	RequiresAction          bool       `json:"requires_action"`
 	Reason                  string     `json:"reason"`
 	Metadata                string     `json:"metadata"`
@@ -154,16 +154,16 @@ type ACUEventData struct {
 
 // ChargebackEventData represents data for chargeback events
 type ChargebackEventData struct {
-	EventID                uuid.UUID  `json:"event_id"`
-	ChargebackID           string     `json:"chargeback_id"`
-	BatchID                string     `json:"batch_id"`
-	SubscriptionID         *uuid.UUID `json:"subscription_id,omitempty"`
-	UserID                 *uuid.UUID `json:"user_id,omitempty"`
-	EventType              string     `json:"event_type"`
-	Processor              string     `json:"processor"`
-	ProcessorTransactionID *string    `json:"processor_transaction_id,omitempty"`
-	Amount                 *float64   `json:"amount,omitempty"`
-	Currency               string     `json:"currency"`
+    EventID                uuid.UUID  `json:"event_id"`
+    ChargebackID           string     `json:"chargeback_id"`
+    BatchID                string     `json:"batch_id"`
+    SubscriptionID         *uuid.UUID `json:"subscription_id,omitempty"`
+    UserID                 *string    `json:"user_id,omitempty"`
+    EventType              string     `json:"event_type"`
+    Processor              string     `json:"processor"`
+    ProcessorTransactionID *string    `json:"processor_transaction_id,omitempty"`
+    Amount                 *float64   `json:"amount,omitempty"`
+    Currency               string     `json:"currency"`
 	ChargebackType         string     `json:"chargeback_type"`
 	Reason                 string     `json:"reason"`
 	Status                 string     `json:"status"`

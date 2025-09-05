@@ -1,0 +1,13 @@
+{
+  "clientAccnum": 945280,
+  "clientSubacc": "0000",
+  "subscriptionId": "0125217202000000020",
+  "timestamp": "2025-08-05 08:45:33",
+  "voidAmount": 23.0,
+  "voidCurrency": "USD",
+  "voidCurrencyCode": 840,
+  "voidTransactionId": "0125217202000000021",
+  "originalTransactionId": "0125217202000000020",
+  "voidReason": "Transaction cancelled before settlement",
+  "voidDate": "2025-08-05"
+}

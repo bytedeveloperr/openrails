@@ -115,6 +115,10 @@ services:
       - "2052:2052"  # Public API
     expose:
       - "8060"       # Private API (internal-only)
+    # environment:
+    #   # Admin API key for private routes (used by internal callers, e.g., doujins-backend)
+    #   # The admin server listens on port 8060 and expects header `X-API-Key: $BILLING_INTERNAL_API_KEY`.
+    #   BILLING_INTERNAL_API_KEY: "change-me"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:2052/health"]
       interval: 30s

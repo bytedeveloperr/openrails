@@ -12,8 +12,8 @@ import (
 type Payment struct {
 	bun.BaseModel `bun:"table:payments,alias:purch"`
 
-	ID      uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
-	UserID  uuid.UUID `bun:"user_id,notnull" json:"user_id"`
+    ID      uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
+    UserID  string    `bun:"user_id,notnull" json:"user_id"`
 	PriceID uuid.UUID `bun:"price_id,notnull" json:"price_id"`
 
 	// Optional linkage to the subscription that generated this payment

@@ -50,21 +50,28 @@ type MobiusConfig struct {
 }
 
 type CCBillConfig struct {
-	Salt               string `koanf:"salt"`
-	Language           string `koanf:"language"`
-	FormID             string `koanf:"form_id"`
-	FormName           string `koanf:"form_name"`
-	CurrencyCode       string `koanf:"currency_code"`
-	AllowedTypes       string `koanf:"allowed_types"`
-	ClientSubAcc       string `koanf:"client_sub_acc"`
-	ClientAccNum       string `koanf:"client_acc_num"`
-	SubscriptionTypeId string `koanf:"subscription_type_id"`
-	TestMode           bool   `koanf:"test_mode"`
+    Salt               string `koanf:"salt"`
+    Language           string `koanf:"language"`
+    FormID             string `koanf:"form_id"`
+    FormName           string `koanf:"form_name"`
+    CurrencyCode       string `koanf:"currency_code"`
+    AllowedTypes       string `koanf:"allowed_types"`
+    ClientSubAcc       string `koanf:"client_sub_acc"`
+    ClientAccNum       string `koanf:"client_acc_num"`
+    SubscriptionTypeId string `koanf:"subscription_type_id"`
+    TestMode           bool   `koanf:"test_mode"`
+
+    // Webhook secret (optional; typically IP + salt verification is used)
+    WebhookSecret string `koanf:"webhook_secret"`
 
 	// FlexForm integration settings
-	BaseFlexFormURL string `koanf:"base_flexform_url"`
-	IFrameWidth     string `koanf:"iframe_width"`  // Default: "100%"
-	IFrameHeight    string `koanf:"iframe_height"` // Default: "600px"
+    BaseFlexFormURL string `koanf:"base_flexform_url"`
+    IFrameWidth     string `koanf:"iframe_width"`  // Default: "100%"
+    IFrameHeight    string `koanf:"iframe_height"` // Default: "600px"
+
+    // Optional success/decline URLs for post-payment navigation
+    SuccessURL string `koanf:"success_url"`
+    DeclineURL string `koanf:"decline_url"`
 
 	DataLinkURL          string `koanf:"datalink_url"`
 	DataLinkUsername     string `koanf:"datalink_username"`
@@ -133,8 +140,8 @@ type SendGridConfig struct {
 
 // AdminConfig controls private admin access
 type AdminConfig struct {
-    // Shared secret required in 'X-Internal-Token' header for admin routes
-    InternalToken string `koanf:"internal_token"`
+    // Shared API key required in 'X-API-Key' header for admin routes
+    APIKey string `koanf:"api_key"`
 }
 
 // TLSConfig controls optional private mTLS listener
@@ -222,11 +229,23 @@ func validateCCBill(cfg *CCBillConfig) error {
 	}
 
 	// Validate FlexForm URL
-	if cfg.BaseFlexFormURL != "" {
-		if _, err := url.Parse(cfg.BaseFlexFormURL); err != nil {
-			return fmt.Errorf("invalid ccbill base flexform URL: %w", err)
-		}
-	}
+    if cfg.BaseFlexFormURL != "" {
+        if _, err := url.Parse(cfg.BaseFlexFormURL); err != nil {
+            return fmt.Errorf("invalid ccbill base flexform URL: %w", err)
+        }
+    }
+
+    // Validate success/decline URLs if provided
+    if cfg.SuccessURL != "" {
+        if _, err := url.Parse(cfg.SuccessURL); err != nil {
+            return fmt.Errorf("invalid ccbill success URL: %w", err)
+        }
+    }
+    if cfg.DeclineURL != "" {
+        if _, err := url.Parse(cfg.DeclineURL); err != nil {
+            return fmt.Errorf("invalid ccbill decline URL: %w", err)
+        }
+    }
 
 	// Validate DataLink configuration if provided
 	if cfg.DataLinkURL != "" {
@@ -289,7 +308,7 @@ func GetDefaultBillingConfig() *Config {
             Password:  "analytics_password",
         },
         Admin: &AdminConfig{
-            InternalToken: "", // Provide via env INTERNAL_ADMIN_TOKEN
+            APIKey: "", // Provide via env BILLING_INTERNAL_API_KEY
         },
         TLS: &TLSConfig{
             Private: &PrivateTLSConfig{
@@ -407,11 +426,22 @@ func Load(configPath string) (*Config, error) {
 		"CCBILL_SALT":              "ccbill.salt",
 		"CCBILL_FORM_ID":           "ccbill.form_id",
 		"CCBILL_FLEXFORM_ID":       "ccbill.form_id",
+		"CCBILL_FORM_NAME":         "ccbill.form_name",
+		"CCBILL_LANGUAGE":          "ccbill.language",
+		"CCBILL_CURRENCY_CODE":     "ccbill.currency_code",
+		"CCBILL_ALLOWED_TYPES":     "ccbill.allowed_types",
+		"CCBILL_SUBSCRIPTION_TYPE_ID": "ccbill.subscription_type_id",
+		"CCBILL_TEST_MODE":         "ccbill.test_mode",
+		"CCBILL_WEBHOOK_SECRET":    "ccbill.webhook_secret",
+		"CCBILL_BASE_FLEXFORM_URL": "ccbill.base_flexform_url",
+		"CCBILL_SUCCESS_URL":       "ccbill.success_url",
+		"CCBILL_DECLINE_URL":       "ccbill.decline_url",
 
 		// Mobius
 		"MOBIUS_SECURITY_KEY":     "mobius.security_key",
 		"MOBIUS_TOKENIZATION_KEY": "mobius.tokenization_key",
 		"MOBIUS_WEBHOOK_SECRET":   "mobius.webhook_secret",
+		"MOBIUS_TEST_MODE":        "mobius.test_mode",
 
 		// SendGrid
 		"SENDGRID_API_KEY":    "sendgrid.api_key",
@@ -424,8 +454,14 @@ func Load(configPath string) (*Config, error) {
 		"CLICKHOUSE_USERNAME": "clickhouse.username",
 		"CLICKHOUSE_PASSWORD": "clickhouse.password",
 
-		// Admin shared secret
-		"INTERNAL_ADMIN_TOKEN": "admin.internal_token",
+        // Solana
+        "SOLANA_RPC_ENDPOINT":       "solana.rpc_endpoint",
+        "SOLANA_NETWORK":            "solana.network",
+        "SOLANA_RECIPIENT_WALLET":   "solana.recipient_wallet",
+        "SOLANA_DESTINATION_WALLET": "solana.destination_wallet",
+
+        // Admin API key
+        "BILLING_INTERNAL_API_KEY": "admin.api_key",
 	}
 
 	for envVar, configKey := range envMappings {

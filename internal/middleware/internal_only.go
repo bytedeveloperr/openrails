@@ -12,18 +12,17 @@ import (
 // admin is considered disabled and requests are rejected.
 func InternalOnly(adminCfg *config.AdminConfig) gin.HandlerFunc {
     return func(c *gin.Context) {
-        if adminCfg == nil || adminCfg.InternalToken == "" {
+        if adminCfg == nil || adminCfg.APIKey == "" {
             c.JSON(http.StatusServiceUnavailable, gin.H{"error": "admin access disabled"})
             c.Abort()
             return
         }
-        token := c.GetHeader("X-Internal-Token")
-        if token == "" || token != adminCfg.InternalToken {
-            c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid internal token"})
+        token := c.GetHeader("X-API-Key")
+        if token == "" || token != adminCfg.APIKey {
+            c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid api key"})
             c.Abort()
             return
         }
         c.Next()
     }
 }
-

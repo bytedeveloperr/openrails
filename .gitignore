@@ -20,6 +20,9 @@ doujins-billing
 # Go workspace file
 go.work
 go.work.sum
+.gocache
+.gobuildcache
+.gopath
 
 # Build artifacts
 dist/

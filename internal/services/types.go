@@ -765,27 +765,27 @@ func (e CCBillVoidEvent) GetClientSubacc() string          { return e.ClientSuba
 func (e CCBillVoidEvent) GetTimestamp() string             { return e.Timestamp }
 
 type GrantRoleForSubscriptionParams struct {
-	userID           uuid.UUID
-	subscriptionID   uuid.UUID
-	price            *models.Price
-	product          *models.Product
-	paymentService   *PaymentService
+    userID           string
+    subscriptionID   uuid.UUID
+    price            *models.Price
+    product          *models.Product
+    paymentService   *PaymentService
 	extService       *UserRoleGrantExtensionService
 	processor        models.Processor
 	roleGrantService *UserRoleGrantService
 }
 
-func newGrantRoleParams(userID, subscriptionID uuid.UUID, processor models.Processor, price *models.Price, product *models.Product, db *db.DB) GrantRoleForSubscriptionParams {
-	return GrantRoleForSubscriptionParams{
-		price:            price,
-		userID:           userID,
-		product:          product,
-		processor:        processor,
-		subscriptionID:   subscriptionID,
-		paymentService:   NewPaymentService(db),
-		extService:       NewUserRoleGrantExtensionService(db),
-		roleGrantService: NewUserRoleGrantService(db),
-	}
+func newGrantRoleParams(userID string, subscriptionID uuid.UUID, processor models.Processor, price *models.Price, product *models.Product, db *db.DB) GrantRoleForSubscriptionParams {
+    return GrantRoleForSubscriptionParams{
+        price:            price,
+        userID:           userID,
+        product:          product,
+        processor:        processor,
+        subscriptionID:   subscriptionID,
+        paymentService:   NewPaymentService(db),
+        extService:       NewUserRoleGrantExtensionService(db),
+        roleGrantService: NewUserRoleGrantService(db),
+    }
 }
 
 func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error {
@@ -835,37 +835,37 @@ func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error
 	}
 
 	// Create Purchase event for this subscription payment
-	payment := &models.Payment{
-		ID:            uuid.New(),
-		UserID:        userID,
-		PriceID:       price.ID,
-		Amount:        price.Amount,
-		Currency:      price.Currency,
-		ExtensionDays: &extensionDaysFinal,
-		Processor:     params.processor,
-		TransactionID: subscriptionID.String(),
-		PurchasedAt:   time.Now(),
-		CreatedAt:     time.Now(),
-	}
+    payment := &models.Payment{
+        ID:            uuid.New(),
+        UserID:        userID,
+        PriceID:       price.ID,
+        Amount:        price.Amount,
+        Currency:      price.Currency,
+        ExtensionDays: &extensionDaysFinal,
+        Processor:     params.processor,
+        TransactionID: subscriptionID.String(),
+        PurchasedAt:   time.Now(),
+        CreatedAt:     time.Now(),
+    }
 
 	// Link to the subscription explicitly
 	payment.SubscriptionID = &subscriptionID
 
-	grant, _, err := roleGrantService.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDaysFinal)
-	if err != nil {
-		return fmt.Errorf("failed to extend role expiration: %w", err)
-	}
+    grant, _, err := roleGrantService.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDaysFinal)
+    if err != nil {
+        return fmt.Errorf("failed to extend role expiration: %w", err)
+    }
 
 	payment.UserRoleGrantID = &grant.ID
 	if err := paymentService.Create(ctx, payment); err != nil {
 		return fmt.Errorf("failed to create purchase event: %w", err)
 	}
 
-	log.WithContext(ctx).WithFields(log.Fields{
-		"userID":         userID,
-		"subscriptionID": subscriptionID,
-		"roleID":         *product.RoleID,
-	}).Info("Granted role for subscription")
+    log.WithContext(ctx).WithFields(log.Fields{
+        "userID":         userID,
+        "subscriptionID": subscriptionID,
+        "roleID":         *product.RoleID,
+    }).Info("Granted role for subscription")
 
 	return nil
 }

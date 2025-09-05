@@ -14,7 +14,7 @@ import (
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
-	"github.com/supabase-community/gotrue-go/types"
+    
 )
 
 type SubscribeData struct {
@@ -32,10 +32,10 @@ type SubscribeData struct {
 }
 
 type GetSubscriptionsFilters struct {
-	UserID    uuid.UUID `form:"user_id"`
-	Status    string    `form:"status"`
-	PriceID   uuid.UUID `form:"price_id"`
-	Processor string    `form:"processor"`
+    UserID    string    `form:"user_id"`
+    Status    string    `form:"status"`
+    PriceID   uuid.UUID `form:"price_id"`
+    Processor string    `form:"processor"`
 }
 
 type SubscriptionService struct {
@@ -162,38 +162,14 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 }
 
 // ensureSubscription creates or gets existing subscription for Wave 18
-func (s *SubscriptionService) ensureSubscription(ctx context.Context, user *types.User, price *models.Price) (*models.Subscription, error) {
-	subscription, err := s.GetByUserID(ctx, user.ID)
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return nil, errors.New("an error occurred while retrieving subscription")
-		}
-
-		// Create new subscription with Wave 18 schema
-		subscription = &models.Subscription{
-			ID:                      uuid.New(),
-			UserID:                  user.ID,
-			PriceID:                 price.ID,
-			Status:                  models.StatusPending,
-			StartedAt:               time.Now(),             // Will be updated when subscription becomes active
-			Processor:               models.ProcessorCCBill, // Default processor
-			ProcessorSubscriptionID: "",                     // Will be set by payment processor
-		}
-		if err := s.Create(ctx, subscription); err != nil {
-			return nil, err
-		}
-	}
-
-	return subscription, nil
-}
 
 // GetUserSubscription retrieves the current subscription for a user
-func (s *SubscriptionService) GetUserSubscription(ctx context.Context, userID uuid.UUID) (*models.Subscription, error) {
-	return s.GetByUserID(ctx, userID)
+func (s *SubscriptionService) GetUserSubscription(ctx context.Context, userID string) (*models.Subscription, error) {
+    return s.GetByUserID(ctx, userID)
 }
 
 // CancelUserSubscription cancels a user's subscription
-func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID uuid.UUID, feedback string) error {
+func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID string, feedback string) error {
 	subscription, err := s.GetByUserID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %w", err)
@@ -216,34 +192,34 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
-	// Revoke role grants using proper interface
-	if s.UserRoleInterfaceService != nil {
-		result, err := s.UserRoleInterfaceService.HandleImmediateCancelOrRefund(
-			ctx,
-			userID,
-			"premium", // The role slug being managed
-			subscription.ID,
-			fmt.Sprintf("user_cancel_%d", time.Now().Unix()), // event ID
-			"user_requested",
-		)
-		if err != nil {
-			log.WithError(err).Error("failed to revoke role grants for cancelled subscription")
-		} else {
-			log.WithFields(log.Fields{
-				"user_id":         userID,
-				"subscription_id": subscription.ID,
-				"action":          result.Action,
-				"user_role_id":    result.UserRoleID,
-			}).Info("Successfully revoked premium role for cancelled subscription")
-		}
-	}
+        // Revoke role grants using proper interface (external app DB)
+        if s.UserRoleInterfaceService != nil {
+            result, err := s.UserRoleInterfaceService.HandleImmediateCancelOrRefund(
+                ctx,
+                userID,
+                "premium", // role slug managed by your app
+                subscription.ID,
+                fmt.Sprintf("user_cancel_%d", time.Now().Unix()),
+                "user_requested",
+            )
+            if err != nil {
+                log.WithError(err).Error("failed to revoke role grants for cancelled subscription")
+            } else if result != nil {
+                log.WithFields(log.Fields{
+                    "user_id":         userID,
+                    "subscription_id": subscription.ID,
+                    "action":          result.Action,
+                    "user_role_id":    result.UserRoleID,
+                }).Info("Successfully updated role via interface on cancel")
+            }
+        }
 
 	// Add notification
-	notification := &models.NotificationQueue{
-		ID:        uuid.New(),
-		UserID:    userID,
-		EventType: models.NotificationPremiumEnded,
-	}
+    notification := &models.NotificationQueue{
+        ID:        uuid.New(),
+        UserID:    userID,
+        EventType: models.NotificationPremiumEnded,
+    }
 	if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
 		log.WithError(err).Error("failed to create cancellation notification")
 	}
@@ -309,9 +285,9 @@ func (s *SubscriptionService) GetByID(ctx context.Context, id uuid.UUID) (*model
 	return &subscription, nil
 }
 
-func (s *SubscriptionService) GetByUserID(ctx context.Context, id uuid.UUID) (*models.Subscription, error) {
-	var subscription models.Subscription
-	err := s.DB.GetDB().NewSelect().Model(&subscription).Relation("Price").Where("user_id = ?", id).Scan(ctx)
+func (s *SubscriptionService) GetByUserID(ctx context.Context, id string) (*models.Subscription, error) {
+    var subscription models.Subscription
+    err := s.DB.GetDB().NewSelect().Model(&subscription).Relation("Price").Where("user_id = ?", id).Scan(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +295,7 @@ func (s *SubscriptionService) GetByUserID(ctx context.Context, id uuid.UUID) (*m
 	return &subscription, nil
 }
 
-func (s *SubscriptionService) GetByUserIDAndPriceID(ctx context.Context, id uuid.UUID, priceID uuid.UUID) (*models.Subscription, error) {
+func (s *SubscriptionService) GetByUserIDAndPriceID(ctx context.Context, id string, priceID uuid.UUID) (*models.Subscription, error) {
 	var subscription models.Subscription
 	if err := s.DB.GetDB().NewSelect().
 		Model(&subscription).
@@ -392,24 +368,24 @@ func (s *SubscriptionService) GetSubscribers(ctx context.Context, params query.Q
 	return subscriptions, total, nil
 }
 
-func (s *SubscriptionService) GetPaginatedByUserID(ctx context.Context, userID uuid.UUID, page, pageSize int) ([]models.Subscription, int, error) {
+func (s *SubscriptionService) GetPaginatedByUserID(ctx context.Context, userID string, page, pageSize int) ([]models.Subscription, int, error) {
 	var subscriptions []models.Subscription
 	var count int
 
 	offset := (page - 1) * pageSize
 
-	count, err := s.DB.GetDB().NewSelect().
-		Model(&models.Subscription{}).
-		Where("user_id = ?", userID).
-		Count(ctx)
+    count, err := s.DB.GetDB().NewSelect().
+        Model(&models.Subscription{}).
+        Where("user_id = ?", userID).
+        Count(ctx)
 
 	if err != nil {
 		return nil, 0, err
 	}
 
-	query := s.DB.GetDB().NewSelect().
-		Model(&subscriptions).
-		Where("user_id = ?", userID).
+    query := s.DB.GetDB().NewSelect().
+        Model(&subscriptions).
+        Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Limit(pageSize).
 		Offset(offset)
@@ -422,25 +398,25 @@ func (s *SubscriptionService) GetPaginatedByUserID(ctx context.Context, userID u
 }
 
 // GetSubscriptionsWithDetailsForUser retrieves subscriptions with related price information for billing history
-func (s *SubscriptionService) GetSubscriptionsWithDetailsForUser(ctx context.Context, userID uuid.UUID, page, pageSize int) ([]models.Subscription, int, error) {
+func (s *SubscriptionService) GetSubscriptionsWithDetailsForUser(ctx context.Context, userID string, page, pageSize int) ([]models.Subscription, int, error) {
 	var subscriptions []models.Subscription
 	var count int
 
 	offset := (page - 1) * pageSize
 
 	// Get count
-	count, err := s.DB.GetDB().NewSelect().
-		Model(&models.Subscription{}).
-		Where("user_id = ?", userID).
-		Count(ctx)
+    count, err := s.DB.GetDB().NewSelect().
+        Model(&models.Subscription{}).
+        Where("user_id = ?", userID).
+        Count(ctx)
 
 	if err != nil {
 		return nil, 0, err
 	}
 
 	// Get subscriptions with related data
-	query := s.DB.GetDB().NewSelect().
-		Model(&subscriptions).
+    query := s.DB.GetDB().NewSelect().
+        Model(&subscriptions).
 		Relation("Price").
 		Relation("PaymentMethod").
 		Where("user_id = ?", userID).
@@ -456,7 +432,7 @@ func (s *SubscriptionService) GetSubscriptionsWithDetailsForUser(ctx context.Con
 }
 
 // GetActiveSubscriptionsByUserID retrieves only active subscriptions for a user
-func (s *SubscriptionService) GetActiveSubscriptionsByUserID(ctx context.Context, userID uuid.UUID) ([]models.Subscription, error) {
+func (s *SubscriptionService) GetActiveSubscriptionsByUserID(ctx context.Context, userID string) ([]models.Subscription, error) {
 	var subscriptions []models.Subscription
 
 	query := s.DB.GetDB().NewSelect().
@@ -474,7 +450,7 @@ func (s *SubscriptionService) GetActiveSubscriptionsByUserID(ctx context.Context
 }
 
 // GetSubscriptionsByProcessorAndUserID retrieves subscriptions filtered by processor
-func (s *SubscriptionService) GetSubscriptionsByProcessorAndUserID(ctx context.Context, userID uuid.UUID, processor models.Processor) ([]models.Subscription, error) {
+func (s *SubscriptionService) GetSubscriptionsByProcessorAndUserID(ctx context.Context, userID string, processor models.Processor) ([]models.Subscription, error) {
 	var subscriptions []models.Subscription
 
 	query := s.DB.GetDB().NewSelect().
@@ -492,7 +468,7 @@ func (s *SubscriptionService) GetSubscriptionsByProcessorAndUserID(ctx context.C
 }
 
 // GetActiveSubscription retrieves the active subscription for a user
-func (s *SubscriptionService) GetActiveSubscription(ctx context.Context, userID uuid.UUID) (*models.Subscription, error) {
+func (s *SubscriptionService) GetActiveSubscription(ctx context.Context, userID string) (*models.Subscription, error) {
 	var subscription models.Subscription
 	err := s.DB.GetDB().NewSelect().
 		Model(&subscription).

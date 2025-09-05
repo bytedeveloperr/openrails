@@ -32,7 +32,8 @@ func NewSolanaPaymentService(db *db.DB, cfg *config.Config, price *PriceService,
 // Generate creates a pending SolanaTransaction record and returns UI hints for client-side payment.
 // This does not (yet) build a binary transaction; instead it returns token amount calculations
 // and creates server-side pending state for follow-up confirmation.
-func (s *SolanaPaymentService) Generate(ctx context.Context, userID *uuid.UUID, priceID uuid.UUID, tokenSymbol, userWallet string) (amount float64, currency string, tokenAmount uint64, expiresAt time.Time, pendingID uuid.UUID, err error) {
+// userID: Zitadel subject (string)
+func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, priceID uuid.UUID, tokenSymbol, userWallet string) (amount float64, currency string, tokenAmount uint64, expiresAt time.Time, pendingID uuid.UUID, err error) {
     price, err := s.priceService.GetByID(ctx, priceID)
     if err != nil {
         return 0, "", 0, time.Time{}, uuid.Nil, fmt.Errorf("%w: %v", ErrPriceNotFound, err)
@@ -60,8 +61,8 @@ func (s *SolanaPaymentService) Generate(ctx context.Context, userID *uuid.UUID, 
         ToAddress:   firstNonEmpty(s.cfg.Solana.RecipientWallet, s.cfg.Solana.DestinationWallet),
         ExpiresAt:   &exp,
     }
-    if userID != nil {
-        stx.UserID = userID
+    if userID != "" {
+        stx.UserID = &userID
     }
     if _, err := s.db.GetDB().NewInsert().Model(stx).Exec(ctx); err != nil {
         return 0, "", 0, time.Time{}, uuid.Nil, fmt.Errorf("failed to create pending solana transaction: %w", err)
@@ -72,7 +73,8 @@ func (s *SolanaPaymentService) Generate(ctx context.Context, userID *uuid.UUID, 
 
 // Submit records a confirmed payment for the given price and user.
 // This is a pragmatic implementation that skips on-chain signature verification in this codebase.
-func (s *SolanaPaymentService) Submit(ctx context.Context, userID uuid.UUID, priceID uuid.UUID, signature string) (*models.Payment, error) {
+// userID: Zitadel subject (string)
+func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceID uuid.UUID, signature string) (*models.Payment, error) {
     price, err := s.priceService.GetByID(ctx, priceID)
     if err != nil {
         return nil, fmt.Errorf("%w: %v", ErrPriceNotFound, err)

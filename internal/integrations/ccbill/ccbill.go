@@ -109,11 +109,13 @@ func (c *CCBillClient) GenerateFlexFormURL(params *GenerateFlexFormURLParams) (*
 	baseURL := c.config.BaseFlexFormURL
 	flexFormURL := fmt.Sprintf("%s/%s?%s", baseURL, params.FlexID, q.Encode())
 
-	return &FlexFormResponse{
-		IFrameURL: flexFormURL,
-		Width:     c.getConfigOrDefault(c.config.IFrameWidth, "100%"),
-		Height:    c.getConfigOrDefault(c.config.IFrameHeight, "600px"),
-	}, nil
+    return &FlexFormResponse{
+        IFrameURL:  flexFormURL,
+        Width:      c.getConfigOrDefault(c.config.IFrameWidth, "100%"),
+        Height:     c.getConfigOrDefault(c.config.IFrameHeight, "600px"),
+        SuccessURL: c.config.SuccessURL,
+        DeclineURL: c.config.DeclineURL,
+    }, nil
 }
 
 // GenerateCCBillURL provides backward compatibility for legacy FlexForm generation

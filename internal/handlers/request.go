@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gin-gonic/gin"
-	"github.com/supabase-community/gotrue-go/types"
+    "github.com/gin-gonic/gin"
 
-	"github.com/doujins-org/doujins-billing/internal/state"
-	"github.com/doujins-org/doujins-billing/pkg/message"
+    "github.com/doujins-org/doujins-billing/internal/state"
+    "github.com/doujins-org/doujins-billing/internal/services"
+    "github.com/doujins-org/doujins-billing/pkg/message"
 )
 
 type Request struct {
@@ -77,12 +77,15 @@ func (r *Request) Set(key string, value any) {
 	r.GinCtx.Set(key, value)
 }
 
-func (r *Request) GetUser() *types.User {
-	user, ok := r.Get("user")
-	if !ok {
-		return nil
-	}
-	return user.(*types.User)
+func (r *Request) GetUser() *services.UserIdentity {
+    user, ok := r.Get("user")
+    if !ok {
+        return nil
+    }
+    if ui, ok := user.(*services.UserIdentity); ok {
+        return ui
+    }
+    return nil
 }
 
 func (r *Request) GetClientIP() string {

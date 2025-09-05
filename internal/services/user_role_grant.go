@@ -18,8 +18,8 @@ type UserRoleGrantService struct {
 }
 
 type GetUserRoleGrantsFilters struct {
-	UserID uuid.UUID `form:"user_id"`
-	RoleID uuid.UUID `form:"role_id"`
+    UserID string    `form:"user_id"`
+    RoleID uuid.UUID `form:"role_id"`
 }
 
 func NewUserRoleGrantService(db *db.DB) *UserRoleGrantService {
@@ -57,7 +57,7 @@ func (r *UserRoleGrantService) GetByID(ctx context.Context, id uuid.UUID) (*mode
 	return &grant, nil
 }
 
-func (r *UserRoleGrantService) GetByUserID(ctx context.Context, userID uuid.UUID) ([]*models.UserRoleGrant, error) {
+func (r *UserRoleGrantService) GetByUserID(ctx context.Context, userID string) ([]*models.UserRoleGrant, error) {
 	var grants []*models.UserRoleGrant
 	err := r.db.GetDB().NewSelect().Model(&grants).Where("user_id = ?", userID).Scan(ctx)
 	if err != nil {
@@ -66,7 +66,7 @@ func (r *UserRoleGrantService) GetByUserID(ctx context.Context, userID uuid.UUID
 	return grants, nil
 }
 
-func (r *UserRoleGrantService) GetActiveByUserID(ctx context.Context, userID uuid.UUID) ([]*models.UserRoleGrant, error) {
+func (r *UserRoleGrantService) GetActiveByUserID(ctx context.Context, userID string) ([]*models.UserRoleGrant, error) {
 	var grants []*models.UserRoleGrant
 	now := time.Now()
 	err := r.db.GetDB().NewSelect().Model(&grants).
@@ -172,7 +172,7 @@ func (r *UserRoleGrantService) CleanupExpiredGrants(ctx context.Context) (int64,
 // These functions manage the relationship between users and roles using UserRoleGrant
 
 // HasRole checks if a user has a specific role
-func (r *UserRoleGrantService) HasRole(ctx context.Context, userID uuid.UUID, roleID uuid.UUID) (bool, error) {
+func (r *UserRoleGrantService) HasRole(ctx context.Context, userID string, roleID uuid.UUID) (bool, error) {
 	db := r.db.GetDB()
 	return db.NewSelect().
 		Model((*models.UserRoleGrant)(nil)).
@@ -183,7 +183,7 @@ func (r *UserRoleGrantService) HasRole(ctx context.Context, userID uuid.UUID, ro
 }
 
 // HasRoleSlug checks if a user has a role by slug
-func (r *UserRoleGrantService) HasRoleSlug(ctx context.Context, userID uuid.UUID, slug string) (bool, error) {
+func (r *UserRoleGrantService) HasRoleSlug(ctx context.Context, userID string, slug string) (bool, error) {
 	db := r.db.GetDB()
 
 	result, err := db.NewSelect().
@@ -203,7 +203,7 @@ func (r *UserRoleGrantService) HasRoleSlug(ctx context.Context, userID uuid.UUID
 // GrantRole grants a role to a user using the new UserRoleGrant model
 // NOTE: This is a simplified version with admin manual source. For full control over grant source and expiration,
 // use the Create method directly.
-func (r *UserRoleGrantService) GrantRole(ctx context.Context, userID uuid.UUID, roleID uuid.UUID) error {
+func (r *UserRoleGrantService) GrantRole(ctx context.Context, userID string, roleID uuid.UUID) error {
 	// Check if user already has this role
 	exists, err := r.HasRole(ctx, userID, roleID)
 	if err != nil {
@@ -226,7 +226,7 @@ func (r *UserRoleGrantService) GrantRole(ctx context.Context, userID uuid.UUID, 
 }
 
 // RevokeRole revokes a role from a user (deletes all grants for that role)
-func (r *UserRoleGrantService) RevokeRole(ctx context.Context, userID uuid.UUID, roleID uuid.UUID) error {
+func (r *UserRoleGrantService) RevokeRole(ctx context.Context, userID string, roleID uuid.UUID) error {
 	db := r.db.GetDB()
 	_, err := db.NewDelete().
 		Model((*models.UserRoleGrant)(nil)).
@@ -236,7 +236,7 @@ func (r *UserRoleGrantService) RevokeRole(ctx context.Context, userID uuid.UUID,
 }
 
 // GetRolesForUser fetches all active roles for a user
-func (r *UserRoleGrantService) GetRolesForUser(ctx context.Context, userID uuid.UUID) ([]*models.Role, error) {
+func (r *UserRoleGrantService) GetRolesForUser(ctx context.Context, userID string) ([]*models.Role, error) {
 	var roles []*models.Role
 	err := r.db.GetDB().NewSelect().
 		Model(&roles).
@@ -252,23 +252,23 @@ func (r *UserRoleGrantService) GetRolesForUser(ctx context.Context, userID uuid.
 }
 
 // GetRolesForUsers fetches all roles for multiple users in a single query
-func (r *UserRoleGrantService) GetRolesForUsers(ctx context.Context, userIDs []uuid.UUID) (map[uuid.UUID][]*models.Role, error) {
+func (r *UserRoleGrantService) GetRolesForUsers(ctx context.Context, userIDs []string) (map[string][]*models.Role, error) {
 	var roles []*models.Role
 	var userRoleGrants []models.UserRoleGrant
 
 	// First get all user_role_grants for the given users
-	err := r.db.GetDB().NewSelect().
-		Model(&userRoleGrants).
-		Where("user_id IN (?)", bun.In(userIDs)).
+    err := r.db.GetDB().NewSelect().
+        Model(&userRoleGrants).
+        Where("user_id IN (?)", bun.In(userIDs)).
 		Where("(auto_expires_at IS NULL OR auto_expires_at > NOW())").
 		Scan(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(userRoleGrants) == 0 {
-		return make(map[uuid.UUID][]*models.Role), nil
-	}
+    if len(userRoleGrants) == 0 {
+        return make(map[string][]*models.Role), nil
+    }
 
 	roleIDs := make([]uuid.UUID, 0, len(userRoleGrants))
 	for _, urg := range userRoleGrants {
@@ -290,18 +290,18 @@ func (r *UserRoleGrantService) GetRolesForUsers(ctx context.Context, userIDs []u
 	}
 
 	// Create the final map of user ID to roles
-	result := make(map[uuid.UUID][]*models.Role)
-	for _, urg := range userRoleGrants {
-		if role, exists := roleMap[urg.RoleID]; exists {
-			result[urg.UserID] = append(result[urg.UserID], role)
-		}
-	}
+    result := make(map[string][]*models.Role)
+    for _, urg := range userRoleGrants {
+        if role, exists := roleMap[urg.RoleID]; exists {
+            result[urg.UserID] = append(result[urg.UserID], role)
+        }
+    }
 
 	return result, nil
 }
 
 // IsUserAdmin checks if a user has admin role
-func (r *UserRoleGrantService) IsUserAdmin(ctx context.Context, userID uuid.UUID) (bool, error) {
+func (r *UserRoleGrantService) IsUserAdmin(ctx context.Context, userID string) (bool, error) {
 	result, err := r.HasRoleSlug(ctx, userID, "admin")
 	if err != nil {
 		log.WithError(err).WithField("userID", userID).Error("Failed to check admin role")
@@ -312,7 +312,7 @@ func (r *UserRoleGrantService) IsUserAdmin(ctx context.Context, userID uuid.UUID
 }
 
 // GetOrCreateUserRoleGrant gets existing grant or creates new grant for user+role
-func (r *UserRoleGrantService) GetOrCreateUserRoleGrant(ctx context.Context, userID uuid.UUID, roleID uuid.UUID) (*models.UserRoleGrant, error) {
+func (r *UserRoleGrantService) GetOrCreateUserRoleGrant(ctx context.Context, userID string, roleID uuid.UUID) (*models.UserRoleGrant, error) {
 	// Try to get existing grant
 	var grant models.UserRoleGrant
 	err := r.db.GetDB().NewSelect().Model(&grant).
@@ -345,7 +345,7 @@ func (r *UserRoleGrantService) GetOrCreateUserRoleGrant(ctx context.Context, use
 }
 
 // GetActiveRoleGrant gets the active role grant for a specific user and role (if not expired)
-func (r *UserRoleGrantService) GetActiveRoleGrant(ctx context.Context, userID uuid.UUID, roleID uuid.UUID) (*models.UserRoleGrant, error) {
+func (r *UserRoleGrantService) GetActiveRoleGrant(ctx context.Context, userID string, roleID uuid.UUID) (*models.UserRoleGrant, error) {
 	var grant models.UserRoleGrant
 	now := time.Now()
 	err := r.db.GetDB().NewSelect().Model(&grant).
@@ -361,7 +361,7 @@ func (r *UserRoleGrantService) GetActiveRoleGrant(ctx context.Context, userID uu
 
 // ExtendRoleExpiration extends the expiration date of an existing role grant
 // If the user doesn't have the role yet, it creates a new grant
-func (r *UserRoleGrantService) ExtendRoleExpiration(ctx context.Context, userID uuid.UUID, roleID uuid.UUID, extensionDays int) (*models.UserRoleGrant, *time.Time, error) {
+func (r *UserRoleGrantService) ExtendRoleExpiration(ctx context.Context, userID string, roleID uuid.UUID, extensionDays int) (*models.UserRoleGrant, *time.Time, error) {
 	// Get or create the grant
 	grant, err := r.GetOrCreateUserRoleGrant(ctx, userID, roleID)
 	if err != nil {
@@ -391,7 +391,7 @@ func (r *UserRoleGrantService) ExtendRoleExpiration(ctx context.Context, userID 
 }
 
 // CreatePermanentGrant creates a permanent role grant (for admin manual grants)
-func (r *UserRoleGrantService) CreatePermanentGrant(ctx context.Context, userID uuid.UUID, roleID uuid.UUID) (*models.UserRoleGrant, error) {
+func (r *UserRoleGrantService) CreatePermanentGrant(ctx context.Context, userID string, roleID uuid.UUID) (*models.UserRoleGrant, error) {
 	now := time.Now()
 	grant := &models.UserRoleGrant{
 		ID:            uuid.New(),
@@ -420,9 +420,9 @@ func (r *UserRoleGrantService) GetUserRoleGrants(ctx context.Context, queryOpts 
 		Relation("Sources")
 
 	// Apply filters
-	if queryOpts.Filters.UserID != uuid.Nil {
-		q = q.Where("user_role_grants.user_id = ?", queryOpts.Filters.UserID)
-	}
+    if queryOpts.Filters.UserID != "" {
+        q = q.Where("user_role_grants.user_id = ?", queryOpts.Filters.UserID)
+    }
 	if queryOpts.Filters.RoleID != uuid.Nil {
 		q = q.Where("user_role_grants.role_id = ?", queryOpts.Filters.RoleID)
 	}
@@ -449,7 +449,7 @@ func (r *UserRoleGrantService) GetUserRoleGrants(ctx context.Context, queryOpts 
 }
 
 // GetRoleSlugsForUser fetches all active role slugs for a user (used for JWT generation)
-func (r *UserRoleGrantService) GetRoleSlugsForUser(ctx context.Context, userID uuid.UUID) ([]string, error) {
+func (r *UserRoleGrantService) GetRoleSlugsForUser(ctx context.Context, userID string) ([]string, error) {
 	var roleSlugs []string
 	err := r.db.GetDB().NewSelect().
 		TableExpr("user_role_grants AS urg").

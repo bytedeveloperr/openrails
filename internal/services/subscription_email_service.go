@@ -12,32 +12,29 @@ import (
 // SubscriptionEmailService handles subscription-related email notifications
 // This service is called directly by other services when subscription events occur
 type SubscriptionEmailService struct {
-	emailService        *EmailService
-	userServicesitory   *UserService // Unified repository
-	subscriptionService *SubscriptionService
-	productService      *ProductService
-	priceService        *PriceService
+    emailService        *EmailService
+    subscriptionService *SubscriptionService
+    productService      *ProductService
+    priceService        *PriceService
 }
 
 // NewSubscriptionEmailService creates a new subscription email service
 func NewSubscriptionEmailService(
-	emailService *EmailService,
-	userService *UserService,
-	subscriptionService *SubscriptionService,
-	productService *ProductService,
-	priceService *PriceService,
+    emailService *EmailService,
+    subscriptionService *SubscriptionService,
+    productService *ProductService,
+    priceService *PriceService,
 ) *SubscriptionEmailService {
-	return &SubscriptionEmailService{
-		emailService:        emailService,
-		userServicesitory:   userService,
-		subscriptionService: subscriptionService,
-		productService:      productService,
-		priceService:        priceService,
-	}
+    return &SubscriptionEmailService{
+        emailService:        emailService,
+        subscriptionService: subscriptionService,
+        productService:      productService,
+        priceService:        priceService,
+    }
 }
 
 // SendSubscriptionConfirmed sends a subscription confirmation email
-func (s *SubscriptionEmailService) SendSubscriptionConfirmed(ctx context.Context, userID uuid.UUID) error {
+func (s *SubscriptionEmailService) SendSubscriptionConfirmed(ctx context.Context, userID string) error {
 	if s.emailService == nil || !s.emailService.IsEnabled() {
 		log.Println("Email service not available - skipping subscription confirmation email")
 		return nil
@@ -52,7 +49,7 @@ func (s *SubscriptionEmailService) SendSubscriptionConfirmed(ctx context.Context
 }
 
 // SendSubscriptionRenewed sends a subscription renewal email
-func (s *SubscriptionEmailService) SendSubscriptionRenewed(ctx context.Context, userID uuid.UUID) error {
+func (s *SubscriptionEmailService) SendSubscriptionRenewed(ctx context.Context, userID string) error {
 	if s.emailService == nil || !s.emailService.IsEnabled() {
 		log.Println("Email service not available - skipping subscription renewal email")
 		return nil
@@ -67,7 +64,7 @@ func (s *SubscriptionEmailService) SendSubscriptionRenewed(ctx context.Context, 
 }
 
 // SendSubscriptionCancelled sends a subscription cancellation email
-func (s *SubscriptionEmailService) SendSubscriptionCancelled(ctx context.Context, userID uuid.UUID, subscriptionType, amount string) error {
+func (s *SubscriptionEmailService) SendSubscriptionCancelled(ctx context.Context, userID string, subscriptionType, amount string) error {
 	if s.emailService == nil || !s.emailService.IsEnabled() {
 		log.Println("Email service not available - skipping subscription cancellation email")
 		return nil
@@ -102,7 +99,7 @@ func (s *SubscriptionEmailService) SendSubscriptionCancelled(ctx context.Context
 }
 
 // SendPaymentFailed sends a payment failure email
-func (s *SubscriptionEmailService) SendPaymentFailed(ctx context.Context, userID uuid.UUID) error {
+func (s *SubscriptionEmailService) SendPaymentFailed(ctx context.Context, userID string) error {
 	if s.emailService == nil || !s.emailService.IsEnabled() {
 		log.Println("Email service not available - skipping payment failure email")
 		return nil
@@ -117,7 +114,7 @@ func (s *SubscriptionEmailService) SendPaymentFailed(ctx context.Context, userID
 }
 
 // SendRoleExpired sends a role expiration email
-func (s *SubscriptionEmailService) SendRoleExpired(ctx context.Context, userID uuid.UUID, roleName string, expiresAt time.Time) error {
+func (s *SubscriptionEmailService) SendRoleExpired(ctx context.Context, userID string, roleName string, expiresAt time.Time) error {
 	if s.emailService == nil || !s.emailService.IsEnabled() {
 		log.Println("Email service not available - skipping role expiration email")
 		return nil
@@ -132,7 +129,7 @@ func (s *SubscriptionEmailService) SendRoleExpired(ctx context.Context, userID u
 }
 
 // getEmailData fetches subscription data for email notifications
-func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID uuid.UUID) (*SubscriptionEmailData, error) {
+func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID string) (*SubscriptionEmailData, error) {
     username, email, err := s.getUserEmail(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -179,12 +176,7 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID uuid
 }
 
 // getUserProfile gets user profile and validates email exists
-func (s *SubscriptionEmailService) getUserEmail(ctx context.Context, userID uuid.UUID) (username string, email string, err error) {
-    // Fetch email from auth.users via minimal UserService
-    email, err = s.userServicesitory.GetEmailByUserID(ctx, userID)
-    if err != nil {
-        return "", "", fmt.Errorf("failed to get user email for %s: %w", userID, err)
-    }
-    // Username not managed here; return empty
-    return "", email, nil
+func (s *SubscriptionEmailService) getUserEmail(ctx context.Context, userID string) (username string, email string, err error) {
+    // No user directory: we cannot fetch email post hoc. Signal no email.
+    return "", "", fmt.Errorf("email unavailable for user %s", userID)
 }

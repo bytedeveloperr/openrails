@@ -16,9 +16,9 @@ type PaymentService struct {
 }
 
 type GetPaymentsFilters struct {
-	UserID    uuid.UUID `form:"user_id"`
-	PriceID   uuid.UUID `form:"price_id"`
-	Processor string    `form:"processor"`
+    UserID    string    `form:"user_id"`
+    PriceID   uuid.UUID `form:"price_id"`
+    Processor string    `form:"processor"`
 	// Optional filters for user-facing billing history
 	StartDate *time.Time `form:"start_date"`
 	EndDate   *time.Time `form:"end_date"`
@@ -27,7 +27,7 @@ type GetPaymentsFilters struct {
 }
 
 func NewPaymentService(db *db.DB) *PaymentService {
-	return &PaymentService{db: db}
+    return &PaymentService{db: db}
 }
 
 func (r *PaymentService) GetDB() *db.DB {
@@ -61,7 +61,7 @@ func (r *PaymentService) GetByID(ctx context.Context, id uuid.UUID) (*models.Pay
 	return &payment, nil
 }
 
-func (r *PaymentService) GetByUserID(ctx context.Context, userID uuid.UUID) ([]*models.Payment, error) {
+func (r *PaymentService) GetByUserID(ctx context.Context, userID string) ([]*models.Payment, error) {
 	var payments []*models.Payment
 	err := r.db.GetDB().NewSelect().Model(&payments).Where("user_id = ?", userID).Order("purchased_at DESC").Scan(ctx)
 	if err != nil {
@@ -139,8 +139,40 @@ func (r *PaymentService) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+// Refund records a refund as a negative payment entry linked by transaction ID
+// Note: Processors should handle the actual money movement; this persists the event.
+func (r *PaymentService) Refund(ctx context.Context, originalPaymentID uuid.UUID, refundTransactionID string, amount float64) (*models.Payment, error) {
+    // Load original payment to mirror key fields
+    orig, err := r.GetByID(ctx, originalPaymentID)
+    if err != nil {
+        return nil, err
+    }
+    if amount <= 0 {
+        return nil, errors.New("refund amount must be > 0")
+    }
+
+    refund := &models.Payment{
+        ID:             uuid.New(),
+        UserID:         orig.UserID,
+        PriceID:        orig.PriceID,
+        SubscriptionID: orig.SubscriptionID,
+        Processor:      orig.Processor,
+        TransactionID:  refundTransactionID,
+        Amount:         -amount,
+        Currency:       orig.Currency,
+        UserRoleGrantID: orig.UserRoleGrantID,
+        ExtensionDays:   nil,
+        PurchasedAt:    time.Now(),
+        CreatedAt:      time.Now(),
+    }
+    if err := r.Create(ctx, refund); err != nil {
+        return nil, err
+    }
+    return refund, nil
+}
+
 // GetPaginatedByUserID retrieves paginated payments for a user
-func (r *PaymentService) GetPaginatedByUserID(ctx context.Context, userID uuid.UUID, page, pageSize int) ([]*models.Payment, int, error) {
+func (r *PaymentService) GetPaginatedByUserID(ctx context.Context, userID string, page, pageSize int) ([]*models.Payment, int, error) {
 	var payments []*models.Payment
 	offset := (page - 1) * pageSize
 
@@ -176,9 +208,9 @@ func (r *PaymentService) GetPayments(ctx context.Context, queryOpts query.QueryO
 		Relation("Price.Product")
 
 		// Apply filters
-	if queryOpts.Filters.UserID != uuid.Nil {
-		q = q.Where("payments.user_id = ?", queryOpts.Filters.UserID)
-	}
+    if queryOpts.Filters.UserID != "" {
+        q = q.Where("payments.user_id = ?", queryOpts.Filters.UserID)
+    }
 	if queryOpts.Filters.PriceID != uuid.Nil {
 		q = q.Where("payments.price_id = ?", queryOpts.Filters.PriceID)
 	}

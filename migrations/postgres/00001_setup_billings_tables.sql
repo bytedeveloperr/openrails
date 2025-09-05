@@ -32,7 +32,7 @@ CREATE TYPE subscription_status AS ENUM ('pending', 'active', 'expired', 'cancel
 -- 1.3: Create subscriptions table
 CREATE TABLE IF NOT EXISTS subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL, -- References external user table - validated at application level
+    user_id TEXT NOT NULL, -- Zitadel subject (sub)
     plan_id UUID NOT NULL REFERENCES subscription_plans(id),
     price_id UUID, -- References prices table (created later)
     status subscription_status NOT NULL DEFAULT 'pending',
@@ -171,7 +171,7 @@ END$$;
 -- 3.1: Create user_role_grants table
 CREATE TABLE IF NOT EXISTS user_role_grants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL, -- References external user table - validated at application level
+    user_id TEXT NOT NULL, -- Zitadel subject (sub)
     role_slug TEXT NOT NULL, -- Role identifier - no FK dependency on external roles table
     granted_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     auto_expires_at TIMESTAMPTZ, -- NULL means never expires
@@ -211,7 +211,7 @@ COMMENT ON TABLE user_role_grant_extensions IS 'Tracks admin and grace extension
 -- 4.1: Create payment_methods table
 CREATE TABLE IF NOT EXISTS payment_methods (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL, -- References external user table - validated at application level
+    user_id TEXT NOT NULL, -- Zitadel subject (sub)
     processor VARCHAR(50) NOT NULL, -- 'mobius', 'ccbill', etc.
     
     -- Processor-specific vault/payment method identifiers
@@ -265,7 +265,7 @@ CREATE TYPE purchase_status AS ENUM ('pending', 'completed', 'failed', 'refunded
 -- 4.3: Create payments table (formerly purchases)
 CREATE TABLE IF NOT EXISTS payments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL, -- References external user table - validated at application level
+    user_id TEXT NOT NULL, -- Zitadel subject (sub)
     price_id UUID NOT NULL REFERENCES prices(id),
     processor processor_type NOT NULL,
     processor_transaction_id TEXT NOT NULL,
@@ -296,6 +296,51 @@ CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON payments(subscription
 
 COMMENT ON COLUMN payments.subscription_id IS 'Links a payment to the subscription that generated it (nullable for one-off payments)';
 
+-- 4.4: Create solana_transactions table (pending and confirmed Solana payments)
+CREATE TABLE IF NOT EXISTS solana_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT, -- Zitadel subject (sub), nullable for anonymous intents
+    signature TEXT, -- Solana transaction signature (set when confirmed)
+    status TEXT NOT NULL, -- pending, confirmed, failed
+
+    -- Payment details
+    amount NUMERIC(18,9) NOT NULL,
+    token TEXT NOT NULL, -- e.g., SOL, USDC
+    token_mint TEXT NOT NULL, -- token mint address
+
+    -- Addresses
+    from_address TEXT NOT NULL,
+    to_address TEXT NOT NULL,
+
+    -- Optional references
+    product_id UUID,
+    purchase_id UUID,
+
+    -- Blockchain metadata
+    block_time TIMESTAMPTZ,
+    slot BIGINT,
+    confirmations INTEGER NOT NULL DEFAULT 0,
+    transaction_fee NUMERIC(18,9),
+
+    -- Processing metadata
+    processing_result JSONB,
+    error_message TEXT,
+
+    -- QR/payment flow metadata
+    qr_code_id TEXT,
+
+    -- Expiration for pending transactions
+    expires_at TIMESTAMPTZ,
+
+    -- Timestamps
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_solana_transactions_user_id ON solana_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_solana_transactions_status ON solana_transactions(status);
+CREATE INDEX IF NOT EXISTS idx_solana_transactions_expires_at ON solana_transactions(expires_at) WHERE expires_at IS NOT NULL;
+
 -- ============================================================================
 -- SECTION 5: SUPPORTING TABLES
 -- ============================================================================
@@ -303,7 +348,7 @@ COMMENT ON COLUMN payments.subscription_id IS 'Links a payment to the subscripti
 -- 5.1: Create notification_queue table
 CREATE TABLE IF NOT EXISTS notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL, -- References external user table - validated at application level
+    user_id TEXT NOT NULL, -- Zitadel subject (sub)
     notification_type TEXT NOT NULL, -- role_expired, subscription_failed, etc.
     title TEXT NOT NULL,
     message TEXT NOT NULL,
@@ -317,6 +362,54 @@ CREATE INDEX IF NOT EXISTS idx_notification_queue_user_id ON notification_queue(
 CREATE INDEX IF NOT EXISTS idx_notification_queue_type ON notification_queue(notification_type);
 CREATE INDEX IF NOT EXISTS idx_notification_queue_is_read ON notification_queue(is_read);
 CREATE INDEX IF NOT EXISTS idx_notification_queue_created_at ON notification_queue(created_at);
+
+-- 5.2: Create solana_transactions table (tracks pending/confirmed Solana payments)
+CREATE TABLE IF NOT EXISTS solana_transactions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT, -- Zitadel subject (sub); nullable for anonymous/pending
+
+    -- Transaction details
+    signature TEXT, -- on-chain signature when confirmed
+    status TEXT NOT NULL, -- pending, confirmed, failed
+
+    -- Payment details
+    amount NUMERIC(18,9) NOT NULL,
+    token TEXT NOT NULL, -- SOL, USDC, PYUSD
+    token_mint TEXT NOT NULL,
+
+    -- Addresses
+    from_address TEXT NOT NULL,
+    to_address TEXT NOT NULL,
+
+    -- Optional references
+    product_id UUID,
+    purchase_id UUID,
+
+    -- Blockchain details
+    block_time TIMESTAMPTZ,
+    slot BIGINT,
+    confirmations INTEGER NOT NULL DEFAULT 0,
+    transaction_fee NUMERIC(18,9),
+
+    -- Processing metadata
+    processing_result JSONB,
+    error_message TEXT,
+
+    -- QR/payment UI reference
+    qr_code_id TEXT,
+
+    -- Pending expiration
+    expires_at TIMESTAMPTZ,
+
+    -- Timestamps
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+);
+
+CREATE INDEX IF NOT EXISTS idx_solana_tx_user_id ON solana_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_solana_tx_status ON solana_transactions(status);
+CREATE INDEX IF NOT EXISTS idx_solana_tx_created_at ON solana_transactions(created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_tx_signature ON solana_transactions(signature) WHERE signature IS NOT NULL;
 
 -- ============================================================================
 -- SECTION 6: DATA MIGRATION FROM LEGACY TABLES

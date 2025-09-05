@@ -24,16 +24,17 @@ const (
 )
 
 var ModelRegistry = []any{
-	(*Role)(nil),
-	(*Product)(nil),
-	(*Price)(nil),
-	(*Payment)(nil),
-	(*Purchase)(nil),
-	(*Subscription)(nil),
-	(*PaymentMethod)(nil),
-	(*NotificationQueue)(nil),
-	(*UserRoleGrant)(nil),
-	(*IdempotencyRequest)(nil),
+    (*Role)(nil),
+    (*Product)(nil),
+    (*Price)(nil),
+    (*Payment)(nil),
+    (*Purchase)(nil),
+    (*Subscription)(nil),
+    (*PaymentMethod)(nil),
+    (*SolanaWallet)(nil),
+    (*NotificationQueue)(nil),
+    (*UserRoleGrant)(nil),
+    (*IdempotencyRequest)(nil),
 }
 
 func RegisterModels(db *bun.DB) {

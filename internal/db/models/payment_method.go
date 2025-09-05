@@ -12,8 +12,8 @@ import (
 type PaymentMethod struct {
 	bun.BaseModel `bun:"table:payment_methods,alias:pm"`
 
-	ID        uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
-	UserID    uuid.UUID `bun:"user_id,notnull" json:"user_id"`
+    ID        uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
+    UserID    string    `bun:"user_id,notnull" json:"user_id"`
 	Processor Processor `bun:"processor,notnull" json:"processor"` // "mobius", "ccbill", etc.
 
 	// Processor-specific vault/payment method identifiers

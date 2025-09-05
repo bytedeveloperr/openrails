@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
+    "github.com/doujins-org/doujins-billing/internal/db/models"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
+    "github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
@@ -116,9 +116,9 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 		}
 
 		// Add notification
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    params.UserID,
+    notification := &models.NotificationQueue{
+        ID:        uuid.New(),
+        UserID:    params.UserID,
 			EventType: models.NotificationPremiumStarted,
 		}
 		if err := notificationService.Create(ctx, notification); err != nil {
@@ -392,7 +392,7 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 }
 
 // grantRole grants a role to a user for a subscription
-func (s *SubscriptionLifecycleService) grantRole(ctx context.Context, userRoleGrantService *UserRoleGrantService, product *models.Product, userID, subscriptionID uuid.UUID) error {
+func (s *SubscriptionLifecycleService) grantRole(ctx context.Context, userRoleGrantService *UserRoleGrantService, product *models.Product, userID string, subscriptionID uuid.UUID) error {
 	// For subscription renewals, we need to get the price to determine extension
 	// This assumes a subscription is being renewed
 	subscriptionService := NewSubscriptionService(s.DB)
@@ -424,9 +424,9 @@ func (s *SubscriptionLifecycleService) grantRole(ctx context.Context, userRoleGr
 	}
 
 	// Create Purchase event for this subscription payment
-	purchase := &models.Payment{
-		ID:              uuid.New(),
-		UserID:          userID,
+    purchase := &models.Payment{
+        ID:              uuid.New(),
+        UserID:          userID,
 		PriceID:         subscription.PriceID,
 		UserRoleGrantID: &grant.ID,
 		Processor:       models.Processor(subscription.Processor), // Convert from subscription processor type
@@ -456,10 +456,10 @@ func (s *SubscriptionLifecycleService) grantRole(ctx context.Context, userRoleGr
 // Parameter structs for lifecycle operations
 
 type CreateMembershipParams struct {
-	UserID                  uuid.UUID
-	PriceID                 uuid.UUID
-	Processor               models.Processor
-	ProcessorSubscriptionID *string
+    UserID                  string
+    PriceID                 uuid.UUID
+    Processor               models.Processor
+    ProcessorSubscriptionID *string
 }
 
 type RenewMembershipParams struct {

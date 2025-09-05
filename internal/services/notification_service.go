@@ -1,11 +1,10 @@
 package services
 
 import (
-	"context"
-	"fmt"
+    "context"
+    "fmt"
 
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
+    log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/pkg/query"
@@ -158,7 +157,7 @@ func (s *NotificationService) cleanupObsoleteNotifications(ctx context.Context, 
 }
 
 // removeObsoleteNotifications removes unseen notifications of specified types for a user
-func (s *NotificationService) removeObsoleteNotifications(ctx context.Context, userID uuid.UUID, eventTypes []models.NotificationEventType) (int, error) {
+func (s *NotificationService) removeObsoleteNotifications(ctx context.Context, userID string, eventTypes []models.NotificationEventType) (int, error) {
 	// Get unseen notifications for this user that match the obsolete types
 	falseVal := false
 	notifications, _, err := s.notificationService.GetNotifications(ctx, query.QueryOptions[GetNotificationsFilters]{

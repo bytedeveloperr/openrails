@@ -10,8 +10,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
-	"github.com/supabase-community/gotrue-go/types"
+    log "github.com/sirupsen/logrus"
 )
 
 // Additional sentinel errors for admin operations
@@ -29,15 +28,14 @@ type AdminSubscriptionService struct {
 	UserRoleGrantService     *UserRoleGrantService
 	NotificationQueueService *NotificationQueueService
 	PaymentService           *PaymentService
-	UserService              *UserService
+    // No user directory enrichment; Zitadel sub is stored on subscription
 }
 
 // AdminSubscriptionResponse represents a subscription with enriched admin data
 type AdminSubscriptionResponse struct {
-	*models.Subscription
-	User    *types.User     `json:"user,omitempty"`
-	Product *models.Product `json:"product,omitempty"`
-	Price   *models.Price   `json:"price,omitempty"`
+    *models.Subscription
+    Product *models.Product `json:"product,omitempty"`
+    Price   *models.Price   `json:"price,omitempty"`
 }
 
 // GetAllSubscriptions retrieves all subscriptions with filtering (admin)
@@ -53,10 +51,7 @@ func (s *AdminSubscriptionService) GetAllSubscriptions(ctx context.Context, quer
 			Subscription: sub,
 		}
 
-		// Enrich with user data
-		if user, err := s.UserService.GetGoTrueUserByID(ctx, sub.UserID); err == nil {
-			responses[i].User = user
-		}
+        // No user enrichment (Zitadel-managed)
 
 		// Enrich with price and product data if available
 		if price, err := s.PriceService.GetByID(ctx, sub.PriceID); err == nil {
@@ -91,10 +86,7 @@ func (s *AdminSubscriptionService) GetSubscriptionByID(ctx context.Context, subs
 		}
 	}
 
-	// Enrich with user data
-	if user, err := s.UserService.GetGoTrueUserByID(ctx, subscription.UserID); err == nil {
-		response.User = user
-	}
+    // No user enrichment (Zitadel-managed)
 
 	return response, nil
 }
@@ -191,7 +183,7 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 }
 
 // CancelUserSubscription cancels a user's subscription by user ID (admin)
-func (s *AdminSubscriptionService) CancelUserSubscription(ctx context.Context, userID uuid.UUID, reason string) error {
+func (s *AdminSubscriptionService) CancelUserSubscription(ctx context.Context, userID string, reason string) error {
 	subscription, err := s.SubscriptionService.GetByUserID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrSubscriptionNotFound, err)
@@ -325,7 +317,7 @@ func (s *AdminSubscriptionService) GetAllUserRoleGrants(ctx context.Context, que
 }
 
 // CreateManualRoleGrant creates a manual role grant (admin)
-func (s *AdminSubscriptionService) CreateManualRoleGrant(ctx context.Context, userID, roleID uuid.UUID, durationDays *int) error {
+func (s *AdminSubscriptionService) CreateManualRoleGrant(ctx context.Context, userID string, roleID uuid.UUID, durationDays *int) error {
 	if durationDays == nil {
 		// Permanent manual grant - create with no expiration
 		grant, err := s.UserRoleGrantService.CreatePermanentGrant(ctx, userID, roleID)
@@ -349,7 +341,7 @@ func (s *AdminSubscriptionService) CreateManualRoleGrant(ctx context.Context, us
 
 // VerifyPayPalPurchase verifies a PayPal payment and grants the associated role (admin)
 // This is used when admins manually verify PayPal payments outside the automated system
-func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, userID, priceID uuid.UUID, paypalTransactionID string) error {
+func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, userID string, priceID uuid.UUID, paypalTransactionID string) error {
 	// Get price information
 	price, err := s.PriceService.GetByID(ctx, priceID)
 	if err != nil {
@@ -381,9 +373,9 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
 		}
 
 		// Create purchase record with linkage to the grant
-		purchase := &models.Payment{
-			ID:              uuid.New(),
-			UserID:          userID,
+    purchase := &models.Payment{
+        ID:              uuid.New(),
+        UserID:          userID,
 			PriceID:         priceID,
 			Processor:       models.ProcessorPayPal,
 			TransactionID:   paypalTransactionID,
@@ -436,7 +428,7 @@ func (s *AdminSubscriptionService) GetAllNotifications(ctx context.Context, quer
 }
 
 // SendManualNotification sends a manual notification (admin)
-func (s *AdminSubscriptionService) SendManualNotification(ctx context.Context, userID uuid.UUID, eventType models.NotificationEventType, message string) error {
+func (s *AdminSubscriptionService) SendManualNotification(ctx context.Context, userID string, eventType models.NotificationEventType, message string) error {
 	notification := &models.NotificationQueue{
 		ID:        uuid.New(),
 		UserID:    userID,

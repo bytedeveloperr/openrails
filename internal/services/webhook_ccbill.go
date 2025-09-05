@@ -129,7 +129,8 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		return err
 	}
 
-	email := data.Email
+    email := data.Email
+    userID := data.Username // We passed Zitadel sub as Username in FlexForm
 	formID := data.FlexID
 	formName := data.FormName
 	ccBillSubID := data.SubscriptionID
@@ -148,15 +149,9 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		processor := models.ProcessorCCBill
 
-		db := db.NewWithTx(tx)
-		userService := NewUserService(db)
-		priceService := NewPriceService(db)
-		subService := NewSubscriptionService(db)
-
-		user, err := userService.GetGoTrueUserByEmail(ctx, email)
-		if err != nil {
-			return fmt.Errorf("failed to find user with email %s: %w", email, err)
-		}
+	txdb := db.NewWithTx(tx)
+	priceService := NewPriceService(txdb)
+	subService := NewSubscriptionService(txdb)
 
 		cfg := s.CCBillClient.Config()
 		if formID != cfg.FormID {
@@ -192,7 +187,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			return billingErr
 		}
 
-		subscription, err := subService.GetByUserIDAndPriceID(ctx, user.ID, price.ID)
+        subscription, err := subService.GetByUserIDAndPriceID(ctx, userID, price.ID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
@@ -207,13 +202,13 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		} else {
 			isNewSubscription = true
 
-			subscription = &models.Subscription{
-				ID:                      uuid.New(),
-				UserID:                  user.ID,
-				Processor:               processor,
-				StartedAt:               time.Now(),
-				ProcessorSubscriptionID: ccBillSubID,
-			}
+            subscription = &models.Subscription{
+                ID:                      uuid.New(),
+                UserID:                  userID,
+                Processor:               processor,
+                StartedAt:               time.Now(),
+                ProcessorSubscriptionID: ccBillSubID,
+            }
 		}
 
 		if err := subscription.ActivateWithPrice(price); err != nil {
@@ -234,11 +229,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			}
 		}
 
-		if err := grantRole(
-			ctx,
-			newGrantRoleParams(user.ID, subscription.ID, processor, price, price.Product, db)); err != nil {
-			return fmt.Errorf("failed to grant role: %w", err)
-		}
+			// External role grant integration removed for Zitadel-only flow
 
 		// Log payment event to ClickHouse
 		if s.BillingEventService != nil {
@@ -268,17 +259,17 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			}
 		}
 
-		// Add notification to queue for user and send immediate email
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    user.ID,
-				EventType: models.NotificationPremiumStarted,
-			}
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership started notification")
-			}
-		}
+        // Add notification to queue for user and send immediate email
+        if s.NotificationService != nil {
+            notification := &models.NotificationQueue{
+                ID:        uuid.New(),
+                UserID:    subscription.UserID,
+                EventType: models.NotificationPremiumStarted,
+            }
+            if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+                log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership started notification")
+            }
+        }
 
 		return nil
 	}); err != nil {
@@ -305,24 +296,10 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 	failureCode := data.FailureCode
 	failureReason := data.FailureReason
 
-	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		userService := NewUserService(db)
+    if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 
-		// Find user by email
-		user, err := userService.GetGoTrueUserByEmail(ctx, email)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				log.WithContext(ctx).WithFields(log.Fields{
-					"email":          email,
-					"failure_code":   failureCode,
-					"failure_reason": failureReason,
-					"transaction_id": transactionID,
-				}).Warn("New sale failure for unknown user - no notification sent")
-				return nil // Don't fail webhook processing for unknown users
-			}
-			return fmt.Errorf("failed to find user with email %s: %w", email, err)
-		}
+        // Map to Zitadel subject when available in webhook (sent as username)
+        userID := data.Username
 
 		// Validate form configuration
 		cfg := s.CCBillClient.Config()
@@ -353,42 +330,42 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 				"form_name":      formName,
 			}
 
-			paymentEventData := PaymentEventData{
-				EventID:       uuid.New(),
-				UserID:        user.ID,
-				EventType:     "charge_failed",
-				Processor:     "ccbill",
-				Currency:      "USD",
-				BillingInfo:   CreateMetadataJSON(map[string]interface{}{"initial_signup": true}),
-				WebhookSource: "webhook",
-				Metadata:      CreateMetadataJSON(metadata),
-				Timestamp:     time.Now().UTC(),
-			}
+        paymentEventData := PaymentEventData{
+            EventID:       uuid.New(),
+            UserID:        userID,
+            EventType:     "charge_failed",
+            Processor:     "ccbill",
+            Currency:      "USD",
+            BillingInfo:   CreateMetadataJSON(map[string]interface{}{"initial_signup": true}),
+            WebhookSource: "webhook",
+            Metadata:      CreateMetadataJSON(metadata),
+            Timestamp:     time.Now().UTC(),
+        }
 
 			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
 				log.WithError(err).Error("Failed to log new sale failure event to ClickHouse")
 			}
 		}
 
-		// Add notification to queue for user about payment failure and send immediate email
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    user.ID,
-				EventType: models.NotificationPaymentMethodFailed,
-			}
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver new sale failure notification")
-			}
-		}
+        // Add notification to queue for user about payment failure and send immediate email
+        if s.NotificationService != nil && userID != "" {
+            notification := &models.NotificationQueue{
+                ID:        uuid.New(),
+                UserID:    userID,
+                EventType: models.NotificationPaymentMethodFailed,
+            }
+            if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+                log.WithContext(ctx).WithError(err).Error("failed to create and deliver new sale failure notification")
+            }
+        }
 
-		log.WithContext(ctx).WithFields(log.Fields{
-			"userID":        user.ID,
-			"email":         email,
-			"failureCode":   failureCode,
-			"failureReason": failureReason,
-			"transactionID": transactionID,
-		}).Info("Handled new sale failure")
+        log.WithContext(ctx).WithFields(log.Fields{
+            "userID":        userID,
+            "email":         email,
+            "failureCode":   failureCode,
+            "failureReason": failureReason,
+            "transactionID": transactionID,
+        }).Info("Handled new sale failure")
 
 		return nil
 	}); err != nil {
@@ -419,10 +396,10 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		return fmt.Errorf("invalid billedAmount: %f - must be greater than 0", billedAmount)
 	}
 
-	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		priceService := NewPriceService(db)
-		subService := NewSubscriptionService(db)
+    if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		txdb := db.NewWithTx(tx)
+		priceService := NewPriceService(txdb)
+		subService := NewSubscriptionService(txdb)
 
 		// Find subscription by processor subscription ID
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), originalSubscriptionID)
@@ -474,11 +451,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
-		// Grant role for new subscription tier
-		grantParams := newGrantRoleParams(subscription.UserID, subscription.ID, models.ProcessorCCBill, newPrice, newPrice.Product, db)
-		if err := grantRole(ctx, grantParams); err != nil {
-			return fmt.Errorf("failed to grant role for upgraded subscription: %w", err)
-		}
+		// External role grant integration removed for Zitadel-only flow
 
 		// Log upgrade payment event to ClickHouse
 		if s.BillingEventService != nil {
@@ -560,25 +533,10 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 	failureReason := data.FailureReason
 	originalSubscriptionID := data.OriginalSubscriptionID
 
-	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		userService := NewUserService(db)
+    if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 
-		// Find user by email
-		user, err := userService.GetGoTrueUserByEmail(ctx, email)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				log.WithContext(ctx).WithFields(log.Fields{
-					"email":                    email,
-					"failure_code":             failureCode,
-					"failure_reason":           failureReason,
-					"transaction_id":           transactionID,
-					"original_subscription_id": originalSubscriptionID,
-				}).Warn("Upgrade failure for unknown user - no notification sent")
-				return nil // Don't fail webhook processing for unknown users
-			}
-			return fmt.Errorf("failed to find user with email %s: %w", email, err)
-		}
+        // Map to Zitadel subject when available in webhook (sent as username)
+        userID := data.Username
 
 		// Log upgrade failure event to ClickHouse
 		if s.BillingEventService != nil {
@@ -598,17 +556,17 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 				"flex_id":                  data.FlexID,
 			}
 
-			paymentEventData := PaymentEventData{
-				EventID:       uuid.New(),
-				UserID:        user.ID,
-				EventType:     "upgrade_failed",
-				Processor:     "ccbill",
-				Currency:      "USD",
-				BillingInfo:   CreateMetadataJSON(map[string]interface{}{"upgrade_failure": true}),
-				WebhookSource: "webhook",
-				Metadata:      CreateMetadataJSON(metadata),
-				Timestamp:     time.Now().UTC(),
-			}
+        paymentEventData := PaymentEventData{
+            EventID:       uuid.New(),
+            UserID:        userID,
+            EventType:     "upgrade_failed",
+            Processor:     "ccbill",
+            Currency:      "USD",
+            BillingInfo:   CreateMetadataJSON(map[string]interface{}{"upgrade_failure": true}),
+            WebhookSource: "webhook",
+            Metadata:      CreateMetadataJSON(metadata),
+            Timestamp:     time.Now().UTC(),
+        }
 
 			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
 				log.WithError(err).Error("Failed to log upgrade failure event to ClickHouse")
@@ -616,25 +574,25 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 		}
 
 		// Add notification to queue for user about upgrade failure and send immediate email
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    user.ID,
-				EventType: models.NotificationPaymentMethodFailed,
-			}
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver upgrade failure notification")
-			}
-		}
+        if s.NotificationService != nil && userID != "" {
+            notification := &models.NotificationQueue{
+                ID:        uuid.New(),
+                UserID:    userID,
+                EventType: models.NotificationPaymentMethodFailed,
+            }
+            if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+                log.WithContext(ctx).WithError(err).Error("failed to create and deliver upgrade failure notification")
+            }
+        }
 
-		log.WithContext(ctx).WithFields(log.Fields{
-			"userID":                 user.ID,
-			"email":                  email,
-			"failureCode":            failureCode,
-			"failureReason":          failureReason,
-			"transactionID":          transactionID,
-			"originalSubscriptionID": originalSubscriptionID,
-		}).Info("Handled upgrade failure")
+        log.WithContext(ctx).WithFields(log.Fields{
+            "userID":                 userID,
+            "email":                  email,
+            "failureCode":            failureCode,
+            "failureReason":          failureReason,
+            "transactionID":          transactionID,
+            "originalSubscriptionID": originalSubscriptionID,
+        }).Info("Handled upgrade failure")
 
 		return nil
 	}); err != nil {
@@ -658,8 +616,8 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 	nextRenewalDate := data.NextRenewalDate
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
+	txdb := db.NewWithTx(tx)
+	subService := NewSubscriptionService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
@@ -742,9 +700,8 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 	email := data.Email
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
-		userService := NewUserService(db)
+    txdb := db.NewWithTx(tx)
+    subService := NewSubscriptionService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
@@ -755,25 +712,18 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 			return fmt.Errorf("failed to get subscription: %w", err)
 		}
 
-		// Get user to validate email change
-		user, err := userService.GetGoTrueUserByID(ctx, sub.UserID)
-		if err != nil {
-			return fmt.Errorf("failed to get user for subscription: %w", err)
-		}
-
-		// Log customer data update event to ClickHouse
-		if s.BillingEventService != nil {
-			metadata := map[string]interface{}{
-				"processor_subscription_id": pSubscriptionID,
-				"processor":                 "ccbill",
-				"event_source":              "webhook",
-				"updated_email":             email,
-				"previous_email":            user.Email,
-				"payment_account":           data.PaymentAccount,
-				"card_type":                 data.CardType,
-				"payment_type":              data.PaymentType,
-				"bin":                       data.Bin,
-				"exp_date":                  data.ExpDate,
+        // Log customer data update event to ClickHouse
+        if s.BillingEventService != nil {
+            metadata := map[string]interface{}{
+                "processor_subscription_id": pSubscriptionID,
+                "processor":                 "ccbill",
+                "event_source":              "webhook",
+                "updated_email":             email,
+                "payment_account":           data.PaymentAccount,
+                "card_type":                 data.CardType,
+                "payment_type":              data.PaymentType,
+                "bin":                       data.Bin,
+                "exp_date":                  data.ExpDate,
 				"updated_fields": map[string]interface{}{
 					"firstName":   data.FirstName,
 					"lastName":    data.LastName,
@@ -835,8 +785,8 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 	nextRenewalDate := data.NextRenewalDate
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
+	txdb := db.NewWithTx(tx)
+	subService := NewSubscriptionService(txdb)
 
 		// Note: We could validate that the email matches the subscription's user email here
 		// but for now we'll rely on the subscription lookup
@@ -878,13 +828,7 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 			return fmt.Errorf("failed to reactivate subscription: %w", err)
 		}
 
-		// Grant role for reactivated subscription
-		if sub.Price != nil {
-			grantParams := newGrantRoleParams(sub.UserID, sub.ID, models.ProcessorCCBill, sub.Price, sub.Price.Product, db)
-			if err := grantRole(ctx, grantParams); err != nil {
-				return fmt.Errorf("failed to grant role for reactivated subscription: %w", err)
-			}
-		}
+            // External role grant integration removed for Zitadel-only flow
 
 		// Log reactivation event to ClickHouse
 		if s.BillingEventService != nil {
@@ -970,9 +914,9 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
-		userRoleGrantService := NewUserRoleGrantService(db)
+	txdb := db.NewWithTx(tx)
+	subService := NewSubscriptionService(txdb)
+	userRoleGrantService := NewUserRoleGrantService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
@@ -1258,10 +1202,9 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
-		userRoleGrantService := NewUserRoleGrantService(db)
-		userService := NewUserService(db)
+    db := db.NewWithTx(tx)
+    subService := NewSubscriptionService(db)
+    userRoleGrantService := NewUserRoleGrantService(db)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
@@ -1313,12 +1256,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 			return fmt.Errorf("failed to get subscription: %w", err)
 		}
 
-		// Get user for fraud flagging
-		user, err := userService.GetGoTrueUserByID(ctx, sub.UserID)
-		if err != nil {
-			log.WithContext(ctx).WithError(err).WithField("user_id", sub.UserID).Error("failed to get user for chargeback processing")
-			// Continue with subscription termination even if user lookup fails
-		}
+        // No external user lookup (Zitadel-managed ID already on subscription)
 
 		now := time.Now()
 
@@ -1355,15 +1293,11 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 		// 3. Blocking future payments from same user/card/IP
 		// 4. Alerting fraud prevention team
 
-		if user != nil {
-			log.WithContext(ctx).WithFields(log.Fields{
-				"user_id":                user.ID,
-				"user_email":             user.Email,
-				"chargeback_amount":      chargebackAmount,
-				"dispute_id":             "unknown",
-				"chargeback_reason_code": "unknown",
-			}).Warn("User account involved in chargeback - consider fraud review")
-		}
+        log.WithContext(ctx).WithFields(log.Fields{
+            "user_id":            sub.UserID,
+            "chargeback_amount":  chargebackAmount,
+            "dispute_id":         "unknown",
+        }).Warn("User account involved in chargeback - consider fraud review")
 
 		// Log chargeback event to ClickHouse with fraud flags
 		if s.BillingEventService != nil {
@@ -1462,9 +1396,9 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		priceService := NewPriceService(db)
-		subService := NewSubscriptionService(db)
+	txdb := db.NewWithTx(tx)
+	priceService := NewPriceService(txdb)
+	subService := NewSubscriptionService(txdb)
 
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
 		if err != nil {
@@ -1516,7 +1450,7 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 
 		if err := grantRole(
 			ctx,
-			newGrantRoleParams(subscription.UserID, subscription.ID, models.ProcessorCCBill, price, price.Product, db),
+				newGrantRoleParams(subscription.UserID, subscription.ID, models.ProcessorCCBill, price, price.Product, txdb),
 		); err != nil {
 			return fmt.Errorf("failed to grant role for renewed subscription: %w", err)
 		}
@@ -1589,8 +1523,8 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 	ccBillSubID := data.SubscriptionID
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
+	txdb := db.NewWithTx(tx)
+	subService := NewSubscriptionService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
@@ -1689,9 +1623,9 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
-		userRoleGrantService := NewUserRoleGrantService(db)
+	txdb := db.NewWithTx(tx)
+	subService := NewSubscriptionService(txdb)
+	userRoleGrantService := NewUserRoleGrantService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)

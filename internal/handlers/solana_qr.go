@@ -67,7 +67,7 @@ func GenerateSolanaPayQR(r *Request) {
     // Create pending solana transaction (captures reference via pending ID)
     user := r.GetUser()
     svc := services.NewSolanaPaymentService(r.State.DB, r.State.Config, r.State.PriceService, r.State.PaymentService)
-    _, _, _, exp, pendingID, err := svc.Generate(r.Request.Context(), &user.ID, price.ID, tokenSymbol, req.UserWallet)
+    _, _, _, exp, pendingID, err := svc.Generate(r.Request.Context(), user.ID, price.ID, tokenSymbol, req.UserWallet)
     if err != nil {
         r.ErrorJSON(http.StatusInternalServerError, "Failed to prepare payment")
         return

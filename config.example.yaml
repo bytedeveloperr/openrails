@@ -27,6 +27,17 @@ redis:
 jwt:
   secret: "your-jwt-secret-key-change-this"
   issuer: "doujins-billing"
+  # For Zitadel (RS256), provide the RSA public key PEM. If set, RS256 is used.
+  # Example:
+  # public_key_pem: |
+  #   -----BEGIN PUBLIC KEY-----
+  #   MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt...
+  #   -----END PUBLIC KEY-----
+  public_key_pem: ""
+
+# Admin API key for private routes (header: X-API-Key)
+admin:
+  api_key: ""
 
 # CCBill payment processor configuration
 ccbill:
@@ -45,11 +56,14 @@ ccbill:
   
   # Test mode
   test_mode: true
+  webhook_secret: "" # optional: IP + salt verification used by default
   
   # FlexForm integration
   base_flexform_url: "https://api.ccbill.com/wap-frontflex/flexforms/"
   iframe_width: "100%"
   iframe_height: "600px"
+  success_url: "https://your-frontend-domain.com/billing/success"
+  decline_url: "https://your-frontend-domain.com/billing/decline"
   
   # DataLink API for transaction data
   datalink_url: "https://datalink.ccbill.com/data/main.cgi"

@@ -168,10 +168,12 @@ func (s *MobiusWebhookService) handleAddSubscription(ctx context.Context) error 
 	mobiusPlanID := s.Data.EventBody.Plan.ID
 	mobiusSubID := s.Data.EventBody.SubscriptionID
 
-	email := ""
-	if s.Data.EventBody.BillingAddress != nil {
-		email = s.Data.EventBody.BillingAddress.Email
-	}
+    email := ""
+    if s.Data.EventBody.BillingAddress != nil {
+        email = s.Data.EventBody.BillingAddress.Email
+    }
+    // Prefer explicit user identifier passed via PONumber when available
+    userIDOverride := s.Data.EventBody.PONumber
 
 	processor := models.ProcessorMobius
 
@@ -181,12 +183,12 @@ func (s *MobiusWebhookService) handleAddSubscription(ctx context.Context) error 
 		}, nil)
 	}
 
-	if email == "" {
-		return newMobiusBillingError(ErrorTypeMobiusValidation, "Missing email address", map[string]interface{}{
-			"plan_id":         mobiusPlanID,
-			"subscription_id": mobiusSubID,
-		}, nil)
-	}
+    if email == "" && userIDOverride == "" {
+        return newMobiusBillingError(ErrorTypeMobiusValidation, "Missing email address", map[string]interface{}{
+            "plan_id":         mobiusPlanID,
+            "subscription_id": mobiusSubID,
+        }, nil)
+    }
 
 	if mobiusSubID == "" {
 		return newMobiusBillingError(ErrorTypeMobiusValidation, "Missing subscription ID", map[string]interface{}{
@@ -197,21 +199,28 @@ func (s *MobiusWebhookService) handleAddSubscription(ctx context.Context) error 
 
 	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		db := db.NewWithTx(tx)
-		userService := NewUserService(db)
-		priceService := NewPriceService(db)
-		subService := NewSubscriptionService(db)
+        priceService := NewPriceService(db)
+        subService := NewSubscriptionService(db)
 
-		user, err := userService.GetGoTrueUserByEmail(ctx, email)
-		if err != nil {
-			return fmt.Errorf("failed to find user with email %s: %w", email, err)
-		}
+        // Resolve user ID: prefer pass-through override; otherwise lookup by email
+        var userID string
+        if userIDOverride != "" {
+            userID = userIDOverride
+        } else {
+            userService := NewUserService(db)
+            user, err := userService.GetGoTrueUserByEmail(ctx, email)
+            if err != nil {
+                return fmt.Errorf("failed to find user with email %s: %w", email, err)
+            }
+            userID = user.ID
+        }
 
 		price, err := priceService.GetByMobiusPlanID(ctx, mobiusPlanID)
 		if err != nil {
 			return fmt.Errorf("failed to find price for Mobius plan ID %s: %w", mobiusPlanID, err)
 		}
 
-		subscription, err := subService.GetByUserIDAndPriceID(ctx, user.ID, price.ID)
+        subscription, err := subService.GetByUserIDAndPriceID(ctx, userID, price.ID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("failed to check existing subscription: %w", err)
 		}
@@ -223,13 +232,13 @@ func (s *MobiusWebhookService) handleAddSubscription(ctx context.Context) error 
 			}
 		} else {
 			isNewSubscription = true
-			subscription = &models.Subscription{
-				ID:                      uuid.New(),
-				UserID:                  user.ID,
-				Processor:               processor,
-				StartedAt:               time.Now(),
-				ProcessorSubscriptionID: mobiusSubID,
-			}
+            subscription = &models.Subscription{
+                ID:                      uuid.New(),
+                UserID:                  userID,
+                Processor:               processor,
+                StartedAt:               time.Now(),
+                ProcessorSubscriptionID: mobiusSubID,
+            }
 		}
 
 		if err := subscription.ActivateWithPrice(price); err != nil {
@@ -250,12 +259,7 @@ func (s *MobiusWebhookService) handleAddSubscription(ctx context.Context) error 
 			}
 		}
 
-		if err := grantRole(
-			ctx,
-			newGrantRoleParams(user.ID, subscription.ID, processor, price, price.Product, db),
-		); err != nil {
-			return fmt.Errorf("failed to grant role: %w", err)
-		}
+            // External role grant integration removed for Zitadel-only flow
 
 		if s.BillingEventService != nil {
 			metadata := map[string]interface{}{
@@ -267,16 +271,16 @@ func (s *MobiusWebhookService) handleAddSubscription(ctx context.Context) error 
 				"period_end":                subscription.CurrentPeriodEndsAt,
 			}
 
-			subscriptionEventData := SubscriptionEventData{
-				EventID:                 uuid.New(),
-				UserID:                  user.ID,
-				Processor:               "mobius",
-				Timestamp:               time.Now(),
-				ProcessorSubscriptionID: &mobiusSubID,
-				SubscriptionID:          subscription.ID,
-				EventType:               "subscription_created",
-				Metadata:                CreateMetadataJSON(metadata),
-			}
+            subscriptionEventData := SubscriptionEventData{
+                EventID:                 uuid.New(),
+                UserID:                  subscription.UserID,
+                Processor:               "mobius",
+                Timestamp:               time.Now(),
+                ProcessorSubscriptionID: &mobiusSubID,
+                SubscriptionID:          subscription.ID,
+                EventType:               "subscription_created",
+                Metadata:                CreateMetadataJSON(metadata),
+            }
 
 			if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
 				log.WithError(err).Error("Failed to log subscription creation event to ClickHouse")
@@ -467,9 +471,10 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
 	if s.Data.EventBody.BillingAddress != nil {
 		email = s.Data.EventBody.BillingAddress.Email
 	}
-	transactionID := s.Data.EventBody.ProcessorID
-	planID := s.Data.EventBody.Plan.ID
-	amountStr := s.Data.EventBody.Plan.Amount
+    transactionID := s.Data.EventBody.ProcessorID
+    planID := s.Data.EventBody.Plan.ID
+    amountStr := s.Data.EventBody.Plan.Amount
+    userIDOverride := s.Data.EventBody.PONumber
 
 	if email == "" {
 		return newMobiusBillingError(ErrorTypeMobiusValidation, "Missing email address", map[string]interface{}{
@@ -511,10 +516,9 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
 	}
 
 	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		userService := NewUserService(db)
-		priceService := NewPriceService(db)
-		purchaseService := NewPaymentService(db)
+        db := db.NewWithTx(tx)
+        priceService := NewPriceService(db)
+        purchaseService := NewPaymentService(db)
 
 		// 1. Check for duplicate transaction ID
 		existingPurchase, err := purchaseService.GetByTransactionID(ctx, models.ProcessorMobius, transactionID)
@@ -529,11 +533,18 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
 			return fmt.Errorf("failed to check for duplicate transaction: %w", err)
 		}
 
-		// 2. Find user by email
-		user, err := userService.GetGoTrueUserByEmail(ctx, email)
-		if err != nil {
-			return fmt.Errorf("failed to find user with email %s: %w", email, err)
-		}
+        // 2. Resolve user ID (prefer PONumber override)
+        var userID string
+        if userIDOverride != "" {
+            userID = userIDOverride
+        } else {
+            userService := NewUserService(db)
+            user, err := userService.GetGoTrueUserByEmail(ctx, email)
+            if err != nil {
+                return fmt.Errorf("failed to find user with email %s: %w", email, err)
+            }
+            userID = user.ID
+        }
 
 		// 3. Find price by Mobius plan ID
 		price, err := priceService.GetByMobiusPlanID(ctx, planID)
@@ -569,8 +580,8 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
 			return fmt.Errorf("failed to get product: %w", err)
 		}
 
-		var userRoleGrant *models.UserRoleGrant
-		var extensionDays int
+        var userRoleGrant *models.UserRoleGrant
+        var extensionDays int
 
 		// 5. Grant/extend role if product has role configured
 		if product.RoleID != nil {
@@ -586,27 +597,27 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
 			}
 
 			// Extend the user's role expiration
-			grant, _, err := userRoleGrantService.ExtendRoleExpiration(ctx, user.ID, *product.RoleID, extensionDays)
-			if err != nil {
-				return fmt.Errorf("failed to extend role expiration: %w", err)
-			}
-			userRoleGrant = grant
-		}
+            grant, _, err := userRoleGrantService.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDays)
+            if err != nil {
+                return fmt.Errorf("failed to extend role expiration: %w", err)
+            }
+            userRoleGrant = grant
+        }
 
 		// 6. Create Purchase record
-		purchase := &models.Payment{
-			ID:              uuid.New(),
-			UserID:          user.ID,
-			PriceID:         price.ID,
-			UserRoleGrantID: nil, // Set if role was granted
-			Processor:       models.ProcessorMobius,
-			TransactionID:   transactionID,
-			Amount:          amount,
-			Currency:        price.Currency,
-			ExtensionDays:   nil, // Set if role was extended
-			PurchasedAt:     time.Now(),
-			CreatedAt:       time.Now(),
-		}
+        purchase := &models.Payment{
+            ID:              uuid.New(),
+            UserID:          userID,
+            PriceID:         price.ID,
+            UserRoleGrantID: nil, // Set if role was granted
+            Processor:       models.ProcessorMobius,
+            TransactionID:   transactionID,
+            Amount:          amount,
+            Currency:        price.Currency,
+            ExtensionDays:   nil, // Set if role was extended
+            PurchasedAt:     time.Now(),
+            CreatedAt:       time.Now(),
+        }
 
 		// Set optional fields if role was granted
 		if userRoleGrant != nil {
@@ -632,32 +643,32 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
 
 			transactionEventData := TransactionEventData{
 				EventID:        uuid.New(),
-				UserID:         &user.ID,
-				SubscriptionID: nil, // Will be set if subscription-based
-				EventType:      "payment_succeeded",
-				Processor:      "mobius",
-				TransactionID:  transactionID,
-				Amount:         &amount,
-				Currency:       price.Currency,
-				Status:         "completed",
-				Metadata:       CreateMetadataJSON(metadata),
-				Timestamp:      time.Now(),
-			}
+            UserID:         &userID,
+            SubscriptionID: nil, // Will be set if subscription-based
+            EventType:      "payment_succeeded",
+            Processor:      "mobius",
+            TransactionID:  transactionID,
+            Amount:         &amount,
+            Currency:       price.Currency,
+            Status:         "completed",
+            Metadata:       CreateMetadataJSON(metadata),
+            Timestamp:      time.Now(),
+        }
 
 			if err := s.BillingEventService.LogTransactionEvent(ctx, transactionEventData); err != nil {
 				log.WithError(err).Error("Failed to log transaction success event to ClickHouse")
 			}
 		}
 
-		log.WithContext(ctx).WithFields(log.Fields{
-			"userID":        user.ID,
-			"transactionID": transactionID,
-			"planID":        planID,
-			"productID":     product.ID,
-			"roleGranted":   product.RoleID != nil,
-			"extensionDays": extensionDays,
-			"purchaseID":    purchase.ID,
-		}).Info("Successfully processed transaction success webhook")
+        log.WithContext(ctx).WithFields(log.Fields{
+            "userID":        userID,
+            "transactionID": transactionID,
+            "planID":        planID,
+            "productID":     product.ID,
+            "roleGranted":   product.RoleID != nil,
+            "extensionDays": extensionDays,
+            "purchaseID":    purchase.ID,
+        }).Info("Successfully processed transaction success webhook")
 
 		return nil
 	})
@@ -684,43 +695,26 @@ func (s *MobiusWebhookService) handleACUUpdated(ctx context.Context) error {
 		}
 	}
 
-	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		paymentMethodService := NewPaymentMethodService(db)
-		userService := NewUserService(db)
+    return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+        db := db.NewWithTx(tx)
+        paymentMethodService := NewPaymentMethodService(db)
 
-		// Find user by email
-		user, err := userService.GetGoTrueUserByEmail(ctx, email)
-		if err != nil {
-			log.WithError(err).Warn("Could not find user for ACU update webhook")
-			return nil // Don't fail the webhook for missing user
-		}
-
-		// Find payment method by vault ID and processor
-		paymentMethod, err := paymentMethodService.GetByVaultID(ctx, models.ProcessorMobius, vaultID)
-		if err != nil {
-			log.WithError(err).Warn("Could not find payment method for ACU update webhook")
-			return nil // Don't fail the webhook for missing payment method
-		}
-
-		// Verify payment method belongs to user
-		if paymentMethod.UserID != user.ID {
-			log.WithFields(log.Fields{
-				"vaultID":           vaultID,
-				"paymentMethodUser": paymentMethod.UserID,
-				"webhookUser":       user.ID,
-			}).Error("Payment method user mismatch in ACU update webhook")
-			return nil
-		}
+        // Prefer authoritative source: payment method's stored user ID
+        paymentMethod, err := paymentMethodService.GetByVaultID(ctx, models.ProcessorMobius, vaultID)
+        if err != nil {
+            log.WithError(err).Warn("Could not find payment method for ACU update webhook")
+            return nil // Don't fail the webhook for missing payment method
+        }
+        userID := paymentMethod.UserID
 
 		// Update payment method - ACU methods were removed since we don't track ACU status
 		// Just mark as active since auto-update was successful
 		paymentMethod.IsActive = true
 		paymentMethod.FailureReason = nil
 
-		if err := paymentMethodService.Update(ctx, paymentMethod); err != nil {
-			return fmt.Errorf("failed to update payment method after ACU update: %w", err)
-		}
+        if err := paymentMethodService.Update(ctx, paymentMethod); err != nil {
+            return fmt.Errorf("failed to update payment method after ACU update: %w", err)
+        }
 
 		// Log ACU update event to ClickHouse
 		if s.BillingEventService != nil {
@@ -753,18 +747,18 @@ func (s *MobiusWebhookService) handleACUUpdated(ctx context.Context) error {
 				Timestamp:      time.Now(),
 			}
 
-			if err := s.BillingEventService.LogACUEvent(ctx, acuEventData); err != nil {
-				log.WithError(err).Error("Failed to log ACU update event to ClickHouse")
-			}
-		}
+            if err := s.BillingEventService.LogACUEvent(ctx, acuEventData); err != nil {
+                log.WithError(err).Error("Failed to log ACU update event to ClickHouse")
+            }
+        }
 
-		log.WithContext(ctx).WithFields(log.Fields{
-			"userID":             user.ID,
-			"subscriptionID":     subscriptionID,
-			"vaultID":            vaultID,
-			"paymentMethodID":    paymentMethod.ID,
-			"cardDetailsUpdated": newLastFour != nil || newCardType != nil || newExpiryDate != nil,
-		}).Info("Payment method automatically updated via ACU")
+        log.WithContext(ctx).WithFields(log.Fields{
+            "userID":             userID,
+            "subscriptionID":     subscriptionID,
+            "vaultID":            vaultID,
+            "paymentMethodID":    paymentMethod.ID,
+            "cardDetailsUpdated": newLastFour != nil || newCardType != nil || newExpiryDate != nil,
+        }).Info("Payment method automatically updated via ACU")
 
 		return nil
 	})
@@ -775,35 +769,28 @@ func (s *MobiusWebhookService) handleACUContactCustomer(ctx context.Context) err
 	subscriptionID := s.Data.EventBody.SubscriptionID
 	email := s.Data.EventBody.BillingAddress.Email
 
-	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		userService := NewUserService(db)
-		subService := NewSubscriptionService(db)
+    return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+        db := db.NewWithTx(tx)
+        subService := NewSubscriptionService(db)
 
-		// Find user and subscription
-		user, err := userService.GetGoTrueUserByEmail(ctx, email)
-		if err != nil {
-			log.WithError(err).Warn("Could not find user for ACU contact customer webhook")
-			return nil // Don't fail the webhook for missing user
-		}
-
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorMobius), subscriptionID)
-		if err != nil {
-			log.WithError(err).Warn("Could not find subscription for ACU contact customer webhook")
-			return nil // Don't fail the webhook for missing subscription
-		}
+        // Find subscription; use its user ID for notifications
+        sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorMobius), subscriptionID)
+        if err != nil {
+            log.WithError(err).Warn("Could not find subscription for ACU contact customer webhook")
+            return nil // Don't fail the webhook for missing subscription
+        }
 
 		// Add notification to queue for user to update payment method
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    user.ID,
-				EventType: models.NotificationPaymentMethodUpdateRequired,
-				Data: map[string]interface{}{
-					"subscription_id": sub.ID.String(),
-					"reason":          "Card update required by payment processor",
-				},
-			}
+        if s.NotificationService != nil {
+            notification := &models.NotificationQueue{
+                ID:        uuid.New(),
+                UserID:    sub.UserID,
+                EventType: models.NotificationPaymentMethodUpdateRequired,
+                Data: map[string]interface{}{
+                    "subscription_id": sub.ID.String(),
+                    "reason":          "Card update required by payment processor",
+                },
+            }
 
 			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
 				log.WithContext(ctx).WithError(err).Error("failed to create and deliver payment method update notification")
@@ -844,11 +831,11 @@ func (s *MobiusWebhookService) handleACUContactCustomer(ctx context.Context) err
 			}
 		}
 
-		log.WithContext(ctx).WithFields(log.Fields{
-			"userID":         user.ID,
-			"subscriptionID": sub.ID,
-			"email":          email,
-		}).Info("Customer contact required for card update")
+        log.WithContext(ctx).WithFields(log.Fields{
+            "userID":         sub.UserID,
+            "subscriptionID": sub.ID,
+            "email":          email,
+        }).Info("Customer contact required for card update")
 
 		return nil
 	})
@@ -860,33 +847,26 @@ func (s *MobiusWebhookService) handleACUClosedAccount(ctx context.Context) error
 	email := s.Data.EventBody.BillingAddress.Email
 	vaultID := s.Data.EventBody.VaultID
 
-	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		userService := NewUserService(db)
-		subService := NewSubscriptionService(db)
-		paymentMethodService := NewPaymentMethodService(db)
+    return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+        db := db.NewWithTx(tx)
+        subService := NewSubscriptionService(db)
+        paymentMethodService := NewPaymentMethodService(db)
 
-		// Find user and subscription
-		user, err := userService.GetGoTrueUserByEmail(ctx, email)
-		if err != nil {
-			log.WithError(err).Warn("Could not find user for ACU closed account webhook")
-			return nil // Don't fail the webhook for missing user
-		}
-
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorMobius), subscriptionID)
-		if err != nil {
-			log.WithError(err).Warn("Could not find subscription for ACU closed account webhook")
-			return nil // Don't fail the webhook for missing subscription
-		}
+        // Find subscription; use its user ID
+        sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorMobius), subscriptionID)
+        if err != nil {
+            log.WithError(err).Warn("Could not find subscription for ACU closed account webhook")
+            return nil // Don't fail the webhook for missing subscription
+        }
 
 		// Find and mark payment method as inactive
-		if vaultID != "" {
-			paymentMethod, err := paymentMethodService.GetByVaultID(ctx, models.ProcessorMobius, vaultID)
-			if err != nil {
-				log.WithError(err).Warn("Could not find payment method for ACU closed account webhook")
-			} else if paymentMethod.UserID == user.ID {
-				// Mark payment method as inactive due to closed account
-				paymentMethod.MarkInactive("Payment account closed by bank")
+        if vaultID != "" {
+            paymentMethod, err := paymentMethodService.GetByVaultID(ctx, models.ProcessorMobius, vaultID)
+            if err != nil {
+                log.WithError(err).Warn("Could not find payment method for ACU closed account webhook")
+            } else if paymentMethod.UserID == sub.UserID {
+                // Mark payment method as inactive due to closed account
+                paymentMethod.MarkInactive("Payment account closed by bank")
 
 				if err := paymentMethodService.Update(ctx, paymentMethod); err != nil {
 					log.WithError(err).Error("Failed to mark payment method as inactive after account closure")
@@ -917,18 +897,18 @@ func (s *MobiusWebhookService) handleACUClosedAccount(ctx context.Context) error
 		}
 
 		// Notify user that premium ended due to payment account closure
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    user.ID,
-				EventType: models.NotificationPremiumEnded,
-				Data: map[string]interface{}{
-					"subscription_id": sub.ID.String(),
-					"reason":          "Payment account closed by bank",
-					"urgency":         "high",
-					"vault_id":        vaultID,
-				},
-			}
+        if s.NotificationService != nil {
+            notification := &models.NotificationQueue{
+                ID:        uuid.New(),
+                UserID:    sub.UserID,
+                EventType: models.NotificationPremiumEnded,
+                Data: map[string]interface{}{
+                    "subscription_id": sub.ID.String(),
+                    "reason":          "Payment account closed by bank",
+                    "urgency":         "high",
+                    "vault_id":        vaultID,
+                },
+            }
 
 			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
 				log.WithContext(ctx).WithError(err).Error("failed to create and deliver closed account notification")
@@ -971,12 +951,12 @@ func (s *MobiusWebhookService) handleACUClosedAccount(ctx context.Context) error
 			}
 		}
 
-		log.WithContext(ctx).WithFields(log.Fields{
-			"userID":         user.ID,
-			"subscriptionID": sub.ID,
-			"vaultID":        vaultID,
-			"email":          email,
-		}).Info("Payment account closed, subscription put on hold and payment method deactivated")
+        log.WithContext(ctx).WithFields(log.Fields{
+            "userID":         sub.UserID,
+            "subscriptionID": sub.ID,
+            "vaultID":        vaultID,
+            "email":          email,
+        }).Info("Payment account closed, subscription put on hold and payment method deactivated")
 
 		return nil
 	})

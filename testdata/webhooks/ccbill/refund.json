@@ -1,0 +1,14 @@
+{
+  "clientAccnum": 945280,
+  "clientSubacc": "0000",
+  "subscriptionId": "0125217202000000017",
+  "timestamp": "2025-08-05 08:15:22",
+  "refundAmount": 23.0,
+  "refundCurrency": "USD",
+  "refundCurrencyCode": 840,
+  "refundTransactionId": "0125217202000000019",
+  "originalTransactionId": "0125217202000000017",
+  "refundReason": "Customer requested refund",
+  "refundDate": "2025-08-05",
+  "refundType": "full"
+}

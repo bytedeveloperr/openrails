@@ -1,20 +1,19 @@
 package handlers
 
 import (
-	"context"
-	"database/sql"
-	"errors"
-	"net/http"
-	"time"
+    "context"
+    "database/sql"
+    "errors"
+    "net/http"
+    "time"
 
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
-	"github.com/supabase-community/gotrue-go/types"
+    "github.com/google/uuid"
+    log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
-	"github.com/doujins-org/doujins-billing/internal/middleware"
-	"github.com/doujins-org/doujins-billing/internal/services"
+    "github.com/doujins-org/doujins-billing/internal/db/models"
+    "github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
+    "github.com/doujins-org/doujins-billing/internal/middleware"
+    "github.com/doujins-org/doujins-billing/internal/services"
 )
 
 func GenerateFlexFormURL(r *Request) {
@@ -45,22 +44,23 @@ func GenerateFlexFormURL(r *Request) {
 		return
 	}
 
-	// Create CCBill client
-	ccbillClient := ccbill.NewClient(r.State.Config.CCBill, r.State.Config.Env == "prod")
+    // Create CCBill client
+    ccbillClient := ccbill.NewClient(r.State.Config.CCBill, r.State.Config.Env == "prod")
 
 	// Prepare FlexForm parameters
-	flexFormParams := &ccbill.GenerateFlexFormURLParams{
-		Username:      *userCtx.User.Email,
-		Email:         *userCtx.User.Email,
-		CustomerFName: req.FirstName,
-		CustomerLName: req.LastName,
-		Address1:      req.Address1,
-		City:          req.City,
-		State:         req.State,
-		ZipCode:       req.ZipCode,
-		Country:       req.Country,
-		FlexID:        *price.MobiusPlanID,
-	}
+    flexFormParams := &ccbill.GenerateFlexFormURLParams{
+        // Pass Zitadel sub in Username so webhook can map back to the user
+        Username:      userCtx.User.ID,
+        Email:         *userCtx.User.Email,
+        CustomerFName: req.FirstName,
+        CustomerLName: req.LastName,
+        Address1:      req.Address1,
+        City:          req.City,
+        State:         req.State,
+        ZipCode:       req.ZipCode,
+        Country:       req.Country,
+        FlexID:        *price.MobiusPlanID,
+    }
 
 	// Generate FlexForm URL
 	flexFormResponse, err := ccbillClient.GenerateFlexFormURL(flexFormParams)
@@ -75,38 +75,43 @@ func GenerateFlexFormURL(r *Request) {
 		"price_id": price.ID,
 	}).Info("Generated CCBill FlexForm URL")
 
-	r.SuccessJSON(flexFormResponse)
+    // Create or ensure pending subscription for tracking
+    if _, err := createPendingSubscription(r.Request.Context(), r.State.SubscriptionService, userCtx.User.ID, price); err != nil {
+        log.WithError(err).Warn("Failed to create pending subscription before redirect")
+    }
+    r.SuccessJSON(flexFormResponse)
 }
 
 // generatePassword creates a secure password from user ID for CCBill account creation
-func generatePassword(userID uuid.UUID) string {
-	// Use first 12 characters of UUID as password (secure enough for CCBill requirements)
-	return userID.String()[:12]
+func generatePassword(userID string) string {
+    // Use first 12 characters of the user ID (Zitadel sub) as a deterministic password surrogate
+    if len(userID) >= 12 { return userID[:12] }
+    return userID
 }
 
 // createPendingSubscription creates a new subscription in pending status for tracking
-func createPendingSubscription(ctx context.Context, subscriptionService *services.SubscriptionService, user *types.User, price *models.Price) (*models.Subscription, error) {
-	// Check if user already has a subscription
-	existingSubscription, err := subscriptionService.GetByUserID(ctx, user.ID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
+func createPendingSubscription(ctx context.Context, subscriptionService *services.SubscriptionService, userID string, price *models.Price) (*models.Subscription, error) {
+    // Check if user already has a subscription
+    existingSubscription, err := subscriptionService.GetByUserID(ctx, userID)
+    if err != nil && !errors.Is(err, sql.ErrNoRows) {
+        return nil, err
+    }
 
 	if existingSubscription != nil {
 		// Return existing subscription
 		return existingSubscription, nil
 	}
 
-	// Create new subscription
-	subscription := &models.Subscription{
-		ID:                      uuid.New(),
-		UserID:                  user.ID,
-		PriceID:                 price.ID,
-		Status:                  models.StatusPending,
-		StartedAt:               time.Now(),
-		Processor:               models.ProcessorCCBill,
-		ProcessorSubscriptionID: "", // Will be set by webhook
-	}
+    // Create new subscription
+    subscription := &models.Subscription{
+        ID:                      uuid.New(),
+        UserID:                  userID,
+        PriceID:                 price.ID,
+        Status:                  models.StatusPending,
+        StartedAt:               time.Now(),
+        Processor:               models.ProcessorCCBill,
+        ProcessorSubscriptionID: "", // Will be set by webhook
+    }
 
 	if err := subscriptionService.Create(ctx, subscription); err != nil {
 		return nil, err

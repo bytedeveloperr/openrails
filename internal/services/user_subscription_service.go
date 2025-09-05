@@ -38,7 +38,7 @@ type UserSubscriptionResponse struct {
 }
 
 // GetUserSubscription retrieves the current subscription for a user with enriched data
-func (s *UserSubscriptionService) GetUserSubscription(ctx context.Context, userID uuid.UUID) (*UserSubscriptionResponse, error) {
+func (s *UserSubscriptionService) GetUserSubscription(ctx context.Context, userID string) (*UserSubscriptionResponse, error) {
 	subscription, err := s.SubscriptionService.GetByUserID(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get subscription: %w", err)
@@ -66,11 +66,11 @@ func (s *UserSubscriptionService) GetUserSubscription(ctx context.Context, userI
 }
 
 // GetUserSubscriptionHistory retrieves subscription history for a user
-func (s *UserSubscriptionService) GetUserSubscriptionHistory(ctx context.Context, userID uuid.UUID, queryOpts *query.QueryOptions[GetSubscriptionsFilters]) ([]*UserSubscriptionResponse, int64, error) {
+func (s *UserSubscriptionService) GetUserSubscriptionHistory(ctx context.Context, userID string, queryOpts *query.QueryOptions[GetSubscriptionsFilters]) ([]*UserSubscriptionResponse, int64, error) {
 	// Set user filter
-	if queryOpts.Filters.UserID == uuid.Nil {
-		queryOpts.Filters.UserID = userID
-	}
+    if queryOpts.Filters.UserID == "" {
+        queryOpts.Filters.UserID = userID
+    }
 
 	subscriptions, total, err := s.SubscriptionService.GetSubscribers(ctx, *queryOpts)
 	if err != nil {
@@ -99,11 +99,11 @@ func (s *UserSubscriptionService) GetUserSubscriptionHistory(ctx context.Context
 }
 
 // GetUserPurchases retrieves one-off purchases for a user
-func (s *UserSubscriptionService) GetUserPurchases(ctx context.Context, userID uuid.UUID, queryOpts *query.QueryOptions[GetPaymentsFilters]) ([]*models.Payment, int64, error) {
+func (s *UserSubscriptionService) GetUserPurchases(ctx context.Context, userID string, queryOpts *query.QueryOptions[GetPaymentsFilters]) ([]*models.Payment, int64, error) {
 	// Set user filter
-	if queryOpts.Filters.UserID == uuid.Nil {
-		queryOpts.Filters.UserID = userID
-	}
+    if queryOpts.Filters.UserID == "" {
+        queryOpts.Filters.UserID = userID
+    }
 
 	purchases, total, err := s.PaymentService.GetPayments(ctx, *queryOpts)
 	if err != nil {
@@ -114,11 +114,11 @@ func (s *UserSubscriptionService) GetUserPurchases(ctx context.Context, userID u
 }
 
 // GetUserNotifications retrieves notifications for a user
-func (s *UserSubscriptionService) GetUserNotifications(ctx context.Context, userID uuid.UUID, queryOpts *query.QueryOptions[GetNotificationsFilters]) ([]*models.NotificationQueue, int64, error) {
+func (s *UserSubscriptionService) GetUserNotifications(ctx context.Context, userID string, queryOpts *query.QueryOptions[GetNotificationsFilters]) ([]*models.NotificationQueue, int64, error) {
 	// Set user filter
-	if queryOpts.Filters.UserID == uuid.Nil {
-		queryOpts.Filters.UserID = userID
-	}
+    if queryOpts.Filters.UserID == "" {
+        queryOpts.Filters.UserID = userID
+    }
 
 	notifications, total, err := s.NotificationQueueService.GetNotifications(ctx, *queryOpts)
 	if err != nil {
@@ -129,23 +129,23 @@ func (s *UserSubscriptionService) GetUserNotifications(ctx context.Context, user
 }
 
 // MarkNotificationRead marks a notification as read
-func (s *UserSubscriptionService) MarkNotificationRead(ctx context.Context, userID, notificationID uuid.UUID) error {
+func (s *UserSubscriptionService) MarkNotificationRead(ctx context.Context, userID string, notificationID uuid.UUID) error {
 	notification, err := s.NotificationQueueService.GetByID(ctx, notificationID)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrNotificationNotFound, err)
 	}
 
 	// Verify the notification belongs to the user
-	if notification.UserID != userID {
-		return ErrNotificationAccessDenied
-	}
+    if notification.UserID != userID {
+        return ErrNotificationAccessDenied
+    }
 
 	notification.MarkAsSeen() // Mark as seen (new boolean field)
 	return s.NotificationQueueService.Update(ctx, notification)
 }
 
 // CancelUserSubscription cancels a user's subscription
-func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, userID uuid.UUID, feedback string) error {
+func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, userID string, feedback string) error {
 	subscription, err := s.SubscriptionService.GetByUserID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrSubscriptionNotFound, err)

@@ -16,9 +16,9 @@ type NotificationQueueService struct {
 }
 
 type GetNotificationsFilters struct {
-	UserID    uuid.UUID `form:"user_id"`
-	EventType string    `form:"event_type"`
-	Seen      *bool     `form:"seen"`
+    UserID    string    `form:"user_id"`
+    EventType string    `form:"event_type"`
+    Seen      *bool     `form:"seen"`
 }
 
 func NewNotificationQueueService(db *db.DB) *NotificationQueueService {
@@ -56,7 +56,7 @@ func (r *NotificationQueueService) GetByID(ctx context.Context, id uuid.UUID) (*
 	return &notification, nil
 }
 
-func (r *NotificationQueueService) GetByUserID(ctx context.Context, userID uuid.UUID) ([]*models.NotificationQueue, error) {
+func (r *NotificationQueueService) GetByUserID(ctx context.Context, userID string) ([]*models.NotificationQueue, error) {
 	var notifications []*models.NotificationQueue
 	err := r.db.GetDB().NewSelect().Model(&notifications).Where("user_id = ?", userID).Order("created_at DESC").Scan(ctx)
 	if err != nil {
@@ -65,7 +65,7 @@ func (r *NotificationQueueService) GetByUserID(ctx context.Context, userID uuid.
 	return notifications, nil
 }
 
-func (r *NotificationQueueService) GetUnseenByUserID(ctx context.Context, userID uuid.UUID) ([]*models.NotificationQueue, error) {
+func (r *NotificationQueueService) GetUnseenByUserID(ctx context.Context, userID string) ([]*models.NotificationQueue, error) {
 	var notifications []*models.NotificationQueue
 	err := r.db.GetDB().NewSelect().Model(&notifications).
 		Where("user_id = ?", userID).
@@ -88,7 +88,7 @@ func (r *NotificationQueueService) GetByEventType(ctx context.Context, eventType
 }
 
 // CountByUserAndEventSince counts notifications for a user and event type since a timestamp
-func (r *NotificationQueueService) CountByUserAndEventSince(ctx context.Context, userID uuid.UUID, eventType models.NotificationEventType, since time.Time) (int, error) {
+func (r *NotificationQueueService) CountByUserAndEventSince(ctx context.Context, userID string, eventType models.NotificationEventType, since time.Time) (int, error) {
 	var count int
 	err := r.db.GetDB().NewSelect().
 		Table("notification_queue").
@@ -101,8 +101,8 @@ func (r *NotificationQueueService) CountByUserAndEventSince(ctx context.Context,
 }
 
 // GetUsersWithPendingDigest returns distinct user IDs with pending digest items since a timestamp
-func (r *NotificationQueueService) GetUsersWithPendingDigest(ctx context.Context, since time.Time) ([]uuid.UUID, error) {
-	var userIDs []uuid.UUID
+func (r *NotificationQueueService) GetUsersWithPendingDigest(ctx context.Context, since time.Time) ([]string, error) {
+    var userIDs []string
 	err := r.db.GetDB().NewSelect().
 		TableExpr("notification_queue").
 		ColumnExpr("DISTINCT user_id").
@@ -116,7 +116,7 @@ func (r *NotificationQueueService) GetUsersWithPendingDigest(ctx context.Context
 }
 
 // GetPendingDigestForUser returns pending digest items for a user since a timestamp, limited
-func (r *NotificationQueueService) GetPendingDigestForUser(ctx context.Context, userID uuid.UUID, since time.Time, limit int) ([]*models.NotificationQueue, error) {
+func (r *NotificationQueueService) GetPendingDigestForUser(ctx context.Context, userID string, since time.Time, limit int) ([]*models.NotificationQueue, error) {
 	var items []*models.NotificationQueue
 	q := r.db.GetDB().NewSelect().
 		Model(&items).
@@ -199,9 +199,9 @@ func (r *NotificationQueueService) GetNotifications(ctx context.Context, queryOp
 	// Note: User relationship is not preloaded - fetch separately if needed using UserService.GetFullUser
 
 	// Apply filters
-	if queryOpts.Filters.UserID != uuid.Nil {
-		q = q.Where("notification_queue.user_id = ?", queryOpts.Filters.UserID)
-	}
+    if queryOpts.Filters.UserID != "" {
+        q = q.Where("notification_queue.user_id = ?", queryOpts.Filters.UserID)
+    }
 	if queryOpts.Filters.EventType != "" {
 		q = q.Where("notification_queue.event_type = ?", queryOpts.Filters.EventType)
 	}

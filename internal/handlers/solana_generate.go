@@ -33,7 +33,7 @@ func GeneratePayment(r *Request) {
     // Build via service (creates pending solana_transactions row)
     user := r.GetUser()
     svc := services.NewSolanaPaymentService(r.State.DB, r.State.Config, r.State.PriceService, r.State.PaymentService)
-    amount, currency, tokenAmount, expiresAt, _, err := svc.Generate(r.Request.Context(), &user.ID, priceID, req.Token, req.UserWallet)
+    amount, currency, tokenAmount, expiresAt, _, err := svc.Generate(r.Request.Context(), user.ID, priceID, req.Token, req.UserWallet)
     if err != nil {
         log.WithError(err).Error("Failed to prepare solana payment")
         if errors.Is(err, services.ErrPriceNotFound) {

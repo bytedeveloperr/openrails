@@ -26,8 +26,8 @@ type Role struct {
 type UserRoleGrant struct {
 	bun.BaseModel `bun:"table:user_role_grants,alias:urg"`
 
-	ID     uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
-	UserID uuid.UUID `bun:"user_id,notnull" json:"user_id"`
+    ID     uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
+    UserID string    `bun:"user_id,notnull" json:"user_id"`
 	RoleID uuid.UUID `bun:"role_id,notnull" json:"role_id"`
 
 	// Current expiration date - gets extended by purchases

@@ -48,7 +48,7 @@ func (r *PaymentMethodService) GetByID(ctx context.Context, id uuid.UUID) (*mode
 	return &method, nil
 }
 
-func (r *PaymentMethodService) GetByUserID(ctx context.Context, userID uuid.UUID) ([]*models.PaymentMethod, error) {
+func (r *PaymentMethodService) GetByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
 	var methods []*models.PaymentMethod
 	err := r.db.GetDB().NewSelect().Model(&methods).Where("user_id = ?", userID).Order("created_at DESC").Scan(ctx)
 	if err != nil {
@@ -57,7 +57,7 @@ func (r *PaymentMethodService) GetByUserID(ctx context.Context, userID uuid.UUID
 	return methods, nil
 }
 
-func (r *PaymentMethodService) GetActiveByUserID(ctx context.Context, userID uuid.UUID) ([]*models.PaymentMethod, error) {
+func (r *PaymentMethodService) GetActiveByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
 	var methods []*models.PaymentMethod
 	err := r.db.GetDB().NewSelect().Model(&methods).
 		Where("user_id = ?", userID).
@@ -144,7 +144,7 @@ func (r *PaymentMethodService) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 // DeactivateByUserID deactivates all payment methods for a user
-func (r *PaymentMethodService) DeactivateByUserID(ctx context.Context, userID uuid.UUID) error {
+func (r *PaymentMethodService) DeactivateByUserID(ctx context.Context, userID string) error {
 	result, err := r.db.GetDB().NewUpdate().
 		Model((*models.PaymentMethod)(nil)).
 		Set("is_active = ?", false).
@@ -213,7 +213,7 @@ func (r *PaymentMethodService) GetActiveByProcessor(ctx context.Context, process
 }
 
 // GetByUserIDAndProcessor returns payment methods for a specific user and processor
-func (r *PaymentMethodService) GetByUserIDAndProcessor(ctx context.Context, userID uuid.UUID, processor models.Processor) ([]*models.PaymentMethod, error) {
+func (r *PaymentMethodService) GetByUserIDAndProcessor(ctx context.Context, userID string, processor models.Processor) ([]*models.PaymentMethod, error) {
 	var methods []*models.PaymentMethod
 	err := r.db.GetDB().NewSelect().Model(&methods).
 		Where("user_id = ?", userID).
@@ -227,7 +227,7 @@ func (r *PaymentMethodService) GetByUserIDAndProcessor(ctx context.Context, user
 }
 
 // GetActiveByUserIDAndProcessor returns active payment methods for a specific user and processor
-func (r *PaymentMethodService) GetActiveByUserIDAndProcessor(ctx context.Context, userID uuid.UUID, processor models.Processor) ([]*models.PaymentMethod, error) {
+func (r *PaymentMethodService) GetActiveByUserIDAndProcessor(ctx context.Context, userID string, processor models.Processor) ([]*models.PaymentMethod, error) {
 	var methods []*models.PaymentMethod
 	err := r.db.GetDB().NewSelect().Model(&methods).
 		Where("user_id = ?", userID).

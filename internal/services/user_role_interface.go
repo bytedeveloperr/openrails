@@ -77,8 +77,8 @@ func NewUserRoleInterfaceService(database *db.DB) *UserRoleInterfaceService {
 
 // OpenOrEnsureUserRole calls billing_open_or_ensure_user_role SECURITY DEFINER function
 func (s *UserRoleInterfaceService) OpenOrEnsureUserRole(
-	ctx context.Context,
-	userID uuid.UUID,
+    ctx context.Context,
+    userID string,
 	roleSlug string,
 	startAt *time.Time,
 	endAt *time.Time,
@@ -117,8 +117,8 @@ func (s *UserRoleInterfaceService) OpenOrEnsureUserRole(
 
 // ExtendUserRole calls billing_extend_user_role SECURITY DEFINER function
 func (s *UserRoleInterfaceService) ExtendUserRole(
-	ctx context.Context,
-	userID uuid.UUID,
+    ctx context.Context,
+    userID string,
 	roleSlug string,
 	newEndAt *time.Time,
 	idempotencyKey uuid.UUID,
@@ -152,8 +152,8 @@ func (s *UserRoleInterfaceService) ExtendUserRole(
 
 // CloseUserRole calls billing_close_user_role SECURITY DEFINER function
 func (s *UserRoleInterfaceService) CloseUserRole(
-	ctx context.Context,
-	userID uuid.UUID,
+    ctx context.Context,
+    userID string,
 	roleSlug string,
 	effectiveAt *time.Time,
 	revokeReason *string,
@@ -204,8 +204,8 @@ func (r *UserRoleResult) IsActionSuccess() bool {
 
 // HandleNewSubscriptionOrTrial opens/ensures a role window for a new subscription or trial
 func (s *UserRoleInterfaceService) HandleNewSubscriptionOrTrial(
-	ctx context.Context,
-	userID uuid.UUID,
+    ctx context.Context,
+    userID string,
 	roleSlug string,
 	periodStart, periodEnd time.Time,
 	subscriptionID uuid.UUID,
@@ -227,8 +227,8 @@ func (s *UserRoleInterfaceService) HandleNewSubscriptionOrTrial(
 
 // HandleRenewalSucceeded extends the role to the next period end
 func (s *UserRoleInterfaceService) HandleRenewalSucceeded(
-	ctx context.Context,
-	userID uuid.UUID,
+    ctx context.Context,
+    userID string,
 	roleSlug string,
 	nextPeriodEnd time.Time,
 	subscriptionID uuid.UUID,
@@ -247,8 +247,8 @@ func (s *UserRoleInterfaceService) HandleRenewalSucceeded(
 
 // HandleCancelAtPeriodEnd closes the role at period end
 func (s *UserRoleInterfaceService) HandleCancelAtPeriodEnd(
-	ctx context.Context,
-	userID uuid.UUID,
+    ctx context.Context,
+    userID string,
 	roleSlug string,
 	periodEnd time.Time,
 	subscriptionID uuid.UUID,
@@ -269,8 +269,8 @@ func (s *UserRoleInterfaceService) HandleCancelAtPeriodEnd(
 
 // HandleImmediateCancelOrRefund closes the role immediately
 func (s *UserRoleInterfaceService) HandleImmediateCancelOrRefund(
-	ctx context.Context,
-	userID uuid.UUID,
+    ctx context.Context,
+    userID string,
 	roleSlug string,
 	subscriptionID uuid.UUID,
 	eventID string,
@@ -292,8 +292,8 @@ func (s *UserRoleInterfaceService) HandleImmediateCancelOrRefund(
 
 // HandleGracePeriod opens/ensures a role with grace period until specified time
 func (s *UserRoleInterfaceService) HandleGracePeriod(
-	ctx context.Context,
-	userID uuid.UUID,
+    ctx context.Context,
+    userID string,
 	roleSlug string,
 	graceUntil time.Time,
 	subscriptionID uuid.UUID,
@@ -316,8 +316,8 @@ func (s *UserRoleInterfaceService) HandleGracePeriod(
 
 // HandleOneOffOrGift opens/ensures a role for one-off purchases or gifts
 func (s *UserRoleInterfaceService) HandleOneOffOrGift(
-	ctx context.Context,
-	userID uuid.UUID,
+    ctx context.Context,
+    userID string,
 	roleSlug string,
 	periodStart, periodEnd time.Time,
 	sourceID uuid.UUID,
@@ -340,8 +340,8 @@ func (s *UserRoleInterfaceService) HandleOneOffOrGift(
 
 // HandleChargeSuccess handles successful payment charges
 func (s *UserRoleInterfaceService) HandleChargeSuccess(
-	ctx context.Context,
-	userID uuid.UUID,
+    ctx context.Context,
+    userID string,
 	roleSlug string,
 	periodStart, periodEnd time.Time,
 	subscriptionID uuid.UUID,

@@ -101,3 +101,15 @@ func (r *ProductService) Delete(ctx context.Context, id uuid.UUID) error {
 
 	return nil
 }
+
+// GetBySlug fetches a product by slug
+func (r *ProductService) GetBySlug(ctx context.Context, slug string) (*models.Product, error) {
+    var product models.Product
+    if err := r.db.GetDB().NewSelect().
+        Model(&product).
+        Where("slug = ?", slug).
+        Scan(ctx); err != nil {
+        return nil, err
+    }
+    return &product, nil
+}
