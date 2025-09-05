@@ -95,7 +95,7 @@ services:
       - ./migrations/clickhouse:/migrations:ro
     # Apply each .sql file once ClickHouse is healthy
     command: >
-      sh -lc 'for f in /migrations/*.sql; do [ -e "$f" ] || continue; echo "Applying $f"; clickhouse-client --host=$CLICKHOUSE_HOST --port=$CLICKHOUSE_PORT --user=$CLICKHOUSE_USER --password=$CLICKHOUSE_PASSWORD --database analytics --multiquery --queries-file "$f" || exit 1; done && echo "ClickHouse migrations complete"'
+      sh -lc 'for f in /migrations/*.sql; do [ -e "$${f}" ] || continue; echo "Applying $${f}"; clickhouse-client --host=$$CLICKHOUSE_HOST --port=$$CLICKHOUSE_PORT --user=$$CLICKHOUSE_USER --password=$$CLICKHOUSE_PASSWORD --database analytics --multiquery --queries-file "$${f}" || exit 1; done && echo "ClickHouse migrations complete"'
     restart: "no"
     networks:
       - local-doujins
@@ -117,7 +117,7 @@ services:
       - "8060"       # Private API (internal-only)
     # environment:
     #   # Admin API key for private routes (used by internal callers, e.g., doujins-backend)
-    #   # The admin server listens on port 8060 and expects header `X-API-Key: $BILLING_INTERNAL_API_KEY`.
+    #   # The admin server listens on port 8060 and expects header `X-API-KEY: $BILLING_INTERNAL_API_KEY`.
     #   BILLING_INTERNAL_API_KEY: "change-me"
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:2052/health"]

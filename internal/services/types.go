@@ -1,15 +1,10 @@
 package services
 
 import (
-	"context"
-	"fmt"
-	"time"
+    "fmt"
+    "time"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
-	"github.com/uptrace/bun"
+    "github.com/doujins-org/doujins-billing/internal/db/models"
 )
 
 // Subscription helper functions (moved from db model to service layer)
@@ -764,111 +759,7 @@ func (e CCBillVoidEvent) GetClientAccnum() string          { return e.ClientAccn
 func (e CCBillVoidEvent) GetClientSubacc() string          { return e.ClientSubacc }
 func (e CCBillVoidEvent) GetTimestamp() string             { return e.Timestamp }
 
-type GrantRoleForSubscriptionParams struct {
-    userID           string
-    subscriptionID   uuid.UUID
-    price            *models.Price
-    product          *models.Product
-    paymentService   *PaymentService
-	extService       *UserRoleGrantExtensionService
-	processor        models.Processor
-	roleGrantService *UserRoleGrantService
-}
-
-func newGrantRoleParams(userID string, subscriptionID uuid.UUID, processor models.Processor, price *models.Price, product *models.Product, db *db.DB) GrantRoleForSubscriptionParams {
-    return GrantRoleForSubscriptionParams{
-        price:            price,
-        userID:           userID,
-        product:          product,
-        processor:        processor,
-        subscriptionID:   subscriptionID,
-        paymentService:   NewPaymentService(db),
-        extService:       NewUserRoleGrantExtensionService(db),
-        roleGrantService: NewUserRoleGrantService(db),
-    }
-}
-
-func grantRole(ctx context.Context, params GrantRoleForSubscriptionParams) error {
-	price := params.price
-	userID := params.userID
-	product := params.product
-	paymentService := params.paymentService
-	roleGrantService := params.roleGrantService
-	subscriptionID := params.subscriptionID
-
-	if product.RoleID == nil {
-		log.WithContext(ctx).Info("Product has no role associated, skipping role grant")
-		return nil
-	}
-
-	var extensionDays int
-	if product.RoleDurationDays != nil && *product.RoleDurationDays > 0 {
-		extensionDays = *product.RoleDurationDays
-	} else if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
-		extensionDays = *price.BillingCycleDays
-	} else {
-		extensionDays = 30 // Default fallback
-	}
-
-	// Deduct any grace days granted since last successful payment for this subscription
-	// Compute using extensions table: sum grace after last real payment
-	var extensionDaysFinal = extensionDays
-	if subscriptionID != uuid.Nil {
-		db := paymentService.GetDB().GetDB()
-		var lastPaidAt *time.Time
-		_ = db.NewSelect().
-			ColumnExpr("MAX(purchased_at)").
-			TableExpr("payments").
-			Where("subscription_id = ?", subscriptionID).
-			Where("processor IN (?)", bun.In([]models.Processor{models.ProcessorMobius, models.ProcessorCCBill})).
-			Scan(ctx, &lastPaidAt)
-		var graceSum int
-		var err error
-		graceSum, err = params.extService.SumGraceSince(ctx, subscriptionID, lastPaidAt)
-		if err == nil && graceSum > 0 {
-			if graceSum >= extensionDaysFinal {
-				extensionDaysFinal = 0
-			} else {
-				extensionDaysFinal -= graceSum
-			}
-		}
-	}
-
-	// Create Purchase event for this subscription payment
-    payment := &models.Payment{
-        ID:            uuid.New(),
-        UserID:        userID,
-        PriceID:       price.ID,
-        Amount:        price.Amount,
-        Currency:      price.Currency,
-        ExtensionDays: &extensionDaysFinal,
-        Processor:     params.processor,
-        TransactionID: subscriptionID.String(),
-        PurchasedAt:   time.Now(),
-        CreatedAt:     time.Now(),
-    }
-
-	// Link to the subscription explicitly
-	payment.SubscriptionID = &subscriptionID
-
-    grant, _, err := roleGrantService.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDaysFinal)
-    if err != nil {
-        return fmt.Errorf("failed to extend role expiration: %w", err)
-    }
-
-	payment.UserRoleGrantID = &grant.ID
-	if err := paymentService.Create(ctx, payment); err != nil {
-		return fmt.Errorf("failed to create purchase event: %w", err)
-	}
-
-    log.WithContext(ctx).WithFields(log.Fields{
-        "userID":         userID,
-        "subscriptionID": subscriptionID,
-        "roleID":         *product.RoleID,
-    }).Info("Granted role for subscription")
-
-	return nil
-}
+// Legacy grantRole helpers removed; entitlement logic lives in lifecycle/webhook services.
 
 func validateSubscription(sub *models.Subscription, newStatus models.SubscriptionStatus, amount float64) error {
 	if sub.CurrentPeriodEndsAt != nil && sub.CurrentPeriodEndsAt.Before(time.Now()) {

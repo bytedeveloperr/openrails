@@ -210,13 +210,13 @@ func (s *EmailService) SendPaymentFailed(ctx context.Context, data SubscriptionE
 	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
 }
 
-// SendRoleExpiration sends notification when user role is expiring soon
-func (s *EmailService) SendRoleExpiration(ctx context.Context, userEmail, username, roleName string, expiresAt time.Time) error {
-	subject := fmt.Sprintf("Your %s access expires soon", roleName)
+// SendEntitlementExpiration sends notification when an entitlement is expiring soon
+func (s *EmailService) SendEntitlementExpiration(ctx context.Context, userEmail, username, entitlementName string, expiresAt time.Time) error {
+    subject := fmt.Sprintf("Your %s access expires soon", entitlementName)
 
 	daysUntilExpiry := int(time.Until(expiresAt).Hours() / 24)
 
-	htmlContent := fmt.Sprintf(`
+    htmlContent := fmt.Sprintf(`
 		<h2>Access Expiring Soon</h2>
 		<p>Hi %s,</p>
 		<p>This is a reminder that your <strong>%s</strong> access will expire in %d days on <strong>%s</strong>.</p>
@@ -224,9 +224,9 @@ func (s *EmailService) SendRoleExpiration(ctx context.Context, userEmail, userna
 		<p>To continue enjoying premium features, please renew your subscription before the expiration date.</p>
 		<p>Thank you for being a valued member of Doujins!</p>
 		<p>The Doujins Team</p>
-	`, username, roleName, daysUntilExpiry, expiresAt.Format("January 2, 2006"))
+    `, username, entitlementName, daysUntilExpiry, expiresAt.Format("January 2, 2006"))
 
-	plainContent := fmt.Sprintf(`
+    plainContent := fmt.Sprintf(`
 		Access Expiring Soon
 		
 		Hi %s,
@@ -237,7 +237,7 @@ func (s *EmailService) SendRoleExpiration(ctx context.Context, userEmail, userna
 		
 		Thank you for being a valued member of Doujins!
 		The Doujins Team
-	`, username, roleName, daysUntilExpiry, expiresAt.Format("January 2, 2006"))
+    `, username, entitlementName, daysUntilExpiry, expiresAt.Format("January 2, 2006"))
 
 	return s.SendEmail(ctx, userEmail, subject, htmlContent, plainContent)
 }

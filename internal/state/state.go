@@ -27,8 +27,6 @@ type State struct {
 
 	UserService              *services.UserService
 	SubscriptionService      *services.SubscriptionService
-	UserRoleGrantService     *services.UserRoleGrantService
-	UserRoleInterfaceService *services.UserRoleInterfaceService
 	ProductService           *services.ProductService
 	PriceService             *services.PriceService
 	NotificationQueueService *services.NotificationQueueService
@@ -37,7 +35,7 @@ type State struct {
 	// removed: WebhookEventProcessedService (replaced by idempotency store)
 
 	// Wave 18 subscription services
-	UserSubscriptionService   *services.UserSubscriptionService
+    UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService
 	AdminSubscriptionService  *services.AdminSubscriptionService
 
@@ -47,6 +45,7 @@ type State struct {
 
 	// Billing event tracking service
     BillingEventService *services.BillingEventService
+    EntitlementService  *services.EntitlementService
 
     // Ephemeral in-memory stores (scaffolds)
     SolanaWalletStore *services.SolanaWalletStore
@@ -71,12 +70,12 @@ func (s *State) Close(ctx context.Context) error {
 		}
 	}
 
-	// Close billing event service
-	if s.BillingEventService != nil {
-		if err := s.BillingEventService.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close billing event service: %w", err))
-		}
-	}
+    // Close billing event service
+    if s.BillingEventService != nil {
+        if err := s.BillingEventService.Close(); err != nil {
+            errs = append(errs, fmt.Errorf("failed to close billing event service: %w", err))
+        }
+    }
 
 	// Close Redis client
 	if s.RedisClient != nil {

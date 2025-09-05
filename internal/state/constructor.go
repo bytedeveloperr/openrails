@@ -54,10 +54,10 @@ func NewState(cfg *config.Config) (*State, error) {
 		// Wave 18 repositories
 		ProductService:           serviceInstances.ProductService,
 		PriceService:             serviceInstances.PriceService,
-		UserRoleGrantService:     serviceInstances.UserRoleGrantService,
 		NotificationQueueService: serviceInstances.NotificationQueueService,
 		PaymentMethodService:     serviceInstances.PaymentMethodService,
         PaymentService:           serviceInstances.PurchaseService,
+        EntitlementService:       serviceInstances.EntitlementService,
         SolanaWalletStore:        services.NewSolanaWalletStore(),
     }
 
@@ -128,28 +128,28 @@ func createMobiusClient(cfg *config.Config) (*mobius.MobiusClient, error) {
 }
 
 type servicesInstances struct {
-	SubscriptionService *services.SubscriptionService
-	UserService         *services.UserService
+    SubscriptionService *services.SubscriptionService
+    UserService         *services.UserService
 
-	ProductService           *services.ProductService
-	PriceService             *services.PriceService
-	UserRoleGrantService     *services.UserRoleGrantService
-	NotificationQueueService *services.NotificationQueueService
-	PaymentMethodService     *services.PaymentMethodService
-	PurchaseService          *services.PaymentService
+    ProductService           *services.ProductService
+    PriceService             *services.PriceService
+    NotificationQueueService *services.NotificationQueueService
+    PaymentMethodService     *services.PaymentMethodService
+    PurchaseService          *services.PaymentService
+    EntitlementService       *services.EntitlementService
 }
 
 func createServices(db *db.DB) *servicesInstances {
-	return &servicesInstances{
-		SubscriptionService: services.NewSubscriptionService(db),
-		UserService:         services.NewUserService(db),
+    return &servicesInstances{
+        SubscriptionService: services.NewSubscriptionService(db),
+        UserService:         services.NewUserService(db),
 
-		// Wave 18 repositories
-		ProductService:           services.NewProductService(db),
-		PriceService:             services.NewPriceService(db),
-		UserRoleGrantService:     services.NewUserRoleGrantService(db),
-		NotificationQueueService: services.NewNotificationQueueService(db),
-		PaymentMethodService:     services.NewPaymentMethodService(db),
-		PurchaseService:          services.NewPaymentService(db),
-	}
+        // Wave 18 repositories
+        ProductService:           services.NewProductService(db),
+        PriceService:             services.NewPriceService(db),
+        NotificationQueueService: services.NewNotificationQueueService(db),
+        PaymentMethodService:     services.NewPaymentMethodService(db),
+        PurchaseService:          services.NewPaymentService(db),
+        EntitlementService:       services.NewEntitlementService(db),
+    }
 }

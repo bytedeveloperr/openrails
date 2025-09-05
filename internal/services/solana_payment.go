@@ -50,6 +50,20 @@ func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, pric
     tokenAmt := uint64(math.Round(price.Amount * pow))
     exp := time.Now().Add(10 * time.Minute)
 
+    // Disallow one-off if a subscription entitlement is already active (indefinite)
+    if userID != "" {
+        exists, _ := s.db.GetDB().NewSelect().
+            Model((*models.Entitlement)(nil)).
+            Where("user_id = ? AND entitlement = ?", userID, "premium").
+            Where("revoked_at IS NULL").
+            Where("end_at IS NULL").
+            Where("start_at <= ?", time.Now()).
+            Exists(ctx)
+        if exists {
+            return 0, "", 0, time.Time{}, uuid.Nil, fmt.Errorf("one-off purchase not allowed while subscription entitlement is active")
+        }
+    }
+
     // Create pending transaction record for traceability
     stx := &models.SolanaTransaction{
         ID:          uuid.New(),
@@ -78,6 +92,20 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
     price, err := s.priceService.GetByID(ctx, priceID)
     if err != nil {
         return nil, fmt.Errorf("%w: %v", ErrPriceNotFound, err)
+    }
+
+    // Disallow one-off if a subscription entitlement is already active (indefinite)
+    if userID != "" {
+        exists, _ := s.db.GetDB().NewSelect().
+            Model((*models.Entitlement)(nil)).
+            Where("user_id = ? AND entitlement = ?", userID, "premium").
+            Where("revoked_at IS NULL").
+            Where("end_at IS NULL").
+            Where("start_at <= ?", time.Now()).
+            Exists(ctx)
+        if exists {
+            return nil, fmt.Errorf("one-off purchase not allowed while subscription entitlement is active")
+        }
     }
 
     // Create canonical payment record

@@ -39,14 +39,12 @@ type GetSubscriptionsFilters struct {
 }
 
 type SubscriptionService struct {
-	DB                       *db.DB
-	PriceService             *PriceService
-	ProductService           *ProductService
-	UserRoleGrantService     *UserRoleGrantService
-	UserRoleInterfaceService *UserRoleInterfaceService
-	NotificationQueueService *NotificationQueueService
-	CCBillRESTClient         *ccbill.RESTClient
-	MobiusClient             *mobius.MobiusClient
+    DB                       *db.DB
+    PriceService             *PriceService
+    ProductService           *ProductService
+    NotificationQueueService *NotificationQueueService
+    CCBillRESTClient         *ccbill.RESTClient
+    MobiusClient             *mobius.MobiusClient
 }
 
 type PaymentProcessor = int
@@ -192,27 +190,7 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
-        // Revoke role grants using proper interface (external app DB)
-        if s.UserRoleInterfaceService != nil {
-            result, err := s.UserRoleInterfaceService.HandleImmediateCancelOrRefund(
-                ctx,
-                userID,
-                "premium", // role slug managed by your app
-                subscription.ID,
-                fmt.Sprintf("user_cancel_%d", time.Now().Unix()),
-                "user_requested",
-            )
-            if err != nil {
-                log.WithError(err).Error("failed to revoke role grants for cancelled subscription")
-            } else if result != nil {
-                log.WithFields(log.Fields{
-                    "user_id":         userID,
-                    "subscription_id": subscription.ID,
-                    "action":          result.Action,
-                    "user_role_id":    result.UserRoleID,
-                }).Info("Successfully updated role via interface on cancel")
-            }
-        }
+        // Entitlements are managed in lifecycle and user flows
 
 	// Add notification
     notification := &models.NotificationQueue{

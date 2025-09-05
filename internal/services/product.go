@@ -48,14 +48,6 @@ func (r *ProductService) GetByID(ctx context.Context, id uuid.UUID) (*models.Pro
 	return &product, nil
 }
 
-func (r *ProductService) GetByRoleID(ctx context.Context, roleID uuid.UUID) (*models.Product, error) {
-	var product models.Product
-	err := r.db.GetDB().NewSelect().Model(&product).Where("role_id = ?", roleID).Where("is_active = ?", true).Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &product, nil
-}
 
 func (r *ProductService) GetActive(ctx context.Context) ([]*models.Product, error) {
 	var products []*models.Product

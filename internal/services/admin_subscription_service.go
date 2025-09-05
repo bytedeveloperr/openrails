@@ -22,12 +22,12 @@ var (
 
 // AdminSubscriptionService handles administrative subscription operations
 type AdminSubscriptionService struct {
-	SubscriptionService      *SubscriptionService
-	ProductService           *ProductService
-	PriceService             *PriceService
-	UserRoleGrantService     *UserRoleGrantService
-	NotificationQueueService *NotificationQueueService
-	PaymentService           *PaymentService
+    SubscriptionService      *SubscriptionService
+    ProductService           *ProductService
+    PriceService             *PriceService
+    EntitlementService       *EntitlementService
+    NotificationQueueService *NotificationQueueService
+    PaymentService           *PaymentService
     // No user directory enrichment; Zitadel sub is stored on subscription
 }
 
@@ -155,14 +155,17 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
-	// Revoke role grants
-	if err := s.UserRoleGrantService.RevokeBySubSourceID(ctx, subscription.ID); err != nil {
-		log.WithFields(log.Fields{
-			"subscription_id": subscription.ID,
-			"user_id":         subscription.UserID,
-			"error":           err.Error(),
-		}).Error("Failed to revoke role grants during admin subscription operation")
-	}
+    // End entitlements for this subscription now
+    if s.EntitlementService != nil {
+        reason := models.EntitlementRevokeAdmin
+        if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+            log.WithFields(log.Fields{
+                "subscription_id": subscription.ID,
+                "user_id":         subscription.UserID,
+                "error":           err.Error(),
+            }).Error("Failed to end entitlements during admin subscription operation")
+        }
+    }
 
 	// Add notification
 	notification := &models.NotificationQueue{
@@ -206,14 +209,17 @@ func (s *AdminSubscriptionService) CancelUserSubscription(ctx context.Context, u
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
-	// Revoke role grants
-	if err := s.UserRoleGrantService.RevokeBySubSourceID(ctx, subscription.ID); err != nil {
-		log.WithFields(log.Fields{
-			"subscription_id": subscription.ID,
-			"user_id":         subscription.UserID,
-			"error":           err.Error(),
-		}).Error("Failed to revoke role grants during admin subscription operation")
-	}
+    // End entitlements now
+    if s.EntitlementService != nil {
+        reason := models.EntitlementRevokeAdmin
+        if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+            log.WithFields(log.Fields{
+                "subscription_id": subscription.ID,
+                "user_id":         subscription.UserID,
+                "error":           err.Error(),
+            }).Error("Failed to end entitlements during admin subscription operation")
+        }
+    }
 
 	// Add notification
 	notification := &models.NotificationQueue{
@@ -307,36 +313,20 @@ func (s *AdminSubscriptionService) CreatePrice(ctx context.Context, price *model
 }
 
 // GetAllUserRoleGrants retrieves all user role grants with filtering (admin)
-func (s *AdminSubscriptionService) GetAllUserRoleGrants(ctx context.Context, queryOpts *query.QueryOptions[GetUserRoleGrantsFilters]) ([]*models.UserRoleGrant, int64, error) {
-	grants, total, err := s.UserRoleGrantService.GetUserRoleGrants(ctx, *queryOpts)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get role grants: %w", err)
-	}
-
-	return grants, total, nil
-}
+// Deprecated: role grants endpoints removed; use entitlements instead.
 
 // CreateManualRoleGrant creates a manual role grant (admin)
 func (s *AdminSubscriptionService) CreateManualRoleGrant(ctx context.Context, userID string, roleID uuid.UUID, durationDays *int) error {
-	if durationDays == nil {
-		// Permanent manual grant - create with no expiration
-		grant, err := s.UserRoleGrantService.CreatePermanentGrant(ctx, userID, roleID)
-		if err != nil {
-			return err
-		}
-		// Record admin extension (0 days) for audit (Postgres SoR)
-		_ = NewUserRoleGrantExtensionService(s.UserRoleGrantService.GetDB()).CreateAdmin(ctx, grant.ID, 0)
-		return nil
-	} else {
-		// Temporary manual grant - extend existing or create new with expiration
-		grant, _, err := s.UserRoleGrantService.ExtendRoleExpiration(ctx, userID, roleID, *durationDays)
-		if err != nil {
-			return err
-		}
-		// Record admin extension event
-		_ = NewUserRoleGrantExtensionService(s.UserRoleGrantService.GetDB()).CreateAdmin(ctx, grant.ID, *durationDays)
-		return nil
-	}
+    // Deprecated: role grants. Use entitlement 'premium' instead.
+    if s.EntitlementService == nil { return nil }
+    now := time.Now()
+    var endAt *time.Time
+    if durationDays != nil && *durationDays > 0 {
+        e := now.Add(time.Duration(*durationDays) * 24 * time.Hour)
+        endAt = &e
+    }
+    _, err := s.EntitlementService.GrantWindow(ctx, userID, "premium", now, endAt, models.EntitlementSourceAdmin, nil, nil)
+    return err
 }
 
 // VerifyPayPalPurchase verifies a PayPal payment and grants the associated role (admin)
@@ -356,56 +346,57 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
 
 	// Create purchase record for audit trail
 	// Only grant role if product has one (handle nullable RoleID)
-	if product.RoleID != nil {
-		// Determine role duration from product or default
-		var durationDays int
-		if product.RoleDurationDays != nil && *product.RoleDurationDays > 0 {
-			durationDays = *product.RoleDurationDays
-		} else {
-			// Default to 30 days if no duration specified
-			durationDays = 30
-		}
+    // Determine duration
+    var durationDays int
+    if product.EntitlementsSpec != nil {
+        if d, ok := product.EntitlementsSpec["premium"]; ok && d != nil && *d > 0 {
+            durationDays = *d
+        } else {
+            durationDays = 30
+        }
+    } else {
+        durationDays = 30
+    }
+    // Disallow one-off if a subscription entitlement is already active (indefinite)
+    if s.EntitlementService != nil {
+        exists, err := s.EntitlementService.GetDB().GetDB().NewSelect().
+            Model((*models.Entitlement)(nil)).
+            Where("user_id = ? AND entitlement = ?", userID, "premium").
+            Where("revoked_at IS NULL").
+            Where("end_at IS NULL").
+            Where("start_at <= ?", time.Now()).
+            Exists(ctx)
+        if err != nil { return fmt.Errorf("failed entitlement check: %w", err) }
+        if exists { return fmt.Errorf("one-off purchase not allowed while subscription entitlement is active") }
+    }
 
-		// Extend the user's existing role expiration or create new grant
-		grant, newExpirationDate, err := s.UserRoleGrantService.ExtendRoleExpiration(ctx, userID, *product.RoleID, durationDays)
-		if err != nil {
-			return fmt.Errorf("failed to extend role expiration: %w", err)
-		}
-
-		// Create purchase record with linkage to the grant
+    // Create purchase record (no role-grant linkage)
     purchase := &models.Payment{
-        ID:              uuid.New(),
-        UserID:          userID,
-			PriceID:         priceID,
-			Processor:       models.ProcessorPayPal,
-			TransactionID:   paypalTransactionID,
-			Amount:          price.Amount,
-			Currency:        price.Currency,
-			ExtensionDays:   &durationDays,
-			UserRoleGrantID: &grant.ID,
-			PurchasedAt:     time.Now(),
-			CreatedAt:       time.Now(),
-		}
-		if err := s.PaymentService.Create(ctx, purchase); err != nil {
-			return fmt.Errorf("failed to create purchase record: %w", err)
-		}
-
-		log.WithFields(log.Fields{
-			"userID":            userID,
-			"roleID":            *product.RoleID,
-			"purchaseID":        purchase.ID,
-			"extensionDays":     durationDays,
-			"newExpirationDate": newExpirationDate,
-		}).Info("Extended role expiration via PayPal purchase")
-	}
+        ID:            uuid.New(),
+        UserID:        userID,
+        PriceID:       priceID,
+        Processor:     models.ProcessorPayPal,
+        TransactionID: paypalTransactionID,
+        Amount:        price.Amount,
+        Currency:      price.Currency,
+        PurchasedAt:   time.Now(),
+        CreatedAt:     time.Now(),
+    }
+    if err := s.PaymentService.Create(ctx, purchase); err != nil {
+        return fmt.Errorf("failed to create purchase record: %w", err)
+    }
+    // Grant entitlement 'premium' for duration
+    if s.EntitlementService != nil {
+        start := time.Now()
+        end := start.Add(time.Duration(durationDays) * 24 * time.Hour)
+        _ , _ = s.EntitlementService.GrantWindow(ctx, userID, "premium", start, &end, models.EntitlementSourceOneOff, nil, &purchase.ID)
+    }
 
 	return nil
 }
 
 // RevokeRoleGrant revokes a role grant (admin)
-func (s *AdminSubscriptionService) RevokeRoleGrant(ctx context.Context, grantID uuid.UUID) error {
-	return s.UserRoleGrantService.Delete(ctx, grantID)
-}
+// Deprecated: role grants endpoints removed; use entitlements instead.
 
 // GetAllPurchases retrieves all purchases with filtering (admin)
 func (s *AdminSubscriptionService) GetAllPurchases(ctx context.Context, queryOpts *query.QueryOptions[GetPaymentsFilters]) ([]*models.Payment, int64, error) {

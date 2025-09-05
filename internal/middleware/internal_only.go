@@ -8,7 +8,7 @@ import (
 )
 
 // InternalOnly enforces a shared secret for admin/private endpoints.
-// Looks for the secret in header 'X-Internal-Token'. If no token is configured,
+// Looks for the secret in header 'X-API-KEY'. If no token is configured,
 // admin is considered disabled and requests are rejected.
 func InternalOnly(adminCfg *config.AdminConfig) gin.HandlerFunc {
     return func(c *gin.Context) {
@@ -17,7 +17,7 @@ func InternalOnly(adminCfg *config.AdminConfig) gin.HandlerFunc {
             c.Abort()
             return
         }
-        token := c.GetHeader("X-API-Key")
+        token := c.GetHeader("X-API-KEY")
         if token == "" || token != adminCfg.APIKey {
             c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid api key"})
             c.Abort()

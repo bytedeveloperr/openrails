@@ -150,16 +150,14 @@ type PaymentMethodInfo struct {
 
 // PaymentItem represents a canonical payment record from Postgres
 type PaymentItem struct {
-	ID              string     `json:"id"`
-	SubscriptionID  *string    `json:"subscription_id,omitempty"`
-	Processor       string     `json:"processor"`
-	TransactionID   string     `json:"transaction_id"`
-	Amount          float64    `json:"amount"`
-	Currency        string     `json:"currency"`
-	Price           *PriceInfo `json:"price,omitempty"`
-	ExtensionDays   *int       `json:"extension_days,omitempty"`
-	UserRoleGrantID *string    `json:"user_role_grant_id,omitempty"`
-	PurchasedAt     time.Time  `json:"purchased_at"`
+    ID              string     `json:"id"`
+    SubscriptionID  *string    `json:"subscription_id,omitempty"`
+    Processor       string     `json:"processor"`
+    TransactionID   string     `json:"transaction_id"`
+    Amount          float64    `json:"amount"`
+    Currency        string     `json:"currency"`
+    Price           *PriceInfo `json:"price,omitempty"`
+    PurchasedAt     time.Time  `json:"purchased_at"`
 }
 
 // PaymentEventItem represents a payment transaction event

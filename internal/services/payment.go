@@ -100,19 +100,8 @@ func (r *PaymentService) GetByProcessor(ctx context.Context, processor models.Pr
 	return payments, nil
 }
 
-// GetByGrantID returns all payments linked to a specific user role grant
-func (r *PaymentService) GetByGrantID(ctx context.Context, grantID uuid.UUID) ([]*models.Payment, error) {
-	var payments []*models.Payment
-	err := r.db.GetDB().NewSelect().
-		Model(&payments).
-		Where("user_role_grant_id = ?", grantID).
-		Order("purchased_at DESC").
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return payments, nil
-}
+// Deprecated: role-grant linkage removed; entitlements are linked via payment_id
+// func (r *PaymentService) GetByGrantID(ctx context.Context, grantID uuid.UUID) ([]*models.Payment, error) { return nil, nil }
 
 // GetAdminActionsByGrantID returns admin/internal adjustments linked to a grant
 // Removed: GetAdminActionsByGrantID — admin/grace adjustments are tracked in user_role_grant_extensions
@@ -160,8 +149,6 @@ func (r *PaymentService) Refund(ctx context.Context, originalPaymentID uuid.UUID
         TransactionID:  refundTransactionID,
         Amount:         -amount,
         Currency:       orig.Currency,
-        UserRoleGrantID: orig.UserRoleGrantID,
-        ExtensionDays:   nil,
         PurchasedAt:    time.Now(),
         CreatedAt:      time.Now(),
     }

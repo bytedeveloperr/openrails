@@ -9,23 +9,21 @@ cors_origins:
   - "http://localhost:3000"
   - "https://your-frontend-domain.com"
 
-# Database configuration
+# Database configuration (non-secrets only)
+# Provide DATABASE_URL via environment (.env) instead of here
 db:
-  # Matches docker-compose Postgres (service name: postgres)
-  url: "postgres://supabase_admin:password@postgres:5432/supadb?sslmode=disable"
   schema: "public"
   dialect: "postgres"
 
-# Redis configuration for caching and sessions
+# Redis configuration for caching and sessions (non-secrets only)
+# Provide REDIS_URL via environment (.env) instead of password here
 redis:
   # Matches docker-compose Garnet (service name: garnet)
   host: "garnet:6379"
-  password: ""
-  db: 0
+  # db: 0
 
-# JWT configuration for authentication
+# JWT configuration for authentication (non-secrets only)
 jwt:
-  secret: "your-jwt-secret-key-change-this"
   issuer: "doujins-billing"
   # For Zitadel (RS256), provide the RSA public key PEM. If set, RS256 is used.
   # Example:
@@ -35,7 +33,8 @@ jwt:
   #   -----END PUBLIC KEY-----
   public_key_pem: ""
 
-# Admin API key for private routes (header: X-API-Key)
+# Admin API key for private routes (header: X-API-KEY)
+# Set BILLING_INTERNAL_API_KEY in environment; leaving empty here disables admin.
 admin:
   api_key: ""
 
@@ -44,7 +43,7 @@ ccbill:
   # Basic CCBill settings
   client_acc_num: "your-ccbill-account-number"
   client_sub_acc: "your-ccbill-subaccount"
-  salt: "your-ccbill-salt-key"
+  # salt: set via env CCBILL_SALT
   
   # Form configuration
   form_id: "your-flexform-id"
@@ -65,11 +64,11 @@ ccbill:
   success_url: "https://your-frontend-domain.com/billing/success"
   decline_url: "https://your-frontend-domain.com/billing/decline"
   
-  # DataLink API for transaction data
+  # DataLink API for transaction data (supply creds via env)
   datalink_url: "https://datalink.ccbill.com/data/main.cgi"
-  datalink_username: "your-datalink-username"
-  datalink_password: "your-datalink-password"
-  datalink_client_acc_num: "your-datalink-account-number"
+  # datalink_username: set via env CCBILL_DATALINK_USERNAME
+  # datalink_password: set via env CCBILL_DATALINK_PASSWORD
+  # datalink_client_acc_num: set via env CCBILL_DATALINK_CLIENT_ACC_NUM
   
   # Webhook security - CCBill IP addresses
   webhook_ips:
@@ -80,9 +79,7 @@ ccbill:
 
 # Mobius payment processor configuration
 mobius:
-  security_key: "your-mobius-security-key"
-  tokenization_key: "your-mobius-tokenization-key"
-  webhook_secret: "your-mobius-webhook-secret"
+  # Supply secrets via env: MOBIUS_SECURITY_KEY, MOBIUS_TOKENIZATION_KEY, MOBIUS_WEBHOOK_SECRET
   test_mode: true
 
 # Solana blockchain configuration
@@ -128,12 +125,11 @@ clickhouse:
   # Matches docker-compose ClickHouse (service name: clickhouse)
   server_url: "http://clickhouse:8123"
   database: "analytics"
-  username: "analytics_user"
-  password: "analytics_password"
+  # Provide CLICKHOUSE_USERNAME and CLICKHOUSE_PASSWORD via env
 
 # SendGrid email service
 sendgrid:
-  api_key: "your-sendgrid-api-key"
+  # Provide SENDGRID_API_KEY via env
   from_email: "noreply@your-domain.com"
   from_name: "Doujins Billing"
 
@@ -158,3 +154,7 @@ rate_limits:
   default_limit:
     requests_per_minute: 60
     burst_size: 10
+
+# ZITADEL Actions configuration
+zitadel:
+  # signing_key is secret: set via env ZITADEL_SIGNING_KEY

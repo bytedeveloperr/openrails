@@ -113,10 +113,10 @@ func (s *SubscriptionEmailService) SendPaymentFailed(ctx context.Context, userID
 	return s.emailService.SendPaymentFailed(ctx, *emailData)
 }
 
-// SendRoleExpired sends a role expiration email
-func (s *SubscriptionEmailService) SendRoleExpired(ctx context.Context, userID string, roleName string, expiresAt time.Time) error {
+// SendEntitlementExpired sends an entitlement expiration email
+func (s *SubscriptionEmailService) SendEntitlementExpired(ctx context.Context, userID string, entitlementName string, expiresAt time.Time) error {
 	if s.emailService == nil || !s.emailService.IsEnabled() {
-		log.Println("Email service not available - skipping role expiration email")
+    log.Println("Email service not available - skipping entitlement expiration email")
 		return nil
 	}
 
@@ -125,7 +125,7 @@ func (s *SubscriptionEmailService) SendRoleExpired(ctx context.Context, userID s
 		return fmt.Errorf("failed to get user profile: %w", err)
 	}
 
-    return s.emailService.SendRoleExpiration(ctx, email, username, roleName, expiresAt)
+    return s.emailService.SendEntitlementExpiration(ctx, email, username, entitlementName, expiresAt)
 }
 
 // getEmailData fetches subscription data for email notifications

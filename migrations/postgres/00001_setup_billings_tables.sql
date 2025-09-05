@@ -2,6 +2,9 @@
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';
 
+-- Required for exclusion constraints on ranges with equality operators
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
 -- ============================================================================
 -- SECTION 1: CORE SUBSCRIPTION TABLES
 -- ============================================================================
@@ -117,14 +120,13 @@ CREATE TABLE IF NOT EXISTS products (
     slug TEXT NOT NULL UNIQUE,
     display_name TEXT NOT NULL,
     description TEXT,
-    role_slug TEXT NOT NULL, -- Role identifier - no FK dependency on external roles table
+    entitlements_spec JSONB, -- map: entitlement_name -> duration_days (null/0 = indefinite)
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
 CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug);
-CREATE INDEX IF NOT EXISTS idx_products_role_slug ON products(role_slug);
 CREATE INDEX IF NOT EXISTS idx_products_is_active ON products(is_active);
 
 -- 2.2: Create prices table
@@ -165,44 +167,62 @@ BEGIN
 END$$;
 
 -- ============================================================================
--- SECTION 3: USER ROLE GRANTS AND EXTENSIONS
+-- SECTION 3: ENTITLEMENTS (SCD2 windows)
 -- ============================================================================
 
--- 3.1: Create user_role_grants table
-CREATE TABLE IF NOT EXISTS user_role_grants (
+CREATE TABLE IF NOT EXISTS entitlements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL, -- Zitadel subject (sub)
-    role_slug TEXT NOT NULL, -- Role identifier - no FK dependency on external roles table
-    granted_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    auto_expires_at TIMESTAMPTZ, -- NULL means never expires
+    user_id TEXT NOT NULL,
+    entitlement TEXT NOT NULL,
+    start_at TIMESTAMPTZ NOT NULL,
+    end_at TIMESTAMPTZ,
+    subscription_id UUID,
+    payment_id UUID,
+    source_type TEXT NOT NULL,
+    revoked_at TIMESTAMPTZ,
+    revoke_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    deleted_at TIMESTAMPTZ,
+    -- Generated helpers for overlap protection
+    period tstzrange GENERATED ALWAYS AS (tstzrange(start_at, COALESCE(end_at, 'infinity'::timestamptz), '[)')) STORED,
+    active boolean GENERATED ALWAYS AS (deleted_at IS NULL) STORED
 );
 
-CREATE INDEX IF NOT EXISTS idx_user_role_grants_user_id ON user_role_grants(user_id);
-CREATE INDEX IF NOT EXISTS idx_user_role_grants_role_slug ON user_role_grants(role_slug);
-CREATE INDEX IF NOT EXISTS idx_user_role_grants_expires ON user_role_grants(auto_expires_at) WHERE auto_expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_entitlements_user_entitlement ON entitlements(user_id, entitlement);
+CREATE INDEX IF NOT EXISTS idx_entitlements_active_window ON entitlements(user_id, entitlement, start_at, end_at) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_entitlements_subscription ON entitlements(subscription_id) WHERE subscription_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_entitlements_payment ON entitlements(payment_id) WHERE payment_id IS NOT NULL;
 
--- 3.2: Create extension_kind enum
-DROP TYPE IF EXISTS extension_kind CASCADE;
-CREATE TYPE extension_kind AS ENUM ('admin', 'grace');
+-- At most one active entitlement per user+entitlement
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uniq_entitlements_active'
+    ) THEN
+        CREATE UNIQUE INDEX uniq_entitlements_active ON entitlements(user_id, entitlement)
+        WHERE revoked_at IS NULL AND end_at IS NULL;
+    END IF;
+END$$;
 
--- 3.3: Create user_role_grant_extensions table
-CREATE TABLE IF NOT EXISTS user_role_grant_extensions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_role_grant_id UUID NOT NULL REFERENCES user_role_grants(id) ON DELETE CASCADE,
-    kind extension_kind NOT NULL,
-    extension_days INTEGER NOT NULL DEFAULT 0,
-    subscription_id UUID REFERENCES subscriptions(id) ON DELETE SET NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
-);
-
-CREATE INDEX IF NOT EXISTS idx_urge_grant_id ON user_role_grant_extensions(user_role_grant_id);
-CREATE INDEX IF NOT EXISTS idx_urge_kind ON user_role_grant_extensions(kind);
-CREATE INDEX IF NOT EXISTS idx_urge_created_at ON user_role_grant_extensions(created_at);
-CREATE INDEX IF NOT EXISTS idx_urge_subscription_id ON user_role_grant_extensions(subscription_id);
-
-COMMENT ON TABLE user_role_grant_extensions IS 'Tracks admin and grace extensions to role grants (non-payment adjustments)';
+-- Prevent overlapping active entitlement windows per (user_id, entitlement)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM   pg_constraint c
+        JOIN   pg_class r ON r.oid = c.conrelid
+        WHERE  r.relname = 'entitlements' AND c.conname = 'ent_no_overlap'
+    ) THEN
+        ALTER TABLE entitlements
+        ADD CONSTRAINT ent_no_overlap EXCLUDE USING gist (
+            user_id WITH =,
+            entitlement WITH =,
+            active WITH =,
+            period WITH &&
+        );
+    END IF;
+END$$;
 
 -- ============================================================================
 -- SECTION 4: PAYMENT PROCESSING
@@ -268,29 +288,20 @@ CREATE TABLE IF NOT EXISTS payments (
     user_id TEXT NOT NULL, -- Zitadel subject (sub)
     price_id UUID NOT NULL REFERENCES prices(id),
     processor processor_type NOT NULL,
-    processor_transaction_id TEXT NOT NULL,
-    amount_usd DECIMAL(10,2) NOT NULL,
-    status purchase_status NOT NULL DEFAULT 'pending',
-    
-    -- Role grant tracking
-    user_role_grant_id UUID REFERENCES user_role_grants(id) ON DELETE SET NULL,
-    extension_days INTEGER,
-    
-    -- Subscription linkage
+    transaction_id TEXT NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    currency TEXT NOT NULL DEFAULT 'USD',
+    -- Overall lifecycle state for the payment record
+    status purchase_status NOT NULL DEFAULT 'completed',
     subscription_id UUID REFERENCES subscriptions(id) ON DELETE SET NULL,
-    
-    -- Metadata
-    metadata JSONB DEFAULT '{}',
     purchased_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    
-    UNIQUE(processor, processor_transaction_id) -- Prevent duplicate transactions
+    UNIQUE(processor, transaction_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_price_id ON payments(price_id);
 CREATE INDEX IF NOT EXISTS idx_payments_processor ON payments(processor);
-CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
 CREATE INDEX IF NOT EXISTS idx_payments_purchased_at ON payments(purchased_at);
 CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON payments(subscription_id);
 
@@ -349,7 +360,7 @@ CREATE INDEX IF NOT EXISTS idx_solana_transactions_expires_at ON solana_transact
 CREATE TABLE IF NOT EXISTS notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL, -- Zitadel subject (sub)
-    notification_type TEXT NOT NULL, -- role_expired, subscription_failed, etc.
+    notification_type TEXT NOT NULL, -- entitlement_expired, subscription_failed, etc.
     title TEXT NOT NULL,
     message TEXT NOT NULL,
     metadata JSONB DEFAULT '{}',
@@ -439,6 +450,5 @@ END$$;
 COMMENT ON TABLE subscriptions IS 'Core subscription records tracking user billing relationships';
 COMMENT ON TABLE products IS 'Product definitions that can be purchased or subscribed to';
 COMMENT ON TABLE prices IS 'Pricing tiers for products with processor-specific identifiers';
-COMMENT ON TABLE user_role_grants IS 'Tracks which roles are granted to users and when they expire';
 COMMENT ON TABLE payments IS 'Records of all payment transactions (formerly purchases table)';
 COMMENT ON TABLE notification_queue IS 'Queue for user notifications related to billing and subscriptions';

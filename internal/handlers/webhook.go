@@ -82,17 +82,16 @@ func Webhook(r *Request) {
 			EventBody: body,
 		}
 
-		service := services.CCBillWebhookService{
-			Data: data,
-			DB:   r.State.DB,
-			// DeadLetterService:     deadLetterService,
-			PriceService:             r.State.PriceService,
-			ProductService:           r.State.ProductService,
-			CCBillClient:             r.State.CCBillRESTClient,
-			UserRoleGrantService:     r.State.UserRoleGrantService,
-			NotificationQueueService: r.State.NotificationQueueService,
-			BillingEventService:      r.State.BillingEventService,
-		}
+        service := services.CCBillWebhookService{
+            Data: data,
+            DB:   r.State.DB,
+            // DeadLetterService:     deadLetterService,
+            PriceService:             r.State.PriceService,
+            ProductService:           r.State.ProductService,
+            CCBillClient:             r.State.CCBillRESTClient,
+            NotificationQueueService: r.State.NotificationQueueService,
+            BillingEventService:      r.State.BillingEventService,
+        }
 
 		if err := service.HandleCCBillWebhook(context.Background()); err != nil {
 			log.WithError(err).Error("failed to process CCBill webhook")
@@ -158,16 +157,15 @@ func handleMobiusWebhook(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, "Invalid JSON data")
 		return
 	}
-	service := services.MobiusWebhookService{
-		Data:                     data,
-		DB:                       r.State.DB,
-		PriceService:             r.State.PriceService,
-		ProductService:           r.State.ProductService,
-		MobiusClient:             r.State.MobiusClient,
-		UserRoleGrantService:     r.State.UserRoleGrantService,
-		BillingEventService:      r.State.BillingEventService,
-		NotificationQueueService: r.State.NotificationQueueService,
-	}
+    service := services.MobiusWebhookService{
+        Data:                     data,
+        DB:                       r.State.DB,
+        PriceService:             r.State.PriceService,
+        ProductService:           r.State.ProductService,
+        MobiusClient:             r.State.MobiusClient,
+        BillingEventService:      r.State.BillingEventService,
+        NotificationQueueService: r.State.NotificationQueueService,
+    }
 
 	fmt.Println("service: ", service)
 

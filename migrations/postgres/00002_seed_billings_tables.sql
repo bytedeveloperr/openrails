@@ -36,23 +36,23 @@ ON CONFLICT (name) DO NOTHING;
 -- ============================================================================
 
 -- Insert product catalog
-INSERT INTO products (slug, display_name, description, role_slug) VALUES
+INSERT INTO products (slug, display_name, description, entitlements_spec) VALUES
 -- Basic tier
-('basic_membership', 'Basic Membership', 'Access to standard content library and community features', 'basic'),
+('basic_membership', 'Basic Membership', 'Access to standard content library and community features', '{"basic": null}'::jsonb),
 
 -- Premium tier  
-('premium_membership', 'Premium Membership', 'Full access to exclusive content, HD streaming, and priority support', 'premium'),
+('premium_membership', 'Premium Membership', 'Full access to exclusive content, HD streaming, and priority support', '{"premium": null}'::jsonb),
 
 -- Creator tier
-('creator_membership', 'Creator Membership', 'Everything in Premium plus creator tools, analytics, and revenue sharing', 'creator'),
+('creator_membership', 'Creator Membership', 'Everything in Premium plus creator tools, analytics, and revenue sharing', '{"creator": null, "premium": null}'::jsonb),
 
 -- Enterprise tier
-('enterprise_membership', 'Enterprise Membership', 'Custom solutions for teams with API access, SSO, and dedicated support', 'enterprise')
+('enterprise_membership', 'Enterprise Membership', 'Custom solutions for teams with API access, SSO, and dedicated support', '{"enterprise": null, "premium": null}'::jsonb)
 
 ON CONFLICT (slug) DO UPDATE SET 
     display_name = EXCLUDED.display_name,
     description = EXCLUDED.description,
-    role_slug = EXCLUDED.role_slug,
+    entitlements_spec = EXCLUDED.entitlements_spec,
     updated_at = current_timestamp;
 
 -- ============================================================================

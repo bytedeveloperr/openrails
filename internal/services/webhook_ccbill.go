@@ -1,34 +1,33 @@
 package services
 
 import (
-	"context"
-	"database/sql"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"strconv"
-	"time"
+    "context"
+    "database/sql"
+    "encoding/json"
+    "errors"
+    "fmt"
+    "strconv"
+    "time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
-	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
-	"github.com/uptrace/bun"
+    "github.com/google/uuid"
+    log "github.com/sirupsen/logrus"
+    "github.com/uptrace/bun"
 )
 
 type CCBillWebhookService struct {
-	Data                     CCBillWebhookEvent
-	DB                       *db.DB
-	CCBillClient             *ccbill.RESTClient
-	ProductService           *ProductService
-	PriceService             *PriceService
-	UserRoleGrantService     *UserRoleGrantService
-	NotificationQueueService *NotificationQueueService
-	NotificationService      *NotificationService
-	DeadLetterService        *DeadLetterService
-	BillingEventService      *BillingEventService
+    Data                     CCBillWebhookEvent
+    DB                       *db.DB
+    CCBillClient             *ccbill.RESTClient
+    ProductService           *ProductService
+    PriceService             *PriceService
+    NotificationQueueService *NotificationQueueService
+    NotificationService      *NotificationService
+    DeadLetterService        *DeadLetterService
+    BillingEventService      *BillingEventService
 }
 
 type CCBillWebhookEventType = string
@@ -915,8 +914,8 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 	txdb := db.NewWithTx(tx)
-	subService := NewSubscriptionService(txdb)
-	userRoleGrantService := NewUserRoleGrantService(txdb)
+    subService := NewSubscriptionService(txdb)
+    entSvc := NewEntitlementService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
@@ -954,10 +953,11 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 				sub.CancelFeedback = &refundReason
 			}
 
-			// Revoke all role grants for this subscription
-			if err := userRoleGrantService.RevokeBySubSourceID(ctx, sub.ID); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to revoke role grants for refunded subscription")
-			}
+            // End entitlements for this subscription immediately
+            reason := models.EntitlementRevokeAdmin
+            if err := entSvc.EndActiveBySubscription(ctx, sub.ID, now, &reason); err != nil {
+                log.WithContext(ctx).WithError(err).Error("failed to end entitlements for refunded subscription")
+            }
 
 			// Add notification to queue for user about account termination due to refund
 			if s.NotificationService != nil {
@@ -1204,7 +1204,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
     db := db.NewWithTx(tx)
     subService := NewSubscriptionService(db)
-    userRoleGrantService := NewUserRoleGrantService(db)
+    entSvc := NewEntitlementService(db)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
@@ -1281,10 +1281,11 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 			return fmt.Errorf("failed to update subscription after chargeback: %w", err)
 		}
 
-		// Immediately revoke all role grants for this subscription
-		if err := userRoleGrantService.RevokeBySubSourceID(ctx, sub.ID); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to revoke role grants for chargebacked subscription")
-		}
+        // Immediately end entitlements for this subscription
+        reason := models.EntitlementRevokeAdmin
+        if err := entSvc.EndActiveBySubscription(ctx, sub.ID, now, &reason); err != nil {
+            log.WithContext(ctx).WithError(err).Error("failed to end entitlements for chargebacked subscription")
+        }
 
 		// TODO: Add fraud flagging logic here
 		// This could include:
@@ -1448,12 +1449,30 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
-		if err := grantRole(
-			ctx,
-				newGrantRoleParams(subscription.UserID, subscription.ID, models.ProcessorCCBill, price, price.Product, txdb),
-		); err != nil {
-			return fmt.Errorf("failed to grant role for renewed subscription: %w", err)
-		}
+        // Ensure subscription entitlement exists; if a finite window is active now,
+        // align the subscription window start to its end to avoid overlap.
+        entSvc := NewEntitlementService(txdb)
+        exists, _ := entSvc.GetDB().GetDB().NewSelect().
+            Model((*models.Entitlement)(nil)).
+            Where("subscription_id = ? AND revoked_at IS NULL", subscription.ID).
+            Exists(ctx)
+        if !exists {
+            start := time.Now()
+            var finite models.Entitlement
+            _ = entSvc.GetDB().GetDB().NewSelect().Model(&finite).
+                Where("user_id = ? AND entitlement = ?", subscription.UserID, "premium").
+                Where("revoked_at IS NULL").
+                Where("end_at IS NOT NULL").
+                Where("start_at <= ?", time.Now()).
+                Where("end_at > ?", time.Now()).
+                Order("end_at DESC").
+                Limit(1).
+                Scan(ctx)
+            if finite.ID != uuid.Nil && finite.EndAt != nil {
+                start = *finite.EndAt
+            }
+            _, _ = entSvc.GrantWindow(ctx, subscription.UserID, "premium", start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
+        }
 
 		// Log renewal payment event to ClickHouse
 		if s.BillingEventService != nil {
@@ -1624,8 +1643,8 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 	txdb := db.NewWithTx(tx)
-	subService := NewSubscriptionService(txdb)
-	userRoleGrantService := NewUserRoleGrantService(txdb)
+    subService := NewSubscriptionService(txdb)
+    entSvc := NewEntitlementService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
@@ -1652,10 +1671,13 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 			return err
 		}
 
-		// Revoke all role grants for this subscription
-		if err := userRoleGrantService.RevokeBySubSourceID(ctx, sub.ID); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to revoke role grants for cancelled subscription")
-		}
+        // End entitlements immediately on cancel (failed rebill or merchant cancel)
+        reason := models.EntitlementRevokeAdmin
+        now := time.Now()
+        endAt := now
+        if err := entSvc.EndActiveBySubscription(ctx, sub.ID, endAt, &reason); err != nil {
+            log.WithContext(ctx).WithError(err).Error("failed to end entitlements for cancelled subscription")
+        }
 
 		// Add notification to queue for user and send immediate email
 		if s.NotificationService != nil {
@@ -1719,9 +1741,9 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 
 	ccBillSubID := data.SubscriptionID
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
-		userRoleGrantService := NewUserRoleGrantService(db)
+    db := db.NewWithTx(tx)
+    subService := NewSubscriptionService(db)
+    entSvc := NewEntitlementService(db)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
@@ -1741,10 +1763,11 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 			return err
 		}
 
-		// Revoke all role grants for this subscription
-		if err := userRoleGrantService.RevokeBySubSourceID(ctx, sub.ID); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to revoke role grants for expired subscription")
-		}
+        // End entitlements for this subscription at now
+        reason := models.EntitlementRevokeAdmin
+        if err := entSvc.EndActiveBySubscription(ctx, sub.ID, time.Now(), &reason); err != nil {
+            log.WithContext(ctx).WithError(err).Error("failed to end entitlements for expired subscription")
+        }
 
 		// Add notification to queue for user and send immediate email
 		if s.NotificationService != nil {

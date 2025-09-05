@@ -17,17 +17,15 @@ type Product struct {
 	DisplayName string    `bun:"display_name,notnull" json:"display_name"`
 	Description string    `bun:"description,nullzero" json:"description"`
 
-	// Role configuration (nullable - not all products grant roles)
-	RoleID           *uuid.UUID `bun:"role_id,type:uuid,nullzero" json:"role_id"`             // Role granted when purchasing this product (nullable)
-	RoleDurationDays *int       `bun:"role_duration_days,nullzero" json:"role_duration_days"` // How long the role lasts (nullable, for one-off purchases)
+    // Entitlements configuration: map entitlement name -> duration days (nil or 0 means indefinite)
+    EntitlementsSpec map[string]*int `bun:"entitlements_spec,type:jsonb,nullzero" json:"entitlements_spec,omitempty"`
 
 	IsActive  bool      `bun:"is_active,notnull,default:true" json:"is_active"`
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 
-	// Relationships
-	Role   *Role    `bun:"rel:belongs-to,join:role_id=id" json:"role,omitempty"`
-	Prices []*Price `bun:"rel:has-many,join:id=product_id" json:"prices,omitempty"`
+    // Relationships
+    Prices []*Price `bun:"rel:has-many,join:id=product_id" json:"prices,omitempty"`
 }
 
 // Price represents a specific pricing option for a product

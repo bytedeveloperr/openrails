@@ -31,9 +31,10 @@ type Config struct {
 	ClickHouse  *ClickHouseConfig `json:"clickhouse,omitempty"`
 	SendGrid    *SendGridConfig   `json:"sendgrid,omitempty"`
 	CorsOrigins []string          `json:"cors_origins,omitempty"`
-	RateLimits  *RateLimitConfig  `json:"rate_limits,omitempty"`
-	Admin       *AdminConfig      `json:"admin,omitempty"`
-	TLS         *TLSConfig        `json:"tls,omitempty"`
+    RateLimits  *RateLimitConfig  `json:"rate_limits,omitempty"`
+    Admin       *AdminConfig      `json:"admin,omitempty"`
+    TLS         *TLSConfig        `json:"tls,omitempty"`
+    Zitadel     *ZitadelConfig    `json:"zitadel,omitempty"`
 }
 
 type DBConfig struct {
@@ -88,10 +89,15 @@ type RedisConfig struct {
 }
 
 type JWTConfig struct {
-	Secret string `koanf:"secret"`
-	Issuer string `koanf:"issuer"`
-	// Optional RSA public key PEM for verifying RS256 JWTs (e.g., from Zitadel)
-	PublicKeyPEM string `koanf:"public_key_pem"`
+    Secret string `koanf:"secret"`
+    Issuer string `koanf:"issuer"`
+    // Optional RSA public key PEM for verifying RS256 JWTs (e.g., from Zitadel)
+    PublicKeyPEM string `koanf:"public_key_pem"`
+}
+
+// ZitadelConfig configures verification for ZITADEL Actions v2 requests
+type ZitadelConfig struct {
+    SigningKey      string `koanf:"signing_key"`       // shared secret configured on the ZITADEL Target
 }
 
 type SolanaConfig struct {
@@ -316,6 +322,7 @@ func GetDefaultBillingConfig() *Config {
                 Addr:    ":8060",
             },
         },
+        Zitadel: &ZitadelConfig{},
         RateLimits: &RateLimitConfig{
             SubscribeLimit: &RateLimit{
                 RequestsPerMinute: 10, // Very restrictive for payment endpoints
@@ -408,7 +415,7 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	// Load common environment variables without prefix
-	envMappings := map[string]string{
+    envMappings := map[string]string{
 		"DATABASE_URL": "db.url",
 		"EXTERNAL_DATABASE_URL": "external_db.url", // Client app database
 		"REDIS_URL":    "redis.host",
@@ -433,6 +440,7 @@ func Load(configPath string) (*Config, error) {
 		"CCBILL_SUBSCRIPTION_TYPE_ID": "ccbill.subscription_type_id",
 		"CCBILL_TEST_MODE":         "ccbill.test_mode",
 		"CCBILL_WEBHOOK_SECRET":    "ccbill.webhook_secret",
+		"CCBILL_DATALINK_URL":      "ccbill.datalink_url",
 		"CCBILL_BASE_FLEXFORM_URL": "ccbill.base_flexform_url",
 		"CCBILL_SUCCESS_URL":       "ccbill.success_url",
 		"CCBILL_DECLINE_URL":       "ccbill.decline_url",
@@ -462,7 +470,10 @@ func Load(configPath string) (*Config, error) {
 
         // Admin API key
         "BILLING_INTERNAL_API_KEY": "admin.api_key",
-	}
+
+        // Zitadel Actions
+        "ZITADEL_SIGNING_KEY":      "zitadel.signing_key",
+    }
 
 	for envVar, configKey := range envMappings {
 		if val := os.Getenv(envVar); val != "" {

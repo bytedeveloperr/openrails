@@ -4,14 +4,7 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// GrantSource represents the source of a role grant
-type GrantSource string
-
-const (
-	GrantSourceSubscription GrantSource = "subscription"
-	GrantSourcePurchase     GrantSource = "purchase"
-	GrantSourceAdmin        GrantSource = "admin"
-)
+// (Removed) GrantSource: use EntitlementSourceType instead (admin, grace, one_off, subscription)
 
 // Processor represents payment processor types
 type Processor string
@@ -24,7 +17,6 @@ const (
 )
 
 var ModelRegistry = []any{
-    (*Role)(nil),
     (*Product)(nil),
     (*Price)(nil),
     (*Payment)(nil),
@@ -33,7 +25,7 @@ var ModelRegistry = []any{
     (*PaymentMethod)(nil),
     (*SolanaWallet)(nil),
     (*NotificationQueue)(nil),
-    (*UserRoleGrant)(nil),
+    (*Entitlement)(nil),
     (*IdempotencyRequest)(nil),
 }
 

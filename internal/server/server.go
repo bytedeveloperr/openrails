@@ -145,9 +145,22 @@ func (s *Server) setupPublicRoutes() {
         solana.GET("/supported-tokens", s.wrap(handlers.GetSupportedTokens))
     }
 
+    // ZITADEL Actions v2 target (public with signature verification)
+    api.POST("/zitadel/actions/token",
+        middleware.ZitadelSignature(s.cfg.Zitadel),
+        s.wrap(handlers.PostZitadelTokenAction),
+    )
+
     s.publicHandler.GET("/health", func(c *gin.Context) {
         c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing-private"})
     })
+
+    // Me: consolidated billing status
+    me := api.Group("/me")
+    me.Use(middleware.AuthRequired(s.cfg.JWT))
+    {
+        me.GET("/billing-status", s.wrap(handlers.GetMyBillingStatus))
+    }
 }
 
 func (s *Server) setupAdminRoutes() {
@@ -161,6 +174,10 @@ func (s *Server) setupAdminRoutes() {
         api.GET("/subscriptions/dashboard-metrics", s.wrap(handlers.GetAdminDashboardMetrics))
         api.GET("/subscriptions/daily-metrics", s.wrap(handlers.GetAdminDailyMetrics))
         api.GET("/subscriptions/processor-metrics", s.wrap(handlers.GetAdminProcessorMetrics))
+
+        // Entitlements: list active windows for a user
+        api.GET("/users/:user_id/entitlements", s.wrap(handlers.GetAdminActiveEntitlements))
+
     }
     s.adminHandler.GET("/health", func(c *gin.Context) {
         c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing-admin"})

@@ -1,10 +1,10 @@
 package handlers
 
 import (
-	"context"
-	"net/http"
+    "context"
+    "net/http"
 
-	"github.com/doujins-org/doujins-billing/internal/services"
+    "github.com/doujins-org/doujins-billing/internal/services"
 )
 
 func UpdateStatus(r *Request) {
@@ -15,12 +15,10 @@ func UpdateStatus(r *Request) {
 	}
 
 	// Use new Wave 18 ManageSubscriptionService constructor
-	service := services.NewManageSubscriptionService(
-		r.State.SubscriptionService,
-		r.State.UserRoleGrantService,
-		r.State.UserRoleInterfaceService,
-		r.State.NotificationQueueService,
-	)
+    service := services.NewManageSubscriptionService(
+        r.State.SubscriptionService,
+        r.State.NotificationQueueService,
+    )
 
 	if err := service.UpdateStatus(context.Background(), &data); err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
@@ -38,12 +36,10 @@ func ExtendSubscription(r *Request) {
 	}
 
 	// Use new Wave 18 ManageSubscriptionService constructor
-	service := services.NewManageSubscriptionService(
-		r.State.SubscriptionService,
-		r.State.UserRoleGrantService,
-		r.State.UserRoleInterfaceService,
-		r.State.NotificationQueueService,
-	)
+    service := services.NewManageSubscriptionService(
+        r.State.SubscriptionService,
+        r.State.NotificationQueueService,
+    )
 
 	if err := service.ExtendSubscription(context.Background(), &data); err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())

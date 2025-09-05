@@ -251,7 +251,7 @@ func (r *GetBillingHistoryRequest) SetDefaults() {
 // -------------------------------- GetUserBillingHistory Request (Admin) --------------------------------
 
 type GetUserBillingHistoryPathParams struct {
-	UserID string `uri:"user_id" binding:"required,uuid"`
+    UserID string `uri:"user_id" binding:"required"`
 }
 
 type GetUserBillingHistoryQueryParams struct {

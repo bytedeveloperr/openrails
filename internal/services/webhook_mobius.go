@@ -22,17 +22,16 @@ import (
 const MobiusProcessorName string = "Mobius"
 
 type MobiusWebhookService struct {
-	DB                       *db.DB
-	PriceService             *PriceService
-	ProductService           *ProductService
-	Data                     MobiusWebhookEvent
-	MobiusClient             *mobius.MobiusClient
-	UserRoleGrantService     *UserRoleGrantService
-	DeadLetterService        *DeadLetterService
-	NotificationQueueService *NotificationQueueService
-	NotificationService      *NotificationService
-	BillingEventService      *BillingEventService
-	DeduplicationService     *DeduplicationService
+    DB                       *db.DB
+    PriceService             *PriceService
+    ProductService           *ProductService
+    Data                     MobiusWebhookEvent
+    MobiusClient             *mobius.MobiusClient
+    DeadLetterService        *DeadLetterService
+    NotificationQueueService *NotificationQueueService
+    NotificationService      *NotificationService
+    BillingEventService      *BillingEventService
+    DeduplicationService     *DeduplicationService
 }
 
 type MobiusWebhookEventType = string
@@ -580,50 +579,52 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
 			return fmt.Errorf("failed to get product: %w", err)
 		}
 
-        var userRoleGrant *models.UserRoleGrant
         var extensionDays int
 
-		// 5. Grant/extend role if product has role configured
-		if product.RoleID != nil {
-			userRoleGrantService := NewUserRoleGrantService(db)
-
-			// Determine extension days from product
-			if product.RoleDurationDays != nil && *product.RoleDurationDays > 0 {
-				extensionDays = *product.RoleDurationDays
-			} else if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
-				extensionDays = *price.BillingCycleDays
-			} else {
-				extensionDays = 30 // Default fallback
-			}
-
-			// Extend the user's role expiration
-            grant, _, err := userRoleGrantService.ExtendRoleExpiration(ctx, userID, *product.RoleID, extensionDays)
-            if err != nil {
-                return fmt.Errorf("failed to extend role expiration: %w", err)
+        // 5. Determine entitlement window
+        if product.EntitlementsSpec != nil {
+            if d, ok := product.EntitlementsSpec["premium"]; ok && d != nil && *d > 0 {
+                extensionDays = *d
+            } else if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
+                extensionDays = *price.BillingCycleDays
+            } else {
+                extensionDays = 30
             }
-            userRoleGrant = grant
+        } else if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
+            extensionDays = *price.BillingCycleDays
+        } else {
+            extensionDays = 30 // Default fallback
         }
 
-		// 6. Create Purchase record
+        // 6. Reject one-off purchase if subscription entitlement is already active (indefinite)
+        entSvc := NewEntitlementService(db)
+        if exists, _ := entSvc.GetDB().GetDB().NewSelect().
+            Model((*models.Entitlement)(nil)).
+            Where("user_id = ? AND entitlement = ?", userID, "premium").
+            Where("revoked_at IS NULL").
+            Where("end_at IS NULL").
+            Where("start_at <= ?", time.Now()).
+            Exists(ctx); exists {
+            return fmt.Errorf("one-off purchase not allowed while subscription entitlement is active")
+        }
+
+        // 7. Create Purchase record
         purchase := &models.Payment{
             ID:              uuid.New(),
             UserID:          userID,
             PriceID:         price.ID,
-            UserRoleGrantID: nil, // Set if role was granted
             Processor:       models.ProcessorMobius,
             TransactionID:   transactionID,
             Amount:          amount,
             Currency:        price.Currency,
-            ExtensionDays:   nil, // Set if role was extended
             PurchasedAt:     time.Now(),
             CreatedAt:       time.Now(),
         }
 
-		// Set optional fields if role was granted
-		if userRoleGrant != nil {
-			purchase.UserRoleGrantID = &userRoleGrant.ID
-			purchase.ExtensionDays = &extensionDays
-		}
+        // Grant premium entitlement based on transaction
+        start := time.Now()
+        end := start.Add(time.Duration(extensionDays) * 24 * time.Hour)
+        _, _ = entSvc.GrantWindow(ctx, userID, "premium", start, &end, models.EntitlementSourceOneOff, nil, &purchase.ID)
 
 		if err := purchaseService.Create(ctx, purchase); err != nil {
 			return fmt.Errorf("failed to create purchase record: %w", err)
@@ -631,15 +632,15 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
 
 		// 7. Log transaction success event to ClickHouse
 		if s.BillingEventService != nil {
-			metadata := map[string]interface{}{
-				"transaction_id": transactionID,
-				"plan_id":        planID,
-				"product_id":     product.ID.String(),
-				"role_granted":   product.RoleID != nil,
-				"extension_days": extensionDays,
-				"amount":         amount,
-				"email":          email,
-			}
+            metadata := map[string]interface{}{
+                "transaction_id": transactionID,
+                "plan_id":        planID,
+                "product_id":     product.ID.String(),
+                "entitlement_granted":   true,
+                "extension_days": extensionDays,
+                "amount":         amount,
+                "email":          email,
+            }
 
 			transactionEventData := TransactionEventData{
 				EventID:        uuid.New(),
@@ -665,7 +666,7 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
             "transactionID": transactionID,
             "planID":        planID,
             "productID":     product.ID,
-            "roleGranted":   product.RoleID != nil,
+            "entitlementGranted":   true,
             "extensionDays": extensionDays,
             "purchaseID":    purchase.ID,
         }).Info("Successfully processed transaction success webhook")
