@@ -1,1 +1,2 @@
 - Get rid of the interanl/db/billing_models.go file; I don't know what this is used for, except for the Solana model which is now being used I guess. I'm not sure if any of these tables exist, or what they would even be used for.
+
