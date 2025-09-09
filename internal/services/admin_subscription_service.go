@@ -28,7 +28,7 @@ type AdminSubscriptionService struct {
     EntitlementService       *EntitlementService
     NotificationQueueService *NotificationQueueService
     PaymentService           *PaymentService
-    // No user directory enrichment; Zitadel sub is stored on subscription
+    // No user directory enrichment; IdP subject is stored on subscription
 }
 
 // AdminSubscriptionResponse represents a subscription with enriched admin data
@@ -51,7 +51,7 @@ func (s *AdminSubscriptionService) GetAllSubscriptions(ctx context.Context, quer
 			Subscription: sub,
 		}
 
-        // No user enrichment (Zitadel-managed)
+        // No user enrichment (IdP-managed)
 
 		// Enrich with price and product data if available
 		if price, err := s.PriceService.GetByID(ctx, sub.PriceID); err == nil {
@@ -86,7 +86,7 @@ func (s *AdminSubscriptionService) GetSubscriptionByID(ctx context.Context, subs
 		}
 	}
 
-    // No user enrichment (Zitadel-managed)
+    // No user enrichment (IdP-managed)
 
 	return response, nil
 }
@@ -346,28 +346,32 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
 
 	// Create purchase record for audit trail
 	// Only grant role if product has one (handle nullable RoleID)
-    // Determine duration
-    var durationDays int
-    if product.EntitlementsSpec != nil {
-        if d, ok := product.EntitlementsSpec["premium"]; ok && d != nil && *d > 0 {
-            durationDays = *d
-        } else {
-            durationDays = 30
+    // Determine entitlements and durations
+    type grantItem struct { name string; days int }
+    var grants []grantItem
+    if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
+        for name, d := range product.EntitlementsSpec {
+            days := 0
+            if d != nil { days = *d }
+            if days <= 0 { days = 30 }
+            grants = append(grants, grantItem{name, days})
         }
     } else {
-        durationDays = 30
+        grants = append(grants, grantItem{"premium", 30})
     }
-    // Disallow one-off if a subscription entitlement is already active (indefinite)
+    // Disallow one-off if any relevant entitlement has an active indefinite window
     if s.EntitlementService != nil {
-        exists, err := s.EntitlementService.GetDB().GetDB().NewSelect().
-            Model((*models.Entitlement)(nil)).
-            Where("user_id = ? AND entitlement = ?", userID, "premium").
-            Where("revoked_at IS NULL").
-            Where("end_at IS NULL").
-            Where("start_at <= ?", time.Now()).
-            Exists(ctx)
-        if err != nil { return fmt.Errorf("failed entitlement check: %w", err) }
-        if exists { return fmt.Errorf("one-off purchase not allowed while subscription entitlement is active") }
+        for _, g := range grants {
+            exists, err := s.EntitlementService.GetDB().GetDB().NewSelect().
+                Model((*models.Entitlement)(nil)).
+                Where("user_id = ? AND entitlement = ?", userID, g.name).
+                Where("revoked_at IS NULL").
+                Where("end_at IS NULL").
+                Where("start_at <= ?", time.Now()).
+                Exists(ctx)
+            if err != nil { return fmt.Errorf("failed entitlement check: %w", err) }
+            if exists { return fmt.Errorf("one-off purchase not allowed while subscription entitlement '%s' is active", g.name) }
+        }
     }
 
     // Create purchase record (no role-grant linkage)
@@ -385,11 +389,13 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
     if err := s.PaymentService.Create(ctx, purchase); err != nil {
         return fmt.Errorf("failed to create purchase record: %w", err)
     }
-    // Grant entitlement 'premium' for duration
+    // Grant entitlements by appending to avoid overlap
     if s.EntitlementService != nil {
-        start := time.Now()
-        end := start.Add(time.Duration(durationDays) * 24 * time.Hour)
-        _ , _ = s.EntitlementService.GrantWindow(ctx, userID, "premium", start, &end, models.EntitlementSourceOneOff, nil, &purchase.ID)
+        for _, g := range grants {
+            if _, err := s.EntitlementService.AppendEntitlementDays(ctx, userID, g.name, g.days, models.EntitlementSourceOneOff, nil, &purchase.ID); err != nil {
+                return fmt.Errorf("failed to grant entitlement %s: %w", g.name, err)
+            }
+        }
     }
 
 	return nil

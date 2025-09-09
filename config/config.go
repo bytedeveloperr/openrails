@@ -31,10 +31,9 @@ type Config struct {
 	ClickHouse  *ClickHouseConfig `json:"clickhouse,omitempty"`
 	SendGrid    *SendGridConfig   `json:"sendgrid,omitempty"`
 	CorsOrigins []string          `json:"cors_origins,omitempty"`
-    RateLimits  *RateLimitConfig  `json:"rate_limits,omitempty"`
-    Admin       *AdminConfig      `json:"admin,omitempty"`
-    TLS         *TLSConfig        `json:"tls,omitempty"`
-    Zitadel     *ZitadelConfig    `json:"zitadel,omitempty"`
+	RateLimits  *RateLimitConfig  `json:"rate_limits,omitempty"`
+	Admin       *AdminConfig      `json:"admin,omitempty"`
+	TLS         *TLSConfig        `json:"tls,omitempty"`
 }
 
 type DBConfig struct {
@@ -51,28 +50,28 @@ type MobiusConfig struct {
 }
 
 type CCBillConfig struct {
-    Salt               string `koanf:"salt"`
-    Language           string `koanf:"language"`
-    FormID             string `koanf:"form_id"`
-    FormName           string `koanf:"form_name"`
-    CurrencyCode       string `koanf:"currency_code"`
-    AllowedTypes       string `koanf:"allowed_types"`
-    ClientSubAcc       string `koanf:"client_sub_acc"`
-    ClientAccNum       string `koanf:"client_acc_num"`
-    SubscriptionTypeId string `koanf:"subscription_type_id"`
-    TestMode           bool   `koanf:"test_mode"`
+	Salt               string `koanf:"salt"`
+	Language           string `koanf:"language"`
+	FormID             string `koanf:"form_id"`
+	FormName           string `koanf:"form_name"`
+	CurrencyCode       string `koanf:"currency_code"`
+	AllowedTypes       string `koanf:"allowed_types"`
+	ClientSubAcc       string `koanf:"client_sub_acc"`
+	ClientAccNum       string `koanf:"client_acc_num"`
+	SubscriptionTypeId string `koanf:"subscription_type_id"`
+	TestMode           bool   `koanf:"test_mode"`
 
-    // Webhook secret (optional; typically IP + salt verification is used)
-    WebhookSecret string `koanf:"webhook_secret"`
+	// Webhook secret (optional; typically IP + salt verification is used)
+	WebhookSecret string `koanf:"webhook_secret"`
 
 	// FlexForm integration settings
-    BaseFlexFormURL string `koanf:"base_flexform_url"`
-    IFrameWidth     string `koanf:"iframe_width"`  // Default: "100%"
-    IFrameHeight    string `koanf:"iframe_height"` // Default: "600px"
+	BaseFlexFormURL string `koanf:"base_flexform_url"`
+	IFrameWidth     string `koanf:"iframe_width"`  // Default: "100%"
+	IFrameHeight    string `koanf:"iframe_height"` // Default: "600px"
 
-    // Optional success/decline URLs for post-payment navigation
-    SuccessURL string `koanf:"success_url"`
-    DeclineURL string `koanf:"decline_url"`
+	// Optional success/decline URLs for post-payment navigation
+	SuccessURL string `koanf:"success_url"`
+	DeclineURL string `koanf:"decline_url"`
 
 	DataLinkURL          string `koanf:"datalink_url"`
 	DataLinkUsername     string `koanf:"datalink_username"`
@@ -89,15 +88,14 @@ type RedisConfig struct {
 }
 
 type JWTConfig struct {
-    Secret string `koanf:"secret"`
-    Issuer string `koanf:"issuer"`
-    // Optional RSA public key PEM for verifying RS256 JWTs (e.g., from Zitadel)
-    PublicKeyPEM string `koanf:"public_key_pem"`
-}
-
-// ZitadelConfig configures verification for ZITADEL Actions v2 requests
-type ZitadelConfig struct {
-    SigningKey      string `koanf:"signing_key"`       // shared secret configured on the ZITADEL Target
+	Secret string `koanf:"secret"`
+	Issuer string `koanf:"issuer"`
+	// Audience (client ID) to require in the "aud" claim (e.g., Casdoor Application Client ID)
+	Audience string `koanf:"audience"`
+	// Optional RSA public key PEM for verifying RS256 JWTs. If empty and Issuer is set,
+	// the service will attempt OIDC discovery at "{issuer}/.well-known/openid-configuration"
+	// and use JWKS for verification.
+	PublicKeyPEM string `koanf:"public_key_pem"`
 }
 
 type SolanaConfig struct {
@@ -138,6 +136,9 @@ type ClickHouseConfig struct {
 	Password  string `koanf:"password"`   // Optional password for authentication
 }
 
+// FeatureFlags control optional integrations and startup gating
+// (No feature flags; Redis and ClickHouse behavior is dynamic at runtime.)
+
 type SendGridConfig struct {
 	APIKey    string `koanf:"api_key"`
 	FromEmail string `koanf:"from_email"`
@@ -146,22 +147,22 @@ type SendGridConfig struct {
 
 // AdminConfig controls private admin access
 type AdminConfig struct {
-    // Shared API key required in 'X-API-Key' header for admin routes
-    APIKey string `koanf:"api_key"`
+	// Shared API key required in 'X-API-Key' header for admin routes
+	APIKey string `koanf:"api_key"`
 }
 
 // TLSConfig controls optional private mTLS listener
 type TLSConfig struct {
-    Private *PrivateTLSConfig `koanf:"private"`
+	Private *PrivateTLSConfig `koanf:"private"`
 }
 
 type PrivateTLSConfig struct {
-    Enabled           bool   `koanf:"enabled"`
-    Addr              string `koanf:"addr"`                // default ":8060"
-    CertFile          string `koanf:"cert_file"`
-    KeyFile           string `koanf:"key_file"`
-    ClientCAFile      string `koanf:"client_ca_file"`      // optional client CA
-    RequireClientCert bool   `koanf:"require_client_cert"` // enable mTLS if true and ClientCAFile provided
+	Enabled           bool   `koanf:"enabled"`
+	Addr              string `koanf:"addr"` // default ":8060"
+	CertFile          string `koanf:"cert_file"`
+	KeyFile           string `koanf:"key_file"`
+	ClientCAFile      string `koanf:"client_ca_file"`      // optional client CA
+	RequireClientCert bool   `koanf:"require_client_cert"` // enable mTLS if true and ClientCAFile provided
 }
 
 // RateLimit defines a rate limit policy
@@ -204,9 +205,8 @@ func validateMobius(cfg *MobiusConfig) error {
 		return fmt.Errorf("mobius security key is required in production")
 	}
 
-	if cfg.TokenizationKey == "" {
-		return fmt.Errorf("mobius tokenization key is required for frontend integration")
-	}
+	// TokenizationKey is not required by the billing service; frontend integrates
+	// with Mobius Collect.js directly. Keep optional for backward compatibility.
 
 	if cfg.WebhookSecret == "" {
 		return fmt.Errorf("mobius webhook secret is recommended for security")
@@ -235,23 +235,23 @@ func validateCCBill(cfg *CCBillConfig) error {
 	}
 
 	// Validate FlexForm URL
-    if cfg.BaseFlexFormURL != "" {
-        if _, err := url.Parse(cfg.BaseFlexFormURL); err != nil {
-            return fmt.Errorf("invalid ccbill base flexform URL: %w", err)
-        }
-    }
+	if cfg.BaseFlexFormURL != "" {
+		if _, err := url.Parse(cfg.BaseFlexFormURL); err != nil {
+			return fmt.Errorf("invalid ccbill base flexform URL: %w", err)
+		}
+	}
 
-    // Validate success/decline URLs if provided
-    if cfg.SuccessURL != "" {
-        if _, err := url.Parse(cfg.SuccessURL); err != nil {
-            return fmt.Errorf("invalid ccbill success URL: %w", err)
-        }
-    }
-    if cfg.DeclineURL != "" {
-        if _, err := url.Parse(cfg.DeclineURL); err != nil {
-            return fmt.Errorf("invalid ccbill decline URL: %w", err)
-        }
-    }
+	// Validate success/decline URLs if provided
+	if cfg.SuccessURL != "" {
+		if _, err := url.Parse(cfg.SuccessURL); err != nil {
+			return fmt.Errorf("invalid ccbill success URL: %w", err)
+		}
+	}
+	if cfg.DeclineURL != "" {
+		if _, err := url.Parse(cfg.DeclineURL); err != nil {
+			return fmt.Errorf("invalid ccbill decline URL: %w", err)
+		}
+	}
 
 	// Validate DataLink configuration if provided
 	if cfg.DataLinkURL != "" {
@@ -286,48 +286,48 @@ func validateDatabase(cfg *DBConfig) error {
 
 // GetDefaultBillingConfig returns a billing configuration with sensible defaults
 func GetDefaultBillingConfig() *Config {
-    return &Config{
-        Env:  "development",
-        Host: "0.0.0.0",
-        Port: 2052,
-        DB: &DBConfig{
-            // Match docker-compose Postgres (service: postgres)
-            URL:     "postgres://supabase_admin:password@postgres:5432/supadb?sslmode=disable",
-            Schema:  "public",
-            Dialect: "postgres",
-        },
-        Redis: &RedisConfig{
-            // Match docker-compose Garnet (service: garnet)
-            Addr:     "garnet:6379",
-            Password: "",
-            DB:       0,
-        },
-        JWT: &JWTConfig{
-            Secret: "dev-jwt-secret-change-in-production",
-            Issuer: "doujins-billing",
-        },
-        // Match docker-compose ClickHouse (service: clickhouse)
-        ClickHouse: &ClickHouseConfig{
-            ServerURL: "http://clickhouse:8123",
-            Database:  "analytics",
-            Username:  "analytics_user",
-            Password:  "analytics_password",
-        },
-        Admin: &AdminConfig{
-            APIKey: "", // Provide via env BILLING_INTERNAL_API_KEY
-        },
-        TLS: &TLSConfig{
-            Private: &PrivateTLSConfig{
-                Enabled: false,
-                Addr:    ":8060",
-            },
-        },
-        Zitadel: &ZitadelConfig{},
-        RateLimits: &RateLimitConfig{
-            SubscribeLimit: &RateLimit{
-                RequestsPerMinute: 10, // Very restrictive for payment endpoints
-                BurstSize:         3,
-            },
+	return &Config{
+		Env:  "development",
+		Host: "0.0.0.0",
+		Port: 2053,
+		DB: &DBConfig{
+			// Match docker-compose Postgres (service: postgres)
+			URL:     "postgres://app_user:app_password@postgres:5432/doujins_db?sslmode=disable",
+			Schema:  "billing",
+			Dialect: "postgres",
+		},
+		Redis: &RedisConfig{
+			// Match docker-compose Garnet (service: garnet)
+			Addr:     "garnet:6379",
+			Password: "",
+			DB:       0,
+		},
+		JWT: &JWTConfig{
+			Secret:   "", // RS256 by default; no shared secret
+			Issuer:   "http://casdoor:8010",
+			Audience: "doujins-app",
+		},
+		// Match docker-compose ClickHouse (service: clickhouse)
+		ClickHouse: &ClickHouseConfig{
+			ServerURL: "http://clickhouse:8123",
+			Database:  "analytics",
+			Username:  "analytics_user",
+			Password:  "analytics_password",
+		},
+		Admin: &AdminConfig{
+			APIKey: "", // Provide via env BILLING_INTERNAL_API_KEY
+		},
+		TLS: &TLSConfig{
+			Private: &PrivateTLSConfig{
+				Enabled: false,
+				Addr:    ":8060",
+			},
+		},
+		RateLimits: &RateLimitConfig{
+			SubscribeLimit: &RateLimit{
+				RequestsPerMinute: 10, // Very restrictive for payment endpoints
+				BurstSize:         3,
+			},
 			WebhookLimit: &RateLimit{
 				RequestsPerMinute: 100, // Higher for webhooks
 				BurstSize:         20,
@@ -415,35 +415,38 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	// Load common environment variables without prefix
-    envMappings := map[string]string{
+	envMappings := map[string]string{
 		"DATABASE_URL": "db.url",
-		"EXTERNAL_DATABASE_URL": "external_db.url", // Client app database
 		"REDIS_URL":    "redis.host",
 		"ENV":          "env",
 		"ENVIRONMENT":  "env",
 
-		// JWT
-		"JWT_SECRET":        "jwt.secret",
-		"JWT_ISSUER":        "jwt.issuer",
-		"JWT_PUBLIC_KEY_PEM": "jwt.public_key_pem",
+		// JWT / Casdoor
+		"JWT_SECRET":         "jwt.secret",         // for HS256
+		"JWT_ISSUER":         "jwt.issuer",         // legacy name
+		"CASDOOR_SERVER_URL": "jwt.issuer",         // preferred name
+		"JWT_AUDIENCE":       "jwt.audience",       // legacy
+		"JWT_CLIENT_ID":      "jwt.audience",       // legacy
+		"CASDOOR_CLIENT_ID":  "jwt.audience",       // preferred
+		"JWT_PUBLIC_KEY_PEM": "jwt.public_key_pem", // optional for RS256 if not using JWKS
 
 		// CCBill
-		"CCBILL_CLIENT_ACCOUNT":    "ccbill.client_acc_num",
-		"CCBILL_CLIENT_SUBACCOUNT": "ccbill.client_sub_acc",
-		"CCBILL_SALT":              "ccbill.salt",
-		"CCBILL_FORM_ID":           "ccbill.form_id",
-		"CCBILL_FLEXFORM_ID":       "ccbill.form_id",
-		"CCBILL_FORM_NAME":         "ccbill.form_name",
-		"CCBILL_LANGUAGE":          "ccbill.language",
-		"CCBILL_CURRENCY_CODE":     "ccbill.currency_code",
-		"CCBILL_ALLOWED_TYPES":     "ccbill.allowed_types",
+		"CCBILL_CLIENT_ACCOUNT":       "ccbill.client_acc_num",
+		"CCBILL_CLIENT_SUBACCOUNT":    "ccbill.client_sub_acc",
+		"CCBILL_SALT":                 "ccbill.salt",
+		"CCBILL_FORM_ID":              "ccbill.form_id",
+		"CCBILL_FLEXFORM_ID":          "ccbill.form_id",
+		"CCBILL_FORM_NAME":            "ccbill.form_name",
+		"CCBILL_LANGUAGE":             "ccbill.language",
+		"CCBILL_CURRENCY_CODE":        "ccbill.currency_code",
+		"CCBILL_ALLOWED_TYPES":        "ccbill.allowed_types",
 		"CCBILL_SUBSCRIPTION_TYPE_ID": "ccbill.subscription_type_id",
-		"CCBILL_TEST_MODE":         "ccbill.test_mode",
-		"CCBILL_WEBHOOK_SECRET":    "ccbill.webhook_secret",
-		"CCBILL_DATALINK_URL":      "ccbill.datalink_url",
-		"CCBILL_BASE_FLEXFORM_URL": "ccbill.base_flexform_url",
-		"CCBILL_SUCCESS_URL":       "ccbill.success_url",
-		"CCBILL_DECLINE_URL":       "ccbill.decline_url",
+		"CCBILL_TEST_MODE":            "ccbill.test_mode",
+		"CCBILL_WEBHOOK_SECRET":       "ccbill.webhook_secret",
+		"CCBILL_DATALINK_URL":         "ccbill.datalink_url",
+		"CCBILL_BASE_FLEXFORM_URL":    "ccbill.base_flexform_url",
+		"CCBILL_SUCCESS_URL":          "ccbill.success_url",
+		"CCBILL_DECLINE_URL":          "ccbill.decline_url",
 
 		// Mobius
 		"MOBIUS_SECURITY_KEY":     "mobius.security_key",
@@ -462,18 +465,19 @@ func Load(configPath string) (*Config, error) {
 		"CLICKHOUSE_USERNAME": "clickhouse.username",
 		"CLICKHOUSE_PASSWORD": "clickhouse.password",
 
-        // Solana
-        "SOLANA_RPC_ENDPOINT":       "solana.rpc_endpoint",
-        "SOLANA_NETWORK":            "solana.network",
-        "SOLANA_RECIPIENT_WALLET":   "solana.recipient_wallet",
-        "SOLANA_DESTINATION_WALLET": "solana.destination_wallet",
+		// Schema override (compose now uses DB_SCHEMA; keep APP_SCHEMA as legacy)
+		"DB_SCHEMA":  "db.schema",
+		"APP_SCHEMA": "db.schema",
 
-        // Admin API key
-        "BILLING_INTERNAL_API_KEY": "admin.api_key",
+		// Solana
+		"SOLANA_RPC_ENDPOINT":       "solana.rpc_endpoint",
+		"SOLANA_NETWORK":            "solana.network",
+		"SOLANA_RECIPIENT_WALLET":   "solana.recipient_wallet",
+		"SOLANA_DESTINATION_WALLET": "solana.destination_wallet",
 
-        // Zitadel Actions
-        "ZITADEL_SIGNING_KEY":      "zitadel.signing_key",
-    }
+		// Admin API key
+		"BILLING_INTERNAL_API_KEY": "admin.api_key",
+	}
 
 	for envVar, configKey := range envMappings {
 		if val := os.Getenv(envVar); val != "" {

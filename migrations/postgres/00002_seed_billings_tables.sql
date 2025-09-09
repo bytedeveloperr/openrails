@@ -20,18 +20,6 @@ SET started_at = created_at
 WHERE started_at IS NULL;
 
 -- ============================================================================
--- SECTION 1: SEED SUBSCRIPTION PLANS
--- ============================================================================
-
--- Insert default subscription plans (for backward compatibility)
-INSERT INTO subscription_plans (name, display_name, description, price_usd, billing_cycle, features) VALUES 
-('basic_monthly', 'Basic Plan - Monthly', 'Basic subscription plan billed monthly', 15.00, 30, ARRAY['Access to premium content', 'HD streaming', 'Basic support']),
-('premium_monthly', 'Premium Plan - Monthly', 'Premium subscription plan billed monthly', 19.00, 30, ARRAY['Access to premium content', 'HD streaming', 'Priority support', 'Exclusive releases']),
-('enterprise_monthly', 'Enterprise Plan - Monthly', 'Enterprise subscription plan billed monthly', 23.00, 30, ARRAY['Access to premium content', 'HD streaming', 'Priority support', 'Exclusive releases', 'API access']),
-('legacy_plan', 'Legacy Plan', 'Migrated from old system', 0.00, 30, ARRAY['Legacy features'])
-ON CONFLICT (name) DO NOTHING;
-
--- ============================================================================
 -- SECTION 2: SEED PRODUCTS CATALOG
 -- ============================================================================
 

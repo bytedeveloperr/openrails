@@ -12,7 +12,8 @@ cors_origins:
 # Database configuration (non-secrets only)
 # Provide DATABASE_URL via environment (.env) instead of here
 db:
-  schema: "public"
+  # Schema the app uses (compose defaults DB_SCHEMA=billing)
+  schema: "billing"
   dialect: "postgres"
 
 # Redis configuration for caching and sessions (non-secrets only)
@@ -24,9 +25,12 @@ redis:
 
 # JWT configuration for authentication (non-secrets only)
 jwt:
-  issuer: "doujins-billing"
-  # For Zitadel (RS256), provide the RSA public key PEM. If set, RS256 is used.
-  # Example:
+  # Casdoor issuer (base URL). Example: https://casdoor.example.com
+  issuer: "https://casdoor.example.com"
+  # Audience: Casdoor Application Client ID
+  audience: "your-casdoor-client-id"
+  # If using HS256 (Casdoor default), set JWT_SECRET in env to your Casdoor Application Client Secret.
+  # If using RS256, either set JWT_PUBLIC_KEY_PEM or leave it empty and the server will use OIDC discovery + JWKS from the issuer.
   # public_key_pem: |
   #   -----BEGIN PUBLIC KEY-----
   #   MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt...
@@ -79,7 +83,7 @@ ccbill:
 
 # Mobius payment processor configuration
 mobius:
-  # Supply secrets via env: MOBIUS_SECURITY_KEY, MOBIUS_TOKENIZATION_KEY, MOBIUS_WEBHOOK_SECRET
+  # Supply secrets via env: MOBIUS_SECURITY_KEY, MOBIUS_WEBHOOK_SECRET
   test_mode: true
 
 # Solana blockchain configuration
@@ -155,6 +159,3 @@ rate_limits:
     requests_per_minute: 60
     burst_size: 10
 
-# ZITADEL Actions configuration
-zitadel:
-  # signing_key is secret: set via env ZITADEL_SIGNING_KEY

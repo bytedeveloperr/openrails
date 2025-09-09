@@ -5,10 +5,10 @@ Overview
 - Zero‑config: Defaults are aligned with docker-compose. You can start the whole stack without writing config.
 
 Stack
-- Postgres: `supabase/postgres` (DB `supadb`, user `supabase_admin`, pass `password`)
+- Postgres: `postgres:17-bookworm` (DB `doujins_db`, app user `app_user` / `app_password`)
 - Garnet (Redis-compatible): `ghcr.io/microsoft/garnet` on `6379`
 - ClickHouse: `clickhouse/clickhouse-server` (DB `analytics`, user `analytics_user`, pass `analytics_password`)
-- Billing service: this server exposing public API on `:2052` and a private/internal port `:8060` (exposed to the compose network only). Admin routes require an internal shared secret.
+- Billing service: this server exposing public API on `:2053` and a private/internal port `:8060` (exposed to the compose network only). Admin routes require an internal shared secret.
 
 Quick Start
 - Start services: `task docker-up` (or `docker-compose up -d`)
@@ -21,13 +21,13 @@ What happens on first boot
 - Billing service connects using built-in defaults that match the compose network/service names.
 
 Defaults (match docker-compose)
-- Postgres: `postgres://supabase_admin:password@postgres:5432/supadb?sslmode=disable`
+- Postgres: `postgres://app_user:app_password@postgres:5432/doujins_db?sslmode=disable`
 - Redis (Garnet): `garnet:6379`, DB `0`
 - ClickHouse: `http://clickhouse:8123` with `analytics_user/analytics_password` on DB `analytics`
 
 Overriding configuration (optional)
 - Config file: place `config.yaml` in repo root or `./config/config.yaml`.
-- Env vars: common overrides include `DATABASE_URL`, `REDIS_URL`, `CLICKHOUSE_URL`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `JWT_SECRET`, `JWT_ISSUER`.
+- Env vars: common overrides include `DATABASE_URL`, `REDIS_URL`, `CLICKHOUSE_URL`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `CASDOOR_SERVER_URL`.
 - If not provided, the service uses the defaults above.
 
 Developer tasks
@@ -39,21 +39,29 @@ Developer tasks
 - Clean: `task clean`
 
 Service endpoints
-- Health: `GET http://localhost:2052/health` → `{ "status": "ok", "service": "billing-private" }`
-- API base: `http://localhost:2052/api/v1`
+- Health: `GET http://localhost:2053/health` → `{ "status": "ok", "service": "billing-private" }`
+- API base: `http://localhost:2053/api/v1`
 - Auth: JWT-based; supply `Authorization: Bearer <token>` where required by routes.
 
 Networking
-- Public: port `2052` is published to the host.
+- Public: port `2053` is published to the host.
 - Private: port `8060` is exposed to the Docker network for intra-service communication. Optionally, you can enable a private TLS listener with client cert verification (mTLS) via config.
 
 Admin access
 - Shared secret: admin routes are protected by header `X-API-KEY: <token>`. Configure via env `BILLING_INTERNAL_API_KEY`.
 - mTLS (optional): set `tls.private.enabled: true` and provide `tls.private.cert_file`, `tls.private.key_file`. To require client certs, also set `tls.private.client_ca_file` and `tls.private.require_client_cert: true`.
 
-JWT verification (Zitadel)
-- The server verifies JWTs and extracts only `sub` (user ID) and `email`. Roles/claims are not used for authorization.
-- For development, HMAC (`JWT_SECRET`) is supported. For Zitadel RS256, set `JWT_PUBLIC_KEY_PEM` to the issuer's RSA public key PEM.
+JWT verification (Casdoor)
+- Public endpoints use JWTs issued by your IdP (Casdoor). The middleware validates signature and claims, extracts `sub` (user ID), `email`, optional `preferred_username`/`username`/`name`, and `roles` if present.
+- Supported signing:
+  - HS256/384/512 with `JWT_SECRET` (Casdoor Application Client Secret).
+  - RS256 via either:
+    - `JWT_PUBLIC_KEY_PEM`, or
+    - OIDC discovery from `CASDOOR_SERVER_URL` and JWKS lookup (no extra config needed).
+- Required claims:
+  - `iss` must equal `CASDOOR_SERVER_URL` (e.g., `https://casdoor.example.com`).
+  - `aud` must contain `CASDOOR_CLIENT_ID` (Casdoor Application Client ID).
+  - `exp` must be valid.
 
 Data stores and migrations
 - Postgres
@@ -72,7 +80,7 @@ Common operations
   1) `task docker-down`
   2) `docker volume rm <project>_postgres_data <project>_clickhouse_data <project>_clickhouse_logs <project>_garnet_data`
   3) `task docker-up`
-- Check health: `curl http://localhost:2052/health`
+- Check health: `curl http://localhost:2053/health`
 - Tail logs: `task docker-logs` or `docker-compose logs -f billing`
 
 Troubleshooting

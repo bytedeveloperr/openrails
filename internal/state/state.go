@@ -1,13 +1,13 @@
 package state
 
 import (
-	"context"
-	"fmt"
+    "context"
+    "fmt"
 
-	"github.com/go-redis/redis"
-	"github.com/jackc/pgx/v5"
-	"github.com/riverqueue/river"
-	log "github.com/sirupsen/logrus"
+    redis "github.com/redis/go-redis/v9"
+    "github.com/jackc/pgx/v5"
+    "github.com/riverqueue/river"
+    log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -17,8 +17,8 @@ import (
 )
 
 type State struct {
-	DB               *db.DB
-	RedisClient      *redis.Client
+    DB               *db.DB
+    RedisClient      *redis.Client
 	Config           *config.Config
 	CCBillClient     *ccbill.CCBillClient
 	CCBillRESTClient *ccbill.RESTClient

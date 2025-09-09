@@ -13,12 +13,17 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+    "os"
+    "path/filepath"
+    "github.com/doujins-org/doujins-billing/pkg/spool"
+    "net/url"
 )
 
 // BillingEventService handles logging billing events to ClickHouse
 type BillingEventService struct {
     clickhouseConn driver.Conn
     config         *config.ClickHouseConfig
+    spool          *spool.Spool
 }
 
 // NewBillingEventService creates a new billing event service
@@ -26,20 +31,26 @@ func NewBillingEventService(cfg *config.ClickHouseConfig) (*BillingEventService,
     // Feature gate: presence of URL indicates intent to use CH
     if cfg == nil || cfg.ServerURL == "" {
         log.Warn("ClickHouse URL not configured - billing events will not be logged")
-        return &BillingEventService{}, nil
+        sp, _ := spool.New(defaultSpoolDir())
+        bes := &BillingEventService{spool: sp}
+        bes.startBackgroundFlush()
+        return bes, nil
     }
 
     // Try connect; if it fails, return service with nil conn so it can retry later
     conn, err := initClickHouseConnection(cfg)
     if err != nil {
         log.WithError(err).Warn("ClickHouse unavailable at startup; will retry on use")
-        return &BillingEventService{clickhouseConn: nil, config: cfg}, nil
+        sp, _ := spool.New(defaultSpoolDir())
+        bes := &BillingEventService{clickhouseConn: nil, config: cfg, spool: sp}
+        bes.startBackgroundFlush()
+        return bes, nil
     }
 
-    return &BillingEventService{
-        clickhouseConn: conn,
-        config:         cfg,
-    }, nil
+    sp, _ := spool.New(defaultSpoolDir())
+    bes := &BillingEventService{clickhouseConn: conn, config: cfg, spool: sp}
+    bes.startBackgroundFlush()
+    return bes, nil
 }
 
 // ensureConn lazily (re)establishes the ClickHouse connection
@@ -62,6 +73,142 @@ func (s *BillingEventService) ensureConn(ctx context.Context) error {
         return err
     }
     s.clickhouseConn = conn
+    return nil
+}
+
+// Ready checks connectivity to ClickHouse and establishes a connection if needed.
+func (s *BillingEventService) Ready(ctx context.Context) error {
+    // Use a short timeout if the provided context has none
+    if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+        tctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+        defer cancel()
+        return s.ensureConn(tctx)
+    }
+    return s.ensureConn(ctx)
+}
+
+func defaultSpoolDir() string {
+    return "/var/lib/doujins-billing/spool"
+}
+
+func (s *BillingEventService) startBackgroundFlush() {
+    if s.spool == nil { return }
+    go func() {
+        ticker := time.NewTicker(15 * time.Second)
+        defer ticker.Stop()
+        for range ticker.C {
+            ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+            _ = s.flushOnce(ctx, 200)
+            cancel()
+        }
+    }()
+}
+
+func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
+    if s.spool == nil { return nil }
+    if err := s.ensureConn(ctx); err != nil { return err }
+    paths, err := s.spool.List(limit)
+    if err != nil { return err }
+    // Buckets by kind
+    type fileRec struct{ path string }
+    var subs []SubscriptionEventData
+    var subsFiles []fileRec
+    var pays []PaymentEventData
+    var paysFiles []fileRec
+    var acus []ACUEventData
+    var acusFiles []fileRec
+    var chgs []ChargebackEventData
+    var chgsFiles []fileRec
+    var transAsPayments []PaymentEventData
+    var transFiles []fileRec
+
+    dead := func(p string) {
+        _ = os.MkdirAll(filepath.Join(s.spool.Dir(), "dead-letter"), 0o755)
+        _ = os.Rename(p, filepath.Join(s.spool.Dir(), "dead-letter", filepath.Base(p)))
+    }
+
+    for _, p := range paths {
+        rec, _, err := s.spool.Read(p)
+        if err != nil { log.WithError(err).Warnf("read spool %s", filepath.Base(p)); dead(p); continue }
+        switch rec.Kind {
+        case "subscription":
+            var d SubscriptionEventData
+            if err := json.Unmarshal(rec.Data, &d); err != nil { log.WithError(err).Warn("decode subscription"); dead(p); continue }
+            if d.EventID == uuid.Nil { d.EventID = uuid.New() }
+            if d.Timestamp.IsZero() { d.Timestamp = time.Now().UTC() }
+            subs = append(subs, d); subsFiles = append(subsFiles, fileRec{p})
+        case "payment":
+            var d PaymentEventData
+            if err := json.Unmarshal(rec.Data, &d); err != nil { log.WithError(err).Warn("decode payment"); dead(p); continue }
+            if d.EventID == uuid.Nil { d.EventID = uuid.New() }
+            if d.Timestamp.IsZero() { d.Timestamp = time.Now().UTC() }
+            if d.Currency == "" { d.Currency = "USD" }
+            pays = append(pays, d); paysFiles = append(paysFiles, fileRec{p})
+        case "transaction":
+            var d TransactionEventData
+            if err := json.Unmarshal(rec.Data, &d); err != nil { log.WithError(err).Warn("decode transaction"); dead(p); continue }
+            if d.EventID == uuid.Nil { d.EventID = uuid.New() }
+            if d.Timestamp.IsZero() { d.Timestamp = time.Now().UTC() }
+            if d.Currency == "" { d.Currency = "USD" }
+            // Map to PaymentEventData as in LogTransactionEvent
+            userID := ""
+            if d.UserID != nil { userID = *d.UserID }
+            transAsPayments = append(transAsPayments, PaymentEventData{
+                EventID:                d.EventID,
+                SubscriptionID:         d.SubscriptionID,
+                UserID:                 userID,
+                EventType:              d.EventType,
+                Processor:              d.Processor,
+                ProcessorTransactionID: d.ProcessorTransactionID,
+                Amount:                 d.Amount,
+                Currency:               d.Currency,
+                BillingInfo:            "{}",
+                WebhookSource:          "",
+                Metadata:               d.Metadata,
+                Timestamp:              d.Timestamp,
+            })
+            transFiles = append(transFiles, fileRec{p})
+        case "acu":
+            var d ACUEventData
+            if err := json.Unmarshal(rec.Data, &d); err != nil { log.WithError(err).Warn("decode acu"); dead(p); continue }
+            if d.EventID == uuid.Nil { d.EventID = uuid.New() }
+            if d.Timestamp.IsZero() { d.Timestamp = time.Now().UTC() }
+            acus = append(acus, d); acusFiles = append(acusFiles, fileRec{p})
+        case "chargeback":
+            var d ChargebackEventData
+            if err := json.Unmarshal(rec.Data, &d); err != nil { log.WithError(err).Warn("decode chargeback"); dead(p); continue }
+            if d.EventID == uuid.Nil { d.EventID = uuid.New() }
+            if d.Timestamp.IsZero() { d.Timestamp = time.Now().UTC() }
+            if d.Currency == "" { d.Currency = "USD" }
+            chgs = append(chgs, d); chgsFiles = append(chgsFiles, fileRec{p})
+        default:
+            log.Warnf("Unknown spool kind: %s; moving to dead-letter", rec.Kind)
+            dead(p)
+        }
+    }
+
+    // Batch insert helpers
+    removeAll := func(files []fileRec) {
+        for _, f := range files { _ = s.spool.Remove(f.path) }
+    }
+    if len(subs) > 0 {
+        if err := s.insertSubscriptionBatch(ctx, subs); err != nil { return err }
+        removeAll(subsFiles)
+    }
+    if len(pays)+len(transAsPayments) > 0 {
+        // combine
+        paysAll := append(pays, transAsPayments...)
+        if err := s.insertPaymentBatch(ctx, paysAll); err != nil { return err }
+        removeAll(paysFiles); removeAll(transFiles)
+    }
+    if len(acus) > 0 {
+        if err := s.insertACUBatch(ctx, acus); err != nil { return err }
+        removeAll(acusFiles)
+    }
+    if len(chgs) > 0 {
+        if err := s.insertChargebackBatch(ctx, chgs); err != nil { return err }
+        removeAll(chgsFiles)
+    }
     return nil
 }
 
@@ -211,7 +358,8 @@ func redactAndTruncate(s string, max int) string {
 // LogSubscriptionEvent logs a subscription lifecycle event
 func (s *BillingEventService) LogSubscriptionEvent(ctx context.Context, data SubscriptionEventData) error {
     if err := s.ensureConn(ctx); err != nil {
-        log.WithError(err).Debug("ClickHouse not available - skipping subscription event logging")
+        log.WithError(err).Warn("ClickHouse not available - spooling subscription event")
+        s.enqueue("subscription", data)
         return nil
     }
 
@@ -222,32 +370,15 @@ func (s *BillingEventService) LogSubscriptionEvent(ctx context.Context, data Sub
         data.Timestamp = time.Now().UTC()
     }
 
-    query := `
-        INSERT INTO subscription_events (
-            event_id, subscription_id, user_id, event_type, processor,
-            processor_subscription_id, processor_transaction_id,
-            metadata, timestamp
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-
-    err := s.clickhouseConn.Exec(ctx, query,
-        data.EventID,
-        data.SubscriptionID,
-        data.UserID,
-        data.EventType,
-        data.Processor,
-        data.ProcessorSubscriptionID,
-        data.ProcessorTransactionID,
-        data.Metadata,
-        data.Timestamp,
-    )
+    err := s.insertSubscription(ctx, data)
     if err != nil {
         log.WithError(err).WithFields(log.Fields{
             "event_id":        data.EventID,
             "subscription_id": data.SubscriptionID,
             "event_type":      data.EventType,
             "processor":       data.Processor,
-        }).Error("Failed to log subscription event to ClickHouse")
+        }).Error("Failed to log subscription event to ClickHouse; spooling")
+        s.enqueue("subscription", data)
         return fmt.Errorf("failed to log subscription event: %w", err)
     }
 
@@ -264,7 +395,8 @@ func (s *BillingEventService) LogSubscriptionEvent(ctx context.Context, data Sub
 // LogPaymentEvent logs a payment transaction event
 func (s *BillingEventService) LogPaymentEvent(ctx context.Context, data PaymentEventData) error {
     if err := s.ensureConn(ctx); err != nil {
-        log.WithError(err).Debug("ClickHouse not available - skipping payment event logging")
+        log.WithError(err).Warn("ClickHouse not available - spooling payment event")
+        s.enqueue("payment", data)
         return nil
     }
 
@@ -278,35 +410,15 @@ func (s *BillingEventService) LogPaymentEvent(ctx context.Context, data PaymentE
         data.Currency = "USD"
     }
 
-    query := `
-        INSERT INTO payment_events (
-            event_id, subscription_id, user_id, event_type, processor,
-            processor_transaction_id, amount, currency, billing_info,
-            webhook_source, metadata, timestamp
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-
-    err := s.clickhouseConn.Exec(ctx, query,
-        data.EventID,
-        data.SubscriptionID,
-        data.UserID,
-        data.EventType,
-        data.Processor,
-        data.ProcessorTransactionID,
-        data.Amount,
-        data.Currency,
-        data.BillingInfo,
-        data.WebhookSource,
-        data.Metadata,
-        data.Timestamp,
-    )
+    err := s.insertPayment(ctx, data)
     if err != nil {
         log.WithError(err).WithFields(log.Fields{
             "event_id":   data.EventID,
             "user_id":    data.UserID,
             "event_type": data.EventType,
             "processor":  data.Processor,
-        }).Error("Failed to log payment event to ClickHouse")
+        }).Error("Failed to log payment event to ClickHouse; spooling")
+        s.enqueue("payment", data)
         return fmt.Errorf("failed to log payment event: %w", err)
     }
 
@@ -324,7 +436,8 @@ func (s *BillingEventService) LogPaymentEvent(ctx context.Context, data PaymentE
 func (s *BillingEventService) LogTransactionEvent(ctx context.Context, data TransactionEventData) error {
     // Map transaction event into payment_events to avoid separate table.
     if err := s.ensureConn(ctx); err != nil {
-        log.WithError(err).Debug("ClickHouse not available - skipping transaction→payment mapped log")
+        log.WithError(err).Warn("ClickHouse not available - spooling transaction event")
+        s.enqueue("transaction", data)
         return nil
     }
 
@@ -381,7 +494,8 @@ func (s *BillingEventService) LogTransactionEvent(ctx context.Context, data Tran
 // LogACUEvent logs an Automatic Card Updater event
 func (s *BillingEventService) LogACUEvent(ctx context.Context, data ACUEventData) error {
     if err := s.ensureConn(ctx); err != nil {
-        log.WithError(err).Debug("ClickHouse not available - skipping ACU event logging")
+        log.WithError(err).Warn("ClickHouse not available - spooling ACU event")
+        s.enqueue("acu", data)
         return nil
     }
 
@@ -418,15 +532,16 @@ func (s *BillingEventService) LogACUEvent(ctx context.Context, data ACUEventData
 		data.Timestamp,
 	)
 
-	if err != nil {
-		log.WithError(err).WithFields(log.Fields{
-			"event_id":      data.EventID,
-			"event_type":    data.EventType,
-			"processor":     data.Processor,
-			"update_status": data.UpdateStatus,
-		}).Error("Failed to log ACU event to ClickHouse")
-		return fmt.Errorf("failed to log ACU event: %w", err)
-	}
+    if err != nil {
+        log.WithError(err).WithFields(log.Fields{
+            "event_id":      data.EventID,
+            "event_type":    data.EventType,
+            "processor":     data.Processor,
+            "update_status": data.UpdateStatus,
+        }).Error("Failed to log ACU event to ClickHouse; spooling")
+        s.enqueue("acu", data)
+        return fmt.Errorf("failed to log ACU event: %w", err)
+    }
 
 	log.WithFields(log.Fields{
 		"event_id":      data.EventID,
@@ -440,10 +555,11 @@ func (s *BillingEventService) LogACUEvent(ctx context.Context, data ACUEventData
 
 // LogChargebackEvent logs a chargeback event
 func (s *BillingEventService) LogChargebackEvent(ctx context.Context, data ChargebackEventData) error {
-	if s.clickhouseConn == nil {
-		log.Debug("ClickHouse not available - skipping chargeback event logging")
-		return nil
-	}
+    if err := s.ensureConn(ctx); err != nil {
+        log.WithError(err).Warn("ClickHouse not available - spooling chargeback event")
+        s.enqueue("chargeback", data)
+        return nil
+    }
 
 	if data.EventID == uuid.Nil {
 		data.EventID = uuid.New()
@@ -481,16 +597,17 @@ func (s *BillingEventService) LogChargebackEvent(ctx context.Context, data Charg
 		data.Timestamp,
 	)
 
-	if err != nil {
-		log.WithError(err).WithFields(log.Fields{
-			"event_id":        data.EventID,
-			"chargeback_id":   data.ChargebackID,
-			"event_type":      data.EventType,
-			"processor":       data.Processor,
-			"chargeback_type": data.ChargebackType,
-		}).Error("Failed to log chargeback event to ClickHouse")
-		return fmt.Errorf("failed to log chargeback event: %w", err)
-	}
+    if err != nil {
+        log.WithError(err).WithFields(log.Fields{
+            "event_id":        data.EventID,
+            "chargeback_id":   data.ChargebackID,
+            "event_type":      data.EventType,
+            "processor":       data.Processor,
+            "chargeback_type": data.ChargebackType,
+        }).Error("Failed to log chargeback event to ClickHouse; spooling")
+        s.enqueue("chargeback", data)
+        return fmt.Errorf("failed to log chargeback event: %w", err)
+    }
 
 	log.WithFields(log.Fields{
 		"event_id":        data.EventID,
@@ -518,23 +635,194 @@ func CreateMetadataJSON(data map[string]interface{}) string {
 	return string(jsonData)
 }
 
+// enqueue helper
+func (s *BillingEventService) enqueue(kind string, v interface{}) {
+    if s.spool == nil { return }
+    b, err := json.Marshal(v)
+    if err != nil { return }
+    _ = s.spool.Enqueue(&spool.Record{Kind: kind, Data: b})
+}
+
+// insert helpers used by both direct logging and background flush
+func (s *BillingEventService) insertSubscription(ctx context.Context, data SubscriptionEventData) error {
+    query := `
+        INSERT INTO subscription_events (
+            event_id, subscription_id, user_id, event_type, processor,
+            processor_subscription_id, processor_transaction_id,
+            metadata, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    return s.clickhouseConn.Exec(ctx, query,
+        data.EventID,
+        data.SubscriptionID,
+        data.UserID,
+        data.EventType,
+        data.Processor,
+        data.ProcessorSubscriptionID,
+        data.ProcessorTransactionID,
+        data.Metadata,
+        data.Timestamp,
+    )
+}
+
+func (s *BillingEventService) insertSubscriptionBatch(ctx context.Context, rows []SubscriptionEventData) error {
+    batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO subscription_events (event_id, subscription_id, user_id, event_type, processor, processor_subscription_id, processor_transaction_id, metadata, timestamp) VALUES`)
+    if err != nil { return err }
+    for _, d := range rows {
+        if err := batch.Append(d.EventID, d.SubscriptionID, d.UserID, d.EventType, d.Processor, d.ProcessorSubscriptionID, d.ProcessorTransactionID, d.Metadata, d.Timestamp); err != nil { return err }
+    }
+    return batch.Send()
+}
+
+func (s *BillingEventService) insertPayment(ctx context.Context, data PaymentEventData) error {
+    query := `
+        INSERT INTO payment_events (
+            event_id, subscription_id, user_id, event_type, processor,
+            processor_transaction_id, amount, currency, billing_info,
+            webhook_source, metadata, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    return s.clickhouseConn.Exec(ctx, query,
+        data.EventID,
+        data.SubscriptionID,
+        data.UserID,
+        data.EventType,
+        data.Processor,
+        data.ProcessorTransactionID,
+        data.Amount,
+        data.Currency,
+        data.BillingInfo,
+        data.WebhookSource,
+        data.Metadata,
+        data.Timestamp,
+    )
+}
+
+func (s *BillingEventService) insertPaymentBatch(ctx context.Context, rows []PaymentEventData) error {
+    batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO payment_events (event_id, subscription_id, user_id, event_type, processor, processor_transaction_id, amount, currency, billing_info, webhook_source, metadata, timestamp) VALUES`)
+    if err != nil { return err }
+    for _, d := range rows {
+        if err := batch.Append(d.EventID, d.SubscriptionID, d.UserID, d.EventType, d.Processor, d.ProcessorTransactionID, d.Amount, d.Currency, d.BillingInfo, d.WebhookSource, d.Metadata, d.Timestamp); err != nil { return err }
+    }
+    return batch.Send()
+}
+
+func (s *BillingEventService) insertTransaction(ctx context.Context, d TransactionEventData) error {
+    // normalized mapping to payment_events; keep fields as-is
+    query := `
+        INSERT INTO payment_events (
+            event_id, subscription_id, user_id, event_type, processor,
+            processor_transaction_id, amount, currency, billing_info,
+            webhook_source, metadata, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    userID := ""
+    if d.UserID != nil { userID = *d.UserID }
+    return s.clickhouseConn.Exec(ctx, query,
+        d.EventID, d.SubscriptionID, userID, d.EventType, d.Processor,
+        d.ProcessorTransactionID, d.Amount, d.Currency, d.Metadata, "", d.Metadata, d.Timestamp,
+    )
+}
+
+func (s *BillingEventService) insertACU(ctx context.Context, data ACUEventData) error {
+    query := `
+        INSERT INTO acu_events (
+            event_id, subscription_id, user_id, event_type, processor,
+            processor_subscription_id, card_info, update_status, requires_action,
+            reason, metadata, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    return s.clickhouseConn.Exec(ctx, query,
+        data.EventID,
+        data.SubscriptionID,
+        data.UserID,
+        data.EventType,
+        data.Processor,
+        data.ProcessorSubscriptionID,
+        data.CardInfo,
+        data.UpdateStatus,
+        data.RequiresAction,
+        data.Reason,
+        data.Metadata,
+        data.Timestamp,
+    )
+}
+
+func (s *BillingEventService) insertACUBatch(ctx context.Context, rows []ACUEventData) error {
+    batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO acu_events (event_id, subscription_id, user_id, event_type, processor, processor_subscription_id, card_info, update_status, requires_action, reason, metadata, timestamp) VALUES`)
+    if err != nil { return err }
+    for _, d := range rows {
+        if err := batch.Append(d.EventID, d.SubscriptionID, d.UserID, d.EventType, d.Processor, d.ProcessorSubscriptionID, d.CardInfo, d.UpdateStatus, d.RequiresAction, d.Reason, d.Metadata, d.Timestamp); err != nil { return err }
+    }
+    return batch.Send()
+}
+
+func (s *BillingEventService) insertChargeback(ctx context.Context, data ChargebackEventData) error {
+    query := `
+        INSERT INTO chargeback_events (
+            event_id, chargeback_id, batch_id, subscription_id, user_id, event_type, processor,
+            processor_transaction_id, amount, currency, chargeback_type, reason,
+            status, metadata, timestamp
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `
+    return s.clickhouseConn.Exec(ctx, query,
+        data.EventID,
+        data.ChargebackID,
+        data.BatchID,
+        data.SubscriptionID,
+        data.UserID,
+        data.EventType,
+        data.Processor,
+        data.ProcessorTransactionID,
+        data.Amount,
+        data.Currency,
+        data.ChargebackType,
+        data.Reason,
+        data.Status,
+        data.Metadata,
+        data.Timestamp,
+    )
+}
+
+func (s *BillingEventService) insertChargebackBatch(ctx context.Context, rows []ChargebackEventData) error {
+    batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO chargeback_events (event_id, chargeback_id, batch_id, subscription_id, user_id, event_type, processor, processor_transaction_id, amount, currency, chargeback_type, reason, status, metadata, timestamp) VALUES`)
+    if err != nil { return err }
+    for _, d := range rows {
+        if err := batch.Append(d.EventID, d.ChargebackID, d.BatchID, d.SubscriptionID, d.UserID, d.EventType, d.Processor, d.ProcessorTransactionID, d.Amount, d.Currency, d.ChargebackType, d.Reason, d.Status, d.Metadata, d.Timestamp); err != nil { return err }
+    }
+    return batch.Send()
+}
+
 // initClickHouseConnection creates a connection to ClickHouse
 func initClickHouseConnection(cfg *config.ClickHouseConfig) (driver.Conn, error) {
-	if cfg.ServerURL == "" {
-		return nil, fmt.Errorf("ClickHouse server URL not configured")
-	}
-
-	// Parse the server URL to extract host and port
-	serverURL := strings.TrimPrefix(cfg.ServerURL, "http://")
-	serverURL = strings.TrimPrefix(serverURL, "https://")
-
-	// Default port if not specified
-	if !strings.Contains(serverURL, ":") {
-		serverURL += ":9000" // Default ClickHouse native protocol port
-	}
+    if cfg.ServerURL == "" {
+        return nil, fmt.Errorf("ClickHouse server URL not configured")
+    }
+    // Derive native protocol address from ServerURL.
+    // If an HTTP URL is provided (http://host:8123), translate to native (host:9000).
+    var serverAddr string
+    if strings.HasPrefix(cfg.ServerURL, "http://") || strings.HasPrefix(cfg.ServerURL, "https://") {
+        if u, err := url.Parse(cfg.ServerURL); err == nil {
+            host := u.Hostname()
+            port := u.Port()
+            if port == "" || port == "8123" {
+                port = "9000"
+            }
+            serverAddr = host + ":" + port
+        }
+    }
+    if serverAddr == "" {
+        // No scheme provided; assume native address
+        addr := cfg.ServerURL
+        if strings.Contains(addr, ":") {
+            serverAddr = addr
+        } else {
+            serverAddr = addr + ":9000"
+        }
+    }
 
     options := &clickhouse.Options{
-        Addr: []string{serverURL},
+        Addr: []string{serverAddr},
         Auth: clickhouse.Auth{
             Database: cfg.Database,
             Username: cfg.Username,

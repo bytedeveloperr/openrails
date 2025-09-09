@@ -6,7 +6,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
-	"net/http"
+    "net/http"
+    "time"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/config"
+	"github.com/doujins-org/doujins-billing/internal/oidc"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/message"
 )
@@ -55,8 +57,14 @@ func ExtractUserContextFromClaims(claims jwt.MapClaims) (*UserContext, error) {
 		userCtx.User.Email = &emailCopy
 	}
 
-	// Extract username
-	if username, ok := claims["username"].(string); ok {
+	// Extract username: prefer preferred_username, then username, then name/displayName
+	if username, ok := claims["preferred_username"].(string); ok {
+		userCtx.User.Username = username
+	} else if username, ok := claims["username"].(string); ok {
+		userCtx.User.Username = username
+	} else if username, ok := claims["name"].(string); ok {
+		userCtx.User.Username = username
+	} else if username, ok := claims["displayName"].(string); ok {
 		userCtx.User.Username = username
 	}
 
@@ -193,42 +201,70 @@ func OptionalAuth(jwtConfig *config.JWTConfig) gin.HandlerFunc {
 }
 
 // validateJWTToken parses and validates a JWT token
+var (
+    jwksCachesMu  = struct{}{}
+    jwksCachesMap = map[string]*oidc.JWKSCache{}
+)
+
 func validateJWTToken(tokenString string, jwtConfig *config.JWTConfig) (*UserContext, error) {
-	// Parse token with dynamic keyfunc supporting HMAC (dev) or RSA public key (Zitadel)
-	keyFunc := func(token *jwt.Token) (interface{}, error) {
-		switch alg := token.Method.Alg(); alg {
-		case jwt.SigningMethodHS256.Alg(), jwt.SigningMethodHS384.Alg(), jwt.SigningMethodHS512.Alg():
-			if jwtConfig.Secret == "" {
-				return nil, fmt.Errorf("HMAC secret not configured")
-			}
-			return []byte(jwtConfig.Secret), nil
-		case jwt.SigningMethodRS256.Alg(), jwt.SigningMethodRS384.Alg(), jwt.SigningMethodRS512.Alg():
-			if jwtConfig.PublicKeyPEM == "" {
-				return nil, fmt.Errorf("RSA public key not configured")
-			}
-			block, _ := pem.Decode([]byte(jwtConfig.PublicKeyPEM))
-			if block == nil {
-				return nil, fmt.Errorf("invalid PEM for JWT public key")
-			}
-			pubAny, err := x509.ParsePKIXPublicKey(block.Bytes)
-			if err != nil {
-				return nil, fmt.Errorf("parse RSA public key: %w", err)
-			}
-			pub, ok := pubAny.(*rsa.PublicKey)
-			if !ok {
-				return nil, fmt.Errorf("not an RSA public key")
-			}
-			return pub, nil
-		default:
-			return nil, fmt.Errorf("unsupported signing algorithm: %s", alg)
-		}
-	}
+    // Parse token with dynamic keyfunc supporting:
+    // - HMAC (HS256/384/512) using jwt.Secret (fits Casdoor defaults)
+    // - RSA via static PublicKeyPEM
+    // - RSA via JWKS discovered from Issuer (OIDC discovery)
+    keyFunc := func(token *jwt.Token) (interface{}, error) {
+        alg := token.Method.Alg()
+        switch alg {
+        case jwt.SigningMethodHS256.Alg(), jwt.SigningMethodHS384.Alg(), jwt.SigningMethodHS512.Alg():
+            if jwtConfig.Secret == "" {
+                return nil, fmt.Errorf("HMAC secret not configured")
+            }
+            return []byte(jwtConfig.Secret), nil
+        case jwt.SigningMethodRS256.Alg(), jwt.SigningMethodRS384.Alg(), jwt.SigningMethodRS512.Alg():
+            // Prefer static PEM if provided
+            if jwtConfig.PublicKeyPEM != "" {
+                block, _ := pem.Decode([]byte(jwtConfig.PublicKeyPEM))
+                if block == nil {
+                    return nil, fmt.Errorf("invalid PEM for JWT public key")
+                }
+                pubAny, err := x509.ParsePKIXPublicKey(block.Bytes)
+                if err != nil {
+                    return nil, fmt.Errorf("parse RSA public key: %w", err)
+                }
+                pub, ok := pubAny.(*rsa.PublicKey)
+                if !ok {
+                    return nil, fmt.Errorf("not an RSA public key")
+                }
+                return pub, nil
+            }
+            // Else use issuer JWKS
+            if jwtConfig.Issuer == "" {
+                return nil, fmt.Errorf("issuer required for JWKS validation")
+            }
+            // Extract kid
+            kid, _ := token.Header["kid"].(string)
+            // Get/create cache per issuer
+            // Note: simple global map without heavy locking since lookup + occasional replace is fine.
+            cache := jwksCachesMap[jwtConfig.Issuer]
+            if cache == nil {
+                cache = oidc.NewJWKSCache(jwtConfig.Issuer)
+                jwksCachesMap[jwtConfig.Issuer] = cache
+            }
+            ctx := context.Background()
+            key, err := cache.GetKey(ctx, kid)
+            if err != nil {
+                return nil, err
+            }
+            return key, nil
+        default:
+            return nil, fmt.Errorf("unsupported signing algorithm: %s", alg)
+        }
+    }
 
-	token, err := jwt.Parse(tokenString, keyFunc)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse token: %w", err)
-	}
+    token, err := jwt.Parse(tokenString, keyFunc)
+    
+    if err != nil {
+        return nil, fmt.Errorf("failed to parse token: %w", err)
+    }
 
 	// Validate token and extract claims
 	if !token.Valid {
@@ -240,11 +276,32 @@ func validateJWTToken(tokenString string, jwtConfig *config.JWTConfig) (*UserCon
 		return nil, fmt.Errorf("invalid token claims")
 	}
 
-	// Extract user information from claims
-	userCtx, err := ExtractUserContextFromClaims(claims)
-	if err != nil {
-		return nil, fmt.Errorf("failed to extract user context: %w", err)
-	}
+    // Validate standard claims against config (issuer, audience, expiration)
+    now := time.Now()
+    if iss, ok := claims["iss"].(string); jwtConfig.Issuer != "" && (!ok || iss != jwtConfig.Issuer) {
+        return nil, fmt.Errorf("invalid issuer")
+    }
+    if jwtConfig.Audience != "" {
+        audOK := false
+        switch aud := claims["aud"].(type) {
+        case string:
+            audOK = aud == jwtConfig.Audience
+        case []interface{}:
+            for _, a := range aud {
+                if s, ok := a.(string); ok && s == jwtConfig.Audience { audOK = true; break }
+            }
+        }
+        if !audOK { return nil, fmt.Errorf("invalid audience") }
+    }
+    if exp, ok := claims["exp"].(float64); ok {
+        if int64(exp) <= now.Unix() { return nil, fmt.Errorf("token expired") }
+    }
+
+    // Extract user information from claims
+    userCtx, err := ExtractUserContextFromClaims(claims)
+    if err != nil {
+        return nil, fmt.Errorf("failed to extract user context: %w", err)
+    }
 
 	return userCtx, nil
 }

@@ -13,8 +13,12 @@ CREATE TABLE IF NOT EXISTS subscription_events (
     metadata String,
     timestamp DateTime('UTC'),
     created_at DateTime('UTC') DEFAULT now()
-) ENGINE = MergeTree()
-ORDER BY (timestamp, user_id, subscription_id);
+) ENGINE = ReplacingMergeTree()
+ORDER BY (event_id)
+SETTINGS index_granularity = 8192;
+-- Data-skipping indexes to speed time/user filters
+CREATE INDEX IF NOT EXISTS idx_subscription_events_ts ON subscription_events (timestamp) TYPE minmax GRANULARITY 1;
+CREATE INDEX IF NOT EXISTS idx_subscription_events_user ON subscription_events (user_id) TYPE set(0) GRANULARITY 1;
 
 -- payment_events
 CREATE TABLE IF NOT EXISTS payment_events (
@@ -31,8 +35,11 @@ CREATE TABLE IF NOT EXISTS payment_events (
     metadata String,
     timestamp DateTime('UTC'),
   created_at DateTime('UTC') DEFAULT now()
-) ENGINE = MergeTree()
-ORDER BY (timestamp, user_id);
+) ENGINE = ReplacingMergeTree()
+ORDER BY (event_id)
+SETTINGS index_granularity = 8192;
+CREATE INDEX IF NOT EXISTS idx_payment_events_ts ON payment_events (timestamp) TYPE minmax GRANULARITY 1;
+CREATE INDEX IF NOT EXISTS idx_payment_events_user ON payment_events (user_id) TYPE set(0) GRANULARITY 1;
 
 -- webhook_events (incoming webhook processing logs)
 CREATE TABLE IF NOT EXISTS webhook_events (
@@ -51,8 +58,10 @@ CREATE TABLE IF NOT EXISTS webhook_events (
     timestamp DateTime('UTC'),
     processed_at Nullable(DateTime('UTC')),
     created_at DateTime('UTC') DEFAULT now()
-) ENGINE = MergeTree()
-ORDER BY (timestamp, event_id);
+) ENGINE = ReplacingMergeTree()
+ORDER BY (event_id)
+SETTINGS index_granularity = 8192;
+CREATE INDEX IF NOT EXISTS idx_webhook_events_ts ON webhook_events (timestamp) TYPE minmax GRANULARITY 1;
 
 -- acu_events (Automatic Card Updater)
 CREATE TABLE IF NOT EXISTS acu_events (
@@ -69,8 +78,10 @@ CREATE TABLE IF NOT EXISTS acu_events (
     metadata String,
     timestamp DateTime('UTC'),
     created_at DateTime('UTC') DEFAULT now()
-) ENGINE = MergeTree()
-ORDER BY (timestamp, event_id);
+) ENGINE = ReplacingMergeTree()
+ORDER BY (event_id)
+SETTINGS index_granularity = 8192;
+CREATE INDEX IF NOT EXISTS idx_acu_events_ts ON acu_events (timestamp) TYPE minmax GRANULARITY 1;
 
 -- chargeback_events
 CREATE TABLE IF NOT EXISTS chargeback_events (
@@ -90,5 +101,7 @@ CREATE TABLE IF NOT EXISTS chargeback_events (
     metadata String,
     timestamp DateTime('UTC'),
     created_at DateTime('UTC') DEFAULT now()
-) ENGINE = MergeTree()
-ORDER BY (timestamp, event_id);
+) ENGINE = ReplacingMergeTree()
+ORDER BY (event_id)
+SETTINGS index_granularity = 8192;
+CREATE INDEX IF NOT EXISTS idx_chargeback_events_ts ON chargeback_events (timestamp) TYPE minmax GRANULARITY 1;

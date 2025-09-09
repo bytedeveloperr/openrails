@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
@@ -23,6 +24,8 @@ type Server struct {
 
 	state *state.State
 
+	rdb *redis.Client
+
 	publicHandler *gin.Engine
 	adminHandler  *gin.Engine
 }
@@ -40,23 +43,62 @@ func New(cfg *config.Config) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize state: %w", err)
 	}
 
-	var cacheClient cache.Cache
+	// Dynamic Redis circuit: prefer Redis if reachable; otherwise in-memory. Swap live on health changes.
+	memoryCache := cache.NewMemoryCache()
+	var redisClient *redis.Client
+	var redisCache cache.Cache
 	if cfg.Redis != nil {
-		redisClient := redis.NewClient(&redis.Options{
+		redisClient = redis.NewClient(&redis.Options{
 			Addr:     cfg.Redis.Addr,
 			Password: cfg.Redis.Password,
 			DB:       cfg.Redis.DB,
 		})
-		cacheClient = cache.NewRedisCache(redisClient)
+		redisCache = cache.NewRedisCache(redisClient)
+	}
+	switchable := cache.NewSwitchableCache(memoryCache)
+	// Initial probe
+	if redisClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		if _, err := redisClient.Ping(ctx).Result(); err == nil {
+			switchable.SetBackend(redisCache)
+			log.Info("Redis available: using Redis cache")
+		} else {
+			log.WithError(err).Warn("Redis unavailable at startup: using in-memory cache")
+		}
+		cancel()
+		// Health monitor
+		go func() {
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			usingRedis := false
+			for range ticker.C {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				_, err := redisClient.Ping(ctx).Result()
+				cancel()
+				if err == nil {
+					if !usingRedis {
+						switchable.SetBackend(redisCache)
+						usingRedis = true
+						log.Info("Redis became available: switched to Redis cache")
+					}
+				} else {
+					if usingRedis {
+						switchable.SetBackend(memoryCache)
+						usingRedis = false
+						log.WithError(err).Warn("Redis lost: falling back to in-memory cache")
+					}
+				}
+			}
+		}()
 	} else {
-		log.Warn("Redis not configured, using in-memory cache")
-		cacheClient = cache.NewMemoryCache()
+		log.Warn("Redis not configured: using in-memory cache")
 	}
 
 	s := &Server{
 		cfg:   cfg,
-		cache: cacheClient,
+		cache: switchable,
 		state: st,
+		rdb:   redisClient,
 	}
 
 	s.setupHandlers()
@@ -72,7 +114,7 @@ func (s *Server) setupHandlers() {
 	s.publicHandler = gin.Default()
 	s.publicHandler.
 		Use(middleware.CORS(s.cfg.CorsOrigins)).
-		Use(middleware.RateLimit(s.cfg.RateLimits))
+		Use(middleware.RateLimit(s.cfg.RateLimits, s.rdb))
 
 	// Admin handler (internal only, protected by API key)
 	s.adminHandler = gin.New()
@@ -145,12 +187,6 @@ func (s *Server) setupPublicRoutes() {
 		solana.GET("/supported-tokens", s.wrap(handlers.GetSupportedTokens))
 	}
 
-	// ZITADEL Actions v2 target (public with signature verification)
-	api.POST("/zitadel/actions/token",
-		middleware.ZitadelSignature(s.cfg.Zitadel),
-		s.wrap(handlers.PostZitadelTokenAction),
-	)
-
 	// Kubernetes-style health endpoints
 	s.publicHandler.GET("/health/live", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})
@@ -171,12 +207,13 @@ func (s *Server) setupPublicRoutes() {
 			return
 		}
 		// Redis check (optional but recommended)
-		if s.state != nil && s.state.RedisClient != nil {
-			if _, err := s.state.RedisClient.Ping().Result(); err != nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "redis": "down"})
-				return
-			}
-		}
+        if s.state != nil && s.state.RedisClient != nil {
+            if _, err := s.state.RedisClient.Ping(ctx).Result(); err != nil {
+                c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "redis": "down"})
+                return
+            }
+        }
+		// ClickHouse: optional; readiness does not require it.
 		c.JSON(http.StatusOK, gin.H{"status": "ready"})
 	})
 

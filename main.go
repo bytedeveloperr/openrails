@@ -15,6 +15,7 @@ import (
 
     "github.com/doujins-org/doujins-billing/config"
     "github.com/doujins-org/doujins-billing/internal/server"
+    "github.com/doujins-org/doujins-billing/internal/migrate"
 )
 
 func main() {
@@ -53,7 +54,7 @@ func main() {
         Short: "Start the billing service background workers",
     }
 
-    rootCmd.AddCommand(serverCmd, workerCmd)
+    rootCmd.AddCommand(serverCmd, workerCmd, migrateCmd)
     if err := rootCmd.Execute(); err != nil {
         log.WithError(err).Fatal("Failed to execute command")
     }
@@ -61,6 +62,10 @@ func main() {
 
 func runServer(cmd *cobra.Command, args []string) error {
     cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
+    // Auto-apply app migrations on startup (idempotent; guarded by advisory lock)
+    if err := migrate.Run(cmd.Context(), cfg); err != nil {
+        return fmt.Errorf("auto-migrate failed: %w", err)
+    }
 
     if cfg.Env == "production" || cfg.Env == "prod" {
         gin.SetMode(gin.ReleaseMode)
@@ -147,4 +152,18 @@ func runWorker(cmd *cobra.Command, args []string) error {
 
     log.Info("Billing service workers shutdown complete")
     return nil
+}
+
+var migrateCmd = &cobra.Command{
+    Use:   "migrate",
+    Short: "Apply pending database migrations",
+    RunE: func(cmd *cobra.Command, args []string) error {
+        cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
+        ctx := cmd.Context()
+        if err := migrate.Run(ctx, cfg); err != nil {
+            return fmt.Errorf("migrations failed: %w", err)
+        }
+        log.Info("Database migrations complete")
+        return nil
+    },
 }

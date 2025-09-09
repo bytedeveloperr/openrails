@@ -32,7 +32,7 @@ func NewSolanaPaymentService(db *db.DB, cfg *config.Config, price *PriceService,
 // Generate creates a pending SolanaTransaction record and returns UI hints for client-side payment.
 // This does not (yet) build a binary transaction; instead it returns token amount calculations
 // and creates server-side pending state for follow-up confirmation.
-// userID: Zitadel subject (string)
+// userID: OIDC subject (string)
 func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, priceID uuid.UUID, tokenSymbol, userWallet string) (amount float64, currency string, tokenAmount uint64, expiresAt time.Time, pendingID uuid.UUID, err error) {
     price, err := s.priceService.GetByID(ctx, priceID)
     if err != nil {
@@ -87,7 +87,7 @@ func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, pric
 
 // Submit records a confirmed payment for the given price and user.
 // This is a pragmatic implementation that skips on-chain signature verification in this codebase.
-// userID: Zitadel subject (string)
+// userID: OIDC subject (string)
 func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceID uuid.UUID, signature string) (*models.Payment, error) {
     price, err := s.priceService.GetByID(ctx, priceID)
     if err != nil {

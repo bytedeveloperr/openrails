@@ -10,4 +10,4 @@ type UserIdentity struct {
     Roles    []string
 }
 
-// No user directory lookups: Zitadel is the source of truth via JWT claims.
+// No user directory lookups: the IdP (e.g., Casdoor) is the source of truth via JWT claims.

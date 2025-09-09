@@ -49,12 +49,12 @@ RUN chown -R billing:billing /app
 # Switch to non-root user
 USER billing
 
-# Expose ports (2052 public; 8060 private/internal)
-EXPOSE 2052 8060
+# Expose ports (2053 public; 8060 private/internal)
+EXPOSE 2053 8060
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:2052/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://localhost:2053/health || exit 1
 
 # Default command
 CMD ["./bin/billing", "server"]

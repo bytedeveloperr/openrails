@@ -49,7 +49,7 @@ func GenerateFlexFormURL(r *Request) {
 
 	// Prepare FlexForm parameters
     flexFormParams := &ccbill.GenerateFlexFormURLParams{
-        // Pass Zitadel sub in Username so webhook can map back to the user
+        // Pass the OIDC subject in Username so webhook can map back to the user
         Username:      userCtx.User.ID,
         Email:         *userCtx.User.Email,
         CustomerFName: req.FirstName,
@@ -84,7 +84,7 @@ func GenerateFlexFormURL(r *Request) {
 
 // generatePassword creates a secure password from user ID for CCBill account creation
 func generatePassword(userID string) string {
-    // Use first 12 characters of the user ID (Zitadel sub) as a deterministic password surrogate
+    // Use first 12 characters of the user ID (OIDC subject) as a deterministic password surrogate
     if len(userID) >= 12 { return userID[:12] }
     return userID
 }

@@ -8,7 +8,7 @@ import (
 )
 
 // SolanaWallet represents a user's Solana wallet address
-// UserID uses Zitadel subject (string), not UUID
+// UserID uses OIDC subject (string), not UUID
 type SolanaWallet struct {
     bun.BaseModel `bun:"table:solana_wallets,alias:sw"`
 
@@ -20,4 +20,3 @@ type SolanaWallet struct {
     CreatedAt  time.Time  `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
     UpdatedAt  time.Time  `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 }
-

@@ -258,7 +258,7 @@ func (s *MobiusWebhookService) handleAddSubscription(ctx context.Context) error 
 			}
 		}
 
-            // External role grant integration removed for Zitadel-only flow
+            // External role grant integration removed for legacy IdP-specific flow
 
 		if s.BillingEventService != nil {
 			metadata := map[string]interface{}{
@@ -579,36 +579,27 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
 			return fmt.Errorf("failed to get product: %w", err)
 		}
 
-        var extensionDays int
-
-        // 5. Determine entitlement window
-        if product.EntitlementsSpec != nil {
-            if d, ok := product.EntitlementsSpec["premium"]; ok && d != nil && *d > 0 {
-                extensionDays = *d
-            } else if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
-                extensionDays = *price.BillingCycleDays
-            } else {
-                extensionDays = 30
-            }
-        } else if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
-            extensionDays = *price.BillingCycleDays
-        } else {
-            extensionDays = 30 // Default fallback
-        }
-
-        // 6. Reject one-off purchase if subscription entitlement is already active (indefinite)
+        // 5. Determine entitlement window(s) and append to avoid overlap
         entSvc := NewEntitlementService(db)
-        if exists, _ := entSvc.GetDB().GetDB().NewSelect().
-            Model((*models.Entitlement)(nil)).
-            Where("user_id = ? AND entitlement = ?", userID, "premium").
-            Where("revoked_at IS NULL").
-            Where("end_at IS NULL").
-            Where("start_at <= ?", time.Now()).
-            Exists(ctx); exists {
-            return fmt.Errorf("one-off purchase not allowed while subscription entitlement is active")
+
+        // Reject one-off if any configured entitlement has an active indefinite window (subscription)
+        checkNames := []string{"premium"}
+        if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
+            checkNames = checkNames[:0]
+            for name := range product.EntitlementsSpec { checkNames = append(checkNames, name) }
+        }
+        for _, ent := range checkNames {
+            exists, _ := entSvc.GetDB().GetDB().NewSelect().
+                Model((*models.Entitlement)(nil)).
+                Where("user_id = ? AND entitlement = ?", userID, ent).
+                Where("revoked_at IS NULL").
+                Where("end_at IS NULL").
+                Where("start_at <= ?", time.Now()).
+                Exists(ctx)
+            if exists { return fmt.Errorf("one-off purchase not allowed while subscription entitlement '%s' is active", ent) }
         }
 
-        // 7. Create Purchase record
+        // 6. Create Purchase record
         purchase := &models.Payment{
             ID:              uuid.New(),
             UserID:          userID,
@@ -621,10 +612,29 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
             CreatedAt:       time.Now(),
         }
 
-        // Grant premium entitlement based on transaction
-        start := time.Now()
-        end := start.Add(time.Duration(extensionDays) * 24 * time.Hour)
-        _, _ = entSvc.GrantWindow(ctx, userID, "premium", start, &end, models.EntitlementSourceOneOff, nil, &purchase.ID)
+        // Grant entitlements based on product spec; append windows to avoid overlap
+        // Fallback to one 'premium' entitlement if spec empty
+        type grantItem struct { name string; days int }
+        var grants []grantItem
+        if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
+            for name, d := range product.EntitlementsSpec {
+                days := 0
+                if d != nil { days = *d }
+                if days <= 0 {
+                    if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 { days = *price.BillingCycleDays } else { days = 30 }
+                }
+                grants = append(grants, grantItem{name, days})
+            }
+        } else {
+            days := 30
+            if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 { days = *price.BillingCycleDays }
+            grants = append(grants, grantItem{"premium", days})
+        }
+        for _, g := range grants {
+            if _, err := entSvc.AppendEntitlementDays(ctx, userID, g.name, g.days, models.EntitlementSourceOneOff, nil, &purchase.ID); err != nil {
+                return fmt.Errorf("failed to grant entitlement %s: %w", g.name, err)
+            }
+        }
 
 		if err := purchaseService.Create(ctx, purchase); err != nil {
 			return fmt.Errorf("failed to create purchase record: %w", err)
@@ -636,8 +646,7 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
                 "transaction_id": transactionID,
                 "plan_id":        planID,
                 "product_id":     product.ID.String(),
-                "entitlement_granted":   true,
-                "extension_days": extensionDays,
+                "entitlements_granted":  checkNames,
                 "amount":         amount,
                 "email":          email,
             }
@@ -666,8 +675,7 @@ func (s *MobiusWebhookService) handleTransactionSuccess(ctx context.Context) err
             "transactionID": transactionID,
             "planID":        planID,
             "productID":     product.ID,
-            "entitlementGranted":   true,
-            "extensionDays": extensionDays,
+            "entitlementsGranted": checkNames,
             "purchaseID":    purchase.ID,
         }).Info("Successfully processed transaction success webhook")
 

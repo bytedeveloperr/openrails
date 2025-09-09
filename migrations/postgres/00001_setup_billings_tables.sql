@@ -2,31 +2,15 @@
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';
 
--- Required for exclusion constraints on ranges with equality operators
-CREATE EXTENSION IF NOT EXISTS btree_gist;
+-- Backward-compat cleanup: subscription_events moved to ClickHouse only
+DROP TABLE IF EXISTS subscription_events CASCADE;
+
+-- Required extensions are created by admin bootstrap
 
 -- ============================================================================
 -- SECTION 1: CORE SUBSCRIPTION TABLES
 -- ============================================================================
 
--- 1.1: Create subscription_plans table
-CREATE TABLE IF NOT EXISTS subscription_plans (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    name TEXT NOT NULL UNIQUE,
-    display_name TEXT NOT NULL,
-    description TEXT,
-    price_usd DECIMAL(10,2) NOT NULL,
-    billing_cycle INTEGER NOT NULL,
-    features TEXT[],
-    is_active BOOLEAN NOT NULL DEFAULT true,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
-);
-
-CREATE INDEX IF NOT EXISTS idx_subscription_plans_is_active ON subscription_plans(is_active);
-CREATE INDEX IF NOT EXISTS idx_subscription_plans_name ON subscription_plans(name);
-
-COMMENT ON TABLE subscription_plans IS 'Defines available subscription plans with pricing and features';
 
 -- 1.2: Create subscription status enum
 DROP TYPE IF EXISTS subscription_status CASCADE;
@@ -35,8 +19,7 @@ CREATE TYPE subscription_status AS ENUM ('pending', 'active', 'expired', 'cancel
 -- 1.3: Create subscriptions table
 CREATE TABLE IF NOT EXISTS subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL, -- Zitadel subject (sub)
-    plan_id UUID NOT NULL REFERENCES subscription_plans(id),
+    user_id TEXT NOT NULL, -- OIDC subject (sub)
     price_id UUID, -- References prices table (created later)
     status subscription_status NOT NULL DEFAULT 'pending',
     
@@ -77,7 +60,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 
 -- Create indexes for subscriptions
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_plan_id ON subscriptions(plan_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_price_id ON subscriptions(price_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_processor ON subscriptions(processor);
@@ -87,28 +69,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_user_active ON subscriptions
 
 COMMENT ON INDEX idx_subscriptions_user_active IS 'Ensures each user can have only one active subscription at a time';
 
--- 1.4: Create subscription_events table for audit trail
-CREATE TABLE IF NOT EXISTS subscription_events (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    subscription_id UUID NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
-    event_type TEXT NOT NULL,
-    status TEXT,
-    amount DECIMAL(10,2),
-    currency TEXT,
-    failure_reason TEXT,
-    failure_code TEXT,
-    metadata JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    created_by TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_subscription_events_subscription_id ON subscription_events(subscription_id);
-CREATE INDEX IF NOT EXISTS idx_subscription_events_event_type ON subscription_events(event_type);
-CREATE INDEX IF NOT EXISTS idx_subscription_events_created_at ON subscription_events(created_at);
-CREATE INDEX IF NOT EXISTS idx_subscription_events_subscription_type ON subscription_events(subscription_id, event_type);
-
-COMMENT ON TABLE subscription_events IS 'Audit trail for all subscription-related events and changes';
-COMMENT ON COLUMN subscription_events.metadata IS 'JSONB field for storing event-specific data';
 
 -- ============================================================================
 -- SECTION 2: PRODUCTS AND PRICING
@@ -185,8 +145,7 @@ CREATE TABLE IF NOT EXISTS entitlements (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     deleted_at TIMESTAMPTZ,
     -- Generated helpers for overlap protection
-    period tstzrange GENERATED ALWAYS AS (tstzrange(start_at, COALESCE(end_at, 'infinity'::timestamptz), '[)')) STORED,
-    active boolean GENERATED ALWAYS AS (deleted_at IS NULL) STORED
+    period tstzrange GENERATED ALWAYS AS (tstzrange(start_at, COALESCE(end_at, 'infinity'::timestamptz), '[)')) STORED
 );
 
 CREATE INDEX IF NOT EXISTS idx_entitlements_user_entitlement ON entitlements(user_id, entitlement);
@@ -198,31 +157,36 @@ CREATE INDEX IF NOT EXISTS idx_entitlements_payment ON entitlements(payment_id) 
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'uniq_entitlements_active'
+        SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uniq_entitlements_active'
     ) THEN
         CREATE UNIQUE INDEX uniq_entitlements_active ON entitlements(user_id, entitlement)
         WHERE revoked_at IS NULL AND end_at IS NULL;
     END IF;
 END$$;
 
--- Prevent overlapping active entitlement windows per (user_id, entitlement)
+-- Prevent overlapping entitlement windows per (user_id, entitlement) for non-deleted rows.
+-- We drop/recreate the old constraint (if present) that depended on the removed `active` column.
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM   pg_constraint c
-        JOIN   pg_class r ON r.oid = c.conrelid
-        WHERE  r.relname = 'entitlements' AND c.conname = 'ent_no_overlap'
+    IF EXISTS (
+        SELECT 1 FROM pg_constraint c
+        JOIN pg_class r ON r.oid = c.conrelid
+        WHERE r.relname = 'entitlements' AND c.conname = 'ent_no_overlap'
     ) THEN
-        ALTER TABLE entitlements
-        ADD CONSTRAINT ent_no_overlap EXCLUDE USING gist (
-            user_id WITH =,
-            entitlement WITH =,
-            active WITH =,
-            period WITH &&
-        );
+        ALTER TABLE entitlements DROP CONSTRAINT ent_no_overlap;
     END IF;
+    -- Create the constraint using an expression that is NULL for soft-deleted rows,
+    -- so they do not participate in overlap checks.
+    ALTER TABLE entitlements
+    ADD CONSTRAINT ent_no_overlap EXCLUDE USING gist (
+        user_id WITH =,
+        entitlement WITH =,
+        (CASE WHEN deleted_at IS NULL THEN period END) WITH &&
+    );
 END$$;
+
+-- Backfill cleanup for older schemas: drop the former generated column if it exists
+ALTER TABLE entitlements DROP COLUMN IF EXISTS active;
 
 -- ============================================================================
 -- SECTION 4: PAYMENT PROCESSING
@@ -231,7 +195,7 @@ END$$;
 -- 4.1: Create payment_methods table
 CREATE TABLE IF NOT EXISTS payment_methods (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL, -- Zitadel subject (sub)
+    user_id TEXT NOT NULL, -- OIDC subject (sub)
     processor VARCHAR(50) NOT NULL, -- 'mobius', 'ccbill', etc.
     
     -- Processor-specific vault/payment method identifiers
@@ -285,7 +249,7 @@ CREATE TYPE purchase_status AS ENUM ('pending', 'completed', 'failed', 'refunded
 -- 4.3: Create payments table (formerly purchases)
 CREATE TABLE IF NOT EXISTS payments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL, -- Zitadel subject (sub)
+    user_id TEXT NOT NULL, -- OIDC subject (sub)
     price_id UUID NOT NULL REFERENCES prices(id),
     processor processor_type NOT NULL,
     transaction_id TEXT NOT NULL,
@@ -310,7 +274,7 @@ COMMENT ON COLUMN payments.subscription_id IS 'Links a payment to the subscripti
 -- 4.4: Create solana_transactions table (pending and confirmed Solana payments)
 CREATE TABLE IF NOT EXISTS solana_transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT, -- Zitadel subject (sub), nullable for anonymous intents
+    user_id TEXT, -- OIDC subject (sub), nullable for anonymous intents
     signature TEXT, -- Solana transaction signature (set when confirmed)
     status TEXT NOT NULL, -- pending, confirmed, failed
 
@@ -359,7 +323,7 @@ CREATE INDEX IF NOT EXISTS idx_solana_transactions_expires_at ON solana_transact
 -- 5.1: Create notification_queue table
 CREATE TABLE IF NOT EXISTS notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL, -- Zitadel subject (sub)
+    user_id TEXT NOT NULL, -- OIDC subject (sub)
     notification_type TEXT NOT NULL, -- entitlement_expired, subscription_failed, etc.
     title TEXT NOT NULL,
     message TEXT NOT NULL,
@@ -377,7 +341,7 @@ CREATE INDEX IF NOT EXISTS idx_notification_queue_created_at ON notification_que
 -- 5.2: Create solana_transactions table (tracks pending/confirmed Solana payments)
 CREATE TABLE IF NOT EXISTS solana_transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT, -- Zitadel subject (sub); nullable for anonymous/pending
+    user_id TEXT, -- OIDC subject (sub); nullable for anonymous/pending
 
     -- Transaction details
     signature TEXT, -- on-chain signature when confirmed

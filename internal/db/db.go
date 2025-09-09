@@ -67,10 +67,10 @@ func NewDB(cfg *config.DBConfig) (_ *DB, err error) {
 		bundebug.WithEnabled(false),
 	))
 
-	schema := cfg.Schema
-	if schema == "" {
-		schema = "billings"
-	}
+    schema := cfg.Schema
+    if schema == "" {
+        schema = "billing"
+    }
 
 	dbInstance := &DB{
 		db:     db,
@@ -102,10 +102,10 @@ func (d *DB) Close() error {
 }
 
 func NewWithTx(tx bun.Tx) *DB {
-	return &DB{
-		db:     tx,
-		schema: "billings",
-	}
+    return &DB{
+        db:     tx,
+        schema: "billing",
+    }
 }
 
 func (d *DB) NewWithTx(tx bun.Tx) *DB {

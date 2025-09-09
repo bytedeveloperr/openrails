@@ -129,7 +129,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 	}
 
     email := data.Email
-    userID := data.Username // We passed Zitadel sub as Username in FlexForm
+    userID := data.Username // We pass the OIDC subject as Username in FlexForm
 	formID := data.FlexID
 	formName := data.FormName
 	ccBillSubID := data.SubscriptionID
@@ -228,7 +228,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			}
 		}
 
-			// External role grant integration removed for Zitadel-only flow
+			// External role grant integration removed for legacy IdP-specific flow
 
 		// Log payment event to ClickHouse
 		if s.BillingEventService != nil {
@@ -297,7 +297,7 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 
     if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 
-        // Map to Zitadel subject when available in webhook (sent as username)
+        // Map to OIDC subject when available in webhook (sent as username)
         userID := data.Username
 
 		// Validate form configuration
@@ -450,7 +450,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
-		// External role grant integration removed for Zitadel-only flow
+		// External role grant integration removed for legacy IdP-specific flow
 
 		// Log upgrade payment event to ClickHouse
 		if s.BillingEventService != nil {
@@ -534,7 +534,7 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 
     if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 
-        // Map to Zitadel subject when available in webhook (sent as username)
+        // Map to OIDC subject when available in webhook (sent as username)
         userID := data.Username
 
 		// Log upgrade failure event to ClickHouse
@@ -827,7 +827,7 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 			return fmt.Errorf("failed to reactivate subscription: %w", err)
 		}
 
-            // External role grant integration removed for Zitadel-only flow
+            // External role grant integration removed for legacy IdP-specific flow
 
 		// Log reactivation event to ClickHouse
 		if s.BillingEventService != nil {
@@ -1256,7 +1256,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 			return fmt.Errorf("failed to get subscription: %w", err)
 		}
 
-        // No external user lookup (Zitadel-managed ID already on subscription)
+        // No external user lookup (IdP-managed ID already on subscription)
 
 		now := time.Now()
 
@@ -1449,29 +1449,41 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
-        // Ensure subscription entitlement exists; if a finite window is active now,
-        // align the subscription window start to its end to avoid overlap.
+        // Ensure subscription entitlements exist based on product spec; for each configured
+        // entitlement, create an indefinite window starting after any active finite window.
         entSvc := NewEntitlementService(txdb)
-        exists, _ := entSvc.GetDB().GetDB().NewSelect().
-            Model((*models.Entitlement)(nil)).
-            Where("subscription_id = ? AND revoked_at IS NULL", subscription.ID).
-            Exists(ctx)
-        if !exists {
-            start := time.Now()
+        productSvc := NewProductService(txdb)
+        product, perr := productSvc.GetByID(ctx, price.ProductID)
+        if perr != nil {
+            // fallback to default single entitlement
+            product = &models.Product{EntitlementsSpec: map[string]*int{"premium": nil}}
+        }
+        entNames := make([]string, 0)
+        if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
+            for n := range product.EntitlementsSpec { entNames = append(entNames, n) }
+        } else {
+            entNames = append(entNames, "premium")
+        }
+        now := time.Now()
+        for _, ent := range entNames {
+            exists, _ := entSvc.GetDB().GetDB().NewSelect().
+                Model((*models.Entitlement)(nil)).
+                Where("subscription_id = ? AND entitlement = ? AND revoked_at IS NULL", subscription.ID, ent).
+                Exists(ctx)
+            if exists { continue }
+            start := now
             var finite models.Entitlement
             _ = entSvc.GetDB().GetDB().NewSelect().Model(&finite).
-                Where("user_id = ? AND entitlement = ?", subscription.UserID, "premium").
+                Where("user_id = ? AND entitlement = ?", subscription.UserID, ent).
                 Where("revoked_at IS NULL").
                 Where("end_at IS NOT NULL").
-                Where("start_at <= ?", time.Now()).
-                Where("end_at > ?", time.Now()).
+                Where("start_at <= ?", now).
+                Where("end_at > ?", now).
                 Order("end_at DESC").
                 Limit(1).
                 Scan(ctx)
-            if finite.ID != uuid.Nil && finite.EndAt != nil {
-                start = *finite.EndAt
-            }
-            _, _ = entSvc.GrantWindow(ctx, subscription.UserID, "premium", start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
+            if finite.ID != uuid.Nil && finite.EndAt != nil { start = *finite.EndAt }
+            _, _ = entSvc.GrantWindow(ctx, subscription.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
         }
 
 		// Log renewal payment event to ClickHouse

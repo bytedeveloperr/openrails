@@ -1,11 +1,12 @@
 package state
 
 import (
-	"fmt"
+    "context"
+    "fmt"
 
-	"github.com/go-redis/redis"
-	log "github.com/sirupsen/logrus"
-	"github.com/uptrace/bun"
+    redis "github.com/redis/go-redis/v9"
+    log "github.com/sirupsen/logrus"
+    "github.com/uptrace/bun"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -16,15 +17,15 @@ import (
 )
 
 func NewState(cfg *config.Config) (*State, error) {
-	db, err := createDatabase(cfg)
+    db, err := createDatabase(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db: %w", err)
 	}
 
-	redisClient, err := createRedisClient(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create redis client: %w", err)
-	}
+    redisClient, err := createRedisClient(cfg)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create redis client: %w", err)
+    }
 
 	ccbillClient := createCCBillClient(cfg)
 	ccbillRESTClient := createCCBillRESTClient(cfg)
@@ -87,28 +88,26 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 }
 
 func createRedisClient(cfg *config.Config) (*redis.Client, error) {
-	redisOpts := &redis.Options{
-		Addr: cfg.Redis.Addr,
-		DB:   cfg.Redis.DB,
-	}
-
-	if cfg.Redis.Password != "" && cfg.Env == config.EnvProd {
-		redisOpts.Password = cfg.Redis.Password
-		log.Info("Redis authentication enabled")
-	} else {
-		log.Info("Redis authentication disabled - connecting without credentials")
-	}
-
-	client := redis.NewClient(redisOpts)
-
-	// Test connection
-	if _, err := client.Ping().Result(); err != nil {
-		log.Warnf("Redis connection test failed: %v - rate limiting will fall back to permissive mode", err)
-	} else {
-		log.Info("Redis connection successful - rate limiting enabled")
-	}
-
-	return client, nil
+    redisOpts := &redis.Options{
+        Addr: cfg.Redis.Addr,
+        DB:   cfg.Redis.DB,
+    }
+    if cfg.Redis.Password != "" && cfg.Env == config.EnvProd {
+        redisOpts.Password = cfg.Redis.Password
+        log.Info("Redis authentication enabled")
+    } else {
+        log.Info("Redis authentication disabled - connecting without credentials")
+    }
+    client := redis.NewClient(redisOpts)
+    // Test connection
+    ctx, cancel := context.WithTimeout(context.Background(), 2_000_000_000) // 2s
+    defer cancel()
+    if _, err := client.Ping(ctx).Result(); err != nil {
+        log.Warnf("Redis connection test failed: %v - rate limiting will fall back to permissive mode", err)
+    } else {
+        log.Info("Redis connection successful - rate limiting enabled")
+    }
+    return client, nil
 }
 
 func createCCBillClient(cfg *config.Config) *ccbill.CCBillClient {

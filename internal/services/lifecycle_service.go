@@ -103,30 +103,49 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 			}
 		}
 
-        // Ensure a single subscription entitlement; align start to end of any active finite window
+        // Ensure subscription entitlements based on product EntitlementsSpec
         if entitlementService != nil {
-            // If an entitlement for this subscription already exists (active or future), skip
-            exists, _ := entitlementService.GetDB().GetDB().NewSelect().
-                Model((*models.Entitlement)(nil)).
-                Where("subscription_id = ? AND revoked_at IS NULL", subscription.ID).
-                Exists(ctx)
-            if !exists {
+            // Load product
+            product, err := s.ProductService.GetByID(ctx, price.ProductID)
+            if err != nil {
+                return fmt.Errorf("failed to get product: %w", err)
+            }
+            // Build list of entitlement names
+            entNames := make([]string, 0, 4)
+            if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
+                for name := range product.EntitlementsSpec {
+                    entNames = append(entNames, name)
+                }
+            } else {
+                entNames = append(entNames, "premium")
+            }
+            // For each entitlement: create an indefinite window starting at period start,
+            // aligned to end of any currently active finite window to avoid overlap.
+            now := time.Now()
+            for _, ent := range entNames {
+                // Skip if this subscription already created this entitlement
+                exists, _ := entitlementService.GetDB().GetDB().NewSelect().
+                    Model((*models.Entitlement)(nil)).
+                    Where("subscription_id = ? AND entitlement = ? AND revoked_at IS NULL", subscription.ID, ent).
+                    Exists(ctx)
+                if exists {
+                    continue
+                }
                 start := periodStartsAt
-                // Align to end of currently active finite entitlement if present
                 var finite models.Entitlement
                 _ = entitlementService.GetDB().GetDB().NewSelect().Model(&finite).
-                    Where("user_id = ? AND entitlement = ?", params.UserID, "premium").
+                    Where("user_id = ? AND entitlement = ?", params.UserID, ent).
                     Where("revoked_at IS NULL").
                     Where("end_at IS NOT NULL").
-                    Where("start_at <= ?", time.Now()).
-                    Where("end_at > ?", time.Now()).
+                    Where("start_at <= ?", now).
+                    Where("end_at > ?", now).
                     Order("end_at DESC").
                     Limit(1).
                     Scan(ctx)
                 if finite.ID != uuid.Nil && finite.EndAt != nil {
                     start = *finite.EndAt
                 }
-                _, _ = entitlementService.GrantWindow(ctx, params.UserID, "premium", start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
+                _, _ = entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
             }
         }
 
