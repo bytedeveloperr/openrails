@@ -1,33 +1,33 @@
 package services
 
 import (
-    "context"
-    "database/sql"
-    "encoding/json"
-    "errors"
-    "fmt"
-    "strconv"
-    "time"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
-    "github.com/google/uuid"
-    log "github.com/sirupsen/logrus"
-    "github.com/uptrace/bun"
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+	"github.com/uptrace/bun"
 )
 
 type CCBillWebhookService struct {
-    Data                     CCBillWebhookEvent
-    DB                       *db.DB
-    CCBillClient             *ccbill.RESTClient
-    ProductService           *ProductService
-    PriceService             *PriceService
-    NotificationQueueService *NotificationQueueService
-    NotificationService      *NotificationService
-    DeadLetterService        *DeadLetterService
-    BillingEventService      *BillingEventService
+	Data                     CCBillWebhookEvent
+	DB                       *db.DB
+	CCBillClient             *ccbill.RESTClient
+	ProductService           *ProductService
+	PriceService             *PriceService
+	NotificationQueueService *NotificationQueueService
+	NotificationService      *NotificationService
+	DeadLetterService        *DeadLetterService
+	BillingEventService      *BillingEventService
 }
 
 type CCBillWebhookEventType = string
@@ -128,8 +128,8 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		return err
 	}
 
-    email := data.Email
-    userID := data.Username // We pass the OIDC subject as Username in FlexForm
+	email := data.Email
+	userID := data.Username // We pass the OIDC subject as Username in FlexForm
 	formID := data.FlexID
 	formName := data.FormName
 	ccBillSubID := data.SubscriptionID
@@ -148,9 +148,9 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		processor := models.ProcessorCCBill
 
-	txdb := db.NewWithTx(tx)
-	priceService := NewPriceService(txdb)
-	subService := NewSubscriptionService(txdb)
+		txdb := db.NewWithTx(tx)
+		priceService := NewPriceService(txdb)
+		subService := NewSubscriptionService(txdb)
 
 		cfg := s.CCBillClient.Config()
 		if formID != cfg.FormID {
@@ -186,7 +186,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			return billingErr
 		}
 
-        subscription, err := subService.GetByUserIDAndPriceID(ctx, userID, price.ID)
+		subscription, err := subService.GetByUserIDAndPriceID(ctx, userID, price.ID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
@@ -201,13 +201,13 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		} else {
 			isNewSubscription = true
 
-            subscription = &models.Subscription{
-                ID:                      uuid.New(),
-                UserID:                  userID,
-                Processor:               processor,
-                StartedAt:               time.Now(),
-                ProcessorSubscriptionID: ccBillSubID,
-            }
+			subscription = &models.Subscription{
+				ID:                      uuid.New(),
+				UserID:                  userID,
+				Processor:               processor,
+				StartedAt:               time.Now(),
+				ProcessorSubscriptionID: ccBillSubID,
+			}
 		}
 
 		if err := subscription.ActivateWithPrice(price); err != nil {
@@ -228,7 +228,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			}
 		}
 
-			// External role grant integration removed for legacy IdP-specific flow
+		// External role grant integration removed for legacy IdP-specific flow
 
 		// Log payment event to ClickHouse
 		if s.BillingEventService != nil {
@@ -258,17 +258,17 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			}
 		}
 
-        // Add notification to queue for user and send immediate email
-        if s.NotificationService != nil {
-            notification := &models.NotificationQueue{
-                ID:        uuid.New(),
-                UserID:    subscription.UserID,
-                EventType: models.NotificationPremiumStarted,
-            }
-            if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-                log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership started notification")
-            }
-        }
+		// Add notification to queue for user and send immediate email
+		if s.NotificationService != nil {
+			notification := &models.NotificationQueue{
+				ID:        uuid.New(),
+				UserID:    subscription.UserID,
+				EventType: models.NotificationPremiumStarted,
+			}
+			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+				log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership started notification")
+			}
+		}
 
 		return nil
 	}); err != nil {
@@ -295,10 +295,10 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 	failureCode := data.FailureCode
 	failureReason := data.FailureReason
 
-    if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 
-        // Map to OIDC subject when available in webhook (sent as username)
-        userID := data.Username
+		// Map to OIDC subject when available in webhook (sent as username)
+		userID := data.Username
 
 		// Validate form configuration
 		cfg := s.CCBillClient.Config()
@@ -329,42 +329,42 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 				"form_name":      formName,
 			}
 
-        paymentEventData := PaymentEventData{
-            EventID:       uuid.New(),
-            UserID:        userID,
-            EventType:     "charge_failed",
-            Processor:     "ccbill",
-            Currency:      "USD",
-            BillingInfo:   CreateMetadataJSON(map[string]interface{}{"initial_signup": true}),
-            WebhookSource: "webhook",
-            Metadata:      CreateMetadataJSON(metadata),
-            Timestamp:     time.Now().UTC(),
-        }
+			paymentEventData := PaymentEventData{
+				EventID:       uuid.New(),
+				UserID:        userID,
+				EventType:     "charge_failed",
+				Processor:     "ccbill",
+				Currency:      "USD",
+				BillingInfo:   CreateMetadataJSON(map[string]interface{}{"initial_signup": true}),
+				WebhookSource: "webhook",
+				Metadata:      CreateMetadataJSON(metadata),
+				Timestamp:     time.Now().UTC(),
+			}
 
 			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
 				log.WithError(err).Error("Failed to log new sale failure event to ClickHouse")
 			}
 		}
 
-        // Add notification to queue for user about payment failure and send immediate email
-        if s.NotificationService != nil && userID != "" {
-            notification := &models.NotificationQueue{
-                ID:        uuid.New(),
-                UserID:    userID,
-                EventType: models.NotificationPaymentMethodFailed,
-            }
-            if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-                log.WithContext(ctx).WithError(err).Error("failed to create and deliver new sale failure notification")
-            }
-        }
+		// Add notification to queue for user about payment failure and send immediate email
+		if s.NotificationService != nil && userID != "" {
+			notification := &models.NotificationQueue{
+				ID:        uuid.New(),
+				UserID:    userID,
+				EventType: models.NotificationPaymentMethodFailed,
+			}
+			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+				log.WithContext(ctx).WithError(err).Error("failed to create and deliver new sale failure notification")
+			}
+		}
 
-        log.WithContext(ctx).WithFields(log.Fields{
-            "userID":        userID,
-            "email":         email,
-            "failureCode":   failureCode,
-            "failureReason": failureReason,
-            "transactionID": transactionID,
-        }).Info("Handled new sale failure")
+		log.WithContext(ctx).WithFields(log.Fields{
+			"userID":        userID,
+			"email":         email,
+			"failureCode":   failureCode,
+			"failureReason": failureReason,
+			"transactionID": transactionID,
+		}).Info("Handled new sale failure")
 
 		return nil
 	}); err != nil {
@@ -395,7 +395,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		return fmt.Errorf("invalid billedAmount: %f - must be greater than 0", billedAmount)
 	}
 
-    if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		txdb := db.NewWithTx(tx)
 		priceService := NewPriceService(txdb)
 		subService := NewSubscriptionService(txdb)
@@ -532,10 +532,10 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 	failureReason := data.FailureReason
 	originalSubscriptionID := data.OriginalSubscriptionID
 
-    if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 
-        // Map to OIDC subject when available in webhook (sent as username)
-        userID := data.Username
+		// Map to OIDC subject when available in webhook (sent as username)
+		userID := data.Username
 
 		// Log upgrade failure event to ClickHouse
 		if s.BillingEventService != nil {
@@ -555,17 +555,17 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 				"flex_id":                  data.FlexID,
 			}
 
-        paymentEventData := PaymentEventData{
-            EventID:       uuid.New(),
-            UserID:        userID,
-            EventType:     "upgrade_failed",
-            Processor:     "ccbill",
-            Currency:      "USD",
-            BillingInfo:   CreateMetadataJSON(map[string]interface{}{"upgrade_failure": true}),
-            WebhookSource: "webhook",
-            Metadata:      CreateMetadataJSON(metadata),
-            Timestamp:     time.Now().UTC(),
-        }
+			paymentEventData := PaymentEventData{
+				EventID:       uuid.New(),
+				UserID:        userID,
+				EventType:     "upgrade_failed",
+				Processor:     "ccbill",
+				Currency:      "USD",
+				BillingInfo:   CreateMetadataJSON(map[string]interface{}{"upgrade_failure": true}),
+				WebhookSource: "webhook",
+				Metadata:      CreateMetadataJSON(metadata),
+				Timestamp:     time.Now().UTC(),
+			}
 
 			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
 				log.WithError(err).Error("Failed to log upgrade failure event to ClickHouse")
@@ -573,25 +573,25 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 		}
 
 		// Add notification to queue for user about upgrade failure and send immediate email
-        if s.NotificationService != nil && userID != "" {
-            notification := &models.NotificationQueue{
-                ID:        uuid.New(),
-                UserID:    userID,
-                EventType: models.NotificationPaymentMethodFailed,
-            }
-            if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-                log.WithContext(ctx).WithError(err).Error("failed to create and deliver upgrade failure notification")
-            }
-        }
+		if s.NotificationService != nil && userID != "" {
+			notification := &models.NotificationQueue{
+				ID:        uuid.New(),
+				UserID:    userID,
+				EventType: models.NotificationPaymentMethodFailed,
+			}
+			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+				log.WithContext(ctx).WithError(err).Error("failed to create and deliver upgrade failure notification")
+			}
+		}
 
-        log.WithContext(ctx).WithFields(log.Fields{
-            "userID":                 userID,
-            "email":                  email,
-            "failureCode":            failureCode,
-            "failureReason":          failureReason,
-            "transactionID":          transactionID,
-            "originalSubscriptionID": originalSubscriptionID,
-        }).Info("Handled upgrade failure")
+		log.WithContext(ctx).WithFields(log.Fields{
+			"userID":                 userID,
+			"email":                  email,
+			"failureCode":            failureCode,
+			"failureReason":          failureReason,
+			"transactionID":          transactionID,
+			"originalSubscriptionID": originalSubscriptionID,
+		}).Info("Handled upgrade failure")
 
 		return nil
 	}); err != nil {
@@ -615,8 +615,8 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 	nextRenewalDate := data.NextRenewalDate
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-	txdb := db.NewWithTx(tx)
-	subService := NewSubscriptionService(txdb)
+		txdb := db.NewWithTx(tx)
+		subService := NewSubscriptionService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
@@ -699,8 +699,8 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 	email := data.Email
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-    txdb := db.NewWithTx(tx)
-    subService := NewSubscriptionService(txdb)
+		txdb := db.NewWithTx(tx)
+		subService := NewSubscriptionService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
@@ -711,18 +711,18 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 			return fmt.Errorf("failed to get subscription: %w", err)
 		}
 
-        // Log customer data update event to ClickHouse
-        if s.BillingEventService != nil {
-            metadata := map[string]interface{}{
-                "processor_subscription_id": pSubscriptionID,
-                "processor":                 "ccbill",
-                "event_source":              "webhook",
-                "updated_email":             email,
-                "payment_account":           data.PaymentAccount,
-                "card_type":                 data.CardType,
-                "payment_type":              data.PaymentType,
-                "bin":                       data.Bin,
-                "exp_date":                  data.ExpDate,
+		// Log customer data update event to ClickHouse
+		if s.BillingEventService != nil {
+			metadata := map[string]interface{}{
+				"processor_subscription_id": pSubscriptionID,
+				"processor":                 "ccbill",
+				"event_source":              "webhook",
+				"updated_email":             email,
+				"payment_account":           data.PaymentAccount,
+				"card_type":                 data.CardType,
+				"payment_type":              data.PaymentType,
+				"bin":                       data.Bin,
+				"exp_date":                  data.ExpDate,
 				"updated_fields": map[string]interface{}{
 					"firstName":   data.FirstName,
 					"lastName":    data.LastName,
@@ -784,8 +784,8 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 	nextRenewalDate := data.NextRenewalDate
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-	txdb := db.NewWithTx(tx)
-	subService := NewSubscriptionService(txdb)
+		txdb := db.NewWithTx(tx)
+		subService := NewSubscriptionService(txdb)
 
 		// Note: We could validate that the email matches the subscription's user email here
 		// but for now we'll rely on the subscription lookup
@@ -827,7 +827,7 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 			return fmt.Errorf("failed to reactivate subscription: %w", err)
 		}
 
-            // External role grant integration removed for legacy IdP-specific flow
+		// External role grant integration removed for legacy IdP-specific flow
 
 		// Log reactivation event to ClickHouse
 		if s.BillingEventService != nil {
@@ -913,9 +913,9 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-	txdb := db.NewWithTx(tx)
-    subService := NewSubscriptionService(txdb)
-    entSvc := NewEntitlementService(txdb)
+		txdb := db.NewWithTx(tx)
+		subService := NewSubscriptionService(txdb)
+		entSvc := NewEntitlementService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
@@ -953,11 +953,11 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 				sub.CancelFeedback = &refundReason
 			}
 
-            // End entitlements for this subscription immediately
-            reason := models.EntitlementRevokeAdmin
-            if err := entSvc.EndActiveBySubscription(ctx, sub.ID, now, &reason); err != nil {
-                log.WithContext(ctx).WithError(err).Error("failed to end entitlements for refunded subscription")
-            }
+			// End entitlements for this subscription immediately
+			reason := models.EntitlementRevokeAdmin
+			if err := entSvc.EndActiveBySubscription(ctx, sub.ID, now, &reason); err != nil {
+				log.WithContext(ctx).WithError(err).Error("failed to end entitlements for refunded subscription")
+			}
 
 			// Add notification to queue for user about account termination due to refund
 			if s.NotificationService != nil {
@@ -1202,9 +1202,9 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-    db := db.NewWithTx(tx)
-    subService := NewSubscriptionService(db)
-    entSvc := NewEntitlementService(db)
+		db := db.NewWithTx(tx)
+		subService := NewSubscriptionService(db)
+		entSvc := NewEntitlementService(db)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
@@ -1256,7 +1256,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 			return fmt.Errorf("failed to get subscription: %w", err)
 		}
 
-        // No external user lookup (IdP-managed ID already on subscription)
+		// No external user lookup (IdP-managed ID already on subscription)
 
 		now := time.Now()
 
@@ -1281,11 +1281,11 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 			return fmt.Errorf("failed to update subscription after chargeback: %w", err)
 		}
 
-        // Immediately end entitlements for this subscription
-        reason := models.EntitlementRevokeAdmin
-        if err := entSvc.EndActiveBySubscription(ctx, sub.ID, now, &reason); err != nil {
-            log.WithContext(ctx).WithError(err).Error("failed to end entitlements for chargebacked subscription")
-        }
+		// Immediately end entitlements for this subscription
+		reason := models.EntitlementRevokeAdmin
+		if err := entSvc.EndActiveBySubscription(ctx, sub.ID, now, &reason); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to end entitlements for chargebacked subscription")
+		}
 
 		// TODO: Add fraud flagging logic here
 		// This could include:
@@ -1294,11 +1294,11 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 		// 3. Blocking future payments from same user/card/IP
 		// 4. Alerting fraud prevention team
 
-        log.WithContext(ctx).WithFields(log.Fields{
-            "user_id":            sub.UserID,
-            "chargeback_amount":  chargebackAmount,
-            "dispute_id":         "unknown",
-        }).Warn("User account involved in chargeback - consider fraud review")
+		log.WithContext(ctx).WithFields(log.Fields{
+			"user_id":           sub.UserID,
+			"chargeback_amount": chargebackAmount,
+			"dispute_id":        "unknown",
+		}).Warn("User account involved in chargeback - consider fraud review")
 
 		// Log chargeback event to ClickHouse with fraud flags
 		if s.BillingEventService != nil {
@@ -1397,9 +1397,9 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-	txdb := db.NewWithTx(tx)
-	priceService := NewPriceService(txdb)
-	subService := NewSubscriptionService(txdb)
+		txdb := db.NewWithTx(tx)
+		priceService := NewPriceService(txdb)
+		subService := NewSubscriptionService(txdb)
 
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
 		if err != nil {
@@ -1449,42 +1449,48 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
-        // Ensure subscription entitlements exist based on product spec; for each configured
-        // entitlement, create an indefinite window starting after any active finite window.
-        entSvc := NewEntitlementService(txdb)
-        productSvc := NewProductService(txdb)
-        product, perr := productSvc.GetByID(ctx, price.ProductID)
-        if perr != nil {
-            // fallback to default single entitlement
-            product = &models.Product{EntitlementsSpec: map[string]*int{"premium": nil}}
-        }
-        entNames := make([]string, 0)
-        if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
-            for n := range product.EntitlementsSpec { entNames = append(entNames, n) }
-        } else {
-            entNames = append(entNames, "premium")
-        }
-        now := time.Now()
-        for _, ent := range entNames {
-            exists, _ := entSvc.GetDB().GetDB().NewSelect().
-                Model((*models.Entitlement)(nil)).
-                Where("subscription_id = ? AND entitlement = ? AND revoked_at IS NULL", subscription.ID, ent).
-                Exists(ctx)
-            if exists { continue }
-            start := now
-            var finite models.Entitlement
-            _ = entSvc.GetDB().GetDB().NewSelect().Model(&finite).
-                Where("user_id = ? AND entitlement = ?", subscription.UserID, ent).
-                Where("revoked_at IS NULL").
-                Where("end_at IS NOT NULL").
-                Where("start_at <= ?", now).
-                Where("end_at > ?", now).
-                Order("end_at DESC").
-                Limit(1).
-                Scan(ctx)
-            if finite.ID != uuid.Nil && finite.EndAt != nil { start = *finite.EndAt }
-            _, _ = entSvc.GrantWindow(ctx, subscription.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
-        }
+		// Ensure subscription entitlements exist based on product spec; for each configured
+		// entitlement, create an indefinite window starting after any active finite window.
+		entSvc := NewEntitlementService(txdb)
+		productSvc := NewProductService(txdb)
+		product, perr := productSvc.GetByID(ctx, price.ProductID)
+		if perr != nil {
+			// fallback to default single entitlement
+			product = &models.Product{EntitlementsSpec: map[string]*int{"premium": nil}}
+		}
+		entNames := make([]string, 0)
+		if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
+			for n := range product.EntitlementsSpec {
+				entNames = append(entNames, n)
+			}
+		} else {
+			entNames = append(entNames, "premium")
+		}
+		now := time.Now()
+		for _, ent := range entNames {
+			exists, _ := entSvc.GetDB().GetDB().NewSelect().
+				Model((*models.Entitlement)(nil)).
+				Where("subscription_id = ? AND entitlement = ? AND revoked_at IS NULL", subscription.ID, ent).
+				Exists(ctx)
+			if exists {
+				continue
+			}
+			start := now
+			var finite models.Entitlement
+			_ = entSvc.GetDB().GetDB().NewSelect().Model(&finite).
+				Where("user_id = ? AND entitlement = ?", subscription.UserID, ent).
+				Where("revoked_at IS NULL").
+				Where("end_at IS NOT NULL").
+				Where("start_at <= ?", now).
+				Where("end_at > ?", now).
+				Order("end_at DESC").
+				Limit(1).
+				Scan(ctx)
+			if finite.ID != uuid.Nil && finite.EndAt != nil {
+				start = *finite.EndAt
+			}
+			_, _ = entSvc.GrantWindow(ctx, subscription.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
+		}
 
 		// Log renewal payment event to ClickHouse
 		if s.BillingEventService != nil {
@@ -1554,8 +1560,8 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 	ccBillSubID := data.SubscriptionID
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-	txdb := db.NewWithTx(tx)
-	subService := NewSubscriptionService(txdb)
+		txdb := db.NewWithTx(tx)
+		subService := NewSubscriptionService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
@@ -1654,9 +1660,9 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-	txdb := db.NewWithTx(tx)
-    subService := NewSubscriptionService(txdb)
-    entSvc := NewEntitlementService(txdb)
+		txdb := db.NewWithTx(tx)
+		subService := NewSubscriptionService(txdb)
+		entSvc := NewEntitlementService(txdb)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
@@ -1683,13 +1689,13 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 			return err
 		}
 
-        // End entitlements immediately on cancel (failed rebill or merchant cancel)
-        reason := models.EntitlementRevokeAdmin
-        now := time.Now()
-        endAt := now
-        if err := entSvc.EndActiveBySubscription(ctx, sub.ID, endAt, &reason); err != nil {
-            log.WithContext(ctx).WithError(err).Error("failed to end entitlements for cancelled subscription")
-        }
+		// End entitlements immediately on cancel (failed rebill or merchant cancel)
+		reason := models.EntitlementRevokeAdmin
+		now := time.Now()
+		endAt := now
+		if err := entSvc.EndActiveBySubscription(ctx, sub.ID, endAt, &reason); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to end entitlements for cancelled subscription")
+		}
 
 		// Add notification to queue for user and send immediate email
 		if s.NotificationService != nil {
@@ -1753,9 +1759,9 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 
 	ccBillSubID := data.SubscriptionID
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-    db := db.NewWithTx(tx)
-    subService := NewSubscriptionService(db)
-    entSvc := NewEntitlementService(db)
+		db := db.NewWithTx(tx)
+		subService := NewSubscriptionService(db)
+		entSvc := NewEntitlementService(db)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
@@ -1775,11 +1781,11 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 			return err
 		}
 
-        // End entitlements for this subscription at now
-        reason := models.EntitlementRevokeAdmin
-        if err := entSvc.EndActiveBySubscription(ctx, sub.ID, time.Now(), &reason); err != nil {
-            log.WithContext(ctx).WithError(err).Error("failed to end entitlements for expired subscription")
-        }
+		// End entitlements for this subscription at now
+		reason := models.EntitlementRevokeAdmin
+		if err := entSvc.EndActiveBySubscription(ctx, sub.ID, time.Now(), &reason); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to end entitlements for expired subscription")
+		}
 
 		// Add notification to queue for user and send immediate email
 		if s.NotificationService != nil {

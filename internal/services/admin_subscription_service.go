@@ -10,7 +10,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
-    log "github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 )
 
 // Additional sentinel errors for admin operations
@@ -22,20 +22,20 @@ var (
 
 // AdminSubscriptionService handles administrative subscription operations
 type AdminSubscriptionService struct {
-    SubscriptionService      *SubscriptionService
-    ProductService           *ProductService
-    PriceService             *PriceService
-    EntitlementService       *EntitlementService
-    NotificationQueueService *NotificationQueueService
-    PaymentService           *PaymentService
-    // No user directory enrichment; IdP subject is stored on subscription
+	SubscriptionService      *SubscriptionService
+	ProductService           *ProductService
+	PriceService             *PriceService
+	EntitlementService       *EntitlementService
+	NotificationQueueService *NotificationQueueService
+	PaymentService           *PaymentService
+	// No user directory enrichment; IdP subject is stored on subscription
 }
 
 // AdminSubscriptionResponse represents a subscription with enriched admin data
 type AdminSubscriptionResponse struct {
-    *models.Subscription
-    Product *models.Product `json:"product,omitempty"`
-    Price   *models.Price   `json:"price,omitempty"`
+	*models.Subscription
+	Product *models.Product `json:"product,omitempty"`
+	Price   *models.Price   `json:"price,omitempty"`
 }
 
 // GetAllSubscriptions retrieves all subscriptions with filtering (admin)
@@ -51,7 +51,7 @@ func (s *AdminSubscriptionService) GetAllSubscriptions(ctx context.Context, quer
 			Subscription: sub,
 		}
 
-        // No user enrichment (IdP-managed)
+		// No user enrichment (IdP-managed)
 
 		// Enrich with price and product data if available
 		if price, err := s.PriceService.GetByID(ctx, sub.PriceID); err == nil {
@@ -86,7 +86,7 @@ func (s *AdminSubscriptionService) GetSubscriptionByID(ctx context.Context, subs
 		}
 	}
 
-    // No user enrichment (IdP-managed)
+	// No user enrichment (IdP-managed)
 
 	return response, nil
 }
@@ -155,17 +155,17 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
-    // End entitlements for this subscription now
-    if s.EntitlementService != nil {
-        reason := models.EntitlementRevokeAdmin
-        if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
-            log.WithFields(log.Fields{
-                "subscription_id": subscription.ID,
-                "user_id":         subscription.UserID,
-                "error":           err.Error(),
-            }).Error("Failed to end entitlements during admin subscription operation")
-        }
-    }
+	// End entitlements for this subscription now
+	if s.EntitlementService != nil {
+		reason := models.EntitlementRevokeAdmin
+		if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+			log.WithFields(log.Fields{
+				"subscription_id": subscription.ID,
+				"user_id":         subscription.UserID,
+				"error":           err.Error(),
+			}).Error("Failed to end entitlements during admin subscription operation")
+		}
+	}
 
 	// Add notification
 	notification := &models.NotificationQueue{
@@ -209,17 +209,17 @@ func (s *AdminSubscriptionService) CancelUserSubscription(ctx context.Context, u
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
-    // End entitlements now
-    if s.EntitlementService != nil {
-        reason := models.EntitlementRevokeAdmin
-        if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
-            log.WithFields(log.Fields{
-                "subscription_id": subscription.ID,
-                "user_id":         subscription.UserID,
-                "error":           err.Error(),
-            }).Error("Failed to end entitlements during admin subscription operation")
-        }
-    }
+	// End entitlements now
+	if s.EntitlementService != nil {
+		reason := models.EntitlementRevokeAdmin
+		if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+			log.WithFields(log.Fields{
+				"subscription_id": subscription.ID,
+				"user_id":         subscription.UserID,
+				"error":           err.Error(),
+			}).Error("Failed to end entitlements during admin subscription operation")
+		}
+	}
 
 	// Add notification
 	notification := &models.NotificationQueue{
@@ -317,16 +317,18 @@ func (s *AdminSubscriptionService) CreatePrice(ctx context.Context, price *model
 
 // CreateManualRoleGrant creates a manual role grant (admin)
 func (s *AdminSubscriptionService) CreateManualRoleGrant(ctx context.Context, userID string, roleID uuid.UUID, durationDays *int) error {
-    // Deprecated: role grants. Use entitlement 'premium' instead.
-    if s.EntitlementService == nil { return nil }
-    now := time.Now()
-    var endAt *time.Time
-    if durationDays != nil && *durationDays > 0 {
-        e := now.Add(time.Duration(*durationDays) * 24 * time.Hour)
-        endAt = &e
-    }
-    _, err := s.EntitlementService.GrantWindow(ctx, userID, "premium", now, endAt, models.EntitlementSourceAdmin, nil, nil)
-    return err
+	// Deprecated: role grants. Use entitlement 'premium' instead.
+	if s.EntitlementService == nil {
+		return nil
+	}
+	now := time.Now()
+	var endAt *time.Time
+	if durationDays != nil && *durationDays > 0 {
+		e := now.Add(time.Duration(*durationDays) * 24 * time.Hour)
+		endAt = &e
+	}
+	_, err := s.EntitlementService.GrantWindow(ctx, userID, "premium", now, endAt, models.EntitlementSourceAdmin, nil, nil)
+	return err
 }
 
 // VerifyPayPalPurchase verifies a PayPal payment and grants the associated role (admin)
@@ -346,57 +348,68 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
 
 	// Create purchase record for audit trail
 	// Only grant role if product has one (handle nullable RoleID)
-    // Determine entitlements and durations
-    type grantItem struct { name string; days int }
-    var grants []grantItem
-    if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
-        for name, d := range product.EntitlementsSpec {
-            days := 0
-            if d != nil { days = *d }
-            if days <= 0 { days = 30 }
-            grants = append(grants, grantItem{name, days})
-        }
-    } else {
-        grants = append(grants, grantItem{"premium", 30})
-    }
-    // Disallow one-off if any relevant entitlement has an active indefinite window
-    if s.EntitlementService != nil {
-        for _, g := range grants {
-            exists, err := s.EntitlementService.GetDB().GetDB().NewSelect().
-                Model((*models.Entitlement)(nil)).
-                Where("user_id = ? AND entitlement = ?", userID, g.name).
-                Where("revoked_at IS NULL").
-                Where("end_at IS NULL").
-                Where("start_at <= ?", time.Now()).
-                Exists(ctx)
-            if err != nil { return fmt.Errorf("failed entitlement check: %w", err) }
-            if exists { return fmt.Errorf("one-off purchase not allowed while subscription entitlement '%s' is active", g.name) }
-        }
-    }
+	// Determine entitlements and durations
+	type grantItem struct {
+		name string
+		days int
+	}
+	var grants []grantItem
+	if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
+		for name, d := range product.EntitlementsSpec {
+			days := 0
+			if d != nil {
+				days = *d
+			}
+			if days <= 0 {
+				days = 30
+			}
+			grants = append(grants, grantItem{name, days})
+		}
+	} else {
+		grants = append(grants, grantItem{"premium", 30})
+	}
+	// Disallow one-off if any relevant entitlement has an active indefinite window
+	if s.EntitlementService != nil {
+		for _, g := range grants {
+			exists, err := s.EntitlementService.GetDB().GetDB().NewSelect().
+				Model((*models.Entitlement)(nil)).
+				Where("user_id = ? AND entitlement = ?", userID, g.name).
+				Where("revoked_at IS NULL").
+				Where("end_at IS NULL").
+				Where("start_at <= ?", time.Now()).
+				Exists(ctx)
+			if err != nil {
+				return fmt.Errorf("failed entitlement check: %w", err)
+			}
+			if exists {
+				return fmt.Errorf("one-off purchase not allowed while subscription entitlement '%s' is active", g.name)
+			}
+		}
+	}
 
-    // Create purchase record (no role-grant linkage)
-    purchase := &models.Payment{
-        ID:            uuid.New(),
-        UserID:        userID,
-        PriceID:       priceID,
-        Processor:     models.ProcessorPayPal,
-        TransactionID: paypalTransactionID,
-        Amount:        price.Amount,
-        Currency:      price.Currency,
-        PurchasedAt:   time.Now(),
-        CreatedAt:     time.Now(),
-    }
-    if err := s.PaymentService.Create(ctx, purchase); err != nil {
-        return fmt.Errorf("failed to create purchase record: %w", err)
-    }
-    // Grant entitlements by appending to avoid overlap
-    if s.EntitlementService != nil {
-        for _, g := range grants {
-            if _, err := s.EntitlementService.AppendEntitlementDays(ctx, userID, g.name, g.days, models.EntitlementSourceOneOff, nil, &purchase.ID); err != nil {
-                return fmt.Errorf("failed to grant entitlement %s: %w", g.name, err)
-            }
-        }
-    }
+	// Create purchase record (no role-grant linkage)
+	purchase := &models.Payment{
+		ID:            uuid.New(),
+		UserID:        userID,
+		PriceID:       priceID,
+		Processor:     models.ProcessorPayPal,
+		TransactionID: paypalTransactionID,
+		Amount:        price.Amount,
+		Currency:      price.Currency,
+		PurchasedAt:   time.Now(),
+		CreatedAt:     time.Now(),
+	}
+	if err := s.PaymentService.Create(ctx, purchase); err != nil {
+		return fmt.Errorf("failed to create purchase record: %w", err)
+	}
+	// Grant entitlements by appending to avoid overlap
+	if s.EntitlementService != nil {
+		for _, g := range grants {
+			if _, err := s.EntitlementService.AppendEntitlementDays(ctx, userID, g.name, g.days, models.EntitlementSourceOneOff, nil, &purchase.ID); err != nil {
+				return fmt.Errorf("failed to grant entitlement %s: %w", g.name, err)
+			}
+		}
+	}
 
 	return nil
 }

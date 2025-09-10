@@ -212,11 +212,11 @@ func (s *EmailService) SendPaymentFailed(ctx context.Context, data SubscriptionE
 
 // SendEntitlementExpiration sends notification when an entitlement is expiring soon
 func (s *EmailService) SendEntitlementExpiration(ctx context.Context, userEmail, username, entitlementName string, expiresAt time.Time) error {
-    subject := fmt.Sprintf("Your %s access expires soon", entitlementName)
+	subject := fmt.Sprintf("Your %s access expires soon", entitlementName)
 
 	daysUntilExpiry := int(time.Until(expiresAt).Hours() / 24)
 
-    htmlContent := fmt.Sprintf(`
+	htmlContent := fmt.Sprintf(`
 		<h2>Access Expiring Soon</h2>
 		<p>Hi %s,</p>
 		<p>This is a reminder that your <strong>%s</strong> access will expire in %d days on <strong>%s</strong>.</p>
@@ -226,7 +226,7 @@ func (s *EmailService) SendEntitlementExpiration(ctx context.Context, userEmail,
 		<p>The Doujins Team</p>
     `, username, entitlementName, daysUntilExpiry, expiresAt.Format("January 2, 2006"))
 
-    plainContent := fmt.Sprintf(`
+	plainContent := fmt.Sprintf(`
 		Access Expiring Soon
 		
 		Hi %s,

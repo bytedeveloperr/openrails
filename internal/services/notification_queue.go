@@ -16,9 +16,9 @@ type NotificationQueueService struct {
 }
 
 type GetNotificationsFilters struct {
-    UserID    string    `form:"user_id"`
-    EventType string    `form:"event_type"`
-    Seen      *bool     `form:"seen"`
+	UserID    string `form:"user_id"`
+	EventType string `form:"event_type"`
+	Seen      *bool  `form:"seen"`
 }
 
 func NewNotificationQueueService(db *db.DB) *NotificationQueueService {
@@ -102,7 +102,7 @@ func (r *NotificationQueueService) CountByUserAndEventSince(ctx context.Context,
 
 // GetUsersWithPendingDigest returns distinct user IDs with pending digest items since a timestamp
 func (r *NotificationQueueService) GetUsersWithPendingDigest(ctx context.Context, since time.Time) ([]string, error) {
-    var userIDs []string
+	var userIDs []string
 	err := r.db.GetDB().NewSelect().
 		TableExpr("notification_queue").
 		ColumnExpr("DISTINCT user_id").
@@ -199,9 +199,9 @@ func (r *NotificationQueueService) GetNotifications(ctx context.Context, queryOp
 	// Note: User relationship is not preloaded - fetch separately if needed using UserService.GetFullUser
 
 	// Apply filters
-    if queryOpts.Filters.UserID != "" {
-        q = q.Where("notification_queue.user_id = ?", queryOpts.Filters.UserID)
-    }
+	if queryOpts.Filters.UserID != "" {
+		q = q.Where("notification_queue.user_id = ?", queryOpts.Filters.UserID)
+	}
 	if queryOpts.Filters.EventType != "" {
 		q = q.Where("notification_queue.event_type = ?", queryOpts.Filters.EventType)
 	}

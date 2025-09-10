@@ -8,13 +8,12 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
-    "github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
-    
 )
 
 type SubscribeData struct {
@@ -32,19 +31,19 @@ type SubscribeData struct {
 }
 
 type GetSubscriptionsFilters struct {
-    UserID    string    `form:"user_id"`
-    Status    string    `form:"status"`
-    PriceID   uuid.UUID `form:"price_id"`
-    Processor string    `form:"processor"`
+	UserID    string    `form:"user_id"`
+	Status    string    `form:"status"`
+	PriceID   uuid.UUID `form:"price_id"`
+	Processor string    `form:"processor"`
 }
 
 type SubscriptionService struct {
-    DB                       *db.DB
-    PriceService             *PriceService
-    ProductService           *ProductService
-    NotificationQueueService *NotificationQueueService
-    CCBillRESTClient         *ccbill.RESTClient
-    MobiusClient             *mobius.MobiusClient
+	DB                       *db.DB
+	PriceService             *PriceService
+	ProductService           *ProductService
+	NotificationQueueService *NotificationQueueService
+	CCBillRESTClient         *ccbill.RESTClient
+	MobiusClient             *mobius.MobiusClient
 }
 
 type PaymentProcessor = int
@@ -163,7 +162,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 
 // GetUserSubscription retrieves the current subscription for a user
 func (s *SubscriptionService) GetUserSubscription(ctx context.Context, userID string) (*models.Subscription, error) {
-    return s.GetByUserID(ctx, userID)
+	return s.GetByUserID(ctx, userID)
 }
 
 // CancelUserSubscription cancels a user's subscription
@@ -190,14 +189,14 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
-        // Entitlements are managed in lifecycle and user flows
+	// Entitlements are managed in lifecycle and user flows
 
 	// Add notification
-    notification := &models.NotificationQueue{
-        ID:        uuid.New(),
-        UserID:    userID,
-        EventType: models.NotificationPremiumEnded,
-    }
+	notification := &models.NotificationQueue{
+		ID:        uuid.New(),
+		UserID:    userID,
+		EventType: models.NotificationPremiumEnded,
+	}
 	if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
 		log.WithError(err).Error("failed to create cancellation notification")
 	}
@@ -264,8 +263,8 @@ func (s *SubscriptionService) GetByID(ctx context.Context, id uuid.UUID) (*model
 }
 
 func (s *SubscriptionService) GetByUserID(ctx context.Context, id string) (*models.Subscription, error) {
-    var subscription models.Subscription
-    err := s.DB.GetDB().NewSelect().Model(&subscription).Relation("Price").Where("user_id = ?", id).Scan(ctx)
+	var subscription models.Subscription
+	err := s.DB.GetDB().NewSelect().Model(&subscription).Relation("Price").Where("user_id = ?", id).Scan(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -352,18 +351,18 @@ func (s *SubscriptionService) GetPaginatedByUserID(ctx context.Context, userID s
 
 	offset := (page - 1) * pageSize
 
-    count, err := s.DB.GetDB().NewSelect().
-        Model(&models.Subscription{}).
-        Where("user_id = ?", userID).
-        Count(ctx)
+	count, err := s.DB.GetDB().NewSelect().
+		Model(&models.Subscription{}).
+		Where("user_id = ?", userID).
+		Count(ctx)
 
 	if err != nil {
 		return nil, 0, err
 	}
 
-    query := s.DB.GetDB().NewSelect().
-        Model(&subscriptions).
-        Where("user_id = ?", userID).
+	query := s.DB.GetDB().NewSelect().
+		Model(&subscriptions).
+		Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Limit(pageSize).
 		Offset(offset)
@@ -383,18 +382,18 @@ func (s *SubscriptionService) GetSubscriptionsWithDetailsForUser(ctx context.Con
 	offset := (page - 1) * pageSize
 
 	// Get count
-    count, err := s.DB.GetDB().NewSelect().
-        Model(&models.Subscription{}).
-        Where("user_id = ?", userID).
-        Count(ctx)
+	count, err := s.DB.GetDB().NewSelect().
+		Model(&models.Subscription{}).
+		Where("user_id = ?", userID).
+		Count(ctx)
 
 	if err != nil {
 		return nil, 0, err
 	}
 
 	// Get subscriptions with related data
-    query := s.DB.GetDB().NewSelect().
-        Model(&subscriptions).
+	query := s.DB.GetDB().NewSelect().
+		Model(&subscriptions).
 		Relation("Price").
 		Relation("PaymentMethod").
 		Where("user_id = ?", userID).

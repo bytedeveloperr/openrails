@@ -9,12 +9,12 @@ import (
 )
 
 func Subscribe(r *Request) {
-    req := new(SubscribeRequest)
-    if err := r.Bind(req); err != nil {
-        log.WithError(err).Error("Failed to bind subscribe request")
-        r.ErrorJSON(http.StatusBadRequest, "Invalid request")
-        return
-    }
+	req := new(SubscribeRequest)
+	if err := r.Bind(req); err != nil {
+		log.WithError(err).Error("Failed to bind subscribe request")
+		r.ErrorJSON(http.StatusBadRequest, "Invalid request")
+		return
+	}
 
 	userCtx := middleware.GetUserContext(r.GinCtx)
 	if userCtx.User == nil {
@@ -50,7 +50,7 @@ func Subscribe(r *Request) {
 	// 	return
 	// }
 
-    res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.Data, userCtx.User)
+	res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.Data, userCtx.User)
 	if err != nil {
 		log.WithError(err).Error("failed to subscribe")
 		r.ErrorJSON(500, "Internal server error")

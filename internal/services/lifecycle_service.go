@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-    "github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 
-    "github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
@@ -16,12 +16,12 @@ import (
 // SubscriptionLifecycleService handles the complete lifecycle of subscriptions
 // including membership creation, renewal, cancellation, and expiration
 type SubscriptionLifecycleService struct {
-    DB                       *db.DB
-    SubscriptionService      *SubscriptionService
-    ProductService           *ProductService
-    PriceService             *PriceService
-    EntitlementService       *EntitlementService
-    NotificationQueueService *NotificationQueueService
+	DB                       *db.DB
+	SubscriptionService      *SubscriptionService
+	ProductService           *ProductService
+	PriceService             *PriceService
+	EntitlementService       *EntitlementService
+	NotificationQueueService *NotificationQueueService
 }
 
 // CreateMembership creates a new subscription and grants associated roles
@@ -30,15 +30,15 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 
 	err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		dbb := db.NewWithTx(tx)
-        subService := NewSubscriptionService(dbb)
-        entitlementService := NewEntitlementService(dbb)
-        notificationService := NewNotificationQueueService(dbb)
+		subService := NewSubscriptionService(dbb)
+		entitlementService := NewEntitlementService(dbb)
+		notificationService := NewNotificationQueueService(dbb)
 
-        // Get price information
-        price, err := s.PriceService.GetByID(ctx, params.PriceID)
-        if err != nil {
-            return fmt.Errorf("failed to get price: %w", err)
-        }
+		// Get price information
+		price, err := s.PriceService.GetByID(ctx, params.PriceID)
+		if err != nil {
+			return fmt.Errorf("failed to get price: %w", err)
+		}
 
 		// Check for existing active subscription
 		existingSub, err := subService.GetByUserID(ctx, params.UserID)
@@ -103,56 +103,56 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 			}
 		}
 
-        // Ensure subscription entitlements based on product EntitlementsSpec
-        if entitlementService != nil {
-            // Load product
-            product, err := s.ProductService.GetByID(ctx, price.ProductID)
-            if err != nil {
-                return fmt.Errorf("failed to get product: %w", err)
-            }
-            // Build list of entitlement names
-            entNames := make([]string, 0, 4)
-            if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
-                for name := range product.EntitlementsSpec {
-                    entNames = append(entNames, name)
-                }
-            } else {
-                entNames = append(entNames, "premium")
-            }
-            // For each entitlement: create an indefinite window starting at period start,
-            // aligned to end of any currently active finite window to avoid overlap.
-            now := time.Now()
-            for _, ent := range entNames {
-                // Skip if this subscription already created this entitlement
-                exists, _ := entitlementService.GetDB().GetDB().NewSelect().
-                    Model((*models.Entitlement)(nil)).
-                    Where("subscription_id = ? AND entitlement = ? AND revoked_at IS NULL", subscription.ID, ent).
-                    Exists(ctx)
-                if exists {
-                    continue
-                }
-                start := periodStartsAt
-                var finite models.Entitlement
-                _ = entitlementService.GetDB().GetDB().NewSelect().Model(&finite).
-                    Where("user_id = ? AND entitlement = ?", params.UserID, ent).
-                    Where("revoked_at IS NULL").
-                    Where("end_at IS NOT NULL").
-                    Where("start_at <= ?", now).
-                    Where("end_at > ?", now).
-                    Order("end_at DESC").
-                    Limit(1).
-                    Scan(ctx)
-                if finite.ID != uuid.Nil && finite.EndAt != nil {
-                    start = *finite.EndAt
-                }
-                _, _ = entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
-            }
-        }
+		// Ensure subscription entitlements based on product EntitlementsSpec
+		if entitlementService != nil {
+			// Load product
+			product, err := s.ProductService.GetByID(ctx, price.ProductID)
+			if err != nil {
+				return fmt.Errorf("failed to get product: %w", err)
+			}
+			// Build list of entitlement names
+			entNames := make([]string, 0, 4)
+			if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
+				for name := range product.EntitlementsSpec {
+					entNames = append(entNames, name)
+				}
+			} else {
+				entNames = append(entNames, "premium")
+			}
+			// For each entitlement: create an indefinite window starting at period start,
+			// aligned to end of any currently active finite window to avoid overlap.
+			now := time.Now()
+			for _, ent := range entNames {
+				// Skip if this subscription already created this entitlement
+				exists, _ := entitlementService.GetDB().GetDB().NewSelect().
+					Model((*models.Entitlement)(nil)).
+					Where("subscription_id = ? AND entitlement = ? AND revoked_at IS NULL", subscription.ID, ent).
+					Exists(ctx)
+				if exists {
+					continue
+				}
+				start := periodStartsAt
+				var finite models.Entitlement
+				_ = entitlementService.GetDB().GetDB().NewSelect().Model(&finite).
+					Where("user_id = ? AND entitlement = ?", params.UserID, ent).
+					Where("revoked_at IS NULL").
+					Where("end_at IS NOT NULL").
+					Where("start_at <= ?", now).
+					Where("end_at > ?", now).
+					Order("end_at DESC").
+					Limit(1).
+					Scan(ctx)
+				if finite.ID != uuid.Nil && finite.EndAt != nil {
+					start = *finite.EndAt
+				}
+				_, _ = entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
+			}
+		}
 
 		// Add notification
-    notification := &models.NotificationQueue{
-        ID:        uuid.New(),
-        UserID:    params.UserID,
+		notification := &models.NotificationQueue{
+			ID:        uuid.New(),
+			UserID:    params.UserID,
 			EventType: models.NotificationPremiumStarted,
 		}
 		if err := notificationService.Create(ctx, notification); err != nil {
@@ -171,11 +171,11 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 
 // RenewMembership renews an existing subscription and extends the membership
 func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, params *RenewMembershipParams) error {
-    return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-        db := db.NewWithTx(tx)
-        subService := NewSubscriptionService(db)
-        // no entitlement creation on renewal; open window remains
-        notificationService := NewNotificationQueueService(db)
+	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		db := db.NewWithTx(tx)
+		subService := NewSubscriptionService(db)
+		// no entitlement creation on renewal; open window remains
+		notificationService := NewNotificationQueueService(db)
 
 		// Find subscription
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), params.ProcessorSubscriptionID)
@@ -189,7 +189,7 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 			return fmt.Errorf("failed to get price: %w", err)
 		}
 
-        _ = price // already used below
+		_ = price // already used below
 
 		// Calculate new billing period
 		var periodStartsAt, periodEndsAt time.Time
@@ -216,7 +216,7 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
-        // On renewal: no new subscription entitlement needed; the open window remains.
+		// On renewal: no new subscription entitlement needed; the open window remains.
 
 		// Add notification
 		notification := &models.NotificationQueue{
@@ -234,11 +234,11 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 
 // CancelMembership cancels a subscription and revokes associated roles
 func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, params *CancelMembershipParams) error {
-    return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-        db := db.NewWithTx(tx)
-        subService := NewSubscriptionService(db)
-        entSvc := NewEntitlementService(db)
-        notificationService := NewNotificationQueueService(db)
+	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		db := db.NewWithTx(tx)
+		subService := NewSubscriptionService(db)
+		entSvc := NewEntitlementService(db)
+		notificationService := NewNotificationQueueService(db)
 
 		// Find subscription
 		var subscription *models.Subscription
@@ -280,19 +280,19 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
-        // End entitlements at correct boundary: immediate or at period end
-        if params.ImmediateCancellation || (subscription.CurrentPeriodEndsAt != nil && subscription.CurrentPeriodEndsAt.Before(now)) {
-            if entSvc != nil {
-                endAt := now
-                if !params.ImmediateCancellation && subscription.CurrentPeriodEndsAt != nil {
-                    endAt = *subscription.CurrentPeriodEndsAt
-                }
-                reason := models.EntitlementRevokeAdmin
-                if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, endAt, &reason); err != nil {
-                    log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for cancelled subscription")
-                }
-            }
-        }
+		// End entitlements at correct boundary: immediate or at period end
+		if params.ImmediateCancellation || (subscription.CurrentPeriodEndsAt != nil && subscription.CurrentPeriodEndsAt.Before(now)) {
+			if entSvc != nil {
+				endAt := now
+				if !params.ImmediateCancellation && subscription.CurrentPeriodEndsAt != nil {
+					endAt = *subscription.CurrentPeriodEndsAt
+				}
+				reason := models.EntitlementRevokeAdmin
+				if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, endAt, &reason); err != nil {
+					log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for cancelled subscription")
+				}
+			}
+		}
 
 		// Add notification
 		notification := &models.NotificationQueue{
@@ -310,11 +310,11 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 
 // ExpireMembership expires a subscription and revokes associated roles
 func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, subscriptionID uuid.UUID) error {
-    return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-        db := db.NewWithTx(tx)
-        subService := NewSubscriptionService(db)
-        entSvc := NewEntitlementService(db)
-        notificationService := NewNotificationQueueService(db)
+	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		db := db.NewWithTx(tx)
+		subService := NewSubscriptionService(db)
+		entSvc := NewEntitlementService(db)
+		notificationService := NewNotificationQueueService(db)
 
 		subscription, err := subService.GetByID(ctx, subscriptionID)
 		if err != nil {
@@ -330,13 +330,13 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
-        // Revoke entitlements
-        if entSvc != nil {
-            reason := models.EntitlementRevokeAdmin
-            if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
-                log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for expired subscription")
-            }
-        }
+		// Revoke entitlements
+		if entSvc != nil {
+			reason := models.EntitlementRevokeAdmin
+			if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+				log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for expired subscription")
+			}
+		}
 
 		// Add notification
 		notification := &models.NotificationQueue{
@@ -354,11 +354,11 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 
 // FailMembership marks a subscription as failed due to payment issues
 func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, params *FailMembershipParams) error {
-    return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-        db := db.NewWithTx(tx)
-        subService := NewSubscriptionService(db)
-        entSvc := NewEntitlementService(db)
-        notificationService := NewNotificationQueueService(db)
+	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		db := db.NewWithTx(tx)
+		subService := NewSubscriptionService(db)
+		entSvc := NewEntitlementService(db)
+		notificationService := NewNotificationQueueService(db)
 
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), params.ProcessorSubscriptionID)
 		if err != nil {
@@ -401,15 +401,15 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
-        // Revoke entitlements if subscription is cancelled (after max retries)
-        if subscription.Status == models.StatusCancelled {
-            if entSvc != nil {
-                reason := models.EntitlementRevokeAdmin
-                if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
-                    log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for failed subscription")
-                }
-            }
-        }
+		// Revoke entitlements if subscription is cancelled (after max retries)
+		if subscription.Status == models.StatusCancelled {
+			if entSvc != nil {
+				reason := models.EntitlementRevokeAdmin
+				if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+					log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for failed subscription")
+				}
+			}
+		}
 
 		// Add notification
 		eventType := models.NotificationPaymentMethodFailed
@@ -435,10 +435,10 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 // Parameter structs for lifecycle operations
 
 type CreateMembershipParams struct {
-    UserID                  string
-    PriceID                 uuid.UUID
-    Processor               models.Processor
-    ProcessorSubscriptionID *string
+	UserID                  string
+	PriceID                 uuid.UUID
+	Processor               models.Processor
+	ProcessorSubscriptionID *string
 }
 
 type RenewMembershipParams struct {

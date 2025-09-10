@@ -11,8 +11,8 @@ import (
 type BillingEvent struct {
 	bun.BaseModel `bun:"table:billing_events"`
 
-    ID     uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
-    UserID *string   `bun:"" json:"user_id,omitempty"`
+	ID     uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
+	UserID *string   `bun:"" json:"user_id,omitempty"`
 
 	// Event classification
 	EventType string `bun:",notnull" json:"event_type"` // subscription_created, payment_processed, etc.
@@ -147,8 +147,8 @@ type WebhookEvent struct {
 	ErrorMessage     *string                `bun:"" json:"error_message,omitempty"`
 
 	// Reference to related entities
-    SubscriptionID *uuid.UUID `bun:",type:uuid" json:"subscription_id,omitempty"`
-    UserID         *string    `bun:"" json:"user_id,omitempty"`
+	SubscriptionID *uuid.UUID `bun:",type:uuid" json:"subscription_id,omitempty"`
+	UserID         *string    `bun:"" json:"user_id,omitempty"`
 
 	// Retry tracking
 	ProcessingAttempts int        `bun:",default:0" json:"processing_attempts"`
@@ -164,8 +164,8 @@ type WebhookEvent struct {
 type SolanaTransaction struct {
 	bun.BaseModel `bun:",table:solana_transactions"`
 
-    ID     uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
-    UserID *string   `bun:"" json:"user_id,omitempty"`
+	ID     uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
+	UserID *string   `bun:"" json:"user_id,omitempty"`
 
 	// Transaction details
 	Signature *string `bun:"" json:"signature,omitempty"` // Solana transaction signature

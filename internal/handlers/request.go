@@ -6,22 +6,22 @@ import (
 	"net/http"
 	"strings"
 
-    "github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin"
 
-    "github.com/doujins-org/doujins-billing/internal/state"
-    "github.com/doujins-org/doujins-billing/internal/services"
-    "github.com/doujins-org/doujins-billing/pkg/message"
+	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/internal/state"
+	"github.com/doujins-org/doujins-billing/pkg/message"
 )
 
 type Request struct {
 	State   *state.State
-	GinCtx     *gin.Context
+	GinCtx  *gin.Context
 	Request *http.Request
 }
 
 func NewRequest(ctx *gin.Context, state *state.State) *Request {
 	return &Request{
-		GinCtx:     ctx,
+		GinCtx:  ctx,
 		State:   state,
 		Request: ctx.Request,
 	}
@@ -78,14 +78,14 @@ func (r *Request) Set(key string, value any) {
 }
 
 func (r *Request) GetUser() *services.UserIdentity {
-    user, ok := r.Get("user")
-    if !ok {
-        return nil
-    }
-    if ui, ok := user.(*services.UserIdentity); ok {
-        return ui
-    }
-    return nil
+	user, ok := r.Get("user")
+	if !ok {
+		return nil
+	}
+	if ui, ok := user.(*services.UserIdentity); ok {
+		return ui
+	}
+	return nil
 }
 
 func (r *Request) GetClientIP() string {

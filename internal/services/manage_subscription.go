@@ -1,18 +1,18 @@
 package services
 
 import (
-    "context"
-    "errors"
-    "time"
+	"context"
+	"errors"
+	"time"
 
-    "github.com/doujins-org/doujins-billing/internal/db/models"
-    "github.com/google/uuid"
-    log "github.com/sirupsen/logrus"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 )
 
 type ManageSubscriptionService struct {
-    SubscriptionService      *SubscriptionService
-    NotificationQueueService *NotificationQueueService
+	SubscriptionService      *SubscriptionService
+	NotificationQueueService *NotificationQueueService
 }
 
 type UpdateSubscriptionStatusParams struct {
@@ -30,10 +30,10 @@ type ExtendSubscriptionParams struct {
 }
 
 func NewManageSubscriptionService(subscriptionService *SubscriptionService, notificationQueueService *NotificationQueueService) *ManageSubscriptionService {
-    return &ManageSubscriptionService{
-        SubscriptionService:      subscriptionService,
-        NotificationQueueService: notificationQueueService,
-    }
+	return &ManageSubscriptionService{
+		SubscriptionService:      subscriptionService,
+		NotificationQueueService: notificationQueueService,
+	}
 }
 
 func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *UpdateSubscriptionStatusParams) error {
@@ -71,24 +71,24 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 		return err
 	}
 
-    // Add notification based on status change
-    switch params.Status {
-    case models.StatusCancelled, models.StatusPastDue:
-        // Add notification for membership ended
-        notification := &models.NotificationQueue{
-            ID:        uuid.New(),
-            UserID:    subscription.UserID,
-            EventType: models.NotificationPremiumEnded,
-        }
-        if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
-            log.WithFields(log.Fields{
-                "subscription_id":   subscription.ID,
-                "user_id":           subscription.UserID,
-                "notification_type": notification.EventType,
-                "error":             err.Error(),
-            }).Error("Failed to create notification during subscription status update")
-        }
-    }
+	// Add notification based on status change
+	switch params.Status {
+	case models.StatusCancelled, models.StatusPastDue:
+		// Add notification for membership ended
+		notification := &models.NotificationQueue{
+			ID:        uuid.New(),
+			UserID:    subscription.UserID,
+			EventType: models.NotificationPremiumEnded,
+		}
+		if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
+			log.WithFields(log.Fields{
+				"subscription_id":   subscription.ID,
+				"user_id":           subscription.UserID,
+				"notification_type": notification.EventType,
+				"error":             err.Error(),
+			}).Error("Failed to create notification during subscription status update")
+		}
+	}
 
 	// Note: Subscription events will be logged to ClickHouse event system in Wave 19
 	// This replaces the deprecated SubscriptionEvent table approach

@@ -10,7 +10,7 @@ import (
 type IdempotencyService struct{}
 
 func NewIdempotencyService(db *db.DB) *IdempotencyService {
-    return &IdempotencyService{}
+	return &IdempotencyService{}
 }
 
 // GenerateForChargeSuccess generates key for successful charge

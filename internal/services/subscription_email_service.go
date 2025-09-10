@@ -1,36 +1,36 @@
 package services
 
 import (
-    "context"
-    "fmt"
-    "log"
-    "time"
+	"context"
+	"fmt"
+	"log"
+	"time"
 
-    "github.com/google/uuid"
+	"github.com/google/uuid"
 )
 
 // SubscriptionEmailService handles subscription-related email notifications
 // This service is called directly by other services when subscription events occur
 type SubscriptionEmailService struct {
-    emailService        *EmailService
-    subscriptionService *SubscriptionService
-    productService      *ProductService
-    priceService        *PriceService
+	emailService        *EmailService
+	subscriptionService *SubscriptionService
+	productService      *ProductService
+	priceService        *PriceService
 }
 
 // NewSubscriptionEmailService creates a new subscription email service
 func NewSubscriptionEmailService(
-    emailService *EmailService,
-    subscriptionService *SubscriptionService,
-    productService *ProductService,
-    priceService *PriceService,
+	emailService *EmailService,
+	subscriptionService *SubscriptionService,
+	productService *ProductService,
+	priceService *PriceService,
 ) *SubscriptionEmailService {
-    return &SubscriptionEmailService{
-        emailService:        emailService,
-        subscriptionService: subscriptionService,
-        productService:      productService,
-        priceService:        priceService,
-    }
+	return &SubscriptionEmailService{
+		emailService:        emailService,
+		subscriptionService: subscriptionService,
+		productService:      productService,
+		priceService:        priceService,
+	}
 }
 
 // SendSubscriptionConfirmed sends a subscription confirmation email
@@ -72,7 +72,7 @@ func (s *SubscriptionEmailService) SendSubscriptionCancelled(ctx context.Context
 
 	// For cancelled subscriptions, we might not have active subscription data
 	// so we accept the subscription details as parameters
-    username, email, err := s.getUserEmail(ctx, userID)
+	username, email, err := s.getUserEmail(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get user profile: %w", err)
 	}
@@ -83,9 +83,9 @@ func (s *SubscriptionEmailService) SendSubscriptionCancelled(ctx context.Context
 		amountFloat = 0 // Default if parsing fails
 	}
 
-    emailData := SubscriptionEmailData{
-        UserEmail:      email,
-        Username:       username,
+	emailData := SubscriptionEmailData{
+		UserEmail:      email,
+		Username:       username,
 		SubscriptionID: uuid.Nil, // We don't have the subscription ID in this context
 		Amount:         amountFloat,
 		Currency:       "USD", // Default for cancellation emails without price context
@@ -116,21 +116,21 @@ func (s *SubscriptionEmailService) SendPaymentFailed(ctx context.Context, userID
 // SendEntitlementExpired sends an entitlement expiration email
 func (s *SubscriptionEmailService) SendEntitlementExpired(ctx context.Context, userID string, entitlementName string, expiresAt time.Time) error {
 	if s.emailService == nil || !s.emailService.IsEnabled() {
-    log.Println("Email service not available - skipping entitlement expiration email")
+		log.Println("Email service not available - skipping entitlement expiration email")
 		return nil
 	}
 
-    username, email, err := s.getUserEmail(ctx, userID)
+	username, email, err := s.getUserEmail(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("failed to get user profile: %w", err)
 	}
 
-    return s.emailService.SendEntitlementExpiration(ctx, email, username, entitlementName, expiresAt)
+	return s.emailService.SendEntitlementExpiration(ctx, email, username, entitlementName, expiresAt)
 }
 
 // getEmailData fetches subscription data for email notifications
 func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID string) (*SubscriptionEmailData, error) {
-    username, email, err := s.getUserEmail(ctx, userID)
+	username, email, err := s.getUserEmail(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -162,9 +162,9 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 		}
 	}
 
-    return &SubscriptionEmailData{
-        UserEmail:      email,
-        Username:       username,
+	return &SubscriptionEmailData{
+		UserEmail:      email,
+		Username:       username,
 		SubscriptionID: subscription.ID,
 		Amount:         price.Amount,
 		Currency:       price.Currency,
@@ -177,6 +177,6 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 
 // getUserProfile gets user profile and validates email exists
 func (s *SubscriptionEmailService) getUserEmail(ctx context.Context, userID string) (username string, email string, err error) {
-    // No user directory: we cannot fetch email post hoc. Signal no email.
-    return "", "", fmt.Errorf("email unavailable for user %s", userID)
+	// No user directory: we cannot fetch email post hoc. Signal no email.
+	return "", "", fmt.Errorf("email unavailable for user %s", userID)
 }

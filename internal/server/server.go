@@ -207,12 +207,12 @@ func (s *Server) setupPublicRoutes() {
 			return
 		}
 		// Redis check (optional but recommended)
-        if s.state != nil && s.state.RedisClient != nil {
-            if _, err := s.state.RedisClient.Ping(ctx).Result(); err != nil {
-                c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "redis": "down"})
-                return
-            }
-        }
+		if s.state != nil && s.state.RedisClient != nil {
+			if _, err := s.state.RedisClient.Ping(ctx).Result(); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "redis": "down"})
+				return
+			}
+		}
 		// ClickHouse: optional; readiness does not require it.
 		c.JSON(http.StatusOK, gin.H{"status": "ready"})
 	})

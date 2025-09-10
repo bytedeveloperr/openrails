@@ -86,7 +86,7 @@ type GetProductsRequest struct {
 // -------------------------------- GetSubscribePageData Request --------------------------------
 
 type GetSubscribePageDataRequest struct {
-    BaseRequest
+	BaseRequest
 }
 
 // -------------------------------- CancelSubscription Request --------------------------------
@@ -101,7 +101,7 @@ type CancelSubscriptionRequest struct {
 }
 
 func (r *CancelSubscriptionRequest) Body() any {
-    return &r.CancelSubscriptionBodyParams
+	return &r.CancelSubscriptionBodyParams
 }
 
 // -------------------------------- GenerateFlexFormURL Request --------------------------------
@@ -123,103 +123,103 @@ type GenerateFlexFormURLRequest struct {
 }
 
 func (r *GenerateFlexFormURLRequest) Body() any {
-    return &r.GenerateFlexFormURLBodyParams
+	return &r.GenerateFlexFormURLBodyParams
 }
 
 // -------------------------------- Solana Generate Payment Request --------------------------------
 
 type GeneratePaymentBodyParams struct {
-    PriceID     string `json:"price_id" validate:"required,uuid"`
-    Token       string `json:"token" validate:"required"`      // e.g., SOL, USDC
-    UserWallet  string `json:"user_wallet" validate:"required"` // base58 address
+	PriceID    string `json:"price_id" validate:"required,uuid"`
+	Token      string `json:"token" validate:"required"`       // e.g., SOL, USDC
+	UserWallet string `json:"user_wallet" validate:"required"` // base58 address
 }
 
 type GeneratePaymentRequest struct {
-    BaseRequest
-    GeneratePaymentBodyParams
+	BaseRequest
+	GeneratePaymentBodyParams
 }
 
 func (r *GeneratePaymentRequest) Body() any {
-    return &r.GeneratePaymentBodyParams
+	return &r.GeneratePaymentBodyParams
 }
 
 // -------------------------------- Solana Submit Payment Request --------------------------------
 
 type SubmitPaymentBodyParams struct {
-    SignedTransaction string `json:"signed_transaction" validate:"required"`
-    PriceID           string `json:"price_id" validate:"required,uuid"`
+	SignedTransaction string `json:"signed_transaction" validate:"required"`
+	PriceID           string `json:"price_id" validate:"required,uuid"`
 }
 
 type SubmitPaymentRequest struct {
-    BaseRequest
-    SubmitPaymentBodyParams
+	BaseRequest
+	SubmitPaymentBodyParams
 }
 
 func (r *SubmitPaymentRequest) Body() any {
-    return &r.SubmitPaymentBodyParams
+	return &r.SubmitPaymentBodyParams
 }
 
 // -------------------------------- Solana Generate QR Request --------------------------------
 
 type GenerateSolanaPayQRBodyParams struct {
-    PriceID    string `json:"price_id" validate:"required,uuid"`
-    Token      string `json:"token" validate:"required"`
-    UserWallet string `json:"user_wallet" validate:"required"`
+	PriceID    string `json:"price_id" validate:"required,uuid"`
+	Token      string `json:"token" validate:"required"`
+	UserWallet string `json:"user_wallet" validate:"required"`
 }
 
 type GenerateSolanaPayQRRequest struct {
-    BaseRequest
-    GenerateSolanaPayQRBodyParams
+	BaseRequest
+	GenerateSolanaPayQRBodyParams
 }
 
 func (r *GenerateSolanaPayQRRequest) Body() any {
-    return &r.GenerateSolanaPayQRBodyParams
+	return &r.GenerateSolanaPayQRBodyParams
 }
 
 // -------------------------------- Payment Methods Requests --------------------------------
 
 type ListPaymentMethodsQueryParams struct {
-    PaginationParams
-    IncludeInactive bool `form:"include_inactive"`
+	PaginationParams
+	IncludeInactive bool `form:"include_inactive"`
 }
 
 type ListPaymentMethodsRequest struct {
-    BaseRequest
-    ListPaymentMethodsQueryParams
+	BaseRequest
+	ListPaymentMethodsQueryParams
 }
 
 func (r *ListPaymentMethodsRequest) Query() any {
-    return &r.ListPaymentMethodsQueryParams
+	return &r.ListPaymentMethodsQueryParams
 }
 
 func (r *ListPaymentMethodsRequest) SetDefaults() {
-    r.SetPaginationDefaults(20)
+	r.SetPaginationDefaults(20)
 }
 
 type DeletePaymentMethodPathParams struct {
-    ID string `uri:"id" binding:"required,uuid"`
+	ID string `uri:"id" binding:"required,uuid"`
 }
 
 type DeletePaymentMethodRequest struct {
-    BaseRequest
-    DeletePaymentMethodPathParams
+	BaseRequest
+	DeletePaymentMethodPathParams
 }
 
 func (r *DeletePaymentMethodRequest) Path() any {
-    return &r.DeletePaymentMethodPathParams
+	return &r.DeletePaymentMethodPathParams
 }
 
 type ActivatePaymentMethodPathParams struct {
-    ID string `uri:"id" binding:"required,uuid"`
+	ID string `uri:"id" binding:"required,uuid"`
 }
 
 type ActivatePaymentMethodRequest struct {
-    BaseRequest
-    ActivatePaymentMethodPathParams
+	BaseRequest
+	ActivatePaymentMethodPathParams
 }
 
 func (r *ActivatePaymentMethodRequest) Path() any {
-    return &r.ActivatePaymentMethodPathParams
+	return &r.ActivatePaymentMethodPathParams
 }
 
 // -------------------------------- GetBillingHistory Request --------------------------------
@@ -251,7 +251,7 @@ func (r *GetBillingHistoryRequest) SetDefaults() {
 // -------------------------------- GetUserBillingHistory Request (Admin) --------------------------------
 
 type GetUserBillingHistoryPathParams struct {
-    UserID string `uri:"user_id" binding:"required"`
+	UserID string `uri:"user_id" binding:"required"`
 }
 
 type GetUserBillingHistoryQueryParams struct {

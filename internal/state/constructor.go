@@ -1,12 +1,12 @@
 package state
 
 import (
-    "context"
-    "fmt"
+	"context"
+	"fmt"
 
-    redis "github.com/redis/go-redis/v9"
-    log "github.com/sirupsen/logrus"
-    "github.com/uptrace/bun"
+	redis "github.com/redis/go-redis/v9"
+	log "github.com/sirupsen/logrus"
+	"github.com/uptrace/bun"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -17,15 +17,15 @@ import (
 )
 
 func NewState(cfg *config.Config) (*State, error) {
-    db, err := createDatabase(cfg)
+	db, err := createDatabase(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db: %w", err)
 	}
 
-    redisClient, err := createRedisClient(cfg)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create redis client: %w", err)
-    }
+	redisClient, err := createRedisClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create redis client: %w", err)
+	}
 
 	ccbillClient := createCCBillClient(cfg)
 	ccbillRESTClient := createCCBillRESTClient(cfg)
@@ -38,8 +38,8 @@ func NewState(cfg *config.Config) (*State, error) {
 	// Build all repositories
 	serviceInstances := createServices(db)
 
-    // Assemble State
-    state := &State{
+	// Assemble State
+	state := &State{
 		// Infrastructure
 		DB:               db,
 		RedisClient:      redisClient,
@@ -57,19 +57,19 @@ func NewState(cfg *config.Config) (*State, error) {
 		PriceService:             serviceInstances.PriceService,
 		NotificationQueueService: serviceInstances.NotificationQueueService,
 		PaymentMethodService:     serviceInstances.PaymentMethodService,
-        PaymentService:           serviceInstances.PurchaseService,
-        EntitlementService:       serviceInstances.EntitlementService,
-        SolanaWalletStore:        services.NewSolanaWalletStore(),
-    }
+		PaymentService:           serviceInstances.PurchaseService,
+		EntitlementService:       serviceInstances.EntitlementService,
+		SolanaWalletStore:        services.NewSolanaWalletStore(),
+	}
 
-    // Initialize optional analytics/event logging (ClickHouse)
-    if cfg.ClickHouse != nil {
-        if bes, err := services.NewBillingEventService(cfg.ClickHouse); err != nil {
-            log.WithError(err).Warn("BillingEventService init failed; analytics disabled")
-        } else {
-            state.BillingEventService = bes
-        }
-    }
+	// Initialize optional analytics/event logging (ClickHouse)
+	if cfg.ClickHouse != nil {
+		if bes, err := services.NewBillingEventService(cfg.ClickHouse); err != nil {
+			log.WithError(err).Warn("BillingEventService init failed; analytics disabled")
+		} else {
+			state.BillingEventService = bes
+		}
+	}
 
 	return state, nil
 }
@@ -88,26 +88,26 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 }
 
 func createRedisClient(cfg *config.Config) (*redis.Client, error) {
-    redisOpts := &redis.Options{
-        Addr: cfg.Redis.Addr,
-        DB:   cfg.Redis.DB,
-    }
-    if cfg.Redis.Password != "" && cfg.Env == config.EnvProd {
-        redisOpts.Password = cfg.Redis.Password
-        log.Info("Redis authentication enabled")
-    } else {
-        log.Info("Redis authentication disabled - connecting without credentials")
-    }
-    client := redis.NewClient(redisOpts)
-    // Test connection
-    ctx, cancel := context.WithTimeout(context.Background(), 2_000_000_000) // 2s
-    defer cancel()
-    if _, err := client.Ping(ctx).Result(); err != nil {
-        log.Warnf("Redis connection test failed: %v - rate limiting will fall back to permissive mode", err)
-    } else {
-        log.Info("Redis connection successful - rate limiting enabled")
-    }
-    return client, nil
+	redisOpts := &redis.Options{
+		Addr: cfg.Redis.Addr,
+		DB:   cfg.Redis.DB,
+	}
+	if cfg.Redis.Password != "" && cfg.Env == config.EnvProd {
+		redisOpts.Password = cfg.Redis.Password
+		log.Info("Redis authentication enabled")
+	} else {
+		log.Info("Redis authentication disabled - connecting without credentials")
+	}
+	client := redis.NewClient(redisOpts)
+	// Test connection
+	ctx, cancel := context.WithTimeout(context.Background(), 2_000_000_000) // 2s
+	defer cancel()
+	if _, err := client.Ping(ctx).Result(); err != nil {
+		log.Warnf("Redis connection test failed: %v - rate limiting will fall back to permissive mode", err)
+	} else {
+		log.Info("Redis connection successful - rate limiting enabled")
+	}
+	return client, nil
 }
 
 func createCCBillClient(cfg *config.Config) *ccbill.CCBillClient {
@@ -127,28 +127,28 @@ func createMobiusClient(cfg *config.Config) (*mobius.MobiusClient, error) {
 }
 
 type servicesInstances struct {
-    SubscriptionService *services.SubscriptionService
-    UserService         *services.UserService
+	SubscriptionService *services.SubscriptionService
+	UserService         *services.UserService
 
-    ProductService           *services.ProductService
-    PriceService             *services.PriceService
-    NotificationQueueService *services.NotificationQueueService
-    PaymentMethodService     *services.PaymentMethodService
-    PurchaseService          *services.PaymentService
-    EntitlementService       *services.EntitlementService
+	ProductService           *services.ProductService
+	PriceService             *services.PriceService
+	NotificationQueueService *services.NotificationQueueService
+	PaymentMethodService     *services.PaymentMethodService
+	PurchaseService          *services.PaymentService
+	EntitlementService       *services.EntitlementService
 }
 
 func createServices(db *db.DB) *servicesInstances {
-    return &servicesInstances{
-        SubscriptionService: services.NewSubscriptionService(db),
-        UserService:         services.NewUserService(db),
+	return &servicesInstances{
+		SubscriptionService: services.NewSubscriptionService(db),
+		UserService:         services.NewUserService(db),
 
-        // Wave 18 repositories
-        ProductService:           services.NewProductService(db),
-        PriceService:             services.NewPriceService(db),
-        NotificationQueueService: services.NewNotificationQueueService(db),
-        PaymentMethodService:     services.NewPaymentMethodService(db),
-        PurchaseService:          services.NewPaymentService(db),
-        EntitlementService:       services.NewEntitlementService(db),
-    }
+		// Wave 18 repositories
+		ProductService:           services.NewProductService(db),
+		PriceService:             services.NewPriceService(db),
+		NotificationQueueService: services.NewNotificationQueueService(db),
+		PaymentMethodService:     services.NewPaymentMethodService(db),
+		PurchaseService:          services.NewPaymentService(db),
+		EntitlementService:       services.NewEntitlementService(db),
+	}
 }

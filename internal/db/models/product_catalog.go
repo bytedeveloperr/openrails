@@ -17,15 +17,15 @@ type Product struct {
 	DisplayName string    `bun:"display_name,notnull" json:"display_name"`
 	Description string    `bun:"description,nullzero" json:"description"`
 
-    // Entitlements configuration: map entitlement name -> duration days (nil or 0 means indefinite)
-    EntitlementsSpec map[string]*int `bun:"entitlements_spec,type:jsonb,nullzero" json:"entitlements_spec,omitempty"`
+	// Entitlements configuration: map entitlement name -> duration days (nil or 0 means indefinite)
+	EntitlementsSpec map[string]*int `bun:"entitlements_spec,type:jsonb,nullzero" json:"entitlements_spec,omitempty"`
 
 	IsActive  bool      `bun:"is_active,notnull,default:true" json:"is_active"`
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 
-    // Relationships
-    Prices []*Price `bun:"rel:has-many,join:id=product_id" json:"prices,omitempty"`
+	// Relationships
+	Prices []*Price `bun:"rel:has-many,join:id=product_id" json:"prices,omitempty"`
 }
 
 // Price represents a specific pricing option for a product

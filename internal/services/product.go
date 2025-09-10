@@ -48,7 +48,6 @@ func (r *ProductService) GetByID(ctx context.Context, id uuid.UUID) (*models.Pro
 	return &product, nil
 }
 
-
 func (r *ProductService) GetActive(ctx context.Context) ([]*models.Product, error) {
 	var products []*models.Product
 	err := r.db.GetDB().NewSelect().Model(&products).Where("is_active = ?", true).Scan(ctx)
@@ -96,12 +95,12 @@ func (r *ProductService) Delete(ctx context.Context, id uuid.UUID) error {
 
 // GetBySlug fetches a product by slug
 func (r *ProductService) GetBySlug(ctx context.Context, slug string) (*models.Product, error) {
-    var product models.Product
-    if err := r.db.GetDB().NewSelect().
-        Model(&product).
-        Where("slug = ?", slug).
-        Scan(ctx); err != nil {
-        return nil, err
-    }
-    return &product, nil
+	var product models.Product
+	if err := r.db.GetDB().NewSelect().
+		Model(&product).
+		Where("slug = ?", slug).
+		Scan(ctx); err != nil {
+		return nil, err
+	}
+	return &product, nil
 }

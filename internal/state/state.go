@@ -1,13 +1,13 @@
 package state
 
 import (
-    "context"
-    "fmt"
+	"context"
+	"fmt"
 
-    redis "github.com/redis/go-redis/v9"
-    "github.com/jackc/pgx/v5"
-    "github.com/riverqueue/river"
-    log "github.com/sirupsen/logrus"
+	"github.com/jackc/pgx/v5"
+	redis "github.com/redis/go-redis/v9"
+	"github.com/riverqueue/river"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -17,8 +17,8 @@ import (
 )
 
 type State struct {
-    DB               *db.DB
-    RedisClient      *redis.Client
+	DB               *db.DB
+	RedisClient      *redis.Client
 	Config           *config.Config
 	CCBillClient     *ccbill.CCBillClient
 	CCBillRESTClient *ccbill.RESTClient
@@ -35,7 +35,7 @@ type State struct {
 	// removed: WebhookEventProcessedService (replaced by idempotency store)
 
 	// Wave 18 subscription services
-    UserSubscriptionService   *services.UserSubscriptionService
+	UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService
 	AdminSubscriptionService  *services.AdminSubscriptionService
 
@@ -44,11 +44,11 @@ type State struct {
 	SubscriptionEmailService *services.SubscriptionEmailService
 
 	// Billing event tracking service
-    BillingEventService *services.BillingEventService
-    EntitlementService  *services.EntitlementService
+	BillingEventService *services.BillingEventService
+	EntitlementService  *services.EntitlementService
 
-    // Ephemeral in-memory stores (scaffolds)
-    SolanaWalletStore *services.SolanaWalletStore
+	// Ephemeral in-memory stores (scaffolds)
+	SolanaWalletStore *services.SolanaWalletStore
 }
 
 // Close gracefully shuts down all state resources
@@ -70,12 +70,12 @@ func (s *State) Close(ctx context.Context) error {
 		}
 	}
 
-    // Close billing event service
-    if s.BillingEventService != nil {
-        if err := s.BillingEventService.Close(); err != nil {
-            errs = append(errs, fmt.Errorf("failed to close billing event service: %w", err))
-        }
-    }
+	// Close billing event service
+	if s.BillingEventService != nil {
+		if err := s.BillingEventService.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close billing event service: %w", err))
+		}
+	}
 
 	// Close Redis client
 	if s.RedisClient != nil {

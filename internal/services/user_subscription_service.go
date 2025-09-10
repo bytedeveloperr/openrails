@@ -1,15 +1,15 @@
 package services
 
 import (
-    "context"
-    "errors"
-    "fmt"
-    "time"
+	"context"
+	"errors"
+	"fmt"
+	"time"
 
-    "github.com/doujins-org/doujins-billing/internal/db/models"
-    "github.com/doujins-org/doujins-billing/pkg/query"
-    "github.com/google/uuid"
-    log "github.com/sirupsen/logrus"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/pkg/query"
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 )
 
 // Sentinel errors for subscription operations
@@ -22,12 +22,12 @@ var (
 
 // UserSubscriptionService handles user-facing subscription operations
 type UserSubscriptionService struct {
-    SubscriptionService      *SubscriptionService
-    ProductService           *ProductService
-    PriceService             *PriceService
-    PaymentService           *PaymentService
-    NotificationQueueService *NotificationQueueService
-    EntitlementService       *EntitlementService
+	SubscriptionService      *SubscriptionService
+	ProductService           *ProductService
+	PriceService             *PriceService
+	PaymentService           *PaymentService
+	NotificationQueueService *NotificationQueueService
+	EntitlementService       *EntitlementService
 }
 
 // UserSubscriptionResponse represents a user's subscription with enriched data
@@ -68,9 +68,9 @@ func (s *UserSubscriptionService) GetUserSubscription(ctx context.Context, userI
 // GetUserSubscriptionHistory retrieves subscription history for a user
 func (s *UserSubscriptionService) GetUserSubscriptionHistory(ctx context.Context, userID string, queryOpts *query.QueryOptions[GetSubscriptionsFilters]) ([]*UserSubscriptionResponse, int64, error) {
 	// Set user filter
-    if queryOpts.Filters.UserID == "" {
-        queryOpts.Filters.UserID = userID
-    }
+	if queryOpts.Filters.UserID == "" {
+		queryOpts.Filters.UserID = userID
+	}
 
 	subscriptions, total, err := s.SubscriptionService.GetSubscribers(ctx, *queryOpts)
 	if err != nil {
@@ -101,9 +101,9 @@ func (s *UserSubscriptionService) GetUserSubscriptionHistory(ctx context.Context
 // GetUserPurchases retrieves one-off purchases for a user
 func (s *UserSubscriptionService) GetUserPurchases(ctx context.Context, userID string, queryOpts *query.QueryOptions[GetPaymentsFilters]) ([]*models.Payment, int64, error) {
 	// Set user filter
-    if queryOpts.Filters.UserID == "" {
-        queryOpts.Filters.UserID = userID
-    }
+	if queryOpts.Filters.UserID == "" {
+		queryOpts.Filters.UserID = userID
+	}
 
 	purchases, total, err := s.PaymentService.GetPayments(ctx, *queryOpts)
 	if err != nil {
@@ -116,9 +116,9 @@ func (s *UserSubscriptionService) GetUserPurchases(ctx context.Context, userID s
 // GetUserNotifications retrieves notifications for a user
 func (s *UserSubscriptionService) GetUserNotifications(ctx context.Context, userID string, queryOpts *query.QueryOptions[GetNotificationsFilters]) ([]*models.NotificationQueue, int64, error) {
 	// Set user filter
-    if queryOpts.Filters.UserID == "" {
-        queryOpts.Filters.UserID = userID
-    }
+	if queryOpts.Filters.UserID == "" {
+		queryOpts.Filters.UserID = userID
+	}
 
 	notifications, total, err := s.NotificationQueueService.GetNotifications(ctx, *queryOpts)
 	if err != nil {
@@ -136,9 +136,9 @@ func (s *UserSubscriptionService) MarkNotificationRead(ctx context.Context, user
 	}
 
 	// Verify the notification belongs to the user
-    if notification.UserID != userID {
-        return ErrNotificationAccessDenied
-    }
+	if notification.UserID != userID {
+		return ErrNotificationAccessDenied
+	}
 
 	notification.MarkAsSeen() // Mark as seen (new boolean field)
 	return s.NotificationQueueService.Update(ctx, notification)
@@ -168,17 +168,17 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 		return fmt.Errorf("failed to update subscription: %w", err)
 	}
 
-    // End entitlements for this subscription now
-    if s.EntitlementService != nil {
-        reason := models.EntitlementRevokeAdmin
-        if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
-            log.WithFields(log.Fields{
-                "subscription_id": subscription.ID,
-                "user_id":         userID,
-                "error":           err.Error(),
-            }).Error("Failed to end entitlements during subscription cancellation")
-        }
-    }
+	// End entitlements for this subscription now
+	if s.EntitlementService != nil {
+		reason := models.EntitlementRevokeAdmin
+		if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+			log.WithFields(log.Fields{
+				"subscription_id": subscription.ID,
+				"user_id":         userID,
+				"error":           err.Error(),
+			}).Error("Failed to end entitlements during subscription cancellation")
+		}
+	}
 
 	// Add notification
 	notification := &models.NotificationQueue{

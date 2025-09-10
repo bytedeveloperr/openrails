@@ -1,10 +1,10 @@
 package services
 
 import (
-    "fmt"
-    "time"
+	"fmt"
+	"time"
 
-    "github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 )
 
 // Subscription helper functions (moved from db model to service layer)
