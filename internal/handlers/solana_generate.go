@@ -1,9 +1,9 @@
 package handlers
 
 import (
-	"errors"
-	"fmt"
+	"context"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -30,32 +30,45 @@ func GeneratePayment(r *Request) {
 		return
 	}
 
-	// Build via service (creates pending solana_transactions row)
+	// Build via service (creates pending solana_transactions row and real transaction)
 	user := r.GetUser()
-	svc := services.NewSolanaPaymentService(r.State.DB, r.State.Config, r.State.PriceService, r.State.PaymentService)
-	amount, currency, tokenAmount, expiresAt, _, err := svc.Generate(r.Request.Context(), user.ID, priceID, req.Token, req.UserWallet)
+	ctx, cancel := context.WithTimeout(r.Request.Context(), 15*time.Second)
+	defer cancel()
+
+	// Initialize real Solana services with config
+	var rpcEndpoint, network string
+	if r.State.Config.Solana != nil {
+		rpcEndpoint = r.State.Config.Solana.RPCEndpoint
+		network = r.State.Config.Solana.Network
+	} else {
+		network = "devnet" // fallback
+	}
+	rpcService := services.NewSolanaRPCService(rpcEndpoint, network)
+	txService := services.NewSolanaTransactionService(r.State.DB, rpcService, r.State.Config, r.State.PriceService, r.State.PaymentService)
+
+	// Build real transaction
+	txResp, err := txService.BuildPaymentTransaction(ctx, user.ID, priceID, req.Token, req.UserWallet)
 	if err != nil {
-		log.WithError(err).Error("Failed to prepare solana payment")
-		if errors.Is(err, services.ErrPriceNotFound) {
-			r.ErrorJSON(http.StatusNotFound, "Price not found")
-			return
-		}
-		if errors.Is(err, services.ErrInvalidToken) {
-			r.ErrorJSON(http.StatusBadRequest, "Invalid or unsupported token")
-			return
-		}
-		r.ErrorJSON(http.StatusInternalServerError, "Failed to prepare payment")
+		log.WithError(err).Error("Failed to build solana payment transaction")
+		r.ErrorJSON(http.StatusInternalServerError, "Failed to build payment transaction")
+		return
+	}
+
+	// Simulate transaction to ensure it would succeed
+	if err := txService.SimulateTransaction(ctx, txResp.Transaction); err != nil {
+		log.WithError(err).Error("Transaction simulation failed")
+		r.ErrorJSON(http.StatusBadRequest, "Transaction simulation failed - check wallet balance and token accounts")
 		return
 	}
 
 	response := GeneratePaymentResponse{
-		Transaction:  "", // intentionally empty until on-chain builder is wired
-		Amount:       amount,
-		Currency:     currency,
-		TokenAmount:  tokenAmount,
-		TokenSymbol:  req.Token,
-		ExpiresAt:    expiresAt.Unix(),
-		Instructions: fmt.Sprintf("Please sign this transaction to pay %.2f %s using %s.", amount, currency, req.Token),
+		Transaction:  txResp.TransactionBase64,
+		Amount:       txResp.Amount,
+		Currency:     "USD", // TODO: Get from price
+		TokenAmount:  txResp.TokenAmount,
+		TokenSymbol:  txResp.TokenSymbol,
+		ExpiresAt:    txResp.ExpiresAt.Unix(),
+		Instructions: txResp.Instructions,
 	}
 
 	r.SuccessJSON(response)

@@ -173,6 +173,7 @@ func (s *Server) setupPublicRoutes() {
 	{
 		wallet.GET("", s.wrap(handlers.ListSolanaWallets))
 		wallet.POST("/connect", s.wrap(handlers.ConnectSolanaWallet))
+		wallet.POST("/challenge", s.wrap(handlers.GenerateSolanaWalletChallenge))
 		wallet.POST("/verify", s.wrap(handlers.VerifySolanaWallet))
 		wallet.DELETE("", s.wrap(handlers.DeleteSolanaWallet))
 	}

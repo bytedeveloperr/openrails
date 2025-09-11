@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -30,7 +32,10 @@ func GenerateSolanaPayQR(r *Request) {
 	}
 
 	// Get price
-	price, err := r.State.PriceService.GetByID(r.Request.Context(), priceID)
+	ctx, cancel := context.WithTimeout(r.Request.Context(), 10*time.Second)
+	defer cancel()
+	
+	price, err := r.State.PriceService.GetByID(ctx, priceID)
 	if err != nil {
 		log.WithFields(log.Fields{"price_id": priceID, "error": err.Error()}).Error("Failed to get price information")
 		r.ErrorJSON(http.StatusNotFound, "Price not found")
@@ -67,7 +72,7 @@ func GenerateSolanaPayQR(r *Request) {
 	// Create pending solana transaction (captures reference via pending ID)
 	user := r.GetUser()
 	svc := services.NewSolanaPaymentService(r.State.DB, r.State.Config, r.State.PriceService, r.State.PaymentService)
-	_, _, _, exp, pendingID, err := svc.Generate(r.Request.Context(), user.ID, price.ID, tokenSymbol, req.UserWallet)
+	_, _, _, exp, pendingID, err := svc.Generate(ctx, user.ID, price.ID, tokenSymbol, req.UserWallet)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to prepare payment")
 		return

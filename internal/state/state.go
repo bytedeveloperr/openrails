@@ -47,8 +47,8 @@ type State struct {
 	BillingEventService *services.BillingEventService
 	EntitlementService  *services.EntitlementService
 
-	// Ephemeral in-memory stores (scaffolds)
-	SolanaWalletStore *services.SolanaWalletStore
+	// Solana services
+	SolanaWalletService *services.SolanaWalletService
 }
 
 // Close gracefully shuts down all state resources

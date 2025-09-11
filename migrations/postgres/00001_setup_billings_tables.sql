@@ -386,6 +386,24 @@ CREATE INDEX IF NOT EXISTS idx_solana_tx_status ON solana_transactions(status);
 CREATE INDEX IF NOT EXISTS idx_solana_tx_created_at ON solana_transactions(created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_tx_signature ON solana_transactions(signature) WHERE signature IS NOT NULL;
 
+-- 5.3: Create solana_wallets table (user wallet linking and verification)
+CREATE TABLE IF NOT EXISTS solana_wallets (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id TEXT NOT NULL, -- OIDC subject (sub)
+    address TEXT NOT NULL, -- Base58 encoded Solana wallet address
+    is_verified BOOLEAN NOT NULL DEFAULT false,
+    verified_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    
+    -- Ensure one address per user
+    UNIQUE(user_id, address)
+);
+
+CREATE INDEX IF NOT EXISTS idx_solana_wallets_user_id ON solana_wallets(user_id);
+CREATE INDEX IF NOT EXISTS idx_solana_wallets_address ON solana_wallets(address);
+CREATE INDEX IF NOT EXISTS idx_solana_wallets_verified ON solana_wallets(is_verified) WHERE is_verified = true;
+
 -- ============================================================================
 -- SECTION 6: DATA MIGRATION FROM LEGACY TABLES
 -- ============================================================================

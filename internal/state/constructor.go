@@ -59,7 +59,7 @@ func NewState(cfg *config.Config) (*State, error) {
 		PaymentMethodService:     serviceInstances.PaymentMethodService,
 		PaymentService:           serviceInstances.PurchaseService,
 		EntitlementService:       serviceInstances.EntitlementService,
-		SolanaWalletStore:        services.NewSolanaWalletStore(),
+		SolanaWalletService:      serviceInstances.SolanaWalletService,
 	}
 
 	// Initialize optional analytics/event logging (ClickHouse)
@@ -136,6 +136,7 @@ type servicesInstances struct {
 	PaymentMethodService     *services.PaymentMethodService
 	PurchaseService          *services.PaymentService
 	EntitlementService       *services.EntitlementService
+	SolanaWalletService      *services.SolanaWalletService
 }
 
 func createServices(db *db.DB) *servicesInstances {
@@ -150,5 +151,6 @@ func createServices(db *db.DB) *servicesInstances {
 		PaymentMethodService:     services.NewPaymentMethodService(db),
 		PurchaseService:          services.NewPaymentService(db),
 		EntitlementService:       services.NewEntitlementService(db),
+		SolanaWalletService:      services.NewSolanaWalletService(db),
 	}
 }
