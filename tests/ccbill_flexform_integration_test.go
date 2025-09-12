@@ -15,10 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/doujins-org/doujins/internal/api/subscription"
-	"github.com/doujins-org/doujins/internal/database/models"
-	"github.com/doujins-org/doujins/internal/database/repo"
-	"github.com/doujins-org/doujins/tests/mocks"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
+	subscription "github.com/doujins-org/doujins-billing/internal/handlers"
 )
 
 // TestCCBillFlexFormIntegration tests the CCBill FlexForm URL generation endpoint
@@ -34,9 +33,7 @@ func TestCCBillFlexFormIntegration(t *testing.T) {
 	testUser, testPrice := setupFlexFormTestData(t, testContainer, ctx)
 
 	t.Run("GenerateFlexFormURL_Success", func(t *testing.T) {
-		// Setup CCBill mock server
-		mockServer := mocks.NewCCBillMockServer()
-		defer mockServer.Close()
+		// In this repo, FlexForm URL is generated locally from config; no external mock required.
 
 		// Create request payload
 		requestPayload := subscription.GenerateFlexFormURLBodyParams{

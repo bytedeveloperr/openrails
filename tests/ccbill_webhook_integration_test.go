@@ -16,11 +16,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/doujins-org/doujins/internal/database/models"
-	"github.com/doujins-org/doujins/internal/database/repo"
-	"github.com/doujins-org/doujins/internal/services/subscription"
-	"github.com/doujins-org/doujins/internal/services/webhook"
-	"github.com/doujins-org/doujins/pkg/query"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
+	services "github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/internal/services/webhook"
+	"github.com/doujins-org/doujins-billing/pkg/query"
 )
 
 // CCBillWebhookIntegrationTest tests all CCBill webhook event handlers
@@ -325,30 +325,27 @@ func loadAndCustomizeWebhookPayload(t *testing.T, payloadFile string, user *test
 
 func sendCCBillWebhookEvent(t *testing.T, testContainer *TestContainer, eventType, payload string) *http.Response {
 	// Create webhook event structure
-	webhookEvent := subscription.CCBillWebhookEvent{
+	webhookEvent := services.CCBillWebhookEvent{
 		EventType: eventType,
 		EventBody: []byte(payload),
 	}
 
 	// Create webhook service
-	webhookService := &subscription.CCBillWebhookService{
-		Data:                  webhookEvent,
-		DB:                    testContainer.DB,
-		CCBillClient:          testContainer.State.CCBillClient,
-		ProductRepo:           repo.NewProductRepo(testContainer.DB),
-		PriceRepo:             repo.NewPriceRepo(testContainer.DB),
-		RoleRepo:              repo.NewRoleRepo(testContainer.DB),
-		NotificationQueueRepo: repo.NewNotificationQueueRepo(testContainer.DB),
-		NotificationService:   testContainer.State.NotificationService,
-		DeadLetterService:     testContainer.State.DeadLetterService,
-		BillingEventService:   testContainer.State.BillingEventService,
+	webhookService := &services.CCBillWebhookService{
+		Data:                     webhookEvent,
+		DB:                       testContainer.DB,
+		CCBillClient:             testContainer.State.CCBillClient,
+		ProductService:           services.NewProductService(testContainer.DB),
+		PriceService:             services.NewPriceService(testContainer.DB),
+		NotificationQueueService: services.NewNotificationQueueService(testContainer.DB),
+		NotificationService:      testContainer.State.NotificationService,
+		DeadLetterService:        testContainer.State.DeadLetterService,
+		BillingEventService:      testContainer.State.BillingEventService,
 	}
 
 	// Process the webhook
 	ctx := context.Background()
-	// Use a valid CCBill IP for testing
-	testClientIP := "64.38.212.100"
-	err := webhookService.HandleCCBillWebhook(ctx, testClientIP)
+	err := webhookService.HandleCCBillWebhook(ctx)
 
 	// Create mock HTTP response
 	if err != nil {

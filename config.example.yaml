@@ -38,9 +38,10 @@ jwt:
   public_key_pem: ""
 
 # Admin API key for private routes (header: X-API-KEY)
-# Set BILLING_INTERNAL_API_KEY in environment; leaving empty here disables admin.
+# Admin/private API key
+# Default is "change-me-in-dev"; override via env BILLING_INTERNAL_API_KEY for non-dev.
 admin:
-  api_key: ""
+  api_key: "change-me-in-dev"
 
 # CCBill payment processor configuration
 ccbill:
@@ -158,4 +159,3 @@ rate_limits:
   default_limit:
     requests_per_minute: 60
     burst_size: 10
-

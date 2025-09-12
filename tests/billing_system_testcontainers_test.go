@@ -31,14 +31,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/golang-jwt/jwt"
+	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
-	"github.com/doujins-org/doujins/internal/auth"
-	authHelpers "github.com/doujins-org/doujins/internal/testing/auth"
+	authHelpers "github.com/doujins-org/doujins-billing/tests/helpers/auth"
 )
 
 // BillingSystemTestcontainersSuite tests comprehensive billing system functionality with testcontainers
@@ -156,26 +155,21 @@ func (suite *BillingSystemTestcontainersSuite) initializeTestBillingData() {
 
 // generateTestJWT creates a proper JWT token for testing with roles
 func (suite *BillingSystemTestcontainersSuite) generateTestJWT(userID string, email string, isAdmin bool, roles []string) string {
-	claims := &auth.JWTClaims{
-		StandardClaims: jwt.StandardClaims{
-			Subject:   userID,
-			ExpiresAt: time.Now().Add(time.Hour).Unix(),
-			IssuedAt:  time.Now().Unix(),
-			Issuer:    "doujins-test",
-		},
-		Email: email,
-		Sub:   userID,
-		Roles: roles,
+	claims := jwt.MapClaims{
+		"sub":   userID,
+		"email": email,
+		"iss":   "doujins-test",
+		"iat":   time.Now().Unix(),
+		"exp":   time.Now().Add(time.Hour).Unix(),
+		"roles": roles,
 	}
-
 	if isAdmin {
-		claims.Roles = append(claims.Roles, "admin")
+		claims["roles"] = append(roles, "admin")
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signedToken, err := token.SignedString([]byte("test-jwt-secret-for-integration-tests"))
 	require.NoError(suite.T(), err)
-
 	return signedToken
 }
 

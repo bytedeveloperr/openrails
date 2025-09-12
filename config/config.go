@@ -315,7 +315,8 @@ func GetDefaultBillingConfig() *Config {
 			Password:  "analytics_password",
 		},
 		Admin: &AdminConfig{
-			APIKey: "", // Provide via env BILLING_INTERNAL_API_KEY
+			// Default internal admin API key for development. Override via env BILLING_INTERNAL_API_KEY in prod.
+			APIKey: "change-me-in-dev",
 		},
 		TLS: &TLSConfig{
 			Private: &PrivateTLSConfig{

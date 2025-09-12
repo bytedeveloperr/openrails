@@ -32,10 +32,7 @@ import (
 	"time"
 
 	"github.com/casdoor/casdoor-go-sdk/casdoorsdk"
-	"github.com/doujins-org/doujins/config"
-	"github.com/doujins-org/doujins/internal/database"
-	"github.com/doujins-org/doujins/internal/workers"
-	"github.com/doujins-org/doujins/tests/mocks"
+	"github.com/doujins-org/doujins-billing/config"
 	"github.com/google/uuid"
 	"github.com/riverqueue/river"
 	"github.com/stretchr/testify/assert"

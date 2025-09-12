@@ -48,7 +48,9 @@ Networking
 - Private: port `8060` is exposed to the Docker network for intra-service communication. Optionally, you can enable a private TLS listener with client cert verification (mTLS) via config.
 
 Admin access
-- Shared secret: admin routes are protected by header `X-API-KEY: <token>`. Configure via env `BILLING_INTERNAL_API_KEY`.
+- Shared secret: admin routes are protected by header `X-API-KEY: <token>`.
+- Default (dev): `change-me-in-dev`.
+- Override via env `BILLING_INTERNAL_API_KEY` or config `admin.api_key`.
 - mTLS (optional): set `tls.private.enabled: true` and provide `tls.private.cert_file`, `tls.private.key_file`. To require client certs, also set `tls.private.client_ca_file` and `tls.private.require_client_cert: true`.
 
 JWT verification (Casdoor)

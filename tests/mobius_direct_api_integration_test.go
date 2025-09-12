@@ -21,9 +21,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/doujins-org/doujins/internal/database/models"
-	"github.com/doujins-org/doujins/internal/services/billing"
-	"github.com/doujins-org/doujins/internal/services/mobius"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
+	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,7 +58,7 @@ func (suite *MobiusDirectAPISuite) SetupSuite() {
 	)
 
 	// Initialize Mobius service
-	billingService := billing.NewBillingEventService(suite.containers.ClickHouseDB, suite.containers.DB)
+	billingService, _ := services.NewBillingEventService(nil)
 	suite.mobiusService = mobius.NewMobiusService(
 		suite.mobiusAPIClient,
 		suite.containers.DB,

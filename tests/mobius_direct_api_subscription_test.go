@@ -24,10 +24,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/doujins-org/doujins/config"
-	"github.com/doujins-org/doujins/internal/database"
-	"github.com/doujins-org/doujins/internal/database/models"
-	"github.com/doujins-org/doujins/tests/mocks"
+	"github.com/doujins-org/doujins-billing/config"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

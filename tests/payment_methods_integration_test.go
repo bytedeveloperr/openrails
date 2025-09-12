@@ -15,13 +15,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/doujins-org/doujins/internal/api/payment_methods"
-	"github.com/doujins-org/doujins/internal/database"
-	"github.com/doujins-org/doujins/internal/database/models"
-	"github.com/doujins-org/doujins/internal/database/repo"
-	"github.com/doujins-org/doujins/internal/integrations/mobius"
-	userdto "github.com/doujins-org/doujins/internal/services/user"
-	mobiusMock "github.com/doujins-org/doujins/tests/mocks"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
+	payment_methods "github.com/doujins-org/doujins-billing/internal/handlers"
+	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
+	mobiusMock "github.com/doujins-org/doujins-billing/tests/mocks"
 )
 
 // TestPaymentMethodIntegration tests the complete vault management API
@@ -273,14 +271,19 @@ func TestPaymentMethodIntegration(t *testing.T) {
 	})
 }
 
-func setupPaymentMethodTestUser(t *testing.T, testSuite *TestContainerSuite, ctx context.Context) *userdto.AdminUser {
-	email := fmt.Sprintf("payment-method-test-%s@example.com", uuid.New().String()[:8])
-	user := testSuite.CreateTestUser(ctx, email)
-	return user
+type TestUser struct {
+	ID    string
+	Email string
 }
 
-func createTestPaymentMethod(t *testing.T, testSuite *TestContainerSuite, ctx context.Context, user *userdto.AdminUser) *models.PaymentMethod {
-	vaultRepo := repo.NewPaymentMethodRepo(testSuite.DB.(*database.DB))
+func setupPaymentMethodTestUser(t *testing.T, testSuite *TestContainerSuite, ctx context.Context) *TestUser {
+	email := fmt.Sprintf("payment-method-test-%s@example.com", uuid.New().String()[:8])
+	user := testSuite.CreateTestUser(ctx, email)
+	return &TestUser{ID: user.ID, Email: user.Email}
+}
+
+func createTestPaymentMethod(t *testing.T, testSuite *TestContainerSuite, ctx context.Context, user *TestUser) *models.PaymentMethod {
+	vaultRepo := repo.NewPaymentMethodRepo(testSuite.DB)
 	vault := &models.PaymentMethod{
 		ID:                   uuid.New(),
 		UserID:               user.ID,
@@ -297,9 +300,9 @@ func createTestPaymentMethod(t *testing.T, testSuite *TestContainerSuite, ctx co
 	return vault
 }
 
-func createTestSubscriptionWithPaymentMethod(t *testing.T, testSuite *TestContainerSuite, ctx context.Context, user *userdto.AdminUser, vault *models.PaymentMethod) *models.Subscription {
+func createTestSubscriptionWithPaymentMethod(t *testing.T, testSuite *TestContainerSuite, ctx context.Context, user *TestUser, vault *models.PaymentMethod) *models.Subscription {
 	// Create test product and price first
-	productRepo := repo.NewProductRepo(testSuite.DB.(*database.DB))
+	productRepo := repo.NewProductRepo(testSuite.DB)
 	product := &models.Product{
 		ID:          uuid.New(),
 		Slug:        "test-product-for-payment-method",
@@ -309,7 +312,7 @@ func createTestSubscriptionWithPaymentMethod(t *testing.T, testSuite *TestContai
 	err := productRepo.Create(ctx, product)
 	require.NoError(t, err)
 
-	priceRepo := repo.NewPriceRepo(testSuite.DB.(*database.DB))
+	priceRepo := repo.NewPriceRepo(testSuite.DB)
 	billingCycleDays := 30
 	price := &models.Price{
 		ID:               uuid.New(),
@@ -322,7 +325,7 @@ func createTestSubscriptionWithPaymentMethod(t *testing.T, testSuite *TestContai
 	require.NoError(t, err)
 
 	// Create subscription linked to vault
-	subRepo := repo.NewSubscriptionRepo(testSuite.DB.(*database.DB))
+	subRepo := repo.NewSubscriptionRepo(testSuite.DB)
 	now := time.Now()
 	futureDate := now.Add(30 * 24 * time.Hour)
 
@@ -345,7 +348,7 @@ func createTestSubscriptionWithPaymentMethod(t *testing.T, testSuite *TestContai
 }
 
 func cleanupTestPaymentMethod(t *testing.T, testSuite *TestContainerSuite, ctx context.Context, vaultID uuid.UUID) {
-	vaultRepo := repo.NewPaymentMethodRepo(testSuite.DB.(*database.DB))
+	vaultRepo := repo.NewPaymentMethodRepo(testSuite.DB)
 	err := vaultRepo.Delete(ctx, vaultID)
 	if err != nil {
 		t.Logf("Failed to cleanup test payment method %s: %v", vaultID, err)
@@ -353,7 +356,7 @@ func cleanupTestPaymentMethod(t *testing.T, testSuite *TestContainerSuite, ctx c
 }
 
 func cleanupTestPaymentMethodSubscription(t *testing.T, testSuite *TestContainerSuite, ctx context.Context, subscriptionID uuid.UUID) {
-	subRepo := repo.NewSubscriptionRepo(testSuite.DB.(*database.DB))
+	subRepo := repo.NewSubscriptionRepo(testSuite.DB)
 	subscription, err := subRepo.GetByID(ctx, subscriptionID)
 	if err != nil {
 		t.Logf("Failed to get subscription for cleanup %s: %v", subscriptionID, err)
@@ -362,8 +365,8 @@ func cleanupTestPaymentMethodSubscription(t *testing.T, testSuite *TestContainer
 
 	// Delete related price and product
 	if subscription.Price != nil {
-		priceRepo := repo.NewPriceRepo(testSuite.DB.(*database.DB))
-		productRepo := repo.NewProductRepo(testSuite.DB.(*database.DB))
+		priceRepo := repo.NewPriceRepo(testSuite.DB)
+		productRepo := repo.NewProductRepo(testSuite.DB)
 
 		if subscription.Price.Product != nil {
 			productRepo.Delete(ctx, subscription.Price.Product.ID)
