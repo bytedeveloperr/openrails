@@ -8,7 +8,7 @@ on:
 
 env:
   ORG_NAME: doujins
-  REPO_NAME: doujins-app-server
+  REPO_NAME: billing
 
 jobs:
   build-and-push:
