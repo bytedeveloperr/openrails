@@ -5,12 +5,13 @@ services:
     image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
-      POSTGRES_DB: doujins_db
+      POSTGRES_DB: billings_db
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin_password
       # App schema for bootstrap script and app defaults
       DB_SCHEMA: ${DB_SCHEMA:-billing}
     ports:
+      - "5434:5432"
       - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -30,7 +31,7 @@ services:
     networks:
       - local-doujins
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "admin", "-d", "doujins_db", "-h", "localhost"]
+      test: ["CMD", "pg_isready", "-U", "admin", "-d", "billings_db", "-h", "localhost"]
       interval: 5s
       timeout: 5s
       start_period: 90s
@@ -61,7 +62,7 @@ services:
     restart: unless-stopped
     ports:
       - "8124:8123"  # HTTP interface
-      - "9003:9000"  # Native client (avoid MinIO conflict)
+      - "9003:9000"  # Native client (avoid conflicts)
     volumes:
       - ./clickhouse/config.yaml:/etc/clickhouse-server/config.yaml:ro
       - clickhouse_data:/var/lib/clickhouse
@@ -120,7 +121,7 @@ services:
       "-v", "CASDOOR_PW=${CASDOOR_APP_PW:-casdoor_pw}",
       "-h", "postgres",
       "-U", "admin",
-      "-d", "doujins_db",
+      "-d", "billings_db",
       "-f", "/bootstrap/00000_baseline_roles.sql"
     ]
     restart: "no"
@@ -140,7 +141,7 @@ services:
         condition: service_completed_successfully
     environment:
       # Use the service role created by bootstrap; override BILLING_APP_PW or DATABASE_URL as needed
-      DATABASE_URL: ${DATABASE_URL:-postgres://billing_app:${BILLING_APP_PW:-billing_password}@postgres:5432/doujins_db?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL:-postgres://billing_app:${BILLING_APP_PW:-billing_pw}@postgres:5432/billings_db?sslmode=disable}
       DB_SCHEMA: ${DB_SCHEMA:-billing}
     command: ["./bin/billing", "migrate"]
     restart: "no"
@@ -173,7 +174,7 @@ services:
       # App schema used by the billing service's DB access
       DB_SCHEMA: ${DB_SCHEMA:-billing}
       # Explicit DB URL so runtime never uses stale built-in defaults
-      DATABASE_URL: ${DATABASE_URL:-postgres://billing_app:${BILLING_APP_PW:-billing_password}@postgres:5432/doujins_db?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL:-postgres://billing_app:${BILLING_APP_PW:-billing_pw}@postgres:5432/billings_db?sslmode=disable}
       # Prefer configuring search_path via your app's DB URL; PGOPTIONS is a safe default
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
       # Example internal API key; override in .env or environment

@@ -11,16 +11,16 @@ COPY go.mod go.sum ./
 
 # Download dependencies with cache mount for Go modules
 # This cache persists between builds, dramatically speeding up builds
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
+RUN target=/go/pkg/mod \
+    target=/root/.cache/go-build \
     go mod download
 
 # Copy source code
 COPY . .
 
 # Build the application with cache mount
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
+RUN target=/go/pkg/mod \
+    target=/root/.cache/go-build \
     mkdir -p bin && \
     CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/billing ./
 

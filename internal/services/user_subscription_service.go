@@ -197,3 +197,22 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 
 	return nil
 }
+
+// NewUserSubscriptionService creates a new UserSubscriptionService
+func NewUserSubscriptionService(
+	subscriptionService *SubscriptionService,
+	productService *ProductService,
+	priceService *PriceService,
+	paymentService *PaymentService,
+	notificationQueueService *NotificationQueueService,
+	entitlementService *EntitlementService,
+) *UserSubscriptionService {
+	return &UserSubscriptionService{
+		SubscriptionService:      subscriptionService,
+		ProductService:           productService,
+		PriceService:             priceService,
+		PaymentService:           paymentService,
+		NotificationQueueService: notificationQueueService,
+		EntitlementService:       entitlementService,
+	}
+}

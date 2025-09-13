@@ -299,3 +299,7 @@ func (s *Server) StartWorkers(ctx context.Context) {
 		}
 	}()
 }
+
+func (s *Server) Cfg() *config.Config {
+	return s.cfg
+}
