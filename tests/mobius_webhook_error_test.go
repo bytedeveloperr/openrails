@@ -57,8 +57,6 @@ func TestMobiusWebhookErrorHandling(t *testing.T) {
 	t.Run("Network Timeout Simulation", func(t *testing.T) {
 		// Create a handler that simulates slow response
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Simulate processing time
-			// In a real test, you might use time.Sleep, but for unit tests we'll just respond
 			w.WriteHeader(http.StatusRequestTimeout)
 			w.Write([]byte(`{"error": "Request timeout", "message": "Webhook processing took too long"}`))
 		})

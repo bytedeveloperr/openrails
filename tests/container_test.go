@@ -61,10 +61,3 @@ func TestPostgresContainer(t *testing.T) {
 		t.Logf("PostgreSQL container started successfully with connection: %s", connStr)
 	})
 }
-
-// isDockerAvailable checks if Docker is available
-func isDockerAvailable() bool {
-	// For now, always return false since Docker is not running
-	// In a real environment, you would check if Docker daemon is accessible
-	return false
-}
