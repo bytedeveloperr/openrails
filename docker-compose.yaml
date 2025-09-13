@@ -116,7 +116,7 @@ services:
       "psql",
       "-v", "ON_ERROR_STOP=1",
       "-v", "APP_PW=${DOUJINS_APP_PW:-doujins_pw}",
-      "-v", "BILLING_PW=${BILLING_APP_PW:-billing_pw}",
+      "-v", "BILLING_PW=${BILLING_APP_PW:-billing_password}",
       "-v", "CASDOOR_PW=${CASDOOR_APP_PW:-casdoor_pw}",
       "-h", "postgres",
       "-U", "admin",
@@ -140,7 +140,7 @@ services:
         condition: service_completed_successfully
     environment:
       # Use the service role created by bootstrap; override BILLING_APP_PW or DATABASE_URL as needed
-      DATABASE_URL: ${DATABASE_URL:-postgres://billing_app:${BILLING_APP_PW:-billing_pw}@postgres:5432/doujins_db?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL:-postgres://billing_app:${BILLING_APP_PW:-billing_password}@postgres:5432/doujins_db?sslmode=disable}
       DB_SCHEMA: ${DB_SCHEMA:-billing}
     command: ["./bin/billing", "migrate"]
     restart: "no"
@@ -173,7 +173,7 @@ services:
       # App schema used by the billing service's DB access
       DB_SCHEMA: ${DB_SCHEMA:-billing}
       # Explicit DB URL so runtime never uses stale built-in defaults
-      DATABASE_URL: ${DATABASE_URL:-postgres://billing_app:${BILLING_APP_PW:-billing_pw}@postgres:5432/doujins_db?sslmode=disable}
+      DATABASE_URL: ${DATABASE_URL:-postgres://billing_app:${BILLING_APP_PW:-billing_password}@postgres:5432/doujins_db?sslmode=disable}
       # Prefer configuring search_path via your app's DB URL; PGOPTIONS is a safe default
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
       # Example internal API key; override in .env or environment
