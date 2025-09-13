@@ -11,7 +11,7 @@ services:
       # App schema for bootstrap script and app defaults
       DB_SCHEMA: ${DB_SCHEMA:-billing}
     ports:
-      - "5432:5432"
+      - "5434:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     # Ensure Postgres listens on container network interface
@@ -42,7 +42,7 @@ services:
     volumes:
       - garnet_data:/data
     ports:
-      - "6381:6379"
+      - "6382:6379"
     healthcheck:
       test:
         [
@@ -60,8 +60,8 @@ services:
     image: clickhouse/clickhouse-server:25.8-alpine
     restart: unless-stopped
     ports:
-      - "8123:8123"  # HTTP interface
-      - "9002:9000"  # Native client (avoid MinIO conflict)
+      - "8124:8123"  # HTTP interface
+      - "9003:9000"  # Native client (avoid MinIO conflict)
     volumes:
       - ./clickhouse/config.yaml:/etc/clickhouse-server/config.yaml:ro
       - clickhouse_data:/var/lib/clickhouse
@@ -166,7 +166,7 @@ services:
       clickhouse:
         condition: service_healthy
     ports:
-      - "2053:2053"  # Public API
+      - "2054:2053"  # Public API
     expose:
       - "8060"       # Private API (internal-only)
     environment:
