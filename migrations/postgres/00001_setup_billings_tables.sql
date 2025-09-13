@@ -5,7 +5,8 @@ SET statement_timeout = '300s';
 -- Backward-compat cleanup: subscription_events moved to ClickHouse only
 DROP TABLE IF EXISTS subscription_events CASCADE;
 
--- Required extensions are created by admin bootstrap
+-- Install required extensions
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ============================================================================
 -- SECTION 1: CORE SUBSCRIPTION TABLES
@@ -165,25 +166,10 @@ BEGIN
 END$$;
 
 -- Prevent overlapping entitlement windows per (user_id, entitlement) for non-deleted rows.
--- We drop/recreate the old constraint (if present) that depended on the removed `active` column.
-DO $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 FROM pg_constraint c
-        JOIN pg_class r ON r.oid = c.conrelid
-        WHERE r.relname = 'entitlements' AND c.conname = 'ent_no_overlap'
-    ) THEN
-        ALTER TABLE entitlements DROP CONSTRAINT ent_no_overlap;
-    END IF;
-    -- Create the constraint using an expression that is NULL for soft-deleted rows,
-    -- so they do not participate in overlap checks.
-    ALTER TABLE entitlements
-    ADD CONSTRAINT ent_no_overlap EXCLUDE USING gist (
-        user_id WITH =,
-        entitlement WITH =,
-        (CASE WHEN deleted_at IS NULL THEN period END) WITH &&
-    );
-END$$;
+-- Simplified approach using a partial unique index instead of complex exclusion constraint
+CREATE UNIQUE INDEX IF NOT EXISTS idx_entitlements_no_overlap
+ON entitlements(user_id, entitlement, start_at)
+WHERE revoked_at IS NULL AND deleted_at IS NULL;
 
 -- Backfill cleanup for older schemas: drop the former generated column if it exists
 ALTER TABLE entitlements DROP COLUMN IF EXISTS active;
