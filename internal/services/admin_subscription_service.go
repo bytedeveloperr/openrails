@@ -451,3 +451,22 @@ func (s *AdminSubscriptionService) SendManualNotification(ctx context.Context, u
 
 	return s.NotificationQueueService.Create(ctx, notification)
 }
+
+// NewAdminSubscriptionService creates a new AdminSubscriptionService
+func NewAdminSubscriptionService(
+	subscriptionService *SubscriptionService,
+	productService *ProductService,
+	priceService *PriceService,
+	entitlementService *EntitlementService,
+	notificationQueueService *NotificationQueueService,
+	paymentService *PaymentService,
+) *AdminSubscriptionService {
+	return &AdminSubscriptionService{
+		SubscriptionService:      subscriptionService,
+		ProductService:           productService,
+		PriceService:             priceService,
+		EntitlementService:       entitlementService,
+		NotificationQueueService: notificationQueueService,
+		PaymentService:           paymentService,
+	}
+}

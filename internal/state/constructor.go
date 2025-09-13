@@ -38,6 +38,23 @@ func NewState(cfg *config.Config) (*State, error) {
 	// Build all repositories
 	serviceInstances := createServices(db)
 
+	// Initialize optional email services
+	var emailService *services.EmailService
+	var subscriptionEmailService *services.SubscriptionEmailService
+	if cfg.SendGrid != nil {
+		if es, err := services.NewEmailService(cfg.SendGrid); err != nil {
+			log.WithError(err).Warn("EmailService init failed; email disabled")
+		} else {
+			emailService = es
+			subscriptionEmailService = services.NewSubscriptionEmailService(
+				emailService,
+				serviceInstances.SubscriptionService,
+				serviceInstances.ProductService,
+				serviceInstances.PriceService,
+			)
+		}
+	}
+
 	// Assemble State
 	state := &State{
 		// Infrastructure
@@ -48,11 +65,10 @@ func NewState(cfg *config.Config) (*State, error) {
 		CCBillRESTClient: ccbillRESTClient,
 		MobiusClient:     mobiusClient,
 
-		// Servicesitories
+		// Services
 		SubscriptionService: serviceInstances.SubscriptionService,
 		UserService:         serviceInstances.UserService,
 
-		// Wave 18 repositories
 		ProductService:           serviceInstances.ProductService,
 		PriceService:             serviceInstances.PriceService,
 		NotificationQueueService: serviceInstances.NotificationQueueService,
@@ -60,6 +76,15 @@ func NewState(cfg *config.Config) (*State, error) {
 		PaymentService:           serviceInstances.PurchaseService,
 		EntitlementService:       serviceInstances.EntitlementService,
 		SolanaWalletService:      serviceInstances.SolanaWalletService,
+
+		// Wave 18 subscription services
+		UserSubscriptionService:   serviceInstances.UserSubscriptionService,
+		PublicSubscriptionService: serviceInstances.PublicSubscriptionService,
+		AdminSubscriptionService:  serviceInstances.AdminSubscriptionService,
+
+		// Wave 18 email services
+		EmailService:             emailService,
+		SubscriptionEmailService: subscriptionEmailService,
 	}
 
 	// Initialize optional analytics/event logging (ClickHouse)
@@ -137,20 +162,73 @@ type servicesInstances struct {
 	PurchaseService          *services.PaymentService
 	EntitlementService       *services.EntitlementService
 	SolanaWalletService      *services.SolanaWalletService
+
+	// Wave 18 subscription services
+	UserSubscriptionService   *services.UserSubscriptionService
+	PublicSubscriptionService *services.PublicSubscriptionService
+	AdminSubscriptionService  *services.AdminSubscriptionService
+
+	// Email services
+	EmailService             *services.EmailService
+	SubscriptionEmailService *services.SubscriptionEmailService
 }
 
 func createServices(db *db.DB) *servicesInstances {
+	// Create base services first
+	subscriptionService := services.NewSubscriptionService(db)
+	userService := services.NewUserService(db)
+	productService := services.NewProductService(db)
+	priceService := services.NewPriceService(db)
+	notificationQueueService := services.NewNotificationQueueService(db)
+	paymentMethodService := services.NewPaymentMethodService(db)
+	purchaseService := services.NewPaymentService(db)
+	entitlementService := services.NewEntitlementService(db)
+	solanaWalletService := services.NewSolanaWalletService(db)
+
+	// Create Wave 18 subscription services that depend on base services
+	userSubscriptionService := services.NewUserSubscriptionService(
+		subscriptionService,
+		productService,
+		priceService,
+		purchaseService,
+		notificationQueueService,
+		entitlementService,
+	)
+
+	publicSubscriptionService := services.NewPublicSubscriptionService(
+		productService,
+		priceService,
+	)
+
+	adminSubscriptionService := services.NewAdminSubscriptionService(
+		subscriptionService,
+		productService,
+		priceService,
+		entitlementService,
+		notificationQueueService,
+		purchaseService,
+	)
+
 	return &servicesInstances{
-		SubscriptionService: services.NewSubscriptionService(db),
-		UserService:         services.NewUserService(db),
+		SubscriptionService: subscriptionService,
+		UserService:         userService,
 
 		// Wave 18 repositories
-		ProductService:           services.NewProductService(db),
-		PriceService:             services.NewPriceService(db),
-		NotificationQueueService: services.NewNotificationQueueService(db),
-		PaymentMethodService:     services.NewPaymentMethodService(db),
-		PurchaseService:          services.NewPaymentService(db),
-		EntitlementService:       services.NewEntitlementService(db),
-		SolanaWalletService:      services.NewSolanaWalletService(db),
+		ProductService:           productService,
+		PriceService:             priceService,
+		NotificationQueueService: notificationQueueService,
+		PaymentMethodService:     paymentMethodService,
+		PurchaseService:          purchaseService,
+		EntitlementService:       entitlementService,
+		SolanaWalletService:      solanaWalletService,
+
+		// Wave 18 subscription services
+		UserSubscriptionService:   userSubscriptionService,
+		PublicSubscriptionService: publicSubscriptionService,
+		AdminSubscriptionService:  adminSubscriptionService,
+
+		// Email services will be set to nil initially - they require config
+		EmailService:             nil,
+		SubscriptionEmailService: nil,
 	}
 }

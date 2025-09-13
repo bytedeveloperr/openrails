@@ -73,3 +73,14 @@ func (s *PublicSubscriptionService) GetSubscriptionPageData(ctx context.Context)
 
 	return data, nil
 }
+
+// NewPublicSubscriptionService creates a new PublicSubscriptionService
+func NewPublicSubscriptionService(
+	productService *ProductService,
+	priceService *PriceService,
+) *PublicSubscriptionService {
+	return &PublicSubscriptionService{
+		ProductService: productService,
+		PriceService:   priceService,
+	}
+}

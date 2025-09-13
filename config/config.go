@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
@@ -25,7 +26,6 @@ type Config struct {
 	CCBill      *CCBillConfig     `json:"ccbill,omitempty"`
 	Solana      *SolanaConfig     `json:"solana,omitempty"`
 	DB          *DBConfig         `json:"db,omitempty"`
-	ExternalDB  *DBConfig         `json:"external_db,omitempty"` // Client app database for role management
 	Redis       *RedisConfig      `json:"redis,omitempty"`
 	JWT         *JWTConfig        `json:"jwt,omitempty"`
 	ClickHouse  *ClickHouseConfig `json:"clickhouse,omitempty"`
@@ -376,6 +376,10 @@ func Load(configPath string) (*Config, error) {
 
 	// Start with default configuration
 	cfg := GetDefaultBillingConfig()
+
+	if err := godotenv.Load(); err != nil {
+		return nil, err
+	}
 
 	// Determine config file path
 
