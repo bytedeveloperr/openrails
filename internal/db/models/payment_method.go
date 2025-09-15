@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -27,6 +28,7 @@ type PaymentMethod struct {
 	CardType      *string `bun:"card_type,nullzero" json:"card_type"`             // "Visa", "MasterCard", etc.
 	ExpiryDate    *string `bun:"expiry_date,nullzero" json:"expiry_date"`         // "MM/YY" format
 	FailureReason *string `bun:"failure_reason,nullzero" json:"failure_reason"`   // Reason if inactive
+	WalletAddress *string `bun:"wallet_address,nullzero" json:"wallet_address"`   // Solana wallet address for crypto payments
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
@@ -35,25 +37,55 @@ type PaymentMethod struct {
 	Subscriptions []*Subscription `bun:"rel:has-many,join:id=payment_method_id" json:"subscriptions,omitempty"`
 }
 
-// IsExpired checks if the payment method has expired
-func (pm *PaymentMethod) IsExpired() bool {
-	if pm.ExpiryDate == nil {
-		return false
-	}
-
-	// Simple check - in production you'd parse MM/YY and compare with current date
-	// For now, we'll rely on processor ACU updates to mark cards as inactive
-	return false
-}
-
-// CanRetry checks if an inactive payment method can be retried
-func (pm *PaymentMethod) CanRetry() bool {
-	return pm.IsActive
-}
-
 // MarkInactive marks the payment method as inactive (e.g., account closed)
 func (pm *PaymentMethod) MarkInactive(reason string) {
 	pm.IsActive = false
 	pm.FailureReason = &reason
 	pm.UpdatedAt = time.Now()
+}
+
+// GetType returns the payment method type based on processor
+func (pm *PaymentMethod) GetType() string {
+	switch pm.Processor {
+	case "solana":
+		return "wallet"
+	case "ccbill":
+		return "subscription" // CCBill creates payment methods from subscription webhooks
+	case "mobius":
+		return "card" // Mobius stores tokenized card details
+	default:
+		return "unknown"
+	}
+}
+
+// GetDisplayName returns a user-friendly display name for the payment method
+func (pm *PaymentMethod) GetDisplayName() string {
+	switch pm.Processor {
+	case "solana":
+		if pm.WalletAddress != nil {
+			addr := *pm.WalletAddress
+			if len(addr) > 8 {
+				return fmt.Sprintf("Solana Wallet (%s...%s)", addr[:4], addr[len(addr)-4:])
+			}
+		}
+		return "Solana Wallet"
+	case "ccbill":
+		// CCBill payment methods are created from successful subscriptions
+		return "CCBill Subscription"
+	case "mobius":
+		if pm.LastFour != nil && pm.CardType != nil {
+			return fmt.Sprintf("%s ****%s", *pm.CardType, *pm.LastFour)
+		}
+		return "Mobius Card"
+	default:
+		return string(pm.Processor)
+	}
+}
+
+// CanDelete checks if the payment method can be deleted based on active subscriptions
+func (pm *PaymentMethod) CanDelete(activeSubscriptions int) (bool, string) {
+	if activeSubscriptions > 0 {
+		return false, "Cannot delete payment method with active subscriptions"
+	}
+	return true, ""
 }

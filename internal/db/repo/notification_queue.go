@@ -6,6 +6,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/pkg/query"
+	"github.com/google/uuid"
 )
 
 type NotificationQueueRepo struct {
@@ -42,7 +43,7 @@ func (r *NotificationQueueRepo) GetNotifications(ctx context.Context, opts query
 	return items, int64(count), err
 }
 
-func (r *NotificationQueueRepo) Delete(ctx context.Context, id models.UUID) error {
+func (r *NotificationQueueRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.GetDB().NewDelete().Model((*models.NotificationQueue)(nil)).TableExpr(r.db.QualifiedTable("notification_queue")).Where("id = ?", id).Exec(ctx)
 	return err
 }

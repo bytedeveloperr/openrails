@@ -5,6 +5,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/google/uuid"
 )
 
 type PaymentMethodRepo struct {
@@ -18,7 +19,7 @@ func (r *PaymentMethodRepo) Create(ctx context.Context, m *models.PaymentMethod)
 	return err
 }
 
-func (r *PaymentMethodRepo) GetByID(ctx context.Context, id models.UUID) (*models.PaymentMethod, error) {
+func (r *PaymentMethodRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
 	err := r.db.GetDB().NewSelect().Model(pm).TableExpr(r.db.QualifiedTable("payment_methods")).Where("id = ?", id).Scan(ctx)
 	if err != nil {
@@ -27,7 +28,7 @@ func (r *PaymentMethodRepo) GetByID(ctx context.Context, id models.UUID) (*model
 	return pm, nil
 }
 
-func (r *PaymentMethodRepo) Delete(ctx context.Context, id models.UUID) error {
+func (r *PaymentMethodRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.GetDB().NewDelete().Model((*models.PaymentMethod)(nil)).TableExpr(r.db.QualifiedTable("payment_methods")).Where("id = ?", id).Exec(ctx)
 	return err
 }

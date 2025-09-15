@@ -5,6 +5,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/google/uuid"
 )
 
 type SubscriptionRepo struct {
@@ -23,12 +24,12 @@ func (r *SubscriptionRepo) Update(ctx context.Context, s *models.Subscription) e
 	return err
 }
 
-func (r *SubscriptionRepo) Delete(ctx context.Context, id models.UUID) error {
+func (r *SubscriptionRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.GetDB().NewDelete().Model((*models.Subscription)(nil)).TableExpr(r.db.QualifiedTable("subscriptions")).Where("id = ?", id).Exec(ctx)
 	return err
 }
 
-func (r *SubscriptionRepo) GetByID(ctx context.Context, id models.UUID) (*models.Subscription, error) {
+func (r *SubscriptionRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Subscription, error) {
 	sub := new(models.Subscription)
 	err := r.db.GetDB().NewSelect().Model(sub).TableExpr(r.db.QualifiedTable("subscriptions")).Where("id = ?", id).Scan(ctx)
 	if err != nil {

@@ -2,7 +2,9 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -247,4 +249,101 @@ func (r *PaymentMethodService) GetACUPendingMethods(ctx context.Context, process
 	// ACU fields were removed from the payment method model
 	// Return empty slice since we don't track ACU status anymore
 	return []*models.PaymentMethod{}, nil
+}
+
+// ValidateOwnership verifies that a payment method belongs to the specified user
+// Returns error if the payment method doesn't exist or doesn't belong to the user
+func (r *PaymentMethodService) ValidateOwnership(ctx context.Context, id uuid.UUID, userID string) error {
+	if id == uuid.Nil {
+		return errors.New("invalid payment method ID")
+	}
+
+	if userID == "" {
+		return errors.New("user ID is required")
+	}
+
+	count, err := r.db.GetDB().NewSelect().
+		Model((*models.PaymentMethod)(nil)).
+		Where("id = ?", id).
+		Where("user_id = ?", userID).
+		Count(ctx)
+
+	if err != nil {
+		return fmt.Errorf("failed to validate ownership: %w", err)
+	}
+
+	if count == 0 {
+		return errors.New("payment method not found or access denied")
+	}
+
+	return nil
+}
+
+// CanDelete checks if a payment method can be deleted based on business rules
+// Returns (canDelete, reason, error)
+func (r *PaymentMethodService) CanDelete(ctx context.Context, id uuid.UUID) (bool, string, error) {
+	if id == uuid.Nil {
+		return false, "invalid payment method ID", nil
+	}
+
+	// Check if payment method exists
+	paymentMethod, err := r.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, "payment method not found", nil
+		}
+		return false, "", fmt.Errorf("failed to get payment method: %w", err)
+	}
+
+	// Count active subscriptions using this payment method
+	activeSubscriptionCount, err := r.db.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
+		Where("payment_method_id = ?", id).
+		Where("status = ?", models.StatusActive).
+		Count(ctx)
+
+	if err != nil {
+		return false, "", fmt.Errorf("failed to count active subscriptions: %w", err)
+	}
+
+	// Use the model's CanDelete method for business logic
+	canDelete, reason := paymentMethod.CanDelete(activeSubscriptionCount)
+	return canDelete, reason, nil
+}
+
+// GetDisplayName returns a user-friendly display name for a payment method
+func (r *PaymentMethodService) GetDisplayName(pm *models.PaymentMethod) string {
+	if pm == nil {
+		return "Unknown Payment Method"
+	}
+
+	return pm.GetDisplayName()
+}
+
+// ValidatePaymentMethodOperation performs general validation for payment method operations
+func (r *PaymentMethodService) ValidatePaymentMethodOperation(ctx context.Context, id uuid.UUID, userID string) (*models.PaymentMethod, error) {
+	// Validate input parameters
+	if id == uuid.Nil {
+		return nil, errors.New("invalid payment method ID")
+	}
+
+	if userID == "" {
+		return nil, errors.New("user ID is required")
+	}
+
+	// Get the payment method
+	paymentMethod, err := r.GetByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, errors.New("payment method not found")
+		}
+		return nil, fmt.Errorf("failed to get payment method: %w", err)
+	}
+
+	// Validate ownership
+	if err := r.ValidateOwnership(ctx, id, userID); err != nil {
+		return nil, err
+	}
+
+	return paymentMethod, nil
 }

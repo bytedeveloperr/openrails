@@ -5,6 +5,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/google/uuid"
 )
 
 type PriceRepo struct {
@@ -18,7 +19,7 @@ func (r *PriceRepo) Create(ctx context.Context, p *models.Price) error {
 	return err
 }
 
-func (r *PriceRepo) Delete(ctx context.Context, id models.UUID) error {
+func (r *PriceRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	_, err := r.db.GetDB().NewDelete().Model((*models.Price)(nil)).TableExpr(r.db.QualifiedTable("prices")).Where("id = ?", id).Exec(ctx)
 	return err
 }
