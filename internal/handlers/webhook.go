@@ -38,10 +38,17 @@ func Webhook(r *Request) {
 	fmt.Println("Received webhook request for processor:", processor)
 	fmt.Println("Client IP:", clientIP)
 
+	ccbillTestMode := true
+	if r.State != nil && r.State.CCBillRESTClient != nil {
+		if cfg := r.State.CCBillRESTClient.Config(); cfg != nil {
+			ccbillTestMode = cfg.TestMode
+		}
+	}
+
 	switch processor {
 	case services.ProcessorCCBill:
 		// Check if CCBill is in test mode - bypass authentication for testing
-		if !r.State.CCBillRESTClient.Config().TestMode {
+		if !ccbillTestMode {
 			// Verify CCBill webhook comes from authorized IP ranges
 			if !ipverify.IsValidCCBillIP(clientIP) {
 				log.WithFields(log.Fields{
@@ -69,7 +76,7 @@ func Webhook(r *Request) {
 			log.WithField("client_ip", clientIP).Debug("CCBill webhook authentication bypassed - test mode enabled")
 		}
 
-		body, err := io.ReadAll(r.Request.Body)
+		body, err := readRequestBody(r.Request.Body)
 		if err != nil {
 			deadLetterService.LogInvalidPayload(context.Background(), "ccbill", nil, err, headers, clientIP)
 			r.ErrorJSON(http.StatusInternalServerError, "Failed to read request body")
@@ -104,7 +111,7 @@ func Webhook(r *Request) {
 		return
 	default:
 		// Log unknown processor to dead letter queue
-		body, readErr := io.ReadAll(r.Request.Body)
+		body, readErr := readRequestBody(r.Request.Body)
 		if readErr == nil {
 			deadLetterService.LogUnknownEvent(context.Background(), processor, "unknown", json.RawMessage(body), headers, clientIP)
 		}
@@ -116,7 +123,7 @@ func Webhook(r *Request) {
 
 func handleMobiusWebhook(r *Request) {
 	// Read the request body for signature verification
-	body, err := io.ReadAll(r.Request.Body)
+	body, err := readRequestBody(r.Request.Body)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to read request body")
 		return
@@ -173,4 +180,12 @@ func handleMobiusWebhook(r *Request) {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
 		return
 	}
+}
+
+func readRequestBody(body io.ReadCloser) ([]byte, error) {
+	if body == nil {
+		return []byte{}, nil
+	}
+	defer body.Close()
+	return io.ReadAll(body)
 }

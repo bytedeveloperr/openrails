@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/internal/state"
 	"github.com/doujins-org/doujins-billing/pkg/message"
@@ -78,6 +79,10 @@ func (r *Request) Set(key string, value any) {
 }
 
 func (r *Request) GetUser() *services.UserIdentity {
+	if userCtx := middleware.GetUserContext(r.GinCtx); userCtx != nil && userCtx.User != nil {
+		return userCtx.User
+	}
+
 	user, ok := r.Get("user")
 	if !ok {
 		return nil
@@ -85,6 +90,10 @@ func (r *Request) GetUser() *services.UserIdentity {
 
 	if ui, ok := user.(*services.UserIdentity); ok {
 		return ui
+	}
+
+	if ctx, ok := user.(*middleware.UserContext); ok {
+		return ctx.User
 	}
 
 	return nil

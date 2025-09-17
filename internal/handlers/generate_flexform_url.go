@@ -34,7 +34,12 @@ func GenerateFlexFormURL(r *Request) {
 	price, err := r.State.PriceService.GetByID(r.Request.Context(), priceID)
 	if err != nil {
 		log.WithError(err).Error("Failed to get price information")
-		r.ErrorJSON(http.StatusNotFound, "Price not found")
+		r.ErrorJSON(http.StatusBadRequest, "Invalid price ID")
+		return
+	}
+	if price == nil {
+		log.WithField("price_id", priceID).Warn("Price lookup returned nil result")
+		r.ErrorJSON(http.StatusBadRequest, "Invalid price ID")
 		return
 	}
 
