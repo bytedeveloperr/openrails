@@ -470,7 +470,7 @@ func (r *PaymentMethodService) CreateFromCCBillWebhook(ctx context.Context, user
 		if existingMethod.InitialTransactionID != transactionID {
 			existingMethod.InitialTransactionID = transactionID
 			existingMethod.UpdatedAt = time.Now()
-			if err := r.Update(ctx, existingMethod); err != nil {
+			if err = r.Update(ctx, existingMethod); err != nil {
 				return nil, fmt.Errorf("failed to update existing payment method: %w", err)
 			}
 		}

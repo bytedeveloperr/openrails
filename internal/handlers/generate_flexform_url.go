@@ -1,24 +1,18 @@
 package handlers
 
 import (
-	"context"
-	"database/sql"
-	"errors"
 	"net/http"
-	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
-	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
 func GenerateFlexFormURL(r *Request) {
-	var req *GenerateFlexFormURLRequest
-	if err := r.Bind(req); err != nil {
+	var req GenerateFlexFormURLRequest
+	if err := r.Bind(&req); err != nil {
 		log.WithError(err).Error("Failed to bind FlexForm URL request")
 		r.ErrorJSON(http.StatusBadRequest, "Invalid request")
 		return
@@ -44,12 +38,8 @@ func GenerateFlexFormURL(r *Request) {
 		return
 	}
 
-	// Create CCBill client
 	ccbillClient := ccbill.NewClient(r.State.Config.CCBill, r.State.Config.Env == "prod")
-
-	// Prepare FlexForm parameters
 	flexFormParams := &ccbill.GenerateFlexFormURLParams{
-		// Pass the OIDC subject in Username so webhook can map back to the user
 		Username:      userCtx.User.ID,
 		Email:         *userCtx.User.Email,
 		CustomerFName: req.FirstName,
@@ -59,11 +49,10 @@ func GenerateFlexFormURL(r *Request) {
 		State:         req.State,
 		ZipCode:       req.ZipCode,
 		Country:       req.Country,
-		FlexID:        *price.MobiusPlanID,
+		FlexID:        *price.CCBillPriceID,
 	}
 
-	// Generate FlexForm URL
-	flexFormResponse, err := ccbillClient.GenerateFlexFormURL(flexFormParams)
+	response, err := ccbillClient.GenerateFlexFormURL(flexFormParams)
 	if err != nil {
 		log.WithError(err).Error("Failed to generate FlexForm URL")
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to generate payment form")
@@ -75,58 +64,5 @@ func GenerateFlexFormURL(r *Request) {
 		"price_id": price.ID,
 	}).Info("Generated CCBill FlexForm URL")
 
-	// Create or ensure pending subscription for tracking
-	if _, err := createPendingSubscription(r.Request.Context(), r.State.SubscriptionService, userCtx.User.ID, price); err != nil {
-		log.WithError(err).Warn("Failed to create pending subscription before redirect")
-	}
-	r.SuccessJSON(flexFormResponse)
-}
-
-// generatePassword creates a secure password from user ID for CCBill account creation
-func generatePassword(userID string) string {
-	// Use first 12 characters of the user ID (OIDC subject) as a deterministic password surrogate
-	if len(userID) >= 12 {
-		return userID[:12]
-	}
-	return userID
-}
-
-// createPendingSubscription creates a new subscription in pending status for tracking
-func createPendingSubscription(ctx context.Context, subscriptionService *services.SubscriptionService, userID string, price *models.Price) (*models.Subscription, error) {
-	// Check if user already has a subscription
-	existingSubscription, err := subscriptionService.GetByUserID(ctx, userID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-
-	if existingSubscription != nil {
-		// Return existing subscription
-		return existingSubscription, nil
-	}
-
-	// Create new subscription
-	subscription := &models.Subscription{
-		ID:                      uuid.New(),
-		UserID:                  userID,
-		PriceID:                 price.ID,
-		Status:                  models.StatusPending,
-		StartedAt:               time.Now(),
-		Processor:               models.ProcessorCCBill,
-		ProcessorSubscriptionID: "", // Will be set by webhook
-	}
-
-	if err := subscriptionService.Create(ctx, subscription); err != nil {
-		return nil, err
-	}
-
-	return subscription, nil
-}
-
-// getInitialPeriod returns the billing period in days, defaulting to 30 if not specified
-func getInitialPeriod(price *models.Price) int {
-	if price.BillingCycleDays != nil {
-		return *price.BillingCycleDays
-	}
-	// Default to 30 days if not specified
-	return 30
+	r.SuccessJSON(response)
 }

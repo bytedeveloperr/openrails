@@ -47,12 +47,12 @@
             "order_description": "",
             "order_id": "",
             "plan": {
-                "amount": "",
-                "day_frequency": "",
-                "day_of_month": "",
+              "amount": "19.00",
+                "day_frequency": 30,
+                "day_of_month": null,
                 "id": "premium_test",
-                "month_frequency": "",
-                "name": "",
+                "month_frequency": null,
+                "name": "Premium Membership Test",
                 "payments": "Until canceled"
             },
             "ponumber": "",

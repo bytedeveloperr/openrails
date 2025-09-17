@@ -391,6 +391,8 @@ func (c *MobiusClient) AddRecurringSubscription(data RecurringPaymentData) (*Add
 		values.Set("test_mode", "enabled")
 	}
 
+	fmt.Println(values, c.IsProd)
+
 	response, err := c.sendDirectRequest(values)
 	if err != nil {
 		return nil, err

@@ -65,7 +65,7 @@ type GetSubscriptionRequest struct {
 // -------------------------------- Subscribe Request --------------------------------
 
 type SubscribeBodyParams struct {
-	Data services.SubscribeData `json:"data" validate:"required"`
+	services.SubscribeData
 }
 
 type SubscribeRequest struct {

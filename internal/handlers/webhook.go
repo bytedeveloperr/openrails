@@ -83,22 +83,17 @@ func Webhook(r *Request) {
 		}
 
 		service := services.CCBillWebhookService{
-			Data: data,
-			DB:   r.State.DB,
-			// DeadLetterService:     deadLetterService,
+			Data:                     data,
+			DB:                       r.State.DB,
 			PriceService:             r.State.PriceService,
 			ProductService:           r.State.ProductService,
 			CCBillClient:             r.State.CCBillRESTClient,
-			NotificationQueueService: r.State.NotificationQueueService,
 			BillingEventService:      r.State.BillingEventService,
+			NotificationQueueService: r.State.NotificationQueueService,
 		}
 
 		if err := service.HandleCCBillWebhook(context.Background()); err != nil {
 			log.WithError(err).Error("failed to process CCBill webhook")
-
-			// Log processing failure to dead letter queue
-			// deadLetterService.LogProcessingFailure(context.Background(), "ccbill", "unknown", json.RawMessage(body), err, headers, clientIP)
-
 			r.ErrorJSON(http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -171,14 +166,6 @@ func handleMobiusWebhook(r *Request) {
 
 	if err := service.HandleMobiusWebhook(context.Background()); err != nil {
 		log.WithError(err).Error("failed to process webhook")
-
-		// Log processing failure to dead letter queue
-		// eventType := "unknown"
-		// if eventTypeVal, ok := data["event_type"].(string); ok {
-		// 	eventType = eventTypeVal
-		// }
-		// deadLetterService.LogProcessingFailure(context.Background(), "mobius", eventType, json.RawMessage(body), err, headers, clientIP)
-
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
 		return
 	}

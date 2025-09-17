@@ -9,11 +9,15 @@ import (
 )
 
 func Subscribe(r *Request) {
-	req := new(SubscribeRequest)
-	if err := r.Bind(req); err != nil {
+	var req SubscribeRequest
+	if err := r.Bind(&req); err != nil {
 		log.WithError(err).Error("Failed to bind subscribe request")
 		r.ErrorJSON(http.StatusBadRequest, "Invalid request")
 		return
+	}
+
+	if req.Processor == "" {
+		req.Processor = r.Param("processor")
 	}
 
 	userCtx := middleware.GetUserContext(r.GinCtx)
@@ -22,35 +26,7 @@ func Subscribe(r *Request) {
 		return
 	}
 
-	// Idempotency for Mobius tokenized subscribe
-	// var userID *uuid.UUID
-	// if userCtx.User != nil {
-	// uid := userCtx.User.ID
-	// userID = &uid
-	// }
-	// if req.Data.Processor == "mobius" && req.Data.PaymentToken != "" {
-	// 	idems := services.NewIdempotencyService(r.State.DB)
-	// 	prev, exists, err := idems.Begin(r.Request.Context(), "subscribe.add", req.Data.PaymentToken, userID)
-	// 	if err != nil {
-	// 		log.WithError(err).Warn("idempotency begin failed; proceeding without cache")
-	// 	} else if exists {
-	// 		// Return previous result (raw JSON)
-	// 		r.Inner().Data(200, "application/json", json.RawMessage(prev.ResultJSON))
-	// 		return
-	// 	}
-	// 	// proceed and on success, complete
-	// 	res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.Data, userCtx.User)
-	// 	if err != nil {
-	// 		log.WithError(err).Error("failed to subscribe")
-	// 		r.ErrorJSON(500, "Internal server error")
-	// 		return
-	// 	}
-	// 	_ = idems.Complete(r.Request.Context(), "subscribe.add", req.Data.PaymentToken, prev.ResultJSON)
-	// 	r.SuccessJSON(res)
-	// 	return
-	// }
-
-	res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.Data, userCtx.User)
+	res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.SubscribeData, userCtx.User)
 	if err != nil {
 		log.WithError(err).Error("failed to subscribe")
 		r.ErrorJSON(500, "Internal server error")

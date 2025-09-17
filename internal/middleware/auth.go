@@ -22,6 +22,7 @@ import (
 
 // UserContextKey is the key for user context in gin.Context
 const UserContextKey = "user"
+const UserIDContextKey = "user_id"
 
 // UserContext represents the authenticated user context
 type UserContext struct {
@@ -120,11 +121,14 @@ func AuthRequired(jwtConfig *config.JWTConfig) gin.HandlerFunc {
 			return
 		}
 
+		fmt.Println(userCtx)
+
 		// Set user context
 		c.Set(UserContextKey, userCtx)
 
 		// Add user ID to request context for logging
-		ctx := context.WithValue(c.Request.Context(), "user_id", userCtx.User.ID)
+		//lint:ignore SA1029 safe to use string as key
+		ctx := context.WithValue(c.Request.Context(), UserIDContextKey, userCtx.User.ID)
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
@@ -151,7 +155,7 @@ func AdminRequired() gin.HandlerFunc {
 
 		// Check if user has admin role
 		if !userCtx.HasRole("admin") {
-			log.WithField("user_id", userCtx.User.ID).Warn("Admin access denied")
+			log.WithField(UserIDContextKey, userCtx.User.ID).Warn("Admin access denied")
 			c.JSON(http.StatusForbidden, message.Message("Admin privileges required"))
 			c.Abort()
 			return
@@ -193,7 +197,8 @@ func OptionalAuth(jwtConfig *config.JWTConfig) gin.HandlerFunc {
 		c.Set(UserContextKey, userCtx)
 
 		// Add user ID to request context for logging
-		ctx := context.WithValue(c.Request.Context(), "user_id", userCtx.User.ID)
+		//lint:ignore SA1029 safe to use string as key
+		ctx := context.WithValue(c.Request.Context(), UserIDContextKey, userCtx.User.ID)
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
@@ -276,8 +281,11 @@ func validateJWTToken(tokenString string, jwtConfig *config.JWTConfig) (*UserCon
 		return nil, fmt.Errorf("invalid token claims")
 	}
 
+	fmt.Println("claims", claims)
+
 	// Validate standard claims against config (issuer, audience, expiration)
 	now := time.Now()
+	fmt.Println(jwtConfig)
 	if iss, ok := claims["iss"].(string); jwtConfig.Issuer != "" && (!ok || iss != jwtConfig.Issuer) {
 		return nil, fmt.Errorf("invalid issuer")
 	}

@@ -354,7 +354,7 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
 		days int
 	}
 	var grants []grantItem
-	if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
+	if len(product.EntitlementsSpec) > 0 {
 		for name, d := range product.EntitlementsSpec {
 			days := 0
 			if d != nil {

@@ -41,8 +41,7 @@ func (r *PriceService) Create(ctx context.Context, price *models.Price) error {
 
 func (r *PriceService) GetByID(ctx context.Context, id uuid.UUID) (*models.Price, error) {
 	var price models.Price
-	err := r.db.GetDB().NewSelect().Model(&price).Where("id = ?", id).Scan(ctx)
-	if err != nil {
+	if err := r.db.GetDB().NewSelect().Model(&price).Where("id = ?", id).Scan(ctx); err != nil {
 		return nil, err
 	}
 	return &price, nil
@@ -73,7 +72,7 @@ func (r *PriceService) GetByMobiusPlanID(ctx context.Context, mobiusPlanID strin
 
 func (r *PriceService) GetByCCBillPriceID(ctx context.Context, ccbillPriceID string) (*models.Price, error) {
 	var price models.Price
-	err := r.db.GetDB().NewSelect().Model(&price).Relation("Product").Where("ccbill_price_id = ?", ccbillPriceID).Where("is_active = ?", true).Scan(ctx)
+	err := r.db.GetDB().NewSelect().Model(&price).Relation("Product").Where("ccbill_price_id = ?", ccbillPriceID).Where("price.is_active = ?", true).Scan(ctx)
 	if err != nil {
 		return nil, err
 	}

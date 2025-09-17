@@ -95,13 +95,13 @@ type MobiusMerchant struct {
 }
 
 type MobiusPlan struct {
-	Amount         string `json:"amount"`
-	DayFrequency   string `json:"day_frequency"`
-	DayOfMonth     string `json:"day_of_month"`
-	ID             string `json:"id" validate:"required"`
-	MonthFrequency string `json:"month_frequency"`
 	Name           string `json:"name"`
+	Amount         string `json:"amount"`
 	Payments       string `json:"payments"`
+	DayOfMonth     *int   `json:"day_of_month"`
+	DayFrequency   *int   `json:"day_frequency"`
+	MonthFrequency *int   `json:"month_frequency"`
+	ID             string `json:"id" validate:"required"`
 }
 
 type MobiusFeatures struct {

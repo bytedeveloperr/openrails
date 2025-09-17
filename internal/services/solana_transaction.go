@@ -119,18 +119,21 @@ func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, 
 		instructions = append(instructions, instruction)
 	} else {
 		// SPL Token transfer
-		tokenMint, err := solana.PublicKeyFromBase58(tokenCfg.Mint)
+		var tokenMint solana.PublicKey
+		tokenMint, err = solana.PublicKeyFromBase58(tokenCfg.Mint)
 		if err != nil {
 			return nil, fmt.Errorf("invalid token mint address: %w", err)
 		}
 
 		// Find associated token accounts
-		fromTokenAccount, _, err := solana.FindAssociatedTokenAddress(fromWallet, tokenMint)
+		var fromTokenAccount solana.PublicKey
+		fromTokenAccount, _, err = solana.FindAssociatedTokenAddress(fromWallet, tokenMint)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find from token account: %w", err)
 		}
 
-		toTokenAccount, _, err := solana.FindAssociatedTokenAddress(toWallet, tokenMint)
+		var toTokenAccount solana.PublicKey
+		toTokenAccount, _, err = solana.FindAssociatedTokenAddress(toWallet, tokenMint)
 		if err != nil {
 			return nil, fmt.Errorf("failed to find to token account: %w", err)
 		}
@@ -183,14 +186,14 @@ func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, 
 	}
 
 	log.WithFields(log.Fields{
-		"pending_id":    stx.ID,
-		"user_id":       userID,
-		"price_id":      priceID,
-		"token":         tokenSymbol,
-		"amount":        price.Amount,
-		"token_amount":  tokenAmount,
-		"from_wallet":   userWallet,
-		"to_wallet":     merchantWallet,
+		"pending_id":   stx.ID,
+		"user_id":      userID,
+		"price_id":     priceID,
+		"token":        tokenSymbol,
+		"amount":       price.Amount,
+		"token_amount": tokenAmount,
+		"from_wallet":  userWallet,
+		"to_wallet":    merchantWallet,
 	}).Info("Built Solana payment transaction")
 
 	return &TransactionResponse{
@@ -232,7 +235,7 @@ func (s *SolanaTransactionService) VerifyTransactionSignature(ctx context.Contex
 	}
 
 	// Wait for confirmation
-	if err := s.rpc.ConfirmTransaction(ctx, sig, rpc.CommitmentConfirmed); err != nil {
+	if err = s.rpc.ConfirmTransaction(ctx, sig, rpc.CommitmentConfirmed); err != nil {
 		return nil, fmt.Errorf("transaction confirmation failed: %w", err)
 	}
 

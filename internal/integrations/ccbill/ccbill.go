@@ -107,7 +107,7 @@ func (c *CCBillClient) GenerateFlexFormURL(params *GenerateFlexFormURLParams) (*
 	}
 
 	baseURL := c.config.BaseFlexFormURL
-	flexFormURL := fmt.Sprintf("%s/%s?%s", baseURL, params.FlexID, q.Encode())
+	flexFormURL := fmt.Sprintf("%s/%s?%s", strings.TrimRight(baseURL, "/"), params.FlexID, q.Encode())
 
 	return &FlexFormResponse{
 		IFrameURL:  flexFormURL,

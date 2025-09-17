@@ -36,7 +36,7 @@ func NewState(cfg *config.Config) (*State, error) {
 	}
 
 	// Build all repositories
-	serviceInstances := createServices(db)
+	serviceInstances := createServices(db, ccbillRESTClient, mobiusClient)
 
 	// Initialize optional email services
 	var emailService *services.EmailService
@@ -173,9 +173,8 @@ type servicesInstances struct {
 	SubscriptionEmailService *services.SubscriptionEmailService
 }
 
-func createServices(db *db.DB) *servicesInstances {
+func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient *mobius.MobiusClient) *servicesInstances {
 	// Create base services first
-	subscriptionService := services.NewSubscriptionService(db)
 	userService := services.NewUserService(db)
 	productService := services.NewProductService(db)
 	priceService := services.NewPriceService(db)
@@ -184,6 +183,16 @@ func createServices(db *db.DB) *servicesInstances {
 	purchaseService := services.NewPaymentService(db)
 	entitlementService := services.NewEntitlementService(db)
 	solanaWalletService := services.NewSolanaWalletService(db)
+	
+	// Create SubscriptionService with all its dependencies
+	subscriptionService := services.NewSubscriptionService(
+		db,
+		priceService,
+		productService,
+		notificationQueueService,
+		ccbillRESTClient,
+		mobiusClient,
+	)
 
 	// Create Wave 18 subscription services that depend on base services
 	userSubscriptionService := services.NewUserSubscriptionService(

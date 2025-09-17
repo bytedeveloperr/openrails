@@ -1,13 +1,13 @@
 {
-    "accountingAmount": 23.00,
+    "accountingAmount":"9.99",
     "accountingCurrency": "USD",
     "accountingCurrencyCode": 840,
-    "billedAmount": 23.00,
+    "billedAmount":"9.99",
     "billedCurrency": "USD",
     "billedCurrencyCode": 840,
     "cardSubType": "CREDIT",
     "cardType": "VISA",
-    "clientAccnum": 945280,
+    "clientAccnum": "945280",
     "clientSubacc": "0000",
     "expDate": "0320",
     "last4": "6194",
@@ -17,5 +17,5 @@
     "renewalDate": "2025-08-05",
     "subscriptionId": "0125217202000000017",
     "timestamp": "2025-08-05 06:16:50",
-    "transactionId": "0125217201000095909"
+    "transactionId": "0125217202000000017"
   }

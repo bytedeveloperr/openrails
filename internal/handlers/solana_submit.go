@@ -31,7 +31,7 @@ func SubmitPayment(r *Request) {
 	}
 
 	// Validate signature format
-	if err := solana.ValidateSignature(req.SignedTransaction); err != nil {
+	if err = solana.ValidateSignature(req.SignedTransaction); err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "Invalid transaction signature format")
 		return
 	}

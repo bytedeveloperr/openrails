@@ -126,17 +126,16 @@ func (s *Server) setupPublicRoutes() {
 	api := s.publicHandler.Group("/api/v1")
 
 	// Public subscription data (no auth)
-	publicSubs := api.Group("/subscriptions/public")
+	subscriptions := api.Group("/subscriptions")
 	{
-		publicSubs.GET("/products", s.wrap(handlers.GetProducts))
-		publicSubs.GET("/subscribe-page-data", s.wrap(handlers.GetSubscribePageData))
+		subscriptions.GET("/products", s.wrap(handlers.GetProducts))
+		subscriptions.GET("/page-data", s.wrap(handlers.GetSubscribePageData))
 	}
 
-	subscriptions := api.Group("/subscriptions")
 	subscriptions.Use(middleware.AuthRequired(s.cfg.JWT))
 	{
 		// Avoid wildcard conflict with admin routes by namespacing processor
-		subscriptions.POST("/processor/:processor", s.wrap(handlers.Subscribe))
+		subscriptions.POST("/process/:processor", s.wrap(handlers.Subscribe))
 		subscriptions.POST("/ccbill/flexform-url", s.wrap(handlers.GenerateFlexFormURL))
 		subscriptions.POST("/cancel", s.wrap(handlers.CancelSubscription))
 		subscriptions.GET("/active", s.wrap(handlers.GetSubscription))

@@ -88,7 +88,6 @@ type SubscribeResponse struct {
 }
 
 func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData, user *UserIdentity) (any, error) {
-	// Get price and product information
 	priceID, err := uuid.Parse(data.PriceID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid price ID: %w", err)
@@ -99,7 +98,6 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 		return nil, fmt.Errorf("price not found: %w", err)
 	}
 
-	// Check for existing active subscription
 	existingSub, err := s.GetByUserID(ctx, user.ID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("failed to check existing subscription: %w", err)
@@ -129,7 +127,6 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			"flexform_endpoint": "/api/v1/subscriptions/ccbill/flexform-url",
 		}, nil
 	case ProcessorMobius:
-		// Use payment token flow for CollectJS integration
 		params := mobius.RecurringPaymentData{
 			CardUserData: mobius.CardUserData{
 				FirstName: data.FirstName,
@@ -152,6 +149,19 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			return nil, err
 		}
 
+		// Create a pending subscription which we'll activate on the receipt of the webhook from Mobius
+		subscription := &models.Subscription{
+			UserID:                  user.ID,
+			PriceID:                 priceID,
+			ID:                      uuid.New(),
+			ProcessorSubscriptionID: resp.SubscriptionID,
+			Status:                  models.StatusPending,
+			Processor:               models.Processor(processor),
+		}
+
+		if err := s.Create(ctx, subscription); err != nil {
+			return nil, fmt.Errorf("failed to create subscription: %w", err)
+		}
 		return resp, nil
 	default:
 		return nil, errors.New("invalid payment processor")
@@ -227,8 +237,22 @@ func (s *SubscriptionService) GetAvailableProducts(ctx context.Context) ([]*mode
 	return products, nil
 }
 
-func NewSubscriptionService(db *db.DB) *SubscriptionService {
-	return &SubscriptionService{DB: db}
+func NewSubscriptionService(
+	db *db.DB,
+	priceService *PriceService,
+	productService *ProductService,
+	notificationQueueService *NotificationQueueService,
+	ccbillRESTClient *ccbill.RESTClient,
+	mobiusClient *mobius.MobiusClient,
+) *SubscriptionService {
+	return &SubscriptionService{
+		DB:                       db,
+		PriceService:             priceService,
+		ProductService:           productService,
+		NotificationQueueService: notificationQueueService,
+		CCBillRESTClient:         ccbillRESTClient,
+		MobiusClient:             mobiusClient,
+	}
 }
 
 func (s *SubscriptionService) GetDB() *db.DB {

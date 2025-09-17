@@ -30,9 +30,11 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 
 	err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		dbb := db.NewWithTx(tx)
-		subService := NewSubscriptionService(dbb)
+		priceService := NewPriceService(dbb)
+		productService := NewProductService(dbb)
 		entitlementService := NewEntitlementService(dbb)
 		notificationService := NewNotificationQueueService(dbb)
+		subService := NewSubscriptionService(dbb, priceService, productService, notificationService, nil, nil)
 
 		// Get price information
 		price, err := s.PriceService.GetByID(ctx, params.PriceID)
@@ -112,7 +114,7 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 			}
 			// Build list of entitlement names
 			entNames := make([]string, 0, 4)
-			if product.EntitlementsSpec != nil && len(product.EntitlementsSpec) > 0 {
+			if len(product.EntitlementsSpec) > 0 {
 				for name := range product.EntitlementsSpec {
 					entNames = append(entNames, name)
 				}
@@ -173,7 +175,10 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, params *RenewMembershipParams) error {
 	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
+		priceService := NewPriceService(db)
+		productService := NewProductService(db)
+		notificationQueueService := NewNotificationQueueService(db)
+		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
 		// no entitlement creation on renewal; open window remains
 		notificationService := NewNotificationQueueService(db)
 
@@ -236,7 +241,10 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, params *CancelMembershipParams) error {
 	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
+		priceService := NewPriceService(db)
+		productService := NewProductService(db)
+		notificationQueueService := NewNotificationQueueService(db)
+		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
 		entSvc := NewEntitlementService(db)
 		notificationService := NewNotificationQueueService(db)
 
@@ -312,7 +320,10 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, subscriptionID uuid.UUID) error {
 	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
+		priceService := NewPriceService(db)
+		productService := NewProductService(db)
+		notificationQueueService := NewNotificationQueueService(db)
+		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
 		entSvc := NewEntitlementService(db)
 		notificationService := NewNotificationQueueService(db)
 
@@ -356,7 +367,10 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, params *FailMembershipParams) error {
 	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		db := db.NewWithTx(tx)
-		subService := NewSubscriptionService(db)
+		priceService := NewPriceService(db)
+		productService := NewProductService(db)
+		notificationQueueService := NewNotificationQueueService(db)
+		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
 		entSvc := NewEntitlementService(db)
 		notificationService := NewNotificationQueueService(db)
 
