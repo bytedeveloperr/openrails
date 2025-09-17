@@ -15,22 +15,23 @@ import (
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
-	"github.com/uptrace/bun"
 )
 
 const MobiusProcessorName string = "Mobius"
 
 type MobiusWebhookService struct {
-	DB                       *db.DB
-	PriceService             *PriceService
-	ProductService           *ProductService
-	Data                     MobiusWebhookEvent
-	MobiusClient             *mobius.MobiusClient
-	DeadLetterService        *DeadLetterService
-	NotificationQueueService *NotificationQueueService
-	NotificationService      *NotificationService
-	BillingEventService      *BillingEventService
-	DeduplicationService     *DeduplicationService
+	DB                           *db.DB
+	PriceService                 *PriceService
+	ProductService               *ProductService
+	Data                         MobiusWebhookEvent
+	DeadLetterService            *DeadLetterService
+	MobiusClient                 *mobius.MobiusClient
+	NotificationService          *NotificationService
+	BillingEventService          *BillingEventService
+	SubscriptionService          *SubscriptionService
+	DeduplicationService         *DeduplicationService
+	NotificationQueueService     *NotificationQueueService
+	SubscriptionLifecycleService *SubscriptionLifecycleService
 }
 
 type MobiusWebhookEventType = string
@@ -151,67 +152,32 @@ func (s *MobiusWebhookService) handleAddSubscription(ctx context.Context) error 
 		}, nil)
 	}
 
-	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		priceService := NewPriceService(db)
-		productService := NewProductService(db)
-		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, s.MobiusClient)
+	price, err := s.PriceService.GetByMobiusPlanID(ctx, mobiusPlanID)
+	if err != nil {
+		return fmt.Errorf("failed to find price for Mobius plan ID %s: %w", mobiusPlanID, err)
+	}
 
-		subscription, err := subService.GetByProcessorSubscriptionID(ctx, ProcessorMobius, mobiusSubID)
-		if err != nil {
-			return fmt.Errorf("failed to check existing subscription: %w", err)
-		}
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorMobius, mobiusSubID)
+	if err != nil {
+		return fmt.Errorf("failed to check existing subscription: %w", err)
+	}
 
-		price, err := priceService.GetByMobiusPlanID(ctx, mobiusPlanID)
-		if err != nil {
-			return fmt.Errorf("failed to find price for Mobius plan ID %s: %w", mobiusPlanID, err)
-		}
+	if subscription.Status != models.StatusPending {
+		return fmt.Errorf("subscription is not pending: %s", subscription.Status)
+	}
 
-		if subscription.Status != models.StatusPending {
-			return fmt.Errorf("invalid subscription state: %w", err)
-		}
-
-		if err := subscription.ActivateWithPrice(price); err != nil {
-			return fmt.Errorf("failed to activate new subscription: %w", err)
-		}
-
-		if err := subscription.Validate(price.Amount); err != nil {
-			return fmt.Errorf("failed to validate new subscription: %w", err)
-		}
-
-		if err := subService.Update(ctx, subscription); err != nil {
-			return fmt.Errorf("failed to update subscription: %w", err)
-		}
-
-		if s.BillingEventService != nil {
-			metadata := map[string]interface{}{
-				"processor_subscription_id": mobiusSubID,
-				"plan_id":                   mobiusPlanID,
-				"amount":                    price.Amount,
-				"billing_cycle_days":        price.BillingCycleDays,
-				"period_start":              subscription.CurrentPeriodStartsAt,
-				"period_end":                subscription.CurrentPeriodEndsAt,
-			}
-
-			subscriptionEventData := SubscriptionEventData{
-				EventID:                 uuid.New(),
-				Timestamp:               time.Now(),
-				ProcessorSubscriptionID: &mobiusSubID,
-				Processor:               ProcessorMobius,
-				SubscriptionID:          subscription.ID,
-				UserID:                  subscription.UserID,
-				EventType:               "subscription_created",
-				Metadata:                CreateMetadataJSON(metadata),
-			}
-
-			if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
-				log.WithError(err).Error("Failed to log subscription creation event to ClickHouse")
-			}
-		}
-
-		return nil
+	_, err = s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
+		PriceID:                 price.ID,
+		UserID:                  subscription.UserID,
+		Processor:               models.ProcessorMobius,
+		ProcessorSubscriptionID: &subscription.ProcessorSubscriptionID,
 	})
+
+	if err != nil {
+		return fmt.Errorf("failed to create membership: %w", err)
+	}
+
+	return nil
 }
 
 func (s *MobiusWebhookService) handleUpdateSubscription(ctx context.Context) error {
@@ -234,69 +200,14 @@ func (s *MobiusWebhookService) handleUpdateSubscription(ctx context.Context) err
 		}, nil)
 	}
 
-	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		priceService := NewPriceService(db)
-		productService := NewProductService(db)
-		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, s.MobiusClient)
+	if err := s.SubscriptionLifecycleService.RenewMembership(ctx, &RenewMembershipParams{
+		Processor:               models.ProcessorMobius,
+		ProcessorSubscriptionID: mobiusSubID,
+	}); err != nil {
+		return fmt.Errorf("failed to renew subscription: %w", err)
+	}
 
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorMobius), mobiusSubID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("subscription not found for processor subscription ID: %s", mobiusSubID)
-			}
-			return fmt.Errorf("failed to get subscription: %w", err)
-		}
-
-		price, err := priceService.GetByMobiusPlanID(ctx, mobiusPlanID)
-		if err != nil {
-			return fmt.Errorf("failed to find price for Mobius plan ID %s: %w", mobiusPlanID, err)
-		}
-
-		if err := sub.ActivateWithPrice(price); err != nil {
-			return fmt.Errorf("failed to activate subscription: %w", err)
-		}
-
-		if err := sub.Validate(price.Amount); err != nil {
-			return fmt.Errorf("failed to validate subscription: %w", err)
-		}
-
-		if err := subService.Update(ctx, sub); err != nil {
-			return fmt.Errorf("failed to update subscription: %w", err)
-		}
-
-		if s.BillingEventService != nil {
-			metadata := map[string]interface{}{
-				"processor_subscription_id": mobiusSubID,
-				"plan_id":                   mobiusPlanID,
-				"billing_cycle_days":        price.BillingCycleDays,
-				"previous_period_end":       sub.CurrentPeriodEndsAt,
-			}
-
-			paymentEventData := PaymentEventData{
-				EventID:        uuid.New(),
-				SubscriptionID: &sub.ID,
-				UserID:         sub.UserID,
-				EventType:      "charge_success",
-				Processor:      "mobius",
-				WebhookSource:  "webhook",
-				Metadata:       CreateMetadataJSON(metadata),
-			}
-
-			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
-				log.WithError(err).Error("Failed to log payment event to ClickHouse")
-			}
-		}
-
-		log.WithContext(ctx).WithFields(log.Fields{
-			"subscriptionID": sub.ID,
-			"userID":         sub.UserID,
-			"priceID":        price.ID,
-		}).Info("Updated subscription successfully")
-
-		return nil
-	})
+	return nil
 }
 
 func (s *MobiusWebhookService) handleDeleteSubscription(ctx context.Context) error {
@@ -310,76 +221,28 @@ func (s *MobiusWebhookService) handleDeleteSubscription(ctx context.Context) err
 		return newMobiusBillingError(ErrorTypeMobiusValidation, "Missing subscription ID", map[string]interface{}{}, nil)
 	}
 
-	return s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		priceService := NewPriceService(db)
-		productService := NewProductService(db)
-		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, s.MobiusClient)
-
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorMobius), mobiusSubID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("subscription not found for processor subscription ID: %s", mobiusSubID)
-			}
-			return fmt.Errorf("failed to get subscription: %w", err)
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorMobius), mobiusSubID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("subscription not found for processor subscription ID: %s", mobiusSubID)
 		}
+		return fmt.Errorf("failed to get subscription: %w", err)
+	}
 
-		cancelType := models.CancelTypeMerchant
+	var cancelFeedback = "Cancelled via Mobius webhook"
+	var processor = models.ProcessorMobius
+	if err := s.SubscriptionLifecycleService.CancelMembership(ctx, &CancelMembershipParams{
+		ImmediateCancellation:   false,
+		Processor:               &processor,
+		ProcessorSubscriptionID: &mobiusSubID,
+		CancelFeedback:          &cancelFeedback,
+		SubscriptionID:          &subscription.ID,
+		CancelType:              models.CancelTypeMerchant,
+	}); err != nil {
+		return fmt.Errorf("failed to renew subscription: %w", err)
+	}
 
-		if err := sub.Cancel("Cancelled via Mobius webhook", &cancelType); err != nil {
-			return fmt.Errorf("failed to cancel subscription: %w", err)
-		}
-
-		if err := subService.Update(ctx, sub); err != nil {
-			return fmt.Errorf("failed to update subscription: %w", err)
-		}
-
-		// Add notification to queue for user and send immediate email
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    sub.UserID,
-				EventType: models.NotificationPremiumEnded,
-			}
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership ended notification")
-			}
-		}
-
-		// Log subscription cancellation event to ClickHouse
-		if s.BillingEventService != nil {
-			metadata := map[string]interface{}{
-				"processor_subscription_id": mobiusSubID,
-				"cancel_type":               string(cancelType),
-				"cancel_reason":             "Cancelled via Mobius webhook",
-				"immediate_cancellation":    false,
-			}
-
-			subscriptionEventData := SubscriptionEventData{
-				EventID:                 uuid.New(),
-				SubscriptionID:          sub.ID,
-				UserID:                  sub.UserID,
-				EventType:               "subscription_cancelled",
-				Processor:               "mobius",
-				ProcessorSubscriptionID: &mobiusSubID,
-				Metadata:                CreateMetadataJSON(metadata),
-				Timestamp:               time.Now(),
-			}
-
-			if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
-				log.WithError(err).Error("Failed to log subscription cancellation event to ClickHouse")
-			}
-		}
-
-		log.WithContext(ctx).WithFields(log.Fields{
-			"subscriptionID":          sub.ID,
-			"userID":                  sub.UserID,
-			"processorSubscriptionID": mobiusSubID,
-		}).Info("Cancelled subscription successfully")
-
-		return nil
-	})
+	return nil
 }
 
 // handleChargebackComplete processes chargeback batch completion notifications

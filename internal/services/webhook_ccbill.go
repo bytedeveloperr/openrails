@@ -19,15 +19,17 @@ import (
 )
 
 type CCBillWebhookService struct {
-	Data                     CCBillWebhookEvent
-	DB                       *db.DB
-	CCBillClient             *ccbill.RESTClient
-	ProductService           *ProductService
-	PriceService             *PriceService
-	NotificationQueueService *NotificationQueueService
-	NotificationService      *NotificationService
-	DeadLetterService        *DeadLetterService
-	BillingEventService      *BillingEventService
+	Data                         CCBillWebhookEvent
+	DB                           *db.DB
+	CCBillClient                 *ccbill.RESTClient
+	ProductService               *ProductService
+	PriceService                 *PriceService
+	NotificationQueueService     *NotificationQueueService
+	NotificationService          *NotificationService
+	DeadLetterService            *DeadLetterService
+	BillingEventService          *BillingEventService
+	SubscriptionService          *SubscriptionService
+	SubscriptionLifecycleService *SubscriptionLifecycleService
 }
 
 type CCBillWebhookEventType = string
@@ -145,122 +147,92 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		return fmt.Errorf("invalid billedAmount: %f - must be greater than 0", billedAmount)
 	}
 
-	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+	// Validate form configuration
+	cfg := s.CCBillClient.Config()
+	if formID != cfg.FormID {
+		return fmt.Errorf("payment form id mismatch: got %s, want %s", formID, cfg.FormID)
+	}
 
-		txdb := db.NewWithTx(tx)
-		priceService := NewPriceService(txdb)
-		productService := NewProductService(txdb)
-		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
+	if formName != cfg.FormName {
+		return fmt.Errorf("payment form name mismatch: got %s, want %s", formName, cfg.FormName)
+	}
 
-		cfg := s.CCBillClient.Config()
-		if formID != cfg.FormID {
-			return fmt.Errorf("payment form id mismatch: got %s, want %s", formID, cfg.FormID)
+	// Get price information
+	price, err := s.PriceService.GetByCCBillPriceID(ctx, data.FlexID)
+	if err != nil {
+		return fmt.Errorf("failed to find price for CCBill price ID %s: %w", data.FlexID, err)
+	}
+
+	// Validate amount
+	expectedAmount := price.Amount
+	tolerance := expectedAmount * 0.02
+	if billedAmount < (expectedAmount-tolerance) || billedAmount > (expectedAmount+tolerance) {
+		billingErr := newBillingError(ErrorTypeAmount,
+			"Billed amount does not match expected price",
+			map[string]interface{}{
+				"expected_amount": expectedAmount,
+				"billed_amount":   billedAmount,
+				"tolerance":       tolerance,
+				"price_id":        price.ID.String(),
+				"ccbill_price_id": price.CCBillPriceID,
+			}, nil)
+
+		s.logBillingError(ctx, billingErr, log.Fields{
+			"transaction_id": transactionID,
+			"email":          email,
+		})
+		return billingErr
+	}
+
+	// Use SubscriptionLifecycleService to create membership
+	subscription, err := s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
+		UserID:                  userID,
+		PriceID:                 price.ID,
+		Processor:               models.ProcessorCCBill,
+		ProcessorSubscriptionID: &ccBillSubID,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create membership: %w", err)
+	}
+
+	// Log payment event to ClickHouse
+	if s.BillingEventService != nil {
+		metadata := map[string]interface{}{
+			"transaction_id": transactionID,
+			"processor":      "ccbill",
+			"event_source":   "webhook",
+			"amount":         billedAmount,
 		}
 
-		if formName != cfg.FormName {
-			return fmt.Errorf("payment form name mismatch: got %s, want %s", formName, cfg.FormName)
+		paymentEventData := PaymentEventData{
+			EventID:        uuid.New(),
+			SubscriptionID: &subscription.ID,
+			UserID:         subscription.UserID,
+			EventType:      "charge_success",
+			Processor:      "ccbill",
+			Amount:         &billedAmount,
+			Currency:       "USD",
+			WebhookSource:  "webhook",
+			BillingInfo:    CreateMetadataJSON(map[string]interface{}{}), // No billing info from webhook
+			Metadata:       CreateMetadataJSON(metadata),
+			Timestamp:      time.Now().UTC(),
 		}
 
-		price, err := priceService.GetByCCBillPriceID(ctx, data.FlexID)
-		if err != nil {
-			return fmt.Errorf("failed to find price for CCBill price ID %s: %w", data.FlexID, err)
+		if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
+			log.WithError(err).Error("Failed to log payment event to ClickHouse")
 		}
+	}
 
-		expectedAmount := price.Amount
-		tolerance := expectedAmount * 0.02
-		if billedAmount < (expectedAmount-tolerance) || billedAmount > (expectedAmount+tolerance) {
-			billingErr := newBillingError(ErrorTypeAmount,
-				"Billed amount does not match expected price",
-				map[string]interface{}{
-					"expected_amount": expectedAmount,
-					"billed_amount":   billedAmount,
-					"tolerance":       tolerance,
-					"price_id":        price.ID.String(),
-					"ccbill_price_id": price.CCBillPriceID,
-				}, nil)
-
-			s.logBillingError(ctx, billingErr, log.Fields{
-				"transaction_id": transactionID,
-				"email":          email,
-			})
-			return billingErr
+	// Add notification to queue for user and send immediate email
+	if s.NotificationService != nil {
+		notification := &models.NotificationQueue{
+			ID:        uuid.New(),
+			UserID:    subscription.UserID,
+			EventType: models.NotificationPremiumStarted,
 		}
-
-		subscription := &models.Subscription{
-			UserID:                  userID,
-			ID:                      uuid.New(),
-			StartedAt:               time.Now(),
-			ProcessorSubscriptionID: ccBillSubID,
-			Processor:               models.ProcessorCCBill,
+		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership started notification")
 		}
-
-		if err = subscription.ActivateWithPrice(price); err != nil {
-			return err
-		}
-
-		if err = subscription.Validate(billedAmount); err != nil {
-			return err
-		}
-
-		if err = subService.Create(ctx, subscription); err != nil {
-			return fmt.Errorf("failed to create subscription: %w", err)
-		}
-
-		// paymentMethodService := NewPaymentMethodService(txdb)
-		// _, err = paymentMethodService.CreateFromCCBillWebhook(ctx, userID, ccBillSubID, transactionID)
-		// if err != nil {
-		// 	log.WithContext(ctx).WithError(err).WithFields(log.Fields{
-		// 		"userID":        userID,
-		// 		"ccBillSubID":   ccBillSubID,
-		// 		"transactionID": transactionID,
-		// 	}).Error("Failed to create payment method from CCBill webhook")
-		// 	// Don't fail the entire webhook processing for payment method creation errors
-		// }
-
-		// Log payment event to ClickHouse
-		if s.BillingEventService != nil {
-			metadata := map[string]interface{}{
-				"transaction_id": transactionID,
-				"processor":      "ccbill",
-				"event_source":   "webhook",
-				"amount":         billedAmount,
-			}
-
-			paymentEventData := PaymentEventData{
-				EventID:        uuid.New(),
-				SubscriptionID: &subscription.ID,
-				UserID:         subscription.UserID,
-				EventType:      "charge_success",
-				Processor:      "ccbill",
-				Amount:         &billedAmount,
-				Currency:       "USD",
-				WebhookSource:  "webhook",
-				BillingInfo:    CreateMetadataJSON(map[string]interface{}{}), // No billing info from webhook
-				Metadata:       CreateMetadataJSON(metadata),
-				Timestamp:      time.Now().UTC(),
-			}
-
-			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
-				log.WithError(err).Error("Failed to log payment event to ClickHouse")
-			}
-		}
-
-		// Add notification to queue for user and send immediate email
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    subscription.UserID,
-				EventType: models.NotificationPremiumStarted,
-			}
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership started notification")
-			}
-		}
-
-		return nil
-	}); err != nil {
-		return err
 	}
 
 	return nil
@@ -437,20 +409,6 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		if err = subService.Update(ctx, subscription); err != nil {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
-
-		// Create or update payment method from successful CCBill upgrade
-		paymentMethodService := NewPaymentMethodService(txdb)
-		_, err = paymentMethodService.CreateFromCCBillWebhook(ctx, subscription.UserID, ccBillSubID, transactionID)
-		if err != nil {
-			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
-				"userID":        subscription.UserID,
-				"ccBillSubID":   ccBillSubID,
-				"transactionID": transactionID,
-			}).Error("Failed to create payment method from CCBill upgrade webhook")
-			// Don't fail the entire webhook processing for payment method creation errors
-		}
-
-		// External role grant integration removed for legacy IdP-specific flow
 
 		// Log upgrade payment event to ClickHouse
 		if s.BillingEventService != nil {
@@ -836,20 +794,6 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 		if err = subService.Update(ctx, sub); err != nil {
 			return fmt.Errorf("failed to reactivate subscription: %w", err)
 		}
-
-		// Create or update payment method from successful CCBill reactivation
-		paymentMethodService := NewPaymentMethodService(txdb)
-		_, err = paymentMethodService.CreateFromCCBillWebhook(ctx, sub.UserID, pSubscriptionID, transactionID)
-		if err != nil {
-			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
-				"userID":          sub.UserID,
-				"pSubscriptionID": pSubscriptionID,
-				"transactionID":   transactionID,
-			}).Error("Failed to create payment method from CCBill reactivation webhook")
-			// Don't fail the entire webhook processing for payment method creation errors
-		}
-
-		// External role grant integration removed for legacy IdP-specific flow
 
 		// Log reactivation event to ClickHouse
 		if s.BillingEventService != nil {
@@ -1427,161 +1371,68 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 		return fmt.Errorf("invalid billedAmount: %f - must be greater than 0", billedAmount)
 	}
 
-	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		txdb := db.NewWithTx(tx)
-		priceService := NewPriceService(txdb)
-		productService := NewProductService(txdb)
-		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
-
-		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
-			}
-			return fmt.Errorf("failed to get subscription: %w", err)
-		}
-
-		fmt.Println("subbb", subscription)
-
-		price := subscription.Price
-		if price == nil {
-			price, err = priceService.GetByID(ctx, subscription.PriceID)
-			if err != nil {
-				return fmt.Errorf("failed to find new price for ID %s: %w", price.ID, err)
-			}
-		}
-
-		// Validate the billed amount matches the new price
-		expectedAmount := price.Amount
-		tolerance := expectedAmount * 0.02
-		if billedAmount < (expectedAmount-tolerance) || billedAmount > (expectedAmount+tolerance) {
-			billingErr := newBillingError(ErrorTypeAmount,
-				"Renewal amount does not match expected price",
-				map[string]interface{}{
-					"expected_amount": expectedAmount,
-					"billed_amount":   billedAmount,
-					"tolerance":       tolerance,
-					"price_id":        price.ID.String(),
-				}, nil)
-
-			s.logBillingError(ctx, billingErr, log.Fields{
-				"transaction_id":  transactionID,
-				"subscription_id": subscription.ID,
-			})
-			return billingErr
-		}
-
-		if err = subscription.ActivateWithPrice(price); err != nil {
-			return fmt.Errorf("failed to activate subscription: %w", err)
-		}
-
-		if err = subscription.Validate(billedAmount); err != nil {
-			return fmt.Errorf("failed to validate subscription: %w", err)
-		}
-
-		if err = subService.Update(ctx, subscription); err != nil {
-			return fmt.Errorf("failed to update subscription: %w", err)
-		}
-
-		// Ensure subscription entitlements exist based on product spec; for each configured
-		// entitlement, create an indefinite window starting after any active finite window.
-		entSvc := NewEntitlementService(txdb)
-		productSvc := NewProductService(txdb)
-		product, perr := productSvc.GetByID(ctx, price.ProductID)
-		if perr != nil {
-			// fallback to default single entitlement
-			product = &models.Product{EntitlementsSpec: map[string]*int{"premium": nil}}
-		}
-		entNames := make([]string, 0)
-		if len(product.EntitlementsSpec) > 0 {
-			for n := range product.EntitlementsSpec {
-				entNames = append(entNames, n)
-			}
-		} else {
-			entNames = append(entNames, "premium")
-		}
-		now := time.Now()
-		for _, ent := range entNames {
-			exists, _ := entSvc.GetDB().GetDB().NewSelect().
-				Model((*models.Entitlement)(nil)).
-				Where("subscription_id = ? AND entitlement = ? AND revoked_at IS NULL", subscription.ID, ent).
-				Exists(ctx)
-			if exists {
-				continue
-			}
-			start := now
-			var finite models.Entitlement
-			_ = entSvc.GetDB().GetDB().NewSelect().Model(&finite).
-				Where("user_id = ? AND entitlement = ?", subscription.UserID, ent).
-				Where("revoked_at IS NULL").
-				Where("end_at IS NOT NULL").
-				Where("start_at <= ?", now).
-				Where("end_at > ?", now).
-				Order("end_at DESC").
-				Limit(1).
-				Scan(ctx)
-			if finite.ID != uuid.Nil && finite.EndAt != nil {
-				start = *finite.EndAt
-			}
-			_, _ = entSvc.GrantWindow(ctx, subscription.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
-		}
-
-		// Log renewal payment event to ClickHouse
-		if s.BillingEventService != nil {
-			metadata := map[string]interface{}{
-				"transaction_id":  transactionID,
-				"processor":       "ccbill",
-				"event_source":    "webhook",
-				"event_type":      "renewal",
-				"amount":          billedAmount,
-				"subscription_id": subscription.ID,
-				"price_id":        price.ID.String(),
-			}
-
-			paymentEventData := PaymentEventData{
-				EventID:        uuid.New(),
-				SubscriptionID: &subscription.ID,
-				UserID:         subscription.UserID,
-				EventType:      "charge_success",
-				Processor:      "ccbill",
-				Amount:         &billedAmount,
-				Currency:       "USD",
-				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"renewal": true}),
-				WebhookSource:  "webhook",
-				Metadata:       CreateMetadataJSON(metadata),
-				Timestamp:      time.Now().UTC(),
-			}
-
-			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
-				log.WithError(err).Error("Failed to log renewal payment event to ClickHouse")
-			}
-		}
-
-		// Add notification to queue for user about successful renewal and send immediate email
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    subscription.UserID,
-				EventType: models.NotificationPremiumRenewed,
-			}
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver renewal success notification")
-			}
-		}
-
-		log.WithContext(ctx).WithFields(log.Fields{
-			"subscriptionID": subscription.ID,
-			"userID":         subscription.UserID,
-			"priceID":        price.ID,
-			"billedAmount":   billedAmount,
-			"transactionID":  transactionID,
-		}).Info("Processed subscription renewal successfully")
-
-		return nil
+	// Use SubscriptionLifecycleService to renew membership
+	if err = s.SubscriptionLifecycleService.RenewMembership(ctx, &RenewMembershipParams{
+		Processor:               models.ProcessorCCBill,
+		ProcessorSubscriptionID: ccBillSubID,
 	}); err != nil {
-		return err
+		return fmt.Errorf("failed to renew membership: %w", err)
 	}
+
+	// Get the subscription for logging
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription for logging: %w", err)
+	}
+
+	// Log renewal payment event to ClickHouse
+	if s.BillingEventService != nil {
+		metadata := map[string]interface{}{
+			"transaction_id":  transactionID,
+			"processor":       "ccbill",
+			"event_source":    "webhook",
+			"event_type":      "renewal",
+			"amount":          billedAmount,
+			"subscription_id": subscription.ID,
+		}
+
+		paymentEventData := PaymentEventData{
+			EventID:        uuid.New(),
+			SubscriptionID: &subscription.ID,
+			UserID:         subscription.UserID,
+			EventType:      "charge_success",
+			Processor:      "ccbill",
+			Amount:         &billedAmount,
+			Currency:       "USD",
+			BillingInfo:    CreateMetadataJSON(map[string]interface{}{"renewal": true}),
+			WebhookSource:  "webhook",
+			Metadata:       CreateMetadataJSON(metadata),
+			Timestamp:      time.Now().UTC(),
+		}
+
+		if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
+			log.WithError(err).Error("Failed to log renewal payment event to ClickHouse")
+		}
+	}
+
+	// Add notification to queue for user about successful renewal and send immediate email
+	if s.NotificationService != nil {
+		notification := &models.NotificationQueue{
+			ID:        uuid.New(),
+			UserID:    subscription.UserID,
+			EventType: models.NotificationPremiumRenewed,
+		}
+		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to create and deliver renewal success notification")
+		}
+	}
+
+	log.WithContext(ctx).WithFields(log.Fields{
+		"subscriptionID": subscription.ID,
+		"userID":         subscription.UserID,
+		"billedAmount":   billedAmount,
+		"transactionID":  transactionID,
+	}).Info("Processed subscription renewal successfully")
 
 	return nil
 }
@@ -1594,91 +1445,20 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 
 	ccBillSubID := data.SubscriptionID
 
-	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		txdb := db.NewWithTx(tx)
-		priceService := NewPriceService(txdb)
-		productService := NewProductService(txdb)
-		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
-
-		// Find subscription by processor subscription ID
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
-			}
-
-			return fmt.Errorf("failed to get subscription: %w", err)
-		}
-
-		if err = sub.ResetCurrentPeriods(); err != nil {
-			return err
-		}
-
-		now := time.Now()
-		if sub.RetryAttempts == nil {
-			attempts := 1
-			sub.RetryAttempts = &attempts
-		} else {
-			*sub.RetryAttempts++
-		}
-		sub.LastRetryAt = &now
-
-		if err = subService.Update(ctx, sub); err != nil {
-			return err
-		}
-
-		// Add notification to queue for user about payment failure and send immediate email
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    sub.UserID,
-				EventType: models.NotificationPaymentMethodFailed,
-			}
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver payment failed notification")
-			}
-		}
-
-		// Log payment failure event to ClickHouse
-		if s.BillingEventService != nil {
-			metadata := map[string]interface{}{
-				"processor_subscription_id": ccBillSubID,
-				"failure_code":              data.FailureCode,
-				"failure_reason":            data.FailureReason,
-				"retry_attempts":            sub.RetryAttempts,
-				"subscription_status":       string(sub.Status), // past_due
-			}
-
-			paymentEventData := PaymentEventData{
-				EventID:        uuid.New(),
-				SubscriptionID: &sub.ID,
-				UserID:         sub.UserID,
-				EventType:      "charge_failed",
-				Processor:      "ccbill",
-				Currency:       "USD",
-				BillingInfo:    CreateMetadataJSON(map[string]interface{}{}),
-				WebhookSource:  "webhook",
-				Metadata:       CreateMetadataJSON(metadata),
-				Timestamp:      time.Now().UTC(),
-			}
-
-			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
-				log.WithError(err).Error("Failed to log payment failure event to ClickHouse")
-			}
-		}
-
-		log.WithContext(ctx).WithFields(log.Fields{
-			"subscriptionID": sub.ID,
-			"userID":         sub.UserID,
-			"failureCode":    data.FailureCode,
-			"failureReason":  data.FailureReason,
-		}).Info("Handled renewal failure")
-
-		return nil
+	if err := s.SubscriptionLifecycleService.FailMembership(ctx, &FailMembershipParams{
+		Processor:               models.ProcessorCCBill,
+		ProcessorSubscriptionID: ccBillSubID,
+		FailureReason:           &data.FailureReason,
+		FailureCode:             &data.FailureCode,
 	}); err != nil {
-		return err
+		return fmt.Errorf("failed to fail membership: %w", err)
 	}
+
+	log.WithContext(ctx).WithFields(log.Fields{
+		"processorSubscriptionID": ccBillSubID,
+		"failureCode":             data.FailureCode,
+		"failureReason":           data.FailureReason,
+	}).Info("Handled renewal failure")
 
 	return nil
 }
@@ -1694,97 +1474,81 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 		return fmt.Errorf("missing required field: subscriptionId")
 	}
 
-	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		txdb := db.NewWithTx(tx)
-		priceService := NewPriceService(txdb)
-		productService := NewProductService(txdb)
-		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
-		entSvc := NewEntitlementService(txdb)
-
-		// Find subscription by processor subscription ID
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
-			}
-			return fmt.Errorf("failed to get subscription: %w", err)
+	// Get the subscription to determine cancel type and for logging
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
 		}
-
-		// Determine cancel type based on source
-		var cancelType models.CancelType
-		if data.Source == "failedRB" {
-			cancelType = models.CancelTypeExpired
-		} else {
-			cancelType = models.CancelTypeMerchant
-		}
-
-		if err = sub.Cancel(data.Reason, &cancelType); err != nil {
-			return err
-		}
-
-		if err = subService.Update(ctx, sub); err != nil {
-			return err
-		}
-
-		// End entitlements immediately on cancel (failed rebill or merchant cancel)
-		reason := models.EntitlementRevokeAdmin
-		now := time.Now()
-		endAt := now
-		if err = entSvc.EndActiveBySubscription(ctx, sub.ID, endAt, &reason); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to end entitlements for cancelled subscription")
-		}
-
-		// Add notification to queue for user and send immediate email
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    sub.UserID,
-				EventType: models.NotificationPremiumEnded,
-			}
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership ended notification")
-			}
-		}
-
-		// Log subscription cancellation event to ClickHouse
-		if s.BillingEventService != nil {
-			metadata := map[string]interface{}{
-				"processor_subscription_id": ccBillSubID,
-				"cancel_reason":             data.Reason,
-				"cancel_source":             data.Source,
-				"cancel_type":               string(cancelType),
-				"is_failed_rebill":          data.Source == "failedRB",
-			}
-
-			subscriptionEventData := SubscriptionEventData{
-				EventID:                 uuid.New(),
-				SubscriptionID:          sub.ID,
-				UserID:                  sub.UserID,
-				EventType:               "subscription_cancelled",
-				Processor:               "ccbill",
-				ProcessorSubscriptionID: &ccBillSubID,
-				Metadata:                CreateMetadataJSON(metadata),
-				Timestamp:               time.Now(),
-			}
-
-			if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
-				log.WithError(err).Error("Failed to log subscription cancellation event to ClickHouse")
-			}
-		}
-
-		log.WithContext(ctx).WithFields(log.Fields{
-			"subscriptionID":          sub.ID,
-			"userID":                  sub.UserID,
-			"processorSubscriptionID": ccBillSubID,
-			"cancelReason":            data.Reason,
-			"cancelSource":            data.Source,
-		}).Info("Cancelled subscription successfully")
-
-		return nil
-	}); err != nil {
-		return err
+		return fmt.Errorf("failed to get subscription: %w", err)
 	}
+
+	// Determine cancel type based on source
+	var cancelType models.CancelType
+	if data.Source == "failedRB" {
+		cancelType = models.CancelTypeExpired
+	} else {
+		cancelType = models.CancelTypeMerchant
+	}
+
+	// Use SubscriptionLifecycleService to cancel membership
+	processor := models.ProcessorCCBill
+	if err := s.SubscriptionLifecycleService.CancelMembership(ctx, &CancelMembershipParams{
+		SubscriptionID:          &subscription.ID,
+		Processor:               &processor,
+		ProcessorSubscriptionID: &ccBillSubID,
+		CancelType:              cancelType,
+		CancelFeedback:          &data.Reason,
+		ImmediateCancellation:   true, // CCBill cancellations are immediate
+	}); err != nil {
+		return fmt.Errorf("failed to cancel membership: %w", err)
+	}
+
+	// Add notification to queue for user and send immediate email
+	if s.NotificationService != nil {
+		notification := &models.NotificationQueue{
+			ID:        uuid.New(),
+			UserID:    subscription.UserID,
+			EventType: models.NotificationPremiumEnded,
+		}
+		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership ended notification")
+		}
+	}
+
+	// Log subscription cancellation event to ClickHouse
+	if s.BillingEventService != nil {
+		metadata := map[string]interface{}{
+			"processor_subscription_id": ccBillSubID,
+			"cancel_reason":             data.Reason,
+			"cancel_source":             data.Source,
+			"cancel_type":               string(cancelType),
+			"is_failed_rebill":          data.Source == "failedRB",
+		}
+
+		subscriptionEventData := SubscriptionEventData{
+			EventID:                 uuid.New(),
+			SubscriptionID:          subscription.ID,
+			UserID:                  subscription.UserID,
+			EventType:               "subscription_cancelled",
+			Processor:               "ccbill",
+			ProcessorSubscriptionID: &ccBillSubID,
+			Metadata:                CreateMetadataJSON(metadata),
+			Timestamp:               time.Now(),
+		}
+
+		if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
+			log.WithError(err).Error("Failed to log subscription cancellation event to ClickHouse")
+		}
+	}
+
+	log.WithContext(ctx).WithFields(log.Fields{
+		"subscriptionID":          subscription.ID,
+		"userID":                  subscription.UserID,
+		"processorSubscriptionID": ccBillSubID,
+		"cancelReason":            data.Reason,
+		"cancelSource":            data.Source,
+	}).Info("Cancelled subscription successfully")
 
 	return nil
 }
@@ -1796,98 +1560,65 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 	}
 
 	ccBillSubID := data.SubscriptionID
-	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		db := db.NewWithTx(tx)
-		priceService := NewPriceService(db)
-		productService := NewProductService(db)
-		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, s.CCBillClient, nil)
-		entSvc := NewEntitlementService(db)
 
-		// Find subscription by processor subscription ID
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
-			}
-			return fmt.Errorf("failed to get subscription: %w", err)
+	// Get the subscription for logging
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
 		}
-
-		cancelType := models.CancelTypeExpired
-		if err = sub.Cancel("", &cancelType); err != nil {
-			return err
-		}
-
-		if err = subService.Update(ctx, sub); err != nil {
-			return err
-		}
-
-		// End entitlements for this subscription at now
-		reason := models.EntitlementRevokeAdmin
-		if err = entSvc.EndActiveBySubscription(ctx, sub.ID, time.Now(), &reason); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to end entitlements for expired subscription")
-		}
-
-		// Deactivate payment method on expiration
-		paymentMethodService := NewPaymentMethodService(db)
-		expirationReason := "Subscription expired"
-		err = paymentMethodService.UpdatePaymentMethodStatus(ctx, ccBillSubID, false, &expirationReason)
-		if err != nil {
-			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
-				"ccBillSubID":      ccBillSubID,
-				"expirationReason": expirationReason,
-			}).Error("Failed to deactivate payment method for expired subscription")
-			// Don't fail the entire webhook processing for payment method update errors
-		}
-
-		// Add notification to queue for user and send immediate email
-		if s.NotificationService != nil {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    sub.UserID,
-				EventType: models.NotificationPremiumEnded,
-			}
-
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership expired notification")
-			}
-		}
-
-		// Log subscription expiration event to ClickHouse
-		if s.BillingEventService != nil {
-			metadata := map[string]interface{}{
-				"processor_subscription_id": ccBillSubID,
-				"cancel_source":             "expiration",
-				"cancel_type":               string(cancelType),
-				"is_expiration":             true,
-			}
-
-			subscriptionEventData := SubscriptionEventData{
-				EventID:                 uuid.New(),
-				SubscriptionID:          sub.ID,
-				UserID:                  sub.UserID,
-				EventType:               "subscription_expired",
-				Processor:               "ccbill",
-				ProcessorSubscriptionID: &ccBillSubID,
-				Metadata:                CreateMetadataJSON(metadata),
-				Timestamp:               time.Now(),
-			}
-
-			if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
-				log.WithError(err).Error("Failed to log subscription expiration event to ClickHouse")
-			}
-		}
-
-		log.WithContext(ctx).WithFields(log.Fields{
-			"subscriptionID":          sub.ID,
-			"userID":                  sub.UserID,
-			"processorSubscriptionID": ccBillSubID,
-		}).Info("Expired subscription successfully")
-
-		return nil
-	}); err != nil {
-		return err
+		return fmt.Errorf("failed to get subscription: %w", err)
 	}
+
+	// Use SubscriptionLifecycleService to expire membership
+	if err := s.SubscriptionLifecycleService.ExpireMembership(ctx, subscription.ID); err != nil {
+		return fmt.Errorf("failed to expire membership: %w", err)
+	}
+
+	// Add notification to queue for user and send immediate email
+	if s.NotificationService != nil {
+		notification := &models.NotificationQueue{
+			ID:        uuid.New(),
+			UserID:    subscription.UserID,
+			EventType: models.NotificationPremiumEnded,
+		}
+
+		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership expired notification")
+		}
+	}
+
+	// Log subscription expiration event to ClickHouse
+	if s.BillingEventService != nil {
+		cancelType := models.CancelTypeExpired
+		metadata := map[string]interface{}{
+			"processor_subscription_id": ccBillSubID,
+			"cancel_source":             "expiration",
+			"cancel_type":               string(cancelType),
+			"is_expiration":             true,
+		}
+
+		subscriptionEventData := SubscriptionEventData{
+			EventID:                 uuid.New(),
+			SubscriptionID:          subscription.ID,
+			UserID:                  subscription.UserID,
+			EventType:               "subscription_expired",
+			Processor:               "ccbill",
+			ProcessorSubscriptionID: &ccBillSubID,
+			Metadata:                CreateMetadataJSON(metadata),
+			Timestamp:               time.Now(),
+		}
+
+		if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
+			log.WithError(err).Error("Failed to log subscription expiration event to ClickHouse")
+		}
+	}
+
+	log.WithContext(ctx).WithFields(log.Fields{
+		"subscriptionID":          subscription.ID,
+		"userID":                  subscription.UserID,
+		"processorSubscriptionID": ccBillSubID,
+	}).Info("Expired subscription successfully")
 
 	return nil
 }

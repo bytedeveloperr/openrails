@@ -83,8 +83,9 @@ func NewState(cfg *config.Config) (*State, error) {
 		AdminSubscriptionService:  serviceInstances.AdminSubscriptionService,
 
 		// Wave 18 email services
-		EmailService:             emailService,
-		SubscriptionEmailService: subscriptionEmailService,
+		EmailService:                 emailService,
+		SubscriptionEmailService:     subscriptionEmailService,
+		SubscriptionLifecycleService: serviceInstances.SubscriptionLifecycleService,
 	}
 
 	// Initialize optional analytics/event logging (ClickHouse)
@@ -171,6 +172,8 @@ type servicesInstances struct {
 	// Email services
 	EmailService             *services.EmailService
 	SubscriptionEmailService *services.SubscriptionEmailService
+
+	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 }
 
 func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient *mobius.MobiusClient) *servicesInstances {
@@ -183,6 +186,14 @@ func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient
 	purchaseService := services.NewPaymentService(db)
 	entitlementService := services.NewEntitlementService(db)
 	solanaWalletService := services.NewSolanaWalletService(db)
+
+	subscriptionLifecycleService := services.NewSubscriptionLifecycleService(
+		db,
+		productService,
+		priceService,
+		entitlementService,
+		notificationQueueService,
+	)
 
 	// Create SubscriptionService with all its dependencies
 	subscriptionService := services.NewSubscriptionService(
@@ -240,5 +251,7 @@ func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient
 		// Email services will be set to nil initially - they require config
 		EmailService:             nil,
 		SubscriptionEmailService: nil,
+
+		SubscriptionLifecycleService: subscriptionLifecycleService,
 	}
 }

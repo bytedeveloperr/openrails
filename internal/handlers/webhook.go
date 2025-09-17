@@ -83,13 +83,15 @@ func Webhook(r *Request) {
 		}
 
 		service := services.CCBillWebhookService{
-			Data:                     data,
-			DB:                       r.State.DB,
-			PriceService:             r.State.PriceService,
-			ProductService:           r.State.ProductService,
-			CCBillClient:             r.State.CCBillRESTClient,
-			BillingEventService:      r.State.BillingEventService,
-			NotificationQueueService: r.State.NotificationQueueService,
+			Data:                         data,
+			DB:                           r.State.DB,
+			PriceService:                 r.State.PriceService,
+			ProductService:               r.State.ProductService,
+			CCBillClient:                 r.State.CCBillRESTClient,
+			BillingEventService:          r.State.BillingEventService,
+			SubscriptionService:          r.State.SubscriptionService,
+			NotificationQueueService:     r.State.NotificationQueueService,
+			SubscriptionLifecycleService: r.State.SubscriptionLifecycleService,
 		}
 
 		if err := service.HandleCCBillWebhook(context.Background()); err != nil {
@@ -153,13 +155,15 @@ func handleMobiusWebhook(r *Request) {
 		return
 	}
 	service := services.MobiusWebhookService{
-		Data:                     data,
-		DB:                       r.State.DB,
-		PriceService:             r.State.PriceService,
-		ProductService:           r.State.ProductService,
-		MobiusClient:             r.State.MobiusClient,
-		BillingEventService:      r.State.BillingEventService,
-		NotificationQueueService: r.State.NotificationQueueService,
+		Data:                         data,
+		DB:                           r.State.DB,
+		PriceService:                 r.State.PriceService,
+		ProductService:               r.State.ProductService,
+		MobiusClient:                 r.State.MobiusClient,
+		BillingEventService:          r.State.BillingEventService,
+		SubscriptionService:          r.State.SubscriptionService,
+		NotificationQueueService:     r.State.NotificationQueueService,
+		SubscriptionLifecycleService: r.State.SubscriptionLifecycleService,
 	}
 
 	fmt.Println("service: ", service)

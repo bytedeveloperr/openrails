@@ -49,6 +49,8 @@ type State struct {
 
 	// Solana services
 	SolanaWalletService *services.SolanaWalletService
+
+	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 }
 
 // Close gracefully shuts down all state resources

@@ -17,11 +17,21 @@ import (
 // including membership creation, renewal, cancellation, and expiration
 type SubscriptionLifecycleService struct {
 	DB                       *db.DB
-	SubscriptionService      *SubscriptionService
 	ProductService           *ProductService
 	PriceService             *PriceService
 	EntitlementService       *EntitlementService
 	NotificationQueueService *NotificationQueueService
+}
+
+// NewSubscriptionLifecycleService creates a new instance of SubscriptionLifecycleService
+func NewSubscriptionLifecycleService(db *db.DB, productService *ProductService, priceService *PriceService, entitlementService *EntitlementService, notificationService *NotificationQueueService) *SubscriptionLifecycleService {
+	return &SubscriptionLifecycleService{
+		DB:                       db,
+		ProductService:           productService,
+		PriceService:             priceService,
+		EntitlementService:       entitlementService,
+		NotificationQueueService: notificationService,
+	}
 }
 
 // CreateMembership creates a new subscription and grants associated roles
@@ -68,6 +78,7 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 			if params.ProcessorSubscriptionID != nil {
 				existingSub.ProcessorSubscriptionID = *params.ProcessorSubscriptionID
 			}
+
 			// Transaction IDs now stored in Purchase table
 			existingSub.CurrentPeriodStartsAt = &periodStartsAt
 			existingSub.CurrentPeriodEndsAt = &periodEndsAt
@@ -107,11 +118,11 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 
 		// Ensure subscription entitlements based on product EntitlementsSpec
 		if entitlementService != nil {
-			// Load product
 			product, err := s.ProductService.GetByID(ctx, price.ProductID)
 			if err != nil {
 				return fmt.Errorf("failed to get product: %w", err)
 			}
+
 			// Build list of entitlement names
 			entNames := make([]string, 0, 4)
 			if len(product.EntitlementsSpec) > 0 {
@@ -121,6 +132,7 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 			} else {
 				entNames = append(entNames, "premium")
 			}
+
 			// For each entitlement: create an indefinite window starting at period start,
 			// aligned to end of any currently active finite window to avoid overlap.
 			now := time.Now()
