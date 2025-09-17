@@ -36,10 +36,9 @@ type Entitlement struct {
 	StartAt time.Time  `bun:"start_at,notnull" json:"start_at"`
 	EndAt   *time.Time `bun:"end_at,nullzero" json:"end_at,omitempty"`
 
-	// Optional foreign keys for source linkage. Only one is usually set.
-	SubscriptionID *uuid.UUID            `bun:"subscription_id,type:uuid,nullzero" json:"subscription_id,omitempty"`
-	PaymentID      *uuid.UUID            `bun:"payment_id,type:uuid,nullzero" json:"payment_id,omitempty"`
-	SourceType     EntitlementSourceType `bun:"source_type,notnull" json:"source_type"`
+	// Optional polymorphic source reference (e.g. subscription or one-off payment).
+	SourceID   *uuid.UUID            `bun:"source_id,type:uuid,nullzero" json:"source_id,omitempty"`
+	SourceType EntitlementSourceType `bun:"source_type,notnull" json:"source_type"`
 
 	RevokedAt    *time.Time               `bun:"revoked_at,nullzero" json:"revoked_at,omitempty"`
 	RevokeReason *EntitlementRevokeReason `bun:"revoke_reason,nullzero" json:"revoke_reason,omitempty"`

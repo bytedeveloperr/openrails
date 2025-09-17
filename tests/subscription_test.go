@@ -55,7 +55,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 	t.Run("Subscribe_RequiresAuth", func(t *testing.T) {
 		subscribeData := handlers.SubscribeRequest{
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
-				Data: services.SubscribeData{
+				SubscribeData: services.SubscribeData{
 					Processor: "mobius",
 					PriceID:   uuid.New().String(),
 				},
@@ -76,7 +76,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 	t.Run("Subscribe_WithAuth", func(t *testing.T) {
 		subscribeData := handlers.SubscribeRequest{
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
-				Data: services.SubscribeData{
+				SubscribeData: services.SubscribeData{
 					Processor: "mobius",
 					PriceID:   uuid.New().String(),
 				},

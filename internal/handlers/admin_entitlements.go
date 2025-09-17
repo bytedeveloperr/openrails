@@ -28,7 +28,7 @@ func GetAdminActiveEntitlements(r *Request) {
 	var ents []map[string]any
 	err := svc.GetDB().GetDB().NewSelect().
 		Table("entitlements").
-		Column("id", "entitlement", "start_at", "end_at", "source_type", "subscription_id", "payment_id", "created_at", "updated_at").
+		Column("id", "entitlement", "start_at", "end_at", "source_type", "source_id", "created_at", "updated_at").
 		Where("user_id = ?", path.UserID).
 		Where("revoked_at IS NULL").
 		Where("start_at <= ?", now).

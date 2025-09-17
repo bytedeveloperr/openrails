@@ -327,7 +327,7 @@ func (s *AdminSubscriptionService) CreateManualRoleGrant(ctx context.Context, us
 		e := now.Add(time.Duration(*durationDays) * 24 * time.Hour)
 		endAt = &e
 	}
-	_, err := s.EntitlementService.GrantWindow(ctx, userID, "premium", now, endAt, models.EntitlementSourceAdmin, nil, nil)
+	_, err := s.EntitlementService.GrantWindow(ctx, userID, "premium", now, endAt, models.EntitlementSourceAdmin, nil)
 	return err
 }
 
@@ -405,7 +405,7 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
 	// Grant entitlements by appending to avoid overlap
 	if s.EntitlementService != nil {
 		for _, g := range grants {
-			if _, err := s.EntitlementService.AppendEntitlementDays(ctx, userID, g.name, g.days, models.EntitlementSourceOneOff, nil, &purchase.ID); err != nil {
+			if _, err := s.EntitlementService.AppendEntitlementDays(ctx, userID, g.name, g.days, models.EntitlementSourceOneOff, &purchase.ID); err != nil {
 				return fmt.Errorf("failed to grant entitlement %s: %w", g.name, err)
 			}
 		}

@@ -50,7 +50,7 @@ func GetMyBillingStatus(r *Request) {
 		var list []map[string]any
 		_ = r.State.EntitlementService.GetDB().GetDB().NewSelect().
 			TableExpr("entitlements").
-			Column("id", "entitlement", "start_at", "end_at", "source_type", "subscription_id", "payment_id", "revoked_at", "revoke_reason", "created_at", "updated_at").
+			Column("id", "entitlement", "start_at", "end_at", "source_type", "source_id", "revoked_at", "revoke_reason", "created_at", "updated_at").
 			Where("user_id = ?", user.ID).
 			Order("start_at DESC").
 			Scan(r.Request.Context(), &list)

@@ -140,7 +140,7 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 				// Skip if this subscription already created this entitlement
 				exists, _ := entitlementService.GetDB().GetDB().NewSelect().
 					Model((*models.Entitlement)(nil)).
-					Where("subscription_id = ? AND entitlement = ? AND revoked_at IS NULL", subscription.ID, ent).
+					Where("source_type = ? AND source_id = ? AND entitlement = ? AND revoked_at IS NULL", models.EntitlementSourceSubscription, subscription.ID, ent).
 					Exists(ctx)
 				if exists {
 					continue
@@ -159,7 +159,7 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 				if finite.ID != uuid.Nil && finite.EndAt != nil {
 					start = *finite.EndAt
 				}
-				_, _ = entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
+				_, _ = entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID)
 			}
 		}
 

@@ -100,7 +100,7 @@ func (r *PaymentService) GetByProcessor(ctx context.Context, processor models.Pr
 	return payments, nil
 }
 
-// Deprecated: role-grant linkage removed; entitlements are linked via payment_id
+// Deprecated: role-grant linkage removed; entitlements are linked via source_id
 // func (r *PaymentService) GetByGrantID(ctx context.Context, grantID uuid.UUID) ([]*models.Payment, error) { return nil, nil }
 
 // GetAdminActionsByGrantID returns admin/internal adjustments linked to a grant

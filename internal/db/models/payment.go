@@ -32,7 +32,7 @@ type Payment struct {
 	// Relationships
 	Price        *Price         `bun:"rel:belongs-to,join:price_id=id" json:"price,omitempty"`
 	Subscription *Subscription  `bun:"rel:belongs-to,join:subscription_id=id" json:"subscription,omitempty"`
-	Entitlements []*Entitlement `bun:"rel:has-many,join:id=payment_id" json:"entitlements,omitempty"`
+	Entitlements []*Entitlement `bun:"rel:has-many,join:id=source_id" json:"entitlements,omitempty"`
 }
 
 // Purchase is an alias for Payment for backward compatibility

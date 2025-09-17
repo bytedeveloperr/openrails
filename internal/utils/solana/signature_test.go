@@ -4,6 +4,15 @@ import (
 	"testing"
 )
 
+const (
+	validSignature87 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789ABCDEFGHJKLMNPQRSTUV"
+	validSignature88 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789ABCDEFGHJKLMNPQRSTUVW"
+	shortSignature    = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789ABCDEFGHJKLMNPQRSTU"
+	longSignature     = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789ABCDEFGHJKLMNPQRSTUVWX"
+	invalidCharZero   = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789ABCDEFGHJKLMNPQRSTU0"
+	invalidCharO      = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz123456789ABCDEFGHJKLMNPQRSTUO"
+)
+
 func TestValidateAddress(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -68,12 +77,12 @@ func TestValidateSignature(t *testing.T) {
 	}{
 		{
 			name:      "valid signature 87 chars",
-			signature: "3Mw3Z9q8q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q",
+			signature: validSignature87,
 			expectErr: false,
 		},
 		{
 			name:      "valid signature 88 chars",
-			signature: "3Mw3Z9q8q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1",
+			signature: validSignature88,
 			expectErr: false,
 		},
 		{
@@ -83,22 +92,22 @@ func TestValidateSignature(t *testing.T) {
 		},
 		{
 			name:      "too short signature",
-			signature: "3Mw3Z9q8q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q",
+			signature: shortSignature,
 			expectErr: true,
 		},
 		{
 			name:      "too long signature",
-			signature: "3Mw3Z9q8q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q",
+			signature: longSignature,
 			expectErr: true,
 		},
 		{
 			name:      "invalid character 0",
-			signature: "3Mw3Z9q8q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q10",
+			signature: invalidCharZero,
 			expectErr: true,
 		},
 		{
 			name:      "invalid character O",
-			signature: "3Mw3Z9q8q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1O",
+			signature: invalidCharO,
 			expectErr: true,
 		},
 	}
@@ -157,7 +166,7 @@ func TestIsValidSignature(t *testing.T) {
 	}{
 		{
 			name:      "valid signature",
-			signature: "3Mw3Z9q8q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q1q",
+			signature: validSignature87,
 			expected:  true,
 		},
 		{

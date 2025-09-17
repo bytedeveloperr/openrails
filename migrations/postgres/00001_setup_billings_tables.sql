@@ -137,8 +137,7 @@ CREATE TABLE IF NOT EXISTS entitlements (
     entitlement TEXT NOT NULL,
     start_at TIMESTAMPTZ NOT NULL,
     end_at TIMESTAMPTZ,
-    subscription_id UUID,
-    payment_id UUID,
+    source_id UUID,
     source_type TEXT NOT NULL,
     revoked_at TIMESTAMPTZ,
     revoke_reason TEXT,
@@ -151,8 +150,7 @@ CREATE TABLE IF NOT EXISTS entitlements (
 
 CREATE INDEX IF NOT EXISTS idx_entitlements_user_entitlement ON entitlements(user_id, entitlement);
 CREATE INDEX IF NOT EXISTS idx_entitlements_active_window ON entitlements(user_id, entitlement, start_at, end_at) WHERE revoked_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_entitlements_subscription ON entitlements(subscription_id) WHERE subscription_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_entitlements_payment ON entitlements(payment_id) WHERE payment_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_entitlements_source ON entitlements(source_type, source_id) WHERE source_id IS NOT NULL;
 
 -- At most one active entitlement per user+entitlement
 DO $$
