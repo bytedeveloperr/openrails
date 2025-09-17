@@ -183,7 +183,7 @@ func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient
 	purchaseService := services.NewPaymentService(db)
 	entitlementService := services.NewEntitlementService(db)
 	solanaWalletService := services.NewSolanaWalletService(db)
-	
+
 	// Create SubscriptionService with all its dependencies
 	subscriptionService := services.NewSubscriptionService(
 		db,
@@ -202,6 +202,7 @@ func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient
 		purchaseService,
 		notificationQueueService,
 		entitlementService,
+		mobiusClient,
 	)
 
 	publicSubscriptionService := services.NewPublicSubscriptionService(

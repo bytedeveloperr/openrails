@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -28,6 +28,7 @@ type UserSubscriptionService struct {
 	PaymentService           *PaymentService
 	NotificationQueueService *NotificationQueueService
 	EntitlementService       *EntitlementService
+	MobiusClient             *mobius.MobiusClient
 }
 
 // UserSubscriptionResponse represents a user's subscription with enriched data
@@ -39,7 +40,7 @@ type UserSubscriptionResponse struct {
 
 // GetUserSubscription retrieves the current subscription for a user with enriched data
 func (s *UserSubscriptionService) GetUserSubscription(ctx context.Context, userID string) (*UserSubscriptionResponse, error) {
-	subscription, err := s.SubscriptionService.GetByUserID(ctx, userID)
+	subscription, err := s.SubscriptionService.GetActiveSubscription(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get subscription: %w", err)
 	}
@@ -146,37 +147,31 @@ func (s *UserSubscriptionService) MarkNotificationRead(ctx context.Context, user
 
 // CancelUserSubscription cancels a user's subscription
 func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, userID string, feedback string) error {
-	subscription, err := s.SubscriptionService.GetByUserID(ctx, userID)
+	subscription, err := s.SubscriptionService.GetActiveSubscription(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrSubscriptionNotFound, err)
 	}
 
-	if subscription.Status != models.StatusActive {
-		return ErrSubscriptionNotActive
-	}
-
-	now := time.Now()
-	cancelType := models.CancelTypeUser
-	subscription.Status = models.StatusCancelled
-	subscription.CancelledAt = &now
-	subscription.CancelType = &cancelType
-	if feedback != "" {
-		subscription.CancelFeedback = &feedback
-	}
-
-	if err := s.SubscriptionService.Update(ctx, subscription); err != nil {
-		return fmt.Errorf("failed to update subscription: %w", err)
+	if subscription.Processor != models.ProcessorMobius {
+		return fmt.Errorf("unable to cancel subscription for processor %s", subscription.Processor)
 	}
 
 	// End entitlements for this subscription now
-	if s.EntitlementService != nil {
-		reason := models.EntitlementRevokeAdmin
-		if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
-			log.WithFields(log.Fields{
-				"subscription_id": subscription.ID,
-				"user_id":         userID,
-				"error":           err.Error(),
-			}).Error("Failed to end entitlements during subscription cancellation")
+	// if s.EntitlementService != nil {
+	// 	reason := models.EntitlementRevokeAdmin
+	// 	if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+	// 		log.WithFields(log.Fields{
+	// 			"subscription_id": subscription.ID,
+	// 			"user_id":         userID,
+	// 			"error":           err.Error(),
+	// 		}).Error("Failed to end entitlements during subscription cancellation")
+	// 	}
+	// }
+
+	// Cancel subscription with Mobius
+	if s.MobiusClient != nil {
+		if err := s.MobiusClient.DeleteRecurringSubscription(*subscription.Price.MobiusPlanID); err != nil {
+			return fmt.Errorf("failed to cancel subscription with Mobius: %w", err)
 		}
 	}
 
@@ -206,8 +201,10 @@ func NewUserSubscriptionService(
 	paymentService *PaymentService,
 	notificationQueueService *NotificationQueueService,
 	entitlementService *EntitlementService,
+	mobiusClient *mobius.MobiusClient,
 ) *UserSubscriptionService {
 	return &UserSubscriptionService{
+		MobiusClient:             mobiusClient,
 		SubscriptionService:      subscriptionService,
 		ProductService:           productService,
 		PriceService:             priceService,

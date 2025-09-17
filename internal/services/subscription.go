@@ -473,6 +473,7 @@ func (s *SubscriptionService) GetActiveSubscription(ctx context.Context, userID 
 	var subscription models.Subscription
 	err := s.DB.GetDB().NewSelect().
 		Model(&subscription).
+		Relation("Price").
 		Where("user_id = ?", userID).
 		Where("status = ?", models.StatusActive).
 		Where("(current_period_ends_at IS NULL OR current_period_ends_at > NOW())").

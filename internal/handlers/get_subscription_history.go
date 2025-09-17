@@ -4,13 +4,18 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 )
 
 // GetSubscriptionHistory retrieves the user's subscription history
 func GetSubscriptionHistory(r *Request) {
-	user := r.GetUser()
+	userCtx := middleware.GetUserContext(r.GinCtx)
+	if userCtx.User == nil {
+		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
+		return
+	}
 
 	// Parse query parameters
 	limit, _ := strconv.Atoi(r.Request.URL.Query().Get("limit"))
@@ -38,7 +43,7 @@ func GetSubscriptionHistory(r *Request) {
 
 	subscriptions, _, err := r.State.UserSubscriptionService.GetUserSubscriptionHistory(
 		r.Request.Context(),
-		user.ID,
+		userCtx.User.ID,
 		queryOpts,
 	)
 	if err != nil {

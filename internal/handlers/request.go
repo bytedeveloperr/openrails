@@ -82,9 +82,11 @@ func (r *Request) GetUser() *services.UserIdentity {
 	if !ok {
 		return nil
 	}
+
 	if ui, ok := user.(*services.UserIdentity); ok {
 		return ui
 	}
+
 	return nil
 }
 

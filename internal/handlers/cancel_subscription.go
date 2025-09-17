@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/doujins-org/doujins-billing/internal/middleware"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -15,10 +16,15 @@ func CancelSubscription(r *Request) {
 		return
 	}
 
-	user := r.GetUser()
+	userCtx := middleware.GetUserContext(r.GinCtx)
+	if userCtx.User == nil {
+		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
 	if err := r.State.UserSubscriptionService.CancelUserSubscription(
 		r.Request.Context(),
-		user.ID,
+		userCtx.User.ID,
 		req.Feedback,
 	); err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
