@@ -228,6 +228,18 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			}
 		}
 
+		// Create payment method from successful CCBill transaction
+		paymentMethodService := NewPaymentMethodService(txdb)
+		_, err = paymentMethodService.CreateFromCCBillWebhook(ctx, userID, ccBillSubID, transactionID)
+		if err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"userID":        userID,
+				"ccBillSubID":   ccBillSubID,
+				"transactionID": transactionID,
+			}).Error("Failed to create payment method from CCBill webhook")
+			// Don't fail the entire webhook processing for payment method creation errors
+		}
+
 		// External role grant integration removed for legacy IdP-specific flow
 
 		// Log payment event to ClickHouse
@@ -448,6 +460,18 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 
 		if err := subService.Update(ctx, subscription); err != nil {
 			return fmt.Errorf("failed to update subscription: %w", err)
+		}
+
+		// Create or update payment method from successful CCBill upgrade
+		paymentMethodService := NewPaymentMethodService(txdb)
+		_, err = paymentMethodService.CreateFromCCBillWebhook(ctx, subscription.UserID, ccBillSubID, transactionID)
+		if err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"userID":        subscription.UserID,
+				"ccBillSubID":   ccBillSubID,
+				"transactionID": transactionID,
+			}).Error("Failed to create payment method from CCBill upgrade webhook")
+			// Don't fail the entire webhook processing for payment method creation errors
 		}
 
 		// External role grant integration removed for legacy IdP-specific flow
@@ -825,6 +849,18 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 
 		if err := subService.Update(ctx, sub); err != nil {
 			return fmt.Errorf("failed to reactivate subscription: %w", err)
+		}
+
+		// Create or update payment method from successful CCBill reactivation
+		paymentMethodService := NewPaymentMethodService(txdb)
+		_, err = paymentMethodService.CreateFromCCBillWebhook(ctx, sub.UserID, pSubscriptionID, transactionID)
+		if err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"userID":          sub.UserID,
+				"pSubscriptionID": pSubscriptionID,
+				"transactionID":   transactionID,
+			}).Error("Failed to create payment method from CCBill reactivation webhook")
+			// Don't fail the entire webhook processing for payment method creation errors
 		}
 
 		// External role grant integration removed for legacy IdP-specific flow
@@ -1492,6 +1528,18 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 			_, _ = entSvc.GrantWindow(ctx, subscription.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID, nil)
 		}
 
+		// Create or update payment method from successful CCBill renewal
+		paymentMethodService := NewPaymentMethodService(txdb)
+		_, err = paymentMethodService.CreateFromCCBillWebhook(ctx, subscription.UserID, ccBillSubID, transactionID)
+		if err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"userID":        subscription.UserID,
+				"ccBillSubID":   ccBillSubID,
+				"transactionID": transactionID,
+			}).Error("Failed to create payment method from CCBill renewal webhook")
+			// Don't fail the entire webhook processing for payment method creation errors
+		}
+
 		// Log renewal payment event to ClickHouse
 		if s.BillingEventService != nil {
 			metadata := map[string]interface{}{
@@ -1588,6 +1636,18 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 
 		if err := subService.Update(ctx, sub); err != nil {
 			return err
+		}
+
+		// Update payment method status to indicate failure
+		paymentMethodService := NewPaymentMethodService(txdb)
+		failureReason := fmt.Sprintf("Renewal failed: %s", data.FailureReason)
+		err = paymentMethodService.UpdatePaymentMethodStatus(ctx, ccBillSubID, false, &failureReason)
+		if err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"ccBillSubID":   ccBillSubID,
+				"failureReason": failureReason,
+			}).Error("Failed to update payment method status for renewal failure")
+			// Don't fail the entire webhook processing for payment method update errors
 		}
 
 		// DO NOT revoke role grants - user retains access during grace period (past_due status)
@@ -1697,6 +1757,18 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 			log.WithContext(ctx).WithError(err).Error("failed to end entitlements for cancelled subscription")
 		}
 
+		// Deactivate payment method on cancellation
+		paymentMethodService := NewPaymentMethodService(txdb)
+		cancelReason := fmt.Sprintf("Subscription cancelled: %s", data.Reason)
+		err = paymentMethodService.UpdatePaymentMethodStatus(ctx, ccBillSubID, false, &cancelReason)
+		if err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"ccBillSubID":  ccBillSubID,
+				"cancelReason": cancelReason,
+			}).Error("Failed to deactivate payment method for cancelled subscription")
+			// Don't fail the entire webhook processing for payment method update errors
+		}
+
 		// Add notification to queue for user and send immediate email
 		if s.NotificationService != nil {
 			notification := &models.NotificationQueue{
@@ -1785,6 +1857,18 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 		reason := models.EntitlementRevokeAdmin
 		if err := entSvc.EndActiveBySubscription(ctx, sub.ID, time.Now(), &reason); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to end entitlements for expired subscription")
+		}
+
+		// Deactivate payment method on expiration
+		paymentMethodService := NewPaymentMethodService(db)
+		expirationReason := "Subscription expired"
+		err = paymentMethodService.UpdatePaymentMethodStatus(ctx, ccBillSubID, false, &expirationReason)
+		if err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"ccBillSubID":      ccBillSubID,
+				"expirationReason": expirationReason,
+			}).Error("Failed to deactivate payment method for expired subscription")
+			// Don't fail the entire webhook processing for payment method update errors
 		}
 
 		// Add notification to queue for user and send immediate email

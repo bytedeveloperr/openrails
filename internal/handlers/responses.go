@@ -427,3 +427,31 @@ type GetBillingHistoryResponse struct {
 
 // Type alias for admin endpoint (same structure)
 type GetUserBillingHistoryResponse = GetBillingHistoryResponse
+
+// -------------------------------- Payment Method Responses --------------------------------
+
+// PaymentMethodResponse represents an enhanced payment method response with type-specific fields
+type PaymentMethodResponse struct {
+	ID        string `json:"id"`
+	Type      string `json:"type"`      // "subscription", "card", or "wallet"
+	Processor string `json:"processor"` // "ccbill", "mobius", "solana"
+	IsActive  bool   `json:"is_active"`
+
+	// Card-specific fields (Mobius only)
+	LastFour   *string `json:"last_four,omitempty"`
+	CardType   *string `json:"card_type,omitempty"`
+	ExpiryDate *string `json:"expiry_date,omitempty"`
+
+	// Wallet-specific fields (Solana only)
+	WalletAddress *string `json:"wallet_address,omitempty"`
+
+	// CCBill fields (created from webhooks)
+	VaultID              *string `json:"vault_id,omitempty"`
+	InitialTransactionID *string `json:"initial_transaction_id,omitempty"`
+
+	// Common fields
+	DisplayName   string    `json:"display_name"`
+	FailureReason *string   `json:"failure_reason,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	CanDelete     bool      `json:"can_delete"`
+}

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -346,4 +347,184 @@ func (r *PaymentMethodService) ValidatePaymentMethodOperation(ctx context.Contex
 	}
 
 	return paymentMethod, nil
+}
+
+// CreateFromSolanaWallet creates a payment method from a connected Solana wallet
+func (r *PaymentMethodService) CreateFromSolanaWallet(ctx context.Context, userID string, walletAddress string) (*models.PaymentMethod, error) {
+	if userID == "" {
+		return nil, errors.New("user ID is required")
+	}
+
+	if walletAddress == "" {
+		return nil, errors.New("wallet address is required")
+	}
+
+	// Check if payment method already exists for this wallet
+	var existingMethod models.PaymentMethod
+	err := r.db.GetDB().NewSelect().Model(&existingMethod).
+		Where("user_id = ?", userID).
+		Where("processor = ?", models.ProcessorSolana).
+		Where("wallet_address = ?", walletAddress).
+		Scan(ctx)
+
+	if err == nil {
+		// Payment method already exists, return it
+		return &existingMethod, nil
+	}
+
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("failed to check existing payment method: %w", err)
+	}
+
+	// Create new payment method
+	now := time.Now()
+	paymentMethod := &models.PaymentMethod{
+		ID:                   uuid.New(),
+		UserID:               userID,
+		Processor:            models.ProcessorSolana,
+		VaultID:              walletAddress,       // Use wallet address as vault ID for Solana
+		InitialTransactionID: "wallet_connection", // Placeholder for Solana wallets
+		IsActive:             true,
+		WalletAddress:        &walletAddress,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+
+	if err := r.Create(ctx, paymentMethod); err != nil {
+		return nil, fmt.Errorf("failed to create Solana payment method: %w", err)
+	}
+
+	return paymentMethod, nil
+}
+
+// GetByWalletAddress finds a payment method by wallet address
+func (r *PaymentMethodService) GetByWalletAddress(ctx context.Context, userID string, walletAddress string) (*models.PaymentMethod, error) {
+	var method models.PaymentMethod
+	err := r.db.GetDB().NewSelect().Model(&method).
+		Where("user_id = ?", userID).
+		Where("processor = ?", models.ProcessorSolana).
+		Where("wallet_address = ?", walletAddress).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &method, nil
+}
+
+// CreatePaymentMethodsFromConnectedWallets creates payment methods for all verified Solana wallets
+func (r *PaymentMethodService) CreatePaymentMethodsFromConnectedWallets(ctx context.Context, userID string, solanaWalletService *SolanaWalletService) ([]*models.PaymentMethod, error) {
+	if userID == "" {
+		return nil, errors.New("user ID is required")
+	}
+
+	if solanaWalletService == nil {
+		return nil, errors.New("solana wallet service is required")
+	}
+
+	// Get all verified wallets for the user
+	wallets, err := solanaWalletService.List(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user wallets: %w", err)
+	}
+
+	var paymentMethods []*models.PaymentMethod
+
+	// Create payment methods for verified wallets
+	for _, wallet := range wallets {
+		if wallet.IsVerified {
+			paymentMethod, err := r.CreateFromSolanaWallet(ctx, userID, wallet.Address)
+			if err != nil {
+				// Log error but continue with other wallets
+				continue
+			}
+			paymentMethods = append(paymentMethods, paymentMethod)
+		}
+	}
+
+	return paymentMethods, nil
+}
+
+// CreateFromCCBillWebhook creates a payment method from CCBill webhook data
+func (r *PaymentMethodService) CreateFromCCBillWebhook(ctx context.Context, userID, vaultID, transactionID string) (*models.PaymentMethod, error) {
+	if userID == "" {
+		return nil, errors.New("user ID is required")
+	}
+
+	if vaultID == "" {
+		return nil, errors.New("vault ID is required")
+	}
+
+	if transactionID == "" {
+		return nil, errors.New("transaction ID is required")
+	}
+
+	// Check if payment method already exists for this vault ID
+	existingMethod, err := r.GetByVaultID(ctx, models.ProcessorCCBill, vaultID)
+	if err == nil {
+		// Payment method already exists, update it if needed
+		if existingMethod.UserID != userID {
+			return nil, fmt.Errorf("vault ID %s already associated with different user", vaultID)
+		}
+
+		// Update the initial transaction ID if it's different
+		if existingMethod.InitialTransactionID != transactionID {
+			existingMethod.InitialTransactionID = transactionID
+			existingMethod.UpdatedAt = time.Now()
+			if err := r.Update(ctx, existingMethod); err != nil {
+				return nil, fmt.Errorf("failed to update existing payment method: %w", err)
+			}
+		}
+
+		return existingMethod, nil
+	}
+
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("failed to check existing payment method: %w", err)
+	}
+
+	// Create new payment method
+	now := time.Now()
+	paymentMethod := &models.PaymentMethod{
+		ID:                   uuid.New(),
+		UserID:               userID,
+		Processor:            models.ProcessorCCBill,
+		VaultID:              vaultID,
+		InitialTransactionID: transactionID,
+		IsActive:             true,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+
+	if err := r.Create(ctx, paymentMethod); err != nil {
+		return nil, fmt.Errorf("failed to create CCBill payment method: %w", err)
+	}
+
+	return paymentMethod, nil
+}
+
+// UpdatePaymentMethodStatus updates the status of a payment method based on webhook events
+func (r *PaymentMethodService) UpdatePaymentMethodStatus(ctx context.Context, vaultID string, isActive bool, failureReason *string) error {
+	if vaultID == "" {
+		return errors.New("vault ID is required")
+	}
+
+	paymentMethod, err := r.GetByVaultID(ctx, models.ProcessorCCBill, vaultID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Payment method doesn't exist, nothing to update
+			return nil
+		}
+		return fmt.Errorf("failed to get payment method: %w", err)
+	}
+
+	// Update status and failure reason
+	paymentMethod.IsActive = isActive
+	paymentMethod.FailureReason = failureReason
+	paymentMethod.UpdatedAt = time.Now()
+
+	if err := r.Update(ctx, paymentMethod); err != nil {
+		return fmt.Errorf("failed to update payment method status: %w", err)
+	}
+
+	return nil
 }
