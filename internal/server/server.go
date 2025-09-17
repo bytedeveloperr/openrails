@@ -123,7 +123,7 @@ func (s *Server) setupHandlers() {
 }
 
 func (s *Server) setupPublicRoutes() {
-	api := s.publicHandler.Group("/api/v1")
+	api := s.publicHandler.Group("/v1")
 
 	// Public subscription data (no auth)
 	subscriptions := api.Group("/subscriptions")
@@ -226,7 +226,7 @@ func (s *Server) setupPublicRoutes() {
 }
 
 func (s *Server) setupAdminRoutes() {
-	api := s.adminHandler.Group("/api/v1")
+	api := s.adminHandler.Group("/v1")
 	{
 		api.PUT("/subscriptions/:id/extend", s.wrap(handlers.ExtendSubscription))
 		api.POST("/subscriptions/:id/cancel", s.wrap(handlers.CancelSubscription))

@@ -18,7 +18,7 @@ func TestWebhookEndpoints(t *testing.T) {
 		webhookData := "eventType=NewSaleSuccess&subscriptionId=123456"
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
 			bytes.NewBufferString(webhookData))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
@@ -38,7 +38,7 @@ func TestWebhookEndpoints(t *testing.T) {
 
 		body, _ := json.Marshal(webhookData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/subscriptions/webhook/mobius", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/webhook/mobius", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		server.Handler().ServeHTTP(w, req)
@@ -51,7 +51,7 @@ func TestWebhookEndpoints(t *testing.T) {
 
 	t.Run("InvalidProcessor", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/subscriptions/webhook/invalid", nil)
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/webhook/invalid", nil)
 
 		server.Handler().ServeHTTP(w, req)
 

@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -232,7 +233,7 @@ func TestReplayService_WebhookReplay(t *testing.T) {
 
 	ccbillRequest := receivedRequests[0]
 	assert.Equal(t, "POST", ccbillRequest.Method)
-	assert.Contains(t, ccbillRequest.URL, "/api/v1/subscriptions/webhook/ccbill")
+	assert.Contains(t, ccbillRequest.URL, "/v1/subscriptions/webhook/ccbill")
 	assert.Equal(t, "application/x-www-form-urlencoded", ccbillRequest.ContentType)
 	assert.NotEmpty(t, ccbillRequest.Body)
 
@@ -250,7 +251,7 @@ func TestReplayService_WebhookReplay(t *testing.T) {
 
 	mobiusRequest := receivedRequests[0]
 	assert.Equal(t, "POST", mobiusRequest.Method)
-	assert.Contains(t, mobiusRequest.URL, "/api/v1/subscriptions/webhook/mobius")
+	assert.Contains(t, mobiusRequest.URL, "/v1/subscriptions/webhook/mobius")
 	assert.Equal(t, "application/json", mobiusRequest.ContentType)
 	assert.NotEmpty(t, mobiusRequest.Body)
 
@@ -262,10 +263,10 @@ func TestReplayService_WebhookReplay(t *testing.T) {
 
 // TestReplayService_ConcurrentReplay tests concurrent webhook replay
 func TestReplayService_ConcurrentReplay(t *testing.T) {
-	requestCount := 0
+	var requestCount atomic.Uint64
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount++
+		requestCount.Add(1)
 		// Add small delay to simulate processing time
 		time.Sleep(5 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
@@ -291,7 +292,7 @@ func TestReplayService_ConcurrentReplay(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Greater(t, successCount, 0, "Should have successful replays")
 	assert.Equal(t, 0, failureCount, "Should have no failures")
-	assert.Equal(t, successCount, requestCount, "All requests should have been received")
+	assert.Equal(t, successCount, int(requestCount.Load()), "All requests should have been received")
 
 	// With concurrency, it should complete faster than sequential processing
 	// This is a rough check - actual timing may vary

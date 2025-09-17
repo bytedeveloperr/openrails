@@ -146,7 +146,7 @@ func TestCCBillWebhookReplay(t *testing.T) {
 			// Create request
 			w := httptest.NewRecorder()
 			req, err := http.NewRequest("POST", 
-				fmt.Sprintf("/api/v1/subscriptions/webhook/ccbill?eventType=%s", et.eventType),
+				fmt.Sprintf("/v1/subscriptions/webhook/ccbill?eventType=%s", et.eventType),
 				strings.NewReader(formData))
 			require.NoError(t, err)
 			
@@ -195,7 +195,7 @@ func TestMobiusWebhookReplay(t *testing.T) {
 			// Create request
 			w := httptest.NewRecorder()
 			req, err := http.NewRequest("POST", 
-				"/api/v1/subscriptions/webhook/mobius",
+				"/v1/subscriptions/webhook/mobius",
 				bytes.NewBuffer(webhookData))
 			require.NoError(t, err)
 			
@@ -227,7 +227,7 @@ func TestWebhookWithInvalidProcessor(t *testing.T) {
 	server := setupTestServer(t)
 	
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST", "/api/v1/subscriptions/webhook/invalid", 
+	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/invalid", 
 		strings.NewReader("test=data"))
 	require.NoError(t, err)
 	
@@ -245,7 +245,7 @@ func TestCCBillWebhookWithMissingEventType(t *testing.T) {
 	server := setupTestServer(t)
 	
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST", "/api/v1/subscriptions/webhook/ccbill",
+	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/ccbill",
 		strings.NewReader("subscriptionId=123456"))
 	require.NoError(t, err)
 	
@@ -267,7 +267,7 @@ func TestMobiusWebhookWithMalformedJSON(t *testing.T) {
 	server := setupTestServer(t)
 	
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST", "/api/v1/subscriptions/webhook/mobius",
+	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/mobius",
 		strings.NewReader("{invalid json"))
 	require.NoError(t, err)
 	
@@ -299,7 +299,7 @@ func TestWebhookReplayWithLargePayload(t *testing.T) {
 	
 	w := httptest.NewRecorder()
 	req, err := http.NewRequest("POST", 
-		"/api/v1/subscriptions/webhook/ccbill?eventType=TestEvent",
+		"/v1/subscriptions/webhook/ccbill?eventType=TestEvent",
 		strings.NewReader(formData))
 	require.NoError(t, err)
 	
@@ -324,7 +324,7 @@ func TestWebhookContentTypeValidation(t *testing.T) {
 		// CCBill expects form data, send JSON instead
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST", 
-			"/api/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
+			"/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
 			strings.NewReader(`{"test": "data"}`))
 		require.NoError(t, err)
 		
@@ -345,7 +345,7 @@ func TestWebhookContentTypeValidation(t *testing.T) {
 		// Mobius expects JSON, send form data instead
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST", 
-			"/api/v1/subscriptions/webhook/mobius",
+			"/v1/subscriptions/webhook/mobius",
 			strings.NewReader("test=data&foo=bar"))
 		require.NoError(t, err)
 		
@@ -369,7 +369,7 @@ func TestWebhookReplayEmptyBody(t *testing.T) {
 	t.Run("CCBill_EmptyBody", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST", 
-			"/api/v1/subscriptions/webhook/ccbill?eventType=Test",
+			"/v1/subscriptions/webhook/ccbill?eventType=Test",
 			nil)
 		require.NoError(t, err)
 		
@@ -385,7 +385,7 @@ func TestWebhookReplayEmptyBody(t *testing.T) {
 	t.Run("Mobius_EmptyBody", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST", 
-			"/api/v1/subscriptions/webhook/mobius",
+			"/v1/subscriptions/webhook/mobius",
 			nil)
 		require.NoError(t, err)
 		

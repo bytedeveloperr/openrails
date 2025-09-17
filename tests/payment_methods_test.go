@@ -18,9 +18,9 @@ func TestPaymentMethodEndpoints(t *testing.T) {
 		method string
 		path   string
 	}{
-		{"GET", "/api/v1/payment-methods"},
-		{"DELETE", "/api/v1/payment-methods/123"},
-		{"PUT", "/api/v1/payment-methods/123/activate"},
+		{"GET", "/v1/payment-methods"},
+		{"DELETE", "/v1/payment-methods/123"},
+		{"PUT", "/v1/payment-methods/123/activate"},
 	}
 
 	for _, endpoint := range endpoints {

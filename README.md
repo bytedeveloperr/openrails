@@ -40,7 +40,7 @@ Developer tasks
 
 Service endpoints
 - Health: `GET http://localhost:2053/health` → `{ "status": "ok", "service": "billing-private" }`
-- API base: `http://localhost:2053/api/v1`
+- API base: `http://localhost:2053/v1`
 - Auth: JWT-based; supply `Authorization: Bearer <token>` where required by routes.
 
 Networking

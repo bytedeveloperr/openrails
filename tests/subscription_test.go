@@ -20,7 +20,7 @@ func TestGetProductsEndpoint(t *testing.T) {
 
 	t.Run("GetProducts_Request", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/subscriptions/public/products", nil)
+		req, _ := http.NewRequest("GET", "/v1/subscriptions/products", nil)
 
 		server.Handler().ServeHTTP(w, req)
 
@@ -37,7 +37,7 @@ func TestGetSubscribePageDataEndpoint(t *testing.T) {
 
 	t.Run("GetSubscribePageData_Request", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/api/v1/subscriptions/public/subscribe-page-data", nil)
+		req, _ := http.NewRequest("GET", "/v1/subscriptions/page-data", nil)
 
 		server.Handler().ServeHTTP(w, req)
 
@@ -64,7 +64,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 
 		body, _ := json.Marshal(subscribeData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/subscriptions/processor/mobius", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/mobius", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		server.Handler().ServeHTTP(w, req)
@@ -85,7 +85,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 
 		body, _ := json.Marshal(subscribeData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/subscriptions/processor/mobius", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/mobius", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -97,6 +97,31 @@ func TestSubscribeEndpoint(t *testing.T) {
 		// Should not be unauthorized with valid token
 		assert.NotEqual(t, http.StatusUnauthorized, w.Code)
 		// May get rate limited (429), internal server error (500), or bad request (400)
+		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError, http.StatusBadRequest, http.StatusTooManyRequests}, w.Code)
+	})
+
+	t.Run("Subscribe_WithRS256Auth", func(t *testing.T) {
+		rsServer, rsToken := setupTestServerWithRSAuth(t)
+		subscribeData := handlers.SubscribeRequest{
+			SubscribeBodyParams: handlers.SubscribeBodyParams{
+				SubscribeData: services.SubscribeData{
+					Processor: "mobius",
+					PriceID:   uuid.New().String(),
+				},
+			},
+		}
+
+		body, _ := json.Marshal(subscribeData)
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/mobius", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+rsToken)
+
+		rsServer.Handler().ServeHTTP(w, req)
+
+		logResponse(t, w, "Subscribe_WithRS256Auth")
+
+		assert.NotEqual(t, http.StatusUnauthorized, w.Code)
 		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError, http.StatusBadRequest, http.StatusTooManyRequests}, w.Code)
 	})
 }
@@ -114,7 +139,7 @@ func TestCancelSubscriptionEndpoint(t *testing.T) {
 
 		body, _ := json.Marshal(cancelData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/subscriptions/cancel", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/cancel", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		server.Handler().ServeHTTP(w, req)
@@ -132,7 +157,7 @@ func TestCancelSubscriptionEndpoint(t *testing.T) {
 
 		body, _ := json.Marshal(cancelData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/subscriptions/cancel", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/cancel", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -156,10 +181,10 @@ func TestGetSubscriptionEndpoints(t *testing.T) {
 		name string
 		path string
 	}{
-		{"GetActiveSubscription", "/api/v1/subscriptions/active"},
-		{"GetSubscriptionHistory", "/api/v1/subscriptions/history"},
-		{"GetUserPurchases", "/api/v1/subscriptions/purchases"},
-		{"GetMyBillingStatus", "/api/v1/me/billing-status"},
+		{"GetActiveSubscription", "/v1/subscriptions/active"},
+		{"GetSubscriptionHistory", "/v1/subscriptions/history"},
+		{"GetUserPurchases", "/v1/subscriptions/purchases"},
+		{"GetMyBillingStatus", "/v1/me/billing-status"},
 	}
 
 	for _, endpoint := range endpoints {
@@ -201,7 +226,7 @@ func TestFlexFormURL(t *testing.T) {
 
 		body, _ := json.Marshal(requestData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/subscriptions/ccbill/flexform-url", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/flexform-url", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		server.Handler().ServeHTTP(w, req)
@@ -220,7 +245,7 @@ func TestFlexFormURL(t *testing.T) {
 
 		body, _ := json.Marshal(requestData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/api/v1/subscriptions/ccbill/flexform-url", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/flexform-url", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 

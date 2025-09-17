@@ -39,6 +39,8 @@ tasks:
     cmds:
       - echo "Running tests..."
       - go test -v -race ./...
+      - echo "Running integration tests..."
+      - go test -v -tags=integration ./...
 
   fmt:
     desc: Format code

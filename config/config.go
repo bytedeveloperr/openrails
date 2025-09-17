@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -291,8 +292,8 @@ func GetDefaultBillingConfig() *Config {
 		Host: "0.0.0.0",
 		Port: 2053,
 		DB: &DBConfig{
-			// Match docker-compose Postgres (service: postgres)
-			URL:     "postgres://app_user:app_password@postgres:5432/doujins_db?sslmode=disable",
+			// Default to host-accessible Postgres so local tests hit docker-compose via localhost
+			URL:     "postgres://billing_app:billing_password@localhost:5432/doujins_db?sslmode=disable",
 			Schema:  "billing",
 			Dialect: "postgres",
 		},
@@ -378,7 +379,10 @@ func Load(configPath string) (*Config, error) {
 	cfg := GetDefaultBillingConfig()
 
 	if err := godotenv.Load(); err != nil {
-		return nil, err
+		var pathErr *os.PathError
+		if !errors.As(err, &pathErr) {
+			return nil, err
+		}
 	}
 
 	// Determine config file path

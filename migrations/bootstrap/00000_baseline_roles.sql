@@ -2,7 +2,7 @@
 -- Creates one LOGIN role per service that owns and manages its own schema (DDL + DML),
 -- and grants read-only access across schemas. Intended to be run as an admin/superuser.
 -- Variables provided by caller:
---   :APP_PW       - doujins_app password
+--   :DOUJINS_PW   - doujins_app password
 --   :BILLING_PW   - billing_app password
 --   :CASDOOR_PW   - casdoor_app password
 
@@ -23,7 +23,7 @@ BEGIN
     END IF;
 END $$;
 
-ALTER ROLE doujins_app  WITH LOGIN PASSWORD :'APP_PW';
+ALTER ROLE doujins_app  WITH LOGIN PASSWORD :'DOUJINS_PW';
 ALTER ROLE billing_app  WITH LOGIN PASSWORD :'BILLING_PW';
 ALTER ROLE casdoor_app  WITH LOGIN PASSWORD :'CASDOOR_PW';
 
@@ -44,13 +44,8 @@ GRANT CONNECT ON DATABASE :dbname TO doujins_app, billing_app, casdoor_app;
 -- Allow service roles to create schemas if missing (needed when a service ensures its schema)
 GRANT CREATE ON DATABASE :dbname TO doujins_app, billing_app, casdoor_app;
 
--- Enable required extensions at the database level (admin context)
--- pgvector for semantic search features
-CREATE EXTENSION IF NOT EXISTS vector;
--- cryptographic and UUID helpers (gen_random_uuid)
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
--- needed for range exclusion constraints
-CREATE EXTENSION IF NOT EXISTS btree_gist;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA doujins;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- Default privileges: service roles own and can fully manage their own objects
 ALTER DEFAULT PRIVILEGES FOR ROLE doujins_app IN SCHEMA doujins
@@ -78,7 +73,7 @@ GRANT USAGE ON SCHEMA doujins, billing, casdoor TO doujins_app, billing_app, cas
 GRANT SELECT ON ALL TABLES IN SCHEMA doujins TO billing_app, casdoor_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA doujins TO billing_app, casdoor_app;
 
-GRANT SELECT ON ALL TABLES IN SCHEMA billing TO doujins_app, casdoor_app;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA billing TO doujins_app, casdoor_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA billing TO doujins_app, casdoor_app;
 
 GRANT SELECT ON ALL TABLES IN SCHEMA casdoor TO doujins_app, billing_app;
@@ -91,7 +86,7 @@ ALTER DEFAULT PRIVILEGES FOR ROLE doujins_app IN SCHEMA doujins
   GRANT USAGE, SELECT ON SEQUENCES TO billing_app, casdoor_app;
 
 ALTER DEFAULT PRIVILEGES FOR ROLE billing_app IN SCHEMA billing
-  GRANT SELECT ON TABLES TO doujins_app, casdoor_app;
+  GRANT SELECT, INSERT, UPDATE ON TABLES TO doujins_app, casdoor_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE billing_app IN SCHEMA billing
   GRANT USAGE, SELECT ON SEQUENCES TO doujins_app, casdoor_app;
 
@@ -99,5 +94,17 @@ ALTER DEFAULT PRIVILEGES FOR ROLE casdoor_app IN SCHEMA casdoor
   GRANT SELECT ON TABLES TO doujins_app, billing_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE casdoor_app IN SCHEMA casdoor
   GRANT USAGE, SELECT ON SEQUENCES TO doujins_app, billing_app;
+
+-- Ensure future tables created by admin in doujins schema are accessible to service roles
+-- This covers migration system tables like migration_progress
+ALTER DEFAULT PRIVILEGES FOR ROLE admin IN SCHEMA doujins
+  GRANT SELECT ON TABLES TO doujins_app, billing_app, casdoor_app;
+ALTER DEFAULT PRIVILEGES FOR ROLE admin IN SCHEMA doujins
+  GRANT USAGE, SELECT ON SEQUENCES TO doujins_app, billing_app, casdoor_app;
+
+-- Also grant access to any existing tables created by admin in doujins schema
+-- This handles tables like migration_progress that were created before this migration
+GRANT SELECT ON ALL TABLES IN SCHEMA doujins TO doujins_app;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA doujins TO doujins_app;
 
 -- Done.

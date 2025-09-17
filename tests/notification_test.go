@@ -18,9 +18,9 @@ func TestNotificationEndpoints(t *testing.T) {
 		method string
 		path   string
 	}{
-		{"GET", "/api/v1/notifications"},
-		{"GET", "/api/v1/notifications/unread-count"},
-		{"POST", "/api/v1/notifications/123/read"},
+		{"GET", "/v1/notifications"},
+		{"GET", "/v1/notifications/unread-count"},
+		{"POST", "/v1/notifications/123/read"},
 	}
 
 	for _, endpoint := range endpoints {

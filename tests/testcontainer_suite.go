@@ -254,7 +254,7 @@ func (suite *TestContainerSuite) waitForServerReady() {
 	// Wait for server to start
 	maxRetries := 30
 	for i := 0; i < maxRetries; i++ {
-		resp, err := http.Get(suite.ServerURL + "/api/v1/health")
+		resp, err := http.Get(suite.ServerURL + "/health/live")
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
