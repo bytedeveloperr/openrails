@@ -99,8 +99,8 @@ func (s *UserSubscriptionService) GetUserSubscriptionHistory(ctx context.Context
 	return responses, total, nil
 }
 
-// GetUserPurchases retrieves one-off purchases for a user
-func (s *UserSubscriptionService) GetUserPurchases(ctx context.Context, userID string, queryOpts *query.QueryOptions[GetPaymentsFilters]) ([]*models.Payment, int64, error) {
+// GetUserPayments retrieves one-off purchases for a user
+func (s *UserSubscriptionService) GetUserPayments(ctx context.Context, userID string, queryOpts *query.QueryOptions[GetPaymentsFilters]) ([]*models.Payment, int64, error) {
 	// Set user filter
 	if queryOpts.Filters.UserID == "" {
 		queryOpts.Filters.UserID = userID

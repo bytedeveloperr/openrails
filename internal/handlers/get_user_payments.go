@@ -4,13 +4,18 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 )
 
-// GetUserPurchases retrieves the user's one-off payments
-func GetUserPurchases(r *Request) {
-	user := r.GetUser()
+// GetUserPayments retrieves the user's one-off payments
+func GetUserPayments(r *Request) {
+	userCtx := middleware.GetUserContext(r.GinCtx)
+	if userCtx.User == nil {
+		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
+		return
+	}
 
 	// Parse query parameters
 	limit, _ := strconv.Atoi(r.Request.URL.Query().Get("limit"))
@@ -23,7 +28,7 @@ func GetUserPurchases(r *Request) {
 		offset = 0
 	}
 
-	purchaseType := r.Request.URL.Query().Get("type")
+	paymentType := r.Request.URL.Query().Get("type")
 
 	// Build query options
 	queryOpts := &query.QueryOptions[services.GetPaymentsFilters]{
@@ -32,13 +37,13 @@ func GetUserPurchases(r *Request) {
 		Filters: services.GetPaymentsFilters{},
 	}
 
-	if purchaseType != "" {
-		queryOpts.Filters.Processor = purchaseType
+	if paymentType != "" {
+		queryOpts.Filters.Processor = paymentType
 	}
 
-	purchases, _, err := r.State.UserSubscriptionService.GetUserPurchases(
+	payments, _, err := r.State.UserSubscriptionService.GetUserPayments(
 		r.Request.Context(),
-		user.ID,
+		userCtx.User.ID,
 		queryOpts,
 	)
 	if err != nil {
@@ -46,6 +51,6 @@ func GetUserPurchases(r *Request) {
 		return
 	}
 
-	response := PaginatedResponse{Data: purchases, TotalItems: queryOpts.TotalItems}
+	response := PaginatedResponse{Data: payments, TotalItems: queryOpts.TotalItems}
 	r.SuccessJSON(response)
 }

@@ -140,7 +140,7 @@ func (s *Server) setupPublicRoutes() {
 		subscriptions.POST("/cancel", s.wrap(handlers.CancelSubscription))
 		subscriptions.GET("/active", s.wrap(handlers.GetSubscription))
 		subscriptions.GET("/history", s.wrap(handlers.GetSubscriptionHistory))
-		subscriptions.GET("/purchases", s.wrap(handlers.GetUserPurchases))
+		subscriptions.GET("/purchases", s.wrap(handlers.GetUserPayments))
 	}
 
 	webhooks := api.Group("/subscriptions/webhook")
