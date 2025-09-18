@@ -34,26 +34,3 @@ type PaymentMethod struct {
 	// Relationships
 	Subscriptions []*Subscription `bun:"rel:has-many,join:id=payment_method_id" json:"subscriptions,omitempty"`
 }
-
-// IsExpired checks if the payment method has expired
-func (pm *PaymentMethod) IsExpired() bool {
-	if pm.ExpiryDate == nil {
-		return false
-	}
-
-	// Simple check - in production you'd parse MM/YY and compare with current date
-	// For now, we'll rely on processor ACU updates to mark cards as inactive
-	return false
-}
-
-// CanRetry checks if an inactive payment method can be retried
-func (pm *PaymentMethod) CanRetry() bool {
-	return pm.IsActive
-}
-
-// MarkInactive marks the payment method as inactive (e.g., account closed)
-func (pm *PaymentMethod) MarkInactive(reason string) {
-	pm.IsActive = false
-	pm.FailureReason = &reason
-	pm.UpdatedAt = time.Now()
-}

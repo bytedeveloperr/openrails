@@ -76,6 +76,7 @@ func NewState(cfg *config.Config) (*State, error) {
 		PaymentService:           serviceInstances.PurchaseService,
 		EntitlementService:       serviceInstances.EntitlementService,
 		SolanaWalletService:      serviceInstances.SolanaWalletService,
+		SolanaPaymentService:     serviceInstances.SolanaPaymentService,
 
 		// Wave 18 subscription services
 		UserSubscriptionService:   serviceInstances.UserSubscriptionService,
@@ -163,6 +164,7 @@ type servicesInstances struct {
 	PurchaseService          *services.PaymentService
 	EntitlementService       *services.EntitlementService
 	SolanaWalletService      *services.SolanaWalletService
+	SolanaPaymentService     *services.SolanaPaymentService
 
 	// Wave 18 subscription services
 	UserSubscriptionService   *services.UserSubscriptionService
@@ -186,6 +188,7 @@ func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient
 	purchaseService := services.NewPaymentService(db)
 	entitlementService := services.NewEntitlementService(db)
 	solanaWalletService := services.NewSolanaWalletService(db)
+	solanaPaymentService := services.NewSolanaPaymentService(db, nil, priceService, purchaseService, productService, entitlementService)
 
 	subscriptionLifecycleService := services.NewSubscriptionLifecycleService(
 		db,
@@ -242,6 +245,7 @@ func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient
 		PurchaseService:          purchaseService,
 		EntitlementService:       entitlementService,
 		SolanaWalletService:      solanaWalletService,
+		SolanaPaymentService:     solanaPaymentService,
 
 		// Wave 18 subscription services
 		UserSubscriptionService:   userSubscriptionService,

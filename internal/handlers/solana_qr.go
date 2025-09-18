@@ -10,8 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
 // GenerateSolanaPayQR generates a Solana Pay URL for wallet apps to scan
@@ -71,8 +69,7 @@ func GenerateSolanaPayQR(r *Request) {
 
 	// Create pending solana transaction (captures reference via pending ID)
 	user := r.GetUser()
-	svc := services.NewSolanaPaymentService(r.State.DB, r.State.Config, r.State.PriceService, r.State.PaymentService)
-	_, _, _, exp, pendingID, err := svc.Generate(ctx, user.ID, price.ID, tokenSymbol, req.UserWallet)
+	_, _, _, exp, pendingID, err := r.State.SolanaPaymentService.Generate(ctx, user.ID, price.ID, tokenSymbol, req.UserWallet)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to prepare payment")
 		return
