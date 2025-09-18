@@ -10,7 +10,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/gagliardetto/solana-go"
+	"github.com/doujins-org/solana-go"
 	log "github.com/sirupsen/logrus"
 )
 

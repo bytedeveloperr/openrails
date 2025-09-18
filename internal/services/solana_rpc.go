@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/gagliardetto/solana-go"
-	"github.com/gagliardetto/solana-go/rpc"
+	"github.com/doujins-org/solana-go"
+	"github.com/doujins-org/solana-go/rpc"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -79,12 +79,12 @@ func (s *SolanaRPCService) SendTransaction(ctx context.Context, tx *solana.Trans
 	if err != nil {
 		return solana.Signature{}, fmt.Errorf("failed to send transaction: %w", err)
 	}
-	
+
 	log.WithFields(log.Fields{
 		"signature": sig.String(),
 		"network":   s.network,
 	}).Info("Transaction sent to Solana")
-	
+
 	return sig, nil
 }
 
@@ -122,7 +122,7 @@ func (s *SolanaRPCService) ConfirmTransaction(ctx context.Context, signature sol
 
 			if len(status.Value) > 0 && status.Value[0] != nil {
 				sigStatus := status.Value[0]
-				
+
 				// Check for errors
 				if sigStatus.Err != nil {
 					return fmt.Errorf("transaction failed: %v", sigStatus.Err)
