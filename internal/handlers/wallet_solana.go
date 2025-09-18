@@ -136,30 +136,9 @@ func VerifySolanaWallet(r *Request) {
 		return
 	}
 
-	// Automatically create a payment method for the verified wallet
-	paymentMethod, err := r.State.PaymentMethodService.CreateFromSolanaWallet(ctx, user.ID, req.Wallet)
-	if err != nil {
-		// Log the error but don't fail the verification - payment method can be created later
-		log.WithError(err).WithFields(log.Fields{
-			"user_id": user.ID,
-			"wallet":  req.Wallet,
-		}).Warn("Failed to create payment method for verified Solana wallet")
-	}
-
 	response := map[string]any{
 		"verified": true,
 		"wallet":   req.Wallet,
-	}
-
-	// Include payment method info if successfully created
-	if paymentMethod != nil {
-		response["payment_method_created"] = true
-		response["payment_method_id"] = paymentMethod.ID.String()
-		log.WithFields(log.Fields{
-			"user_id":           user.ID,
-			"wallet":            req.Wallet,
-			"payment_method_id": paymentMethod.ID.String(),
-		}).Info("Successfully created payment method for verified Solana wallet")
 	}
 
 	r.SuccessJSON(response)

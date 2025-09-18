@@ -181,10 +181,10 @@ func TestGetSubscriptionEndpoints(t *testing.T) {
 		name string
 		path string
 	}{
-		{"GetActiveSubscription", "/v1/subscriptions/active"},
-		{"GetSubscriptionHistory", "/v1/subscriptions/history"},
-		{"GetUserPurchases", "/v1/subscriptions/purchases"},
-		{"GetMyBillingStatus", "/v1/me/billing-status"},
+		{"GetActiveSubscription", "/api/v1/subscriptions/active"},
+		{"GetSubscriptionHistory", "/api/v1/subscriptions/history"},
+		{"GetUserPayments", "/api/v1/subscriptions/purchases"},
+		{"GetMyBillingStatus", "/api/v1/me/billing-status"},
 	}
 
 	for _, endpoint := range endpoints {

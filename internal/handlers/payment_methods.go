@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -65,7 +64,7 @@ func ListPaymentMethods(r *Request) {
 	}
 
 	// Read methods via service
-	var paymentMethods any
+	var paymentMethods []*models.PaymentMethod
 	var err error
 
 	if req.IncludeInactive {
@@ -83,15 +82,9 @@ func ListPaymentMethods(r *Request) {
 		return
 	}
 
-	// Convert to response format with enhanced information
-	response := convertToPaymentMethodResponses(paymentMethods, r.State.PaymentMethodService)
-
-	// Calculate total items (for now, we'll use the length of the result)
-	// In a real pagination implementation, this would come from a separate count query
-	totalItems := int64(len(response))
-
+	totalItems := int64(len(paymentMethods))
 	r.SuccessJSON(PaginatedResponse{
-		Data:       response,
+		Data:       paymentMethods,
 		TotalItems: totalItems,
 		Page:       req.Page,
 		PageSize:   req.PageSize,
@@ -150,27 +143,6 @@ func DeletePaymentMethod(r *Request) {
 		return
 	}
 
-	// Check if payment method can be deleted (business rules)
-	canDelete, reason, err := r.State.PaymentMethodService.CanDelete(r.Request.Context(), id)
-	if err != nil {
-		log.WithError(err).WithFields(log.Fields{
-			"payment_method_id": id,
-			"user_id":           user.ID,
-		}).Error("Failed to check if payment method can be deleted")
-		r.ErrorJSON(http.StatusInternalServerError, "Failed to validate deletion request")
-		return
-	}
-
-	if !canDelete {
-		log.WithFields(log.Fields{
-			"payment_method_id": id,
-			"user_id":           user.ID,
-			"reason":            reason,
-		}).Warn("Payment method deletion blocked by business rules")
-		r.ErrorJSON(http.StatusConflict, reason)
-		return
-	}
-
 	// Perform the deletion
 	if err := r.State.PaymentMethodService.Delete(r.Request.Context(), id); err != nil {
 		if err.Error() == "no rows affected" {
@@ -194,7 +166,6 @@ func DeletePaymentMethod(r *Request) {
 		"payment_method_id": id,
 		"user_id":           user.ID,
 		"processor":         paymentMethod.Processor,
-		"display_name":      paymentMethod.GetDisplayName(),
 	}).Info("Payment method successfully deleted")
 
 	r.SuccessJSON(map[string]any{
@@ -301,125 +272,10 @@ func ActivatePaymentMethod(r *Request) {
 		"payment_method_id": id,
 		"user_id":           user.ID,
 		"processor":         paymentMethod.Processor,
-		"display_name":      paymentMethod.GetDisplayName(),
 	}).Info("Payment method successfully activated")
 
 	r.SuccessJSON(map[string]any{
 		"success": true,
 		"message": "Payment method activated successfully",
 	})
-}
-
-// PaymentMethodDisplayService interface for getting display names and checking deletion rules
-type PaymentMethodDisplayService interface {
-	GetDisplayName(pm *models.PaymentMethod) string
-	CanDelete(ctx context.Context, id uuid.UUID) (bool, string, error)
-}
-
-// convertToPaymentMethodResponses converts payment method models to enhanced response format
-func convertToPaymentMethodResponses(paymentMethods interface{}, service PaymentMethodDisplayService) []PaymentMethodResponse {
-	var responses []PaymentMethodResponse
-
-	// Handle different types that might be passed in
-	switch pm := paymentMethods.(type) {
-	case []*models.PaymentMethod:
-		responses = make([]PaymentMethodResponse, len(pm))
-		for i, method := range pm {
-			if method != nil {
-				responses[i] = convertSinglePaymentMethod(method, service)
-			}
-		}
-	case []models.PaymentMethod:
-		responses = make([]PaymentMethodResponse, len(pm))
-		for i, method := range pm {
-			responses[i] = convertSinglePaymentMethod(&method, service)
-		}
-	default:
-		// Return empty slice if unknown type
-		responses = []PaymentMethodResponse{}
-	}
-
-	return responses
-}
-
-// GeneratePaymentMethodsFromWallets creates payment methods from connected Solana wallets
-func GeneratePaymentMethodsFromWallets(r *Request) {
-	user := r.GetUser()
-	if user == nil {
-		log.Error("User not found in request context")
-		r.ErrorJSON(http.StatusUnauthorized, "Authentication required")
-		return
-	}
-
-	// Create payment methods from all verified Solana wallets
-	paymentMethods, err := r.State.PaymentMethodService.CreatePaymentMethodsFromConnectedWallets(
-		r.Request.Context(),
-		user.ID,
-		r.State.SolanaWalletService,
-	)
-	if err != nil {
-		log.WithError(err).WithField("user_id", user.ID).Error("Failed to generate payment methods from wallets")
-		r.ErrorJSON(http.StatusInternalServerError, "Failed to generate payment methods from wallets")
-		return
-	}
-
-	// Convert to response format
-	responses := make([]PaymentMethodResponse, len(paymentMethods))
-	for i, pm := range paymentMethods {
-		responses[i] = convertSinglePaymentMethod(pm, r.State.PaymentMethodService)
-	}
-
-	log.WithFields(log.Fields{
-		"user_id": user.ID,
-		"count":   len(responses),
-	}).Info("Successfully generated payment methods from Solana wallets")
-
-	r.SuccessJSON(map[string]any{
-		"success":         true,
-		"message":         "Payment methods generated from connected wallets",
-		"payment_methods": responses,
-		"count":           len(responses),
-	})
-}
-
-// convertSinglePaymentMethod converts a single payment method to response format
-func convertSinglePaymentMethod(pm *models.PaymentMethod, service PaymentMethodDisplayService) PaymentMethodResponse {
-	response := PaymentMethodResponse{
-		ID:          pm.ID.String(),
-		Type:        pm.GetType(),
-		Processor:   string(pm.Processor),
-		IsActive:    pm.IsActive,
-		DisplayName: service.GetDisplayName(pm),
-		CreatedAt:   pm.CreatedAt,
-	}
-
-	// Add type-specific fields
-	switch pm.Processor {
-	case "mobius":
-		// Mobius card fields
-		response.LastFour = pm.LastFour
-		response.CardType = pm.CardType
-		response.ExpiryDate = pm.ExpiryDate
-	case "solana":
-		// Solana wallet fields
-		response.WalletAddress = pm.WalletAddress
-	case "ccbill":
-		// CCBill subscription fields
-		response.VaultID = &pm.VaultID
-		response.InitialTransactionID = &pm.InitialTransactionID
-	}
-
-	// Add failure reason if present
-	response.FailureReason = pm.FailureReason
-
-	// Determine if payment method can be deleted
-	// Use the service method to check business rules
-	canDelete, _, err := service.CanDelete(context.Background(), pm.ID)
-	if err != nil {
-		// If we can't determine, default to false for safety
-		canDelete = false
-	}
-	response.CanDelete = canDelete
-
-	return response
 }
