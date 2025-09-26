@@ -63,9 +63,9 @@ func main() {
 func runServer(cmd *cobra.Command, args []string) error {
 	cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
 	// Auto-apply app migrations on startup (idempotent; guarded by advisory lock)
-	// if err := migrate.Run(cmd.Context(), cfg); err != nil {
-	// 	return fmt.Errorf("auto-migrate failed: %w", err)
-	// }
+	if err := migrate.Run(cmd.Context(), cfg); err != nil {
+		return fmt.Errorf("auto-migrate failed: %w", err)
+	}
 
 	if cfg.Env == "production" || cfg.Env == "prod" {
 		gin.SetMode(gin.ReleaseMode)
