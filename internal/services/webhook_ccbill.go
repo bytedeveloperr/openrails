@@ -1262,13 +1262,6 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 			log.WithContext(ctx).WithError(err).Error("failed to end entitlements for chargebacked subscription")
 		}
 
-		// TODO: Add fraud flagging logic here
-		// This could include:
-		// 1. Flagging user account for manual review
-		// 2. Adding to fraud prevention database
-		// 3. Blocking future payments from same user/card/IP
-		// 4. Alerting fraud prevention team
-
 		log.WithContext(ctx).WithFields(log.Fields{
 			"user_id":           sub.UserID,
 			"chargeback_amount": chargebackAmount,
@@ -1324,9 +1317,6 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 			if err := s.NotificationService.CreateAndDeliver(ctx, userNotification); err != nil {
 				log.WithContext(ctx).WithError(err).Error("failed to create and deliver chargeback termination notification")
 			}
-
-			// TODO: Add system alert notification for fraud team
-			// This would be a different notification type for internal alerts
 		}
 
 		log.WithContext(ctx).WithFields(log.Fields{

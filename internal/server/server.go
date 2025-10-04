@@ -171,7 +171,7 @@ func (s *Server) setupPublicRoutes() {
 	wallet.Use(middleware.AuthRequired(s.cfg.JWT))
 	{
 		wallet.GET("", s.wrap(handlers.ListSolanaWallets))
-		wallet.POST("/connect", s.wrap(handlers.ConnectSolanaWallet))
+		wallet.GET("/linked", s.wrap(handlers.GetSolanaWallet))
 		wallet.POST("/challenge", s.wrap(handlers.GenerateSolanaWalletChallenge))
 		wallet.POST("/verify", s.wrap(handlers.VerifySolanaWallet))
 		wallet.DELETE("", s.wrap(handlers.DeleteSolanaWallet))
@@ -179,12 +179,13 @@ func (s *Server) setupPublicRoutes() {
 
 	// Solana payments (generate transaction and QR)
 	solana := api.Group("/solana")
+	solana.GET("/tokens", s.wrap(handlers.GetSupportedTokens))
 	solana.Use(middleware.AuthRequired(s.cfg.JWT))
 	{
 		solana.POST("/generate", s.wrap(handlers.GeneratePayment))
 		solana.POST("/submit", s.wrap(handlers.SubmitPayment))
 		solana.POST("/qr", s.wrap(handlers.GenerateSolanaPayQR))
-		solana.GET("/supported-tokens", s.wrap(handlers.GetSupportedTokens))
+		solana.GET("/check", s.wrap(handlers.CheckSolanaPayment))
 	}
 
 	// Kubernetes-style health endpoints

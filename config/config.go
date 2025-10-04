@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/joho/godotenv"
@@ -20,21 +21,21 @@ const EnvDev string = "dev"
 const ConfigContextKey string = "config"
 
 type Config struct {
-	Env         string            `json:"env,omitempty"`
-	Port        int16             `json:"port,omitempty"`
-	Host        string            `json:"host,omitempty"`
-	Mobius      *MobiusConfig     `json:"mobius,omitempty"`
-	CCBill      *CCBillConfig     `json:"ccbill,omitempty"`
-	Solana      *SolanaConfig     `json:"solana,omitempty"`
-	DB          *DBConfig         `json:"db,omitempty"`
-	Redis       *RedisConfig      `json:"redis,omitempty"`
-	JWT         *JWTConfig        `json:"jwt,omitempty"`
-	ClickHouse  *ClickHouseConfig `json:"clickhouse,omitempty"`
-	SendGrid    *SendGridConfig   `json:"sendgrid,omitempty"`
-	CorsOrigins []string          `json:"cors_origins,omitempty"`
-	RateLimits  *RateLimitConfig  `json:"rate_limits,omitempty"`
-	Admin       *AdminConfig      `json:"admin,omitempty"`
-	TLS         *TLSConfig        `json:"tls,omitempty"`
+	Env         string            `koanf:"env,omitempty"`
+	Port        int16             `koanf:"port,omitempty"`
+	Host        string            `koanf:"host,omitempty"`
+	Mobius      *MobiusConfig     `koanf:"mobius,omitempty"`
+	CCBill      *CCBillConfig     `koanf:"ccbill,omitempty"`
+	Solana      *SolanaConfig     `koanf:"solana,omitempty"`
+	DB          *DBConfig         `koanf:"db,omitempty"`
+	Redis       *RedisConfig      `koanf:"redis,omitempty"`
+	JWT         *JWTConfig        `koanf:"jwt,omitempty"`
+	ClickHouse  *ClickHouseConfig `koanf:"clickhouse,omitempty"`
+	SendGrid    *SendGridConfig   `koanf:"sendgrid,omitempty"`
+	CorsOrigins []string          `koanf:"cors_origins,omitempty"`
+	RateLimits  *RateLimitConfig  `koanf:"rate_limits,omitempty"`
+	Admin       *AdminConfig      `koanf:"admin,omitempty"`
+	TLS         *TLSConfig        `koanf:"tls,omitempty"`
 }
 
 type DBConfig struct {
@@ -96,38 +97,39 @@ type JWTConfig struct {
 	// Optional RSA public key PEM for verifying RS256 JWTs. If empty and Issuer is set,
 	// the service will attempt OIDC discovery at "{issuer}/.well-known/openid-configuration"
 	// and use JWKS for verification.
-	PublicKeyPEM string `koanf:"public_key_pem"`
+	PublicKeyPEM         string `koanf:"public_key_pem"`
+	SkipExpiryValidation bool   `koanf:"skip_expiry_validation"`
 }
 
 type SolanaConfig struct {
-	RPCEndpoint       string `json:"rpc_endpoint"`
-	Network           string `json:"network"` // mainnet, devnet, testnet
-	RecipientWallet   string `json:"recipient_wallet"`
-	DestinationWallet string `json:"destination_wallet"` // Alias for RecipientWallet
+	RPCEndpoint     string `koanf:"rpc_endpoint"`
+	Network         string `koanf:"network"` // mainnet, devnet, testnet
+	RecipientWallet string `koanf:"recipient_wallet"`
 
-	SupportedTokens map[string]TokenConfig `json:"supported_tokens,omitempty"`
+	SupportedTokens map[string]TokenConfig `koanf:"supported_tokens,omitempty"`
 
-	TransactionTimeoutSeconds int     `json:"transaction_timeout_seconds,omitempty"`
-	ConfirmationBlocks        int     `json:"confirmation_blocks,omitempty"`
-	MaxTransactionFee         float64 `json:"max_transaction_fee,omitempty"`
+	TransactionTimeoutSeconds int     `koanf:"transaction_timeout_seconds,omitempty"`
+	ConfirmationBlocks        int     `koanf:"confirmation_blocks,omitempty"`
+	MaxTransactionFee         float64 `koanf:"max_transaction_fee,omitempty"`
 }
 
 // TokenConfig defines configuration for a specific Solana token
 type TokenConfig struct {
-	Mint     string  `json:"mint"`     // Token mint address
-	Symbol   string  `json:"symbol"`   // Token symbol (e.g., "SOL", "USDC")
-	Name     string  `json:"name"`     // Token name
-	Decimals int     `json:"decimals"` // Token decimal places
-	Price    float64 `json:"price"`    // Price in USD (for display)
-	Enabled  bool    `json:"enabled"`  // Whether this token is enabled
+	Mint        string  `json:"mint" koanf:"mint"`         // Token mint address
+	Symbol      string  `json:"symbol" koanf:"symbol"`     // Token symbol (e.g., "SOL", "USDC")
+	Name        string  `json:"name" koanf:"name"`         // Token name
+	Decimals    int     `json:"decimals" koanf:"decimals"` // Token decimal places
+	Price       float64 `json:"price" koanf:"price"`       // Price in USD (for display)
+	Enabled     bool    `json:"enabled" koanf:"enabled"`   // Whether this token is enabled
+	MainnetMint string  `json:"mainnet_mint,omitempty" koanf:"mainnet_mint"`
 }
 
 // RateLimitConfig defines rate limiting for billing endpoints
 type RateLimitConfig struct {
-	SubscribeLimit *RateLimit `json:"subscribe_limit,omitempty"` // POST /subscriptions/*
-	WebhookLimit   *RateLimit `json:"webhook_limit,omitempty"`   // POST /webhooks/*
-	PaymentLimit   *RateLimit `json:"payment_limit,omitempty"`   // Payment method operations
-	DefaultLimit   *RateLimit `json:"default_limit,omitempty"`   // Default for other endpoints
+	SubscribeLimit *RateLimit `koanf:"subscribe_limit,omitempty"` // POST /subscriptions/*
+	WebhookLimit   *RateLimit `koanf:"webhook_limit,omitempty"`   // POST /webhooks/*
+	PaymentLimit   *RateLimit `koanf:"payment_limit,omitempty"`   // Payment method operations
+	DefaultLimit   *RateLimit `koanf:"default_limit,omitempty"`   // Default for other endpoints
 }
 
 type ClickHouseConfig struct {
@@ -168,8 +170,8 @@ type PrivateTLSConfig struct {
 
 // RateLimit defines a rate limit policy
 type RateLimit struct {
-	RequestsPerMinute int `json:"requests_per_minute"`
-	BurstSize         int `json:"burst_size"`
+	RequestsPerMinute int `koanf:"requests_per_minute"`
+	BurstSize         int `koanf:"burst_size"`
 }
 
 // Validate validates the billing configuration
@@ -343,40 +345,42 @@ func GetDefaultBillingConfig() *Config {
 				BurstSize:         10,
 			},
 		},
-		Solana: &SolanaConfig{
-			Network:                   "mainnet",
-			TransactionTimeoutSeconds: 300, // 5 minutes
-			ConfirmationBlocks:        1,
-			MaxTransactionFee:         0.01, // SOL
-			SupportedTokens: map[string]TokenConfig{
-				"SOL": {
-					Symbol:   "SOL",
-					Name:     "Solana",
-					Decimals: 9,
-					Enabled:  true,
-				},
-				"USDC": {
-					Symbol:   "USDC",
-					Name:     "USD Coin",
-					Decimals: 6,
-					Enabled:  true,
-				},
-				"PYUSD": {
-					Symbol:   "PYUSD",
-					Name:     "PayPal USD",
-					Decimals: 6,
-					Enabled:  true,
-				},
-			},
-		},
+		Solana: &SolanaConfig{},
 	}
+}
+
+func loadConfigIfExists(k *koanf.Koanf, path string) error {
+	if path == "" {
+		return nil
+	}
+	candidates := []string{path}
+	if !filepath.IsAbs(path) {
+		candidates = append(candidates, filepath.Join("config", path))
+		candidates = append(candidates, filepath.Join("./config", path))
+	}
+	visited := make(map[string]struct{})
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, ok := visited[candidate]; ok {
+			continue
+		}
+		visited[candidate] = struct{}{}
+		if _, err := os.Stat(candidate); err == nil {
+			if err := k.Load(file.Provider(candidate), yaml.Parser()); err != nil {
+				return fmt.Errorf("loading config file %s: %w", candidate, err)
+			}
+			return nil
+		}
+	}
+	return nil
 }
 
 func Load(configPath string) (*Config, error) {
 	k := koanf.New(".")
 
-	// Start with default configuration
-	cfg := GetDefaultBillingConfig()
+	cfg := &Config{}
 
 	if err := godotenv.Load(); err != nil {
 		var pathErr *os.PathError
@@ -385,32 +389,16 @@ func Load(configPath string) (*Config, error) {
 		}
 	}
 
-	// Determine config file path
-
 	if configPath == "" {
-		// Look for config.yaml in current directory and ./config/
-		candidates := []string{
-			"config.yaml",
-			"config/config.yaml",
-			"./config.yaml",
-			"./config/config.yaml",
-		}
-
-		for _, candidate := range candidates {
-			if _, err := os.Stat(candidate); err == nil {
-				configPath = candidate
-				break
-			}
+		if envPath := strings.TrimSpace(os.Getenv("BILLING_CONFIG")); envPath != "" {
+			configPath = envPath
+		} else {
+			configPath = "config.yaml"
 		}
 	}
 
-	// Load from YAML file if it exists
-	if configPath != "" {
-		if _, err := os.Stat(configPath); err == nil {
-			if err := k.Load(file.Provider(configPath), yaml.Parser()); err != nil {
-				return nil, fmt.Errorf("loading config file %s: %w", configPath, err)
-			}
-		}
+	if err := loadConfigIfExists(k, configPath); err != nil {
+		return nil, err
 	}
 
 	// Load environment variables with prefix
@@ -517,15 +505,14 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("unmarshaling config: %w", err)
 	}
 
-	// Set environment if not already set
-	if cfg.Env == "" {
-		if env := os.Getenv("ENV"); env != "" {
-			cfg.Env = env
-		} else if env := os.Getenv("ENVIRONMENT"); env != "" {
-			cfg.Env = env
-		} else {
-			cfg.Env = "development"
-		}
+	if cfg.Solana == nil {
+		cfg.Solana = &SolanaConfig{}
+	}
+	if cfg.Solana.Network == "" {
+		cfg.Solana.Network = "mainnet"
+	}
+	if len(cfg.Solana.SupportedTokens) == 0 {
+		cfg.Solana.SupportedTokens = TokensForNetwork(cfg.Solana.Network)
 	}
 
 	// Validate the loaded configuration

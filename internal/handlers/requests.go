@@ -148,6 +148,8 @@ func (r *GeneratePaymentRequest) Body() any {
 type SubmitPaymentBodyParams struct {
 	SignedTransaction string `json:"signed_transaction" validate:"required"`
 	PriceID           string `json:"price_id" validate:"required,uuid"`
+	Memo              string `json:"memo"`
+	IntentID          string `json:"intent_id" validate:"required,uuid"`
 }
 
 type SubmitPaymentRequest struct {
@@ -157,6 +159,22 @@ type SubmitPaymentRequest struct {
 
 func (r *SubmitPaymentRequest) Body() any {
 	return &r.SubmitPaymentBodyParams
+}
+
+// -------------------------------- Solana Check Payment Request --------------------------------
+
+type CheckSolanaPaymentQueryParams struct {
+	Reference string `form:"reference" validate:"required"`
+	Memo      string `form:"memo"`
+}
+
+type CheckSolanaPaymentRequest struct {
+	BaseRequest
+	CheckSolanaPaymentQueryParams
+}
+
+func (r *CheckSolanaPaymentRequest) Query() any {
+	return &r.CheckSolanaPaymentQueryParams
 }
 
 // -------------------------------- Solana Generate QR Request --------------------------------

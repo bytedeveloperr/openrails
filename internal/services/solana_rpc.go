@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/doujins-org/solana-go"
@@ -91,13 +92,40 @@ func (s *SolanaRPCService) SendTransaction(ctx context.Context, tx *solana.Trans
 // GetTransaction retrieves transaction details by signature
 func (s *SolanaRPCService) GetTransaction(ctx context.Context, signature solana.Signature) (*rpc.GetTransactionResult, error) {
 	resp, err := s.client.GetTransaction(ctx, signature, &rpc.GetTransactionOpts{
-		Commitment: rpc.CommitmentFinalized,
-		Encoding:   solana.EncodingJSON,
+		Commitment: rpc.CommitmentConfirmed,
+		Encoding:   solana.EncodingBase64,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transaction %s: %w", signature.String(), err)
 	}
 	return resp, nil
+}
+
+func (s *SolanaRPCService) GetTransactionWithRetry(ctx context.Context, signature solana.Signature, attempts int, delay time.Duration) (*rpc.GetTransactionResult, error) {
+	var lastErr error
+	for i := 0; i < attempts; i++ {
+		resp, err := s.GetTransaction(ctx, signature)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if !isNotFoundError(err) {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return nil, lastErr
+}
+
+func isNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "not found")
 }
 
 // ConfirmTransaction waits for a transaction to be confirmed
@@ -190,4 +218,27 @@ func (s *SolanaRPCService) GetNetwork() string {
 // GetEndpoint returns the current RPC endpoint
 func (s *SolanaRPCService) GetEndpoint() string {
 	return s.endpoint
+}
+
+// GetSignaturesForAddress finds transactions that reference a specific address
+func (s *SolanaRPCService) GetSignaturesForAddress(ctx context.Context, address solana.PublicKey, limit *int) ([]*rpc.TransactionSignature, error) {
+	opts := &rpc.GetSignaturesForAddressOpts{
+		Commitment: rpc.CommitmentFinalized,
+	}
+	if limit != nil {
+		limitVal := *limit
+		opts.Limit = &limitVal
+	}
+
+	resp, err := s.client.GetSignaturesForAddressWithOpts(ctx, address, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get signatures for address %s: %w", address.String(), err)
+	}
+
+	return resp, nil
+}
+
+// GetClient returns the underlying RPC client for direct access when needed
+func (s *SolanaRPCService) GetClient() *rpc.Client {
+	return s.client
 }

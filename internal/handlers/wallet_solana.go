@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -12,50 +11,14 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/utils/solana"
 )
 
-type SolanaWalletRequest struct {
-	Wallet string `json:"wallet" validate:"required"`
-}
-
 type SolanaWalletVerifyRequest struct {
 	Wallet    string `json:"wallet" validate:"required"`
 	Signature string `json:"signature" validate:"required"`
-	Message   string `json:"message" validate:"required"`
+	Message   string `json:"message" validate:"omitempty"`
 }
 
 type SolanaWalletChallengeRequest struct {
 	Wallet string `json:"wallet" validate:"required"`
-}
-
-// ConnectSolanaWallet adds a wallet to the user's database wallet list
-func ConnectSolanaWallet(r *Request) {
-	req := new(SolanaWalletRequest)
-	if err := r.Bind(req); err != nil {
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request body")
-		return
-	}
-
-	if err := solana.ValidateAddress(req.Wallet); err != nil {
-		r.ErrorJSON(http.StatusBadRequest, "Invalid wallet address")
-		return
-	}
-
-	user := r.GetUser()
-	ctx, cancel := context.WithTimeout(r.Request.Context(), 5*time.Second)
-	defer cancel()
-
-	wallet, err := r.State.SolanaWalletService.Link(ctx, user.ID, req.Wallet)
-	if err != nil {
-		log.WithError(err).Error("Failed to link Solana wallet")
-		r.ErrorJSON(http.StatusInternalServerError, "Failed to connect wallet")
-		return
-	}
-
-	r.SuccessJSON(map[string]any{
-		"connected":    true,
-		"wallet":       wallet.Address,
-		"is_verified":  wallet.IsVerified,
-		"connected_at": wallet.CreatedAt,
-	})
 }
 
 // GenerateSolanaWalletChallenge generates a verification challenge for a wallet
@@ -75,17 +38,14 @@ func GenerateSolanaWalletChallenge(r *Request) {
 	ctx, cancel := context.WithTimeout(r.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	// Get verification service
-	var rpcEndpoint, network string
-	if r.State.Config.Solana != nil {
-		rpcEndpoint = r.State.Config.Solana.RPCEndpoint
-		network = r.State.Config.Solana.Network
-	} else {
-		network = "devnet" // fallback
+	// Ensure the wallet record exists so verification can complete later.
+	if _, err := r.State.SolanaWalletService.Link(ctx, user.ID, req.Wallet); err != nil {
+		log.WithError(err).Error("Failed to ensure Solana wallet record exists")
+		r.ErrorJSON(http.StatusInternalServerError, "Failed to prepare wallet for verification")
+		return
 	}
-	rpcService := services.NewSolanaRPCService(rpcEndpoint, network)
-	verificationService := services.NewSolanaVerificationService(r.State.DB, rpcService)
 
+	verificationService := services.NewSolanaVerificationService(r.State.DB, r.State.SolanaWalletService)
 	challenge, err := verificationService.GenerateChallenge(ctx, user.ID, req.Wallet)
 	if err != nil {
 		log.WithError(err).Error("Failed to generate wallet verification challenge")
@@ -94,9 +54,10 @@ func GenerateSolanaWalletChallenge(r *Request) {
 	}
 
 	r.SuccessJSON(map[string]any{
-		"challenge":  challenge.Message,
+		"message":    challenge.Message,
 		"expires_at": challenge.ExpiresAt.Unix(),
 		"wallet":     req.Wallet,
+		"nonce":      challenge.Nonce,
 	})
 }
 
@@ -117,31 +78,19 @@ func VerifySolanaWallet(r *Request) {
 	ctx, cancel := context.WithTimeout(r.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	// Get verification service with config
-	var rpcEndpoint, network string
-	if r.State.Config.Solana != nil {
-		rpcEndpoint = r.State.Config.Solana.RPCEndpoint
-		network = r.State.Config.Solana.Network
-	} else {
-		network = "devnet" // fallback
-	}
-	rpcService := services.NewSolanaRPCService(rpcEndpoint, network)
-	verificationService := services.NewSolanaVerificationService(r.State.DB, rpcService)
-
-	// Verify the signature against the challenge
-	err := verificationService.VerifySignature(ctx, user.ID, req.Wallet, req.Signature, req.Message)
+	verificationService := services.NewSolanaVerificationService(r.State.DB, r.State.SolanaWalletService)
+	wallet, err := verificationService.VerifySignature(ctx, user.ID, req.Wallet, req.Signature)
 	if err != nil {
 		log.WithError(err).Error("Failed to verify wallet signature")
-		r.ErrorJSON(http.StatusBadRequest, fmt.Sprintf("Signature verification failed: %v", err))
+		r.ErrorJSON(http.StatusBadRequest, "Signature verification failed")
 		return
 	}
 
-	response := map[string]any{
-		"verified": true,
-		"wallet":   req.Wallet,
-	}
-
-	r.SuccessJSON(response)
+	r.SuccessJSON(map[string]any{
+		"verified":    true,
+		"wallet":      wallet.Address,
+		"verified_at": wallet.VerifiedAt,
+	})
 }
 
 // ListSolanaWallets lists the user's connected wallets from database
@@ -187,5 +136,23 @@ func DeleteSolanaWallet(r *Request) {
 	r.SuccessJSON(map[string]any{
 		"deleted": true,
 		"wallet":  wallet,
+	})
+}
+
+// GetSolanaWallet returns the most recently linked wallet for the authenticated user.
+func GetSolanaWallet(r *Request) {
+	user := r.GetUser()
+	ctx, cancel := context.WithTimeout(r.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	wallet, err := r.State.SolanaWalletService.GetPrimary(ctx, user.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to get Solana wallet")
+		r.ErrorJSON(http.StatusNotFound, "No Solana wallet linked")
+		return
+	}
+
+	r.SuccessJSON(map[string]any{
+		"wallet": wallet,
 	})
 }

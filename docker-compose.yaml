@@ -1,41 +1,6 @@
 services:
-  # PostgreSQL database
-  postgres:
-    # Postgres with pgvector extension preinstalled
-    image: pgvector/pgvector:pg17
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: doujins_db
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin_password
-      # App schema for bootstrap script and app defaults
-      DB_SCHEMA: ${DB_SCHEMA:-billing}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    # Ensure Postgres listens on container network interface
-    command:
-      - postgres
-      - -c
-      - listen_addresses=*
-      - -c
-      - log_min_messages=warning
-      - -c
-      - client_min_messages=warning
-      - -c
-      - log_statement=none
-      - -c
-      - log_min_duration_statement=-1
-    networks:
-      - local-doujins
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "admin", "-d", "doujins_db", "-h", "localhost"]
-      interval: 5s
-      timeout: 5s
-      start_period: 90s
-      retries: 10
-
+  # Requires the shared Postgres container (service name `postgres`) to already be running
+  # and connected to the `local-doujins` network (e.g., from the doujins-backend stack).
   # Redis-compatible cache (Microsoft Garnet)
   garnet:
     image: ghcr.io/microsoft/garnet:latest
@@ -104,9 +69,6 @@ services:
   # Bootstrap DB: create roles/schema/extensions using superuser
   db-bootstrap:
     image: postgres:17-bookworm
-    depends_on:
-      postgres:
-        condition: service_healthy
     environment:
       PGPASSWORD: admin_password
     volumes:
@@ -129,23 +91,23 @@ services:
 
 
   # App migrations: run embedded migrator in the billing image
-  billing-migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    depends_on:
-      postgres:
-        condition: service_healthy
-      db-bootstrap:
-        condition: service_completed_successfully
-    environment:
-      # Use the service role created by bootstrap; override BILLING_DB_PASSWORD or DATABASE_URL as needed
-      DATABASE_URL: ${DATABASE_URL:-postgres://billing_app:${BILLING_DB_PASSWORD:-billing_password}@postgres:5432/doujins_db?sslmode=disable}
-      DB_SCHEMA: ${DB_SCHEMA:-billing}
-    command: ["./bin/billing", "migrate"]
-    restart: "no"
-    networks:
-      - local-doujins
+  # billing-migrate:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     db-bootstrap:
+  #       condition: service_completed_successfully
+  #   env_file:
+  #     - ./.env.docker
+  #   environment:
+  #     PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
+  #   command: ["./bin/billing", "migrate", "-c", "config.docker.yaml"]
+  #   restart: "no"
+  #   networks:
+  #     - local-doujins
 
   # Billing service (server + in-process workers)
   billing:
@@ -155,12 +117,10 @@ services:
     # Avoid infinite restart loops if the app panics at startup
     restart: on-failure:3
     depends_on:
-      postgres:
-        condition: service_healthy
       db-bootstrap:
         condition: service_completed_successfully
-      billing-migrate:
-        condition: service_completed_successfully
+      # billing-migrate:
+      #   condition: service_completed_successfully
       garnet:
         condition: service_healthy
       clickhouse:
@@ -169,15 +129,11 @@ services:
       - "2053:2053"  # Public API
     expose:
       - "8060"       # Private API (internal-only)
+    env_file:
+      - ./.env.docker
     environment:
-      # App schema used by the billing service's DB access
-      DB_SCHEMA: ${DB_SCHEMA:-billing}
-      # Explicit DB URL so runtime never uses stale built-in defaults
-      DATABASE_URL: ${DATABASE_URL:-postgres://billing_app:${BILLING_DB_PASSWORD:-billing_password}@postgres:5432/doujins_db?sslmode=disable}
-      # Prefer configuring search_path via your app's DB URL; PGOPTIONS is a safe default
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
-      # Example internal API key; override in .env or environment
-      # BILLING_INTERNAL_API_KEY: "change-me"
+    command: ["./bin/billing", "server", "-c", "config.docker.yaml"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:2053/health/live"]
       interval: 30s
@@ -190,7 +146,6 @@ services:
       - local-doujins
 
 volumes:
-  postgres_data:
   garnet_data:
   clickhouse_data:
   clickhouse_logs:
@@ -198,4 +153,5 @@ volumes:
 
 networks:
   local-doujins:
-    driver: bridge
+    external: true
+    name: local-doujins

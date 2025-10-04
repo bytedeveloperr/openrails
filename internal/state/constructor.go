@@ -36,7 +36,7 @@ func NewState(cfg *config.Config) (*State, error) {
 	}
 
 	// Build all repositories
-	serviceInstances := createServices(db, ccbillRESTClient, mobiusClient)
+	serviceInstances := createServices(db, cfg, ccbillRESTClient, mobiusClient)
 
 	// Initialize optional email services
 	var emailService *services.EmailService
@@ -69,14 +69,15 @@ func NewState(cfg *config.Config) (*State, error) {
 		SubscriptionService: serviceInstances.SubscriptionService,
 		UserService:         serviceInstances.UserService,
 
-		ProductService:           serviceInstances.ProductService,
-		PriceService:             serviceInstances.PriceService,
-		NotificationQueueService: serviceInstances.NotificationQueueService,
-		PaymentMethodService:     serviceInstances.PaymentMethodService,
-		PaymentService:           serviceInstances.PurchaseService,
-		EntitlementService:       serviceInstances.EntitlementService,
-		SolanaWalletService:      serviceInstances.SolanaWalletService,
-		SolanaPaymentService:     serviceInstances.SolanaPaymentService,
+		ProductService:             serviceInstances.ProductService,
+		PriceService:               serviceInstances.PriceService,
+		NotificationQueueService:   serviceInstances.NotificationQueueService,
+		PaymentMethodService:       serviceInstances.PaymentMethodService,
+		PaymentService:             serviceInstances.PurchaseService,
+		EntitlementService:         serviceInstances.EntitlementService,
+		SolanaWalletService:        serviceInstances.SolanaWalletService,
+		SolanaPaymentService:       serviceInstances.SolanaPaymentService,
+		SolanaPaymentIntentService: serviceInstances.SolanaPaymentIntentService,
 
 		// Wave 18 subscription services
 		UserSubscriptionService:   serviceInstances.UserSubscriptionService,
@@ -157,14 +158,15 @@ type servicesInstances struct {
 	SubscriptionService *services.SubscriptionService
 	UserService         *services.UserService
 
-	ProductService           *services.ProductService
-	PriceService             *services.PriceService
-	NotificationQueueService *services.NotificationQueueService
-	PaymentMethodService     *services.PaymentMethodService
-	PurchaseService          *services.PaymentService
-	EntitlementService       *services.EntitlementService
-	SolanaWalletService      *services.SolanaWalletService
-	SolanaPaymentService     *services.SolanaPaymentService
+	ProductService             *services.ProductService
+	PriceService               *services.PriceService
+	NotificationQueueService   *services.NotificationQueueService
+	PaymentMethodService       *services.PaymentMethodService
+	PurchaseService            *services.PaymentService
+	EntitlementService         *services.EntitlementService
+	SolanaWalletService        *services.SolanaWalletService
+	SolanaPaymentService       *services.SolanaPaymentService
+	SolanaPaymentIntentService *services.SolanaPaymentIntentService
 
 	// Wave 18 subscription services
 	UserSubscriptionService   *services.UserSubscriptionService
@@ -178,7 +180,7 @@ type servicesInstances struct {
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 }
 
-func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient *mobius.MobiusClient) *servicesInstances {
+func createServices(db *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, mobiusClient *mobius.MobiusClient) *servicesInstances {
 	// Create base services first
 	userService := services.NewUserService(db)
 	productService := services.NewProductService(db)
@@ -188,7 +190,8 @@ func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient
 	purchaseService := services.NewPaymentService(db)
 	entitlementService := services.NewEntitlementService(db)
 	solanaWalletService := services.NewSolanaWalletService(db)
-	solanaPaymentService := services.NewSolanaPaymentService(db, nil, priceService, purchaseService, productService, entitlementService)
+	solanaPaymentService := services.NewSolanaPaymentService(db, cfg, priceService, purchaseService, productService, entitlementService)
+	solanaPaymentIntentService := services.NewSolanaPaymentIntentService(db, cfg, priceService)
 
 	subscriptionLifecycleService := services.NewSubscriptionLifecycleService(
 		db,
@@ -238,14 +241,15 @@ func createServices(db *db.DB, ccbillRESTClient *ccbill.RESTClient, mobiusClient
 		UserService:         userService,
 
 		// Wave 18 repositories
-		ProductService:           productService,
-		PriceService:             priceService,
-		NotificationQueueService: notificationQueueService,
-		PaymentMethodService:     paymentMethodService,
-		PurchaseService:          purchaseService,
-		EntitlementService:       entitlementService,
-		SolanaWalletService:      solanaWalletService,
-		SolanaPaymentService:     solanaPaymentService,
+		ProductService:             productService,
+		PriceService:               priceService,
+		NotificationQueueService:   notificationQueueService,
+		PaymentMethodService:       paymentMethodService,
+		PurchaseService:            purchaseService,
+		EntitlementService:         entitlementService,
+		SolanaWalletService:        solanaWalletService,
+		SolanaPaymentService:       solanaPaymentService,
+		SolanaPaymentIntentService: solanaPaymentIntentService,
 
 		// Wave 18 subscription services
 		UserSubscriptionService:   userSubscriptionService,

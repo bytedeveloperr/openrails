@@ -48,8 +48,9 @@ type State struct {
 	EntitlementService  *services.EntitlementService
 
 	// Solana services
-	SolanaWalletService  *services.SolanaWalletService
-	SolanaPaymentService *services.SolanaPaymentService
+	SolanaWalletService        *services.SolanaWalletService
+	SolanaPaymentService       *services.SolanaPaymentService
+	SolanaPaymentIntentService *services.SolanaPaymentIntentService
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 }

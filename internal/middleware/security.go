@@ -74,83 +74,83 @@ func NewRateLimitStore(config *config.RateLimitConfig) *RateLimitStore {
 
 // RateLimit middleware implements rate limiting per IP address
 func RateLimit(rateLimiterConfig *config.RateLimitConfig, rdb *redis.Client) gin.HandlerFunc {
-	store := NewRateLimitStore(rateLimiterConfig)
+	// store := NewRateLimitStore(rateLimiterConfig)
 
 	return func(c *gin.Context) {
-		// Get client IP
-		clientIP := getClientIP(c)
+		// 	// Get client IP
+		// 	clientIP := getClientIP(c)
 
-		// Get appropriate rate limit based on endpoint
-		var limit *config.RateLimit
+		// 	// Get appropriate rate limit based on endpoint
+		// 	var limit *config.RateLimit
 
-		path := c.Request.URL.Path
-		switch {
-		case strings.Contains(path, "/subscriptions/") && c.Request.Method == http.MethodPost:
-			// Very strict for subscription creation
-			limit = &config.RateLimit{
-				RequestsPerMinute: 10,
-				BurstSize:         3,
-			}
-		case strings.Contains(path, "/webhook/"):
-			// Higher limit for webhooks
-			limit = &config.RateLimit{
-				RequestsPerMinute: 100,
-				BurstSize:         20,
-			}
-		case strings.Contains(path, "/payment-methods/"):
-			// Moderate limit for payment methods
-			limit = &config.RateLimit{
-				RequestsPerMinute: 20,
-				BurstSize:         5,
-			}
-		default:
-			// Use default limit
-			if rateLimiterConfig != nil && rateLimiterConfig.DefaultLimit != nil {
-				limit = rateLimiterConfig.DefaultLimit
-			} else {
-				limit = &config.RateLimit{
-					RequestsPerMinute: 60,
-					BurstSize:         10,
-				}
-			}
-		}
+		// 	path := c.Request.URL.Path
+		// 	switch {
+		// 	case strings.Contains(path, "/subscriptions/") && c.Request.Method == http.MethodPost:
+		// 		// Very strict for subscription creation
+		// 		limit = &config.RateLimit{
+		// 			RequestsPerMinute: 10,
+		// 			BurstSize:         3,
+		// 		}
+		// 	case strings.Contains(path, "/webhook/"):
+		// 		// Higher limit for webhooks
+		// 		limit = &config.RateLimit{
+		// 			RequestsPerMinute: 100,
+		// 			BurstSize:         20,
+		// 		}
+		// 	case strings.Contains(path, "/payment-methods/"):
+		// 		// Moderate limit for payment methods
+		// 		limit = &config.RateLimit{
+		// 			RequestsPerMinute: 20,
+		// 			BurstSize:         5,
+		// 		}
+		// 	default:
+		// 		// Use default limit
+		// 		if rateLimiterConfig != nil && rateLimiterConfig.DefaultLimit != nil {
+		// 			limit = rateLimiterConfig.DefaultLimit
+		// 		} else {
+		// 			limit = &config.RateLimit{
+		// 				RequestsPerMinute: 60,
+		// 				BurstSize:         10,
+		// 			}
+		// 		}
+		// 	}
 
 		// Prefer Redis token bucket if available; fallback to in-memory limiter
-		allowed := true
-		remaining := 1
-		if rdb != nil {
-			ok, rem, err := redisAllow(c.Request.Context(), rdb, clientIP, path, limit)
-			if err != nil {
-				log.WithError(err).Warn("Rate limit redis error; falling back to in-memory")
-			} else {
-				allowed = ok
-				remaining = rem
-			}
-		}
-		if rdb == nil || remaining == 1 {
-			limiter := store.getLimiterForRate(clientIP, limit)
-			if !limiter.Allow() {
-				allowed = false
-				remaining = 0
-			}
-		}
+		// allowed := true
+		// remaining := 1
+		// if rdb != nil {
+		// 	ok, rem, err := redisAllow(c.Request.Context(), rdb, clientIP, path, limit)
+		// 	if err != nil {
+		// 		log.WithError(err).Warn("Rate limit redis error; falling back to in-memory")
+		// 	} else {
+		// 		allowed = ok
+		// 		remaining = rem
+		// 	}
+		// }
+		// if rdb == nil || remaining == 1 {
+		// 	limiter := store.getLimiterForRate(clientIP, limit)
+		// 	if !limiter.Allow() {
+		// 		allowed = false
+		// 		remaining = 0
+		// 	}
+		// }
 
-		if !allowed {
-			log.WithFields(log.Fields{
-				"client_ip": clientIP,
-				"path":      path,
-				"method":    c.Request.Method,
-			}).Warn("Rate limit exceeded")
+		// if !allowed {
+		// 	log.WithFields(log.Fields{
+		// 		"client_ip": clientIP,
+		// 		"path":      path,
+		// 		"method":    c.Request.Method,
+		// 	}).Warn("Rate limit exceeded")
 
-			c.Header("X-RateLimit-Remaining", "0")
-			c.Header("Retry-After", "60")
-			c.JSON(http.StatusTooManyRequests, message.Message("Rate limit exceeded"))
-			c.Abort()
-			return
-		}
+		// 	c.Header("X-RateLimit-Remaining", "0")
+		// 	c.Header("Retry-After", "60")
+		// 	c.JSON(http.StatusTooManyRequests, message.Message("Rate limit exceeded"))
+		// 	c.Abort()
+		// 	return
+		// }
 
-		// Add rate limit headers
-		c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
+		// // Add rate limit headers
+		// c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
 
 		c.Next()
 	}

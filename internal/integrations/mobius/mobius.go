@@ -403,6 +403,8 @@ func (c *MobiusClient) AddRecurringSubscription(data RecurringPaymentData) (*Add
 		return nil, fmt.Errorf("failed to parse response: %s", response)
 	}
 
+	fmt.Println(output)
+
 	if output.Get("response") != "1" {
 		return nil, fmt.Errorf("failed to add subscription: %s", output.Get("responsetext"))
 	}

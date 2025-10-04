@@ -1,6 +1,7 @@
 -- Set timeouts to prevent hanging migrations
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';
+SET search_path = billing, public;
 
 -- Backward-compat cleanup: subscription_events moved to ClickHouse only
 DROP TABLE IF EXISTS subscription_events CASCADE;
@@ -13,9 +14,15 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- ============================================================================
 
 
--- 1.2: Create subscription status enum
-DROP TYPE IF EXISTS subscription_status CASCADE;
-CREATE TYPE subscription_status AS ENUM ('pending', 'active', 'expired', 'cancelled', 'failed', 'past_due');
+-- 1.2: Create subscription status enum (idempotent without requiring owner privileges)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_type WHERE typname = 'subscription_status'
+    ) THEN
+        CREATE TYPE subscription_status AS ENUM ('pending', 'active', 'expired', 'cancelled', 'failed', 'past_due');
+    END IF;
+END$$;
 
 -- 1.3: Create subscriptions table
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -58,6 +65,23 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
+
+-- Ensure newer columns exist when migrating older schemas
+ALTER TABLE subscriptions
+    ADD COLUMN IF NOT EXISTS processor TEXT;
+ALTER TABLE subscriptions
+    ALTER COLUMN processor SET DEFAULT 'ccbill';
+UPDATE subscriptions SET processor = 'ccbill' WHERE processor IS NULL;
+ALTER TABLE subscriptions
+    ALTER COLUMN processor SET NOT NULL;
+
+ALTER TABLE subscriptions
+    ADD COLUMN IF NOT EXISTS processor_subscription_id TEXT;
+ALTER TABLE subscriptions
+    ALTER COLUMN processor_subscription_id SET DEFAULT '';
+UPDATE subscriptions SET processor_subscription_id = '' WHERE processor_subscription_id IS NULL;
+ALTER TABLE subscriptions
+    ALTER COLUMN processor_subscription_id SET NOT NULL;
 
 -- Create indexes for subscriptions
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);

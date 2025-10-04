@@ -5,23 +5,22 @@ Overview
 - Zero‑config: Defaults are aligned with docker-compose. You can start the whole stack without writing config.
 
 Stack
-- Postgres: `postgres:17-bookworm` (DB `doujins_db`, app user `app_user` / `app_password`)
+- Postgres: shared `postgres:17-bookworm` container from the Doujins backend stack (DB `doujins_db`, service user `billing_app` / `billing_password`)
 - Garnet (Redis-compatible): `ghcr.io/microsoft/garnet` on `6379`
 - ClickHouse: `clickhouse/clickhouse-server` (DB `analytics`, user `analytics_user`, pass `analytics_password`)
 - Billing service: this server exposing public API on `:2053` and a private/internal port `:8060` (exposed to the compose network only). Admin routes require an internal shared secret.
 
 Quick Start
+- Ensure the shared Postgres container from `doujins-backend` is running and attached to the `local-doujins` network
 - Start services: `task docker-up` (or `docker-compose up -d`)
 - Follow logs: `task docker-logs` (Ctrl+C to stop following)
 - Stop services: `task docker-down`
 
-What happens on first boot
-- Postgres migrations: `migrations/postgres/*.sql` are mounted to `/docker-entrypoint-initdb.d` and applied automatically by the Postgres image when the data volume is empty.
+- Postgres bootstrap: `db-bootstrap` runs `migrations/bootstrap/*.sql` against the shared database to (re)create roles, schemas, and extensions.
 - ClickHouse migrations: `clickhouse-init` job waits for ClickHouse to be healthy, then applies `migrations/clickhouse/*.sql` to the `analytics` database.
 - Billing service connects using built-in defaults that match the compose network/service names.
 
-Defaults (match docker-compose)
-- Postgres: `postgres://app_user:app_password@postgres:5432/doujins_db?sslmode=disable`
+- Postgres: `postgres://billing_app:billing_password@postgres:5432/doujins_db?sslmode=disable`
 - Redis (Garnet): `garnet:6379`, DB `0`
 - ClickHouse: `http://clickhouse:8123` with `analytics_user/analytics_password` on DB `analytics`
 
@@ -65,11 +64,9 @@ JWT verification (Casdoor)
   - `aud` must contain `CASDOOR_CLIENT_ID` (Casdoor Application Client ID).
   - `exp` must be valid.
 
-Data stores and migrations
 - Postgres
-  - Data volume: `postgres_data` (Docker volume).
-  - Re-run init SQL: remove the volume to force re-init: `docker volume rm doujins-billing_postgres_data` (volume name may differ; check with `docker volume ls`).
-  - Custom SQL: place additional `.sql` files under `migrations/postgres/`.
+  - Shared container: provided by `doujins-backend` compose (service name `postgres`).
+  - Bootstrap SQL lives under `migrations/bootstrap/` and is applied by the `db-bootstrap` job; rerun by restarting that service.
 - ClickHouse
   - Data volumes: `clickhouse_data`, `clickhouse_logs`.
   - Migrations live in `migrations/clickhouse/` and include tables for: `subscription_events`, `payment_events`, `webhook_events`, `acu_events`, `chargeback_events`.
@@ -78,10 +75,11 @@ Data stores and migrations
   - Data volume: `garnet_data` (optional for persistence). Used for caching/rate limiting.
 
 Common operations
-- Start fresh (wipe data):
+- Start fresh (wipe local analytics/cache data):
   1) `task docker-down`
-  2) `docker volume rm <project>_postgres_data <project>_clickhouse_data <project>_clickhouse_logs <project>_garnet_data`
+  2) `docker volume rm <project>_clickhouse_data <project>_clickhouse_logs <project>_garnet_data`
   3) `task docker-up`
+  4) (Optional) if you also need a fresh Postgres, reset it from the Doujins backend repository.
 - Check health: `curl http://localhost:2053/health`
 - Tail logs: `task docker-logs` or `docker-compose logs -f billing`
 
@@ -89,8 +87,8 @@ Troubleshooting
 - Billing can’t connect to Postgres/Redis/ClickHouse:
   - Ensure services are healthy: `docker-compose ps` and `docker-compose logs <service>`.
   - Verify defaults weren’t overridden incorrectly (env/config). Remove overrides to return to zero‑config.
-- Postgres init SQL didn’t run:
-  - The Postgres image only runs `/docker-entrypoint-initdb.d` on first init of the data directory. Remove the `postgres_data` volume to reapply.
+- Postgres bootstrap didn’t run:
+  - Restart the `db-bootstrap` service. If the shared Postgres container was reset, ensure the `local-doujins` network still exists before bringing billing back up.
 - ClickHouse tables missing:
   - Check `clickhouse-init` logs. Ensure `migrations/clickhouse/*.sql` exist and the database is `analytics`.
 

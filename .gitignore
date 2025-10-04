@@ -51,14 +51,13 @@ config.yaml
 config.local.yaml
 config.dev.yaml
 config.prod.yaml
+config.docker.yaml
 *.local.yaml
 
 # Environment files
+*.env*
 .env
-.env.local
-.env.development
-.env.production
-.env.test
+.env.docker
 
 # Logs
 *.log
@@ -69,6 +68,8 @@ log/
 pids/
 *.pid
 *.seed
+
+.kiro
 
 # Coverage directory used by tools like istanbul
 coverage/

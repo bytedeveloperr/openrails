@@ -27,6 +27,7 @@ type GeneratePaymentResponse struct {
 	TokenSymbol  string  `json:"token_symbol"`           // SOL/USDC/etc.
 	ExpiresAt    int64   `json:"expires_at"`             // unix epoch expiry
 	Instructions string  `json:"instructions,omitempty"` // human-readable instructions
+	IntentID     string  `json:"intent_id"`
 }
 
 // SubmitPaymentResponse represents the result of submitting a signed transaction
@@ -38,6 +39,7 @@ type SubmitPaymentResponse struct {
 	Currency      string    `json:"currency"`
 	ProcessedAt   time.Time `json:"processed_at"`
 	Message       string    `json:"message"`
+	IntentID      string    `json:"intent_id"`
 }
 
 // PaymentStatusResponse represents the status of a payment
@@ -66,6 +68,17 @@ type SolanaPayQRResponse struct {
 	Label       string  `json:"label"`        // Merchant label
 	Message     string  `json:"message"`      // Payment message
 	ExpiresAt   int64   `json:"expires_at"`   // Unix timestamp when QR expires
+	Reference   string  `json:"reference"`
+	IntentID    string  `json:"intent_id"`
+}
+
+// CheckSolanaPaymentResponse contains the payment check result
+type CheckSolanaPaymentResponse struct {
+	Status       string `json:"status"`               // pending, confirmed, failed
+	PaymentID    string `json:"payment_id,omitempty"` // Payment ID if confirmed
+	IntentID     string `json:"intent_id"`
+	Transaction  string `json:"transaction,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // SupportedTokensResponse lists available Solana tokens from config
@@ -74,10 +87,11 @@ type SupportedTokensResponse struct {
 }
 
 type TokenInfo struct {
-	Symbol   string `json:"symbol"`
-	Name     string `json:"name"`
-	Mint     string `json:"mint"`
-	Decimals int    `json:"decimals"`
+	Symbol   string  `json:"symbol"`
+	Name     string  `json:"name"`
+	Mint     string  `json:"mint"`
+	Decimals int     `json:"decimals"`
+	Price    float64 `json:"price"`
 }
 
 type PublicPriceResponse struct {

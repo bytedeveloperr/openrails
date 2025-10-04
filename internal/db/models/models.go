@@ -24,6 +24,8 @@ var ModelRegistry = []any{
 	(*Subscription)(nil),
 	(*PaymentMethod)(nil),
 	(*SolanaWallet)(nil),
+	(*SolanaWalletChallenge)(nil),
+	(*SolanaPaymentIntent)(nil),
 	(*SolanaTransaction)(nil),
 	(*NotificationQueue)(nil),
 	(*Entitlement)(nil),

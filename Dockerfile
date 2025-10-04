@@ -1,4 +1,7 @@
+# syntax=docker/dockerfile:1
+
 # Stage 1: build
+
 FROM golang:1.24.2-alpine AS builder
 
 # Install build dependencies
@@ -6,21 +9,27 @@ RUN apk add --no-cache git ca-certificates
 
 WORKDIR /app
 
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOSUMDB=sum.golang.org
+ENV GOPROXY=${GOPROXY}
+ENV GOSUMDB=${GOSUMDB}
+
 # Copy go mod files first for better caching
 COPY go.mod go.sum ./
 
-# Download dependencies with cache mount for Go modules
-# This cache persists between builds, dramatically speeding up builds
-RUN target=/go/pkg/mod \
-    target=/root/.cache/go-build \
-    go mod download
+# Download dependencies with cache mount for Go modules (with retry)
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    for i in 1 2 3; do \
+      go mod download && break || (echo "go mod download failed, retrying" && sleep 5); \
+    done
 
 # Copy source code
 COPY . .
 
 # Build the application with cache mount
-RUN target=/go/pkg/mod \
-    target=/root/.cache/go-build \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
     mkdir -p bin && \
     CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o bin/billing ./
 
@@ -42,6 +51,14 @@ COPY --from=builder /app/bin/billing ./bin/billing
 
 # Copy migrations directory
 COPY --from=builder /app/migrations ./migrations/
+
+# Copy configuration defaults
+COPY --from=builder /app/config.yaml ./config.yaml
+COPY --from=builder /app/config.docker.yaml ./config.docker.yaml
+
+# Copy configuration defaults
+COPY --from=builder /app/config.yaml ./config.yaml
+COPY --from=builder /app/config.docker.yaml ./config.docker.yaml
 
 # Change ownership to non-root user
 RUN chown -R billing:billing /app

@@ -127,3 +127,49 @@ func (s *SolanaWalletService) Delete(ctx context.Context, userID, address string
 	}
 	return nil
 }
+
+// Get returns the latest record for a wallet belonging to a user.
+func (s *SolanaWalletService) Get(ctx context.Context, userID, address string) (*models.SolanaWallet, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("userID cannot be empty")
+	}
+	if err := solana.ValidateAddress(address); err != nil {
+		return nil, fmt.Errorf("address validation failed: %w", err)
+	}
+
+	var wallet models.SolanaWallet
+	err := s.db.GetDB().NewSelect().Model(&wallet).
+		Where("user_id = ? AND address = ?", userID, address).
+		Order("updated_at DESC").
+		Limit(1).
+		Scan(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: wallet %s for user %s", ErrWalletNotFound, address, userID)
+		}
+		return nil, fmt.Errorf("failed to get wallet %s for user %s: %w", address, userID, err)
+	}
+	return &wallet, nil
+}
+
+// GetPrimary returns the most recently verified wallet for a user.
+func (s *SolanaWalletService) GetPrimary(ctx context.Context, userID string) (*models.SolanaWallet, error) {
+	if userID == "" {
+		return nil, fmt.Errorf("userID cannot be empty")
+	}
+
+	var wallet models.SolanaWallet
+	err := s.db.GetDB().NewSelect().Model(&wallet).
+		Where("user_id = ?", userID).
+		OrderExpr("is_verified DESC").
+		Order("updated_at DESC").
+		Limit(1).
+		Scan(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: no wallet for user %s", ErrWalletNotFound, userID)
+		}
+		return nil, fmt.Errorf("failed to get primary wallet for user %s: %w", userID, err)
+	}
+	return &wallet, nil
+}

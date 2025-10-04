@@ -4,15 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
-	"github.com/uptrace/bun"
 	log "github.com/sirupsen/logrus"
+	"github.com/uptrace/bun"
 )
 
 var (
@@ -40,25 +39,32 @@ func NewSolanaPaymentService(db *db.DB, cfg *config.Config, price *PriceService,
 	}
 }
 
-// Generate creates a pending SolanaTransaction record and returns UI hints for client-side payment.
-// This does not (yet) build a binary transaction; instead it returns token amount calculations
-// and creates server-side pending state for follow-up confirmation.
+// Generate returns payment calculation for client-side transaction building.
 // userID: OIDC subject (string)
-func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, priceID uuid.UUID, tokenSymbol, userWallet string) (amount float64, currency string, tokenAmount uint64, expiresAt time.Time, pendingID uuid.UUID, err error) {
+func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, priceID uuid.UUID, tokenSymbol, userWallet string) (amount float64, currency string, tokenAmount uint64, expiresAt time.Time, err error) {
 	price, err := s.priceService.GetByID(ctx, priceID)
 	if err != nil {
-		return 0, "", 0, time.Time{}, uuid.Nil, fmt.Errorf("%w: %v", ErrPriceNotFound, err)
+		return 0, "", 0, time.Time{}, fmt.Errorf("%w: %v", ErrPriceNotFound, err)
 	}
 	if s.cfg.Solana == nil {
-		return 0, "", 0, time.Time{}, uuid.Nil, fmt.Errorf("solana not configured")
+		return 0, "", 0, time.Time{}, fmt.Errorf("solana not configured")
 	}
 	tok, ok := s.cfg.Solana.SupportedTokens[tokenSymbol]
 	if !ok || !tok.Enabled {
-		return 0, "", 0, time.Time{}, uuid.Nil, ErrInvalidToken
+		return 0, "", 0, time.Time{}, ErrInvalidToken
+	}
+	mainnetMint := tok.MainnetMint
+	if mainnetMint == "" {
+		mainnetMint = tok.Mint
+	}
+	if mainnetMint == "" {
+		return 0, "", 0, time.Time{}, fmt.Errorf("token %s missing mint configuration", tokenSymbol)
 	}
 
-	pow := math.Pow10(tok.Decimals)
-	tokenAmt := uint64(math.Round(price.Amount * pow))
+	tokenUnits, _, err := calculateTokenQuote(ctx, tok, price.Amount)
+	if err != nil {
+		return 0, "", 0, time.Time{}, err
+	}
 	exp := time.Now().Add(10 * time.Minute)
 
 	// Disallow one-off if a subscription entitlement is already active (indefinite)
@@ -71,29 +77,11 @@ func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, pric
 			Where("start_at <= ?", time.Now()).
 			Exists(ctx)
 		if exists {
-			return 0, "", 0, time.Time{}, uuid.Nil, fmt.Errorf("one-off purchase not allowed while subscription entitlement is active")
+			return 0, "", 0, time.Time{}, fmt.Errorf("one-off purchase not allowed while subscription entitlement is active")
 		}
 	}
 
-	// Create pending transaction record for traceability
-	stx := &models.SolanaTransaction{
-		ID:          uuid.New(),
-		Status:      "pending",
-		Amount:      price.Amount,
-		Token:       tok.Symbol,
-		TokenMint:   tok.Mint,
-		FromAddress: userWallet,
-		ToAddress:   firstNonEmpty(s.cfg.Solana.RecipientWallet, s.cfg.Solana.DestinationWallet),
-		ExpiresAt:   &exp,
-	}
-	if userID != "" {
-		stx.UserID = &userID
-	}
-	if _, err := s.db.GetDB().NewInsert().Model(stx).Exec(ctx); err != nil {
-		return 0, "", 0, time.Time{}, uuid.Nil, fmt.Errorf("failed to create pending solana transaction: %w", err)
-	}
-
-	return price.Amount, price.Currency, tokenAmt, exp, stx.ID, nil
+	return price.Amount, price.Currency, tokenUnits, exp, nil
 }
 
 // Submit records a confirmed payment for the given price and user, and grants associated entitlements.
@@ -215,13 +203,4 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 	}
 
 	return payment, nil
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }

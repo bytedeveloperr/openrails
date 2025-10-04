@@ -61,11 +61,6 @@ func (s *NotificationService) deliverExternalNotifications(ctx context.Context, 
 		return fmt.Errorf("failed to send email notification: %w", err)
 	}
 
-	// TODO: Add Discord notification delivery here
-	// if err := s.sendDiscordNotification(ctx, notification); err != nil {
-	//     log.WithError(err).Error("failed to send discord notification")
-	// }
-
 	return nil
 }
 
