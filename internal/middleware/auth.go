@@ -30,7 +30,7 @@ type UserContext struct {
 	ExpiresAt int64                  `json:"exp"`
 }
 
-const JWT = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJkb3VqaW5zLWFwcCIsImlhdCI6MTc1OTU5MzA2OSwiZXhwIjoxNzkxMTI5NDkzLCJhdWQiOiJkb3VqaW5zLWFwcCIsInN1YiI6IjkxMThkNjgzLTQwNDItNDM5Yy04MDlkLWQ1ZTM0MzM1YTkwOSIsImVtYWlsIjoiYWJkdWxyYWhtYW55dXN1ZjEyNUBleGFtcGxlLmNvbSJ9.xPKo5IBurl3t1C5kEDO1PbP8Yl_OQlUtss-Csm4XbaQ"
+const JWT = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJkb3VqaW5zLWFwcCIsImlhdCI6MTc1OTc3MzMxMywiZXhwIjoxNzkxMzA5MzEzLCJhdWQiOiJkb3VqaW5zLWFwcCIsInN1YiI6IjkxMThkNjgzLTQwNDItNDM5Yy04MDlkLWQ1ZTM0MzM1YTkwOSIsImVtYWlsIjoiYWJkdWxyYWhtYW55dXN1ZjEyNUBnbWFpbC5jb20ifQ.EerSmY19rvxrafgiZVB9acnWqm0KXtlNd8S8OrTcpwI"
 
 // HasRole checks if the user has a specific role
 func (u *UserContext) HasRole(role string) bool {
