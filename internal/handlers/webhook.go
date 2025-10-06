@@ -98,6 +98,7 @@ func Webhook(r *Request) {
 			BillingEventService:          r.State.BillingEventService,
 			SubscriptionService:          r.State.SubscriptionService,
 			NotificationQueueService:     r.State.NotificationQueueService,
+			NotificationService:          r.State.NotificationService,
 			SubscriptionLifecycleService: r.State.SubscriptionLifecycleService,
 		}
 
@@ -170,10 +171,9 @@ func handleMobiusWebhook(r *Request) {
 		BillingEventService:          r.State.BillingEventService,
 		SubscriptionService:          r.State.SubscriptionService,
 		NotificationQueueService:     r.State.NotificationQueueService,
+		NotificationService:          r.State.NotificationService,
 		SubscriptionLifecycleService: r.State.SubscriptionLifecycleService,
 	}
-
-	fmt.Println("service: ", service)
 
 	if err := service.HandleMobiusWebhook(context.Background()); err != nil {
 		log.WithError(err).Error("failed to process webhook")

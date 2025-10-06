@@ -166,15 +166,28 @@ func (s *MobiusWebhookService) handleAddSubscription(ctx context.Context) error 
 		return fmt.Errorf("subscription is not pending: %s", subscription.Status)
 	}
 
-	_, err = s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
+	activatedSub, err := s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 		PriceID:                 price.ID,
 		UserID:                  subscription.UserID,
 		Processor:               models.ProcessorMobius,
 		ProcessorSubscriptionID: &subscription.ProcessorSubscriptionID,
+		UserEmail:               subscription.UserEmail,
+		Username:                subscription.Username,
 	})
 
 	if err != nil {
 		return fmt.Errorf("failed to create membership: %w", err)
+	}
+
+	if s.NotificationService != nil && activatedSub != nil {
+		notification := &models.NotificationQueue{
+			ID:        uuid.New(),
+			UserID:    activatedSub.UserID,
+			EventType: models.NotificationPremiumStarted,
+		}
+		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to create and deliver mobius subscription start notification")
+		}
 	}
 
 	return nil
@@ -205,6 +218,22 @@ func (s *MobiusWebhookService) handleUpdateSubscription(ctx context.Context) err
 		ProcessorSubscriptionID: mobiusSubID,
 	}); err != nil {
 		return fmt.Errorf("failed to renew subscription: %w", err)
+	}
+
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorMobius, mobiusSubID)
+	if err != nil {
+		return fmt.Errorf("failed to load subscription after renewal: %w", err)
+	}
+
+	if s.NotificationService != nil {
+		notification := &models.NotificationQueue{
+			ID:        uuid.New(),
+			UserID:    subscription.UserID,
+			EventType: models.NotificationPremiumRenewed,
+		}
+		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to create and deliver mobius renewal notification")
+		}
 	}
 
 	return nil
@@ -240,6 +269,17 @@ func (s *MobiusWebhookService) handleDeleteSubscription(ctx context.Context) err
 		CancelType:              models.CancelTypeMerchant,
 	}); err != nil {
 		return fmt.Errorf("failed to renew subscription: %w", err)
+	}
+
+	if s.NotificationService != nil {
+		notification := &models.NotificationQueue{
+			ID:        uuid.New(),
+			UserID:    subscription.UserID,
+			EventType: models.NotificationPremiumEnded,
+		}
+		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to create and deliver mobius cancellation notification")
+		}
 	}
 
 	return nil

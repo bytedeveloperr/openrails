@@ -55,6 +55,11 @@ func NewState(cfg *config.Config) (*State, error) {
 		}
 	}
 
+	notificationService := services.NewNotificationService(
+		serviceInstances.NotificationQueueService,
+		subscriptionEmailService,
+	)
+
 	// Assemble State
 	state := &State{
 		// Infrastructure
@@ -72,6 +77,7 @@ func NewState(cfg *config.Config) (*State, error) {
 		ProductService:             serviceInstances.ProductService,
 		PriceService:               serviceInstances.PriceService,
 		NotificationQueueService:   serviceInstances.NotificationQueueService,
+		NotificationService:        notificationService,
 		PaymentMethodService:       serviceInstances.PaymentMethodService,
 		PaymentService:             serviceInstances.PurchaseService,
 		EntitlementService:         serviceInstances.EntitlementService,

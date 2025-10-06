@@ -2,12 +2,16 @@ package services
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"time"
 
 	"github.com/google/uuid"
 )
+
+var errUserEmailUnavailable = errors.New("user email unavailable")
 
 // SubscriptionEmailService handles subscription-related email notifications
 // This service is called directly by other services when subscription events occur
@@ -42,6 +46,10 @@ func (s *SubscriptionEmailService) SendSubscriptionConfirmed(ctx context.Context
 
 	emailData, err := s.getEmailData(ctx, userID)
 	if err != nil {
+		if errors.Is(err, errUserEmailUnavailable) {
+			log.Printf("Email unavailable for user %s - skipping subscription confirmation email", userID)
+			return nil
+		}
 		return fmt.Errorf("failed to get email data: %w", err)
 	}
 
@@ -57,6 +65,10 @@ func (s *SubscriptionEmailService) SendSubscriptionRenewed(ctx context.Context, 
 
 	emailData, err := s.getEmailData(ctx, userID)
 	if err != nil {
+		if errors.Is(err, errUserEmailUnavailable) {
+			log.Printf("Email unavailable for user %s - skipping subscription renewal email", userID)
+			return nil
+		}
 		return fmt.Errorf("failed to get email data: %w", err)
 	}
 
@@ -74,6 +86,10 @@ func (s *SubscriptionEmailService) SendSubscriptionCancelled(ctx context.Context
 	// so we accept the subscription details as parameters
 	username, email, err := s.getUserEmail(ctx, userID)
 	if err != nil {
+		if errors.Is(err, errUserEmailUnavailable) {
+			log.Printf("Email unavailable for user %s - skipping subscription cancellation email", userID)
+			return nil
+		}
 		return fmt.Errorf("failed to get user profile: %w", err)
 	}
 
@@ -107,6 +123,10 @@ func (s *SubscriptionEmailService) SendPaymentFailed(ctx context.Context, userID
 
 	emailData, err := s.getEmailData(ctx, userID)
 	if err != nil {
+		if errors.Is(err, errUserEmailUnavailable) {
+			log.Printf("Email unavailable for user %s - skipping payment failure email", userID)
+			return nil
+		}
 		return fmt.Errorf("failed to get email data: %w", err)
 	}
 
@@ -122,6 +142,10 @@ func (s *SubscriptionEmailService) SendEntitlementExpired(ctx context.Context, u
 
 	username, email, err := s.getUserEmail(ctx, userID)
 	if err != nil {
+		if errors.Is(err, errUserEmailUnavailable) {
+			log.Printf("Email unavailable for user %s - skipping entitlement expiration email", userID)
+			return nil
+		}
 		return fmt.Errorf("failed to get user profile: %w", err)
 	}
 
@@ -135,10 +159,27 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 		return nil, err
 	}
 
-	// Get the user's active subscription
+	// Get the user's active subscription or last known subscription as fallback
 	subscription, err := s.subscriptionService.GetActiveSubscription(ctx, userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get active subscription: %w", err)
+		if errors.Is(err, sql.ErrNoRows) {
+			subscription, err = s.subscriptionService.GetByUserID(ctx, userID)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return nil, errUserEmailUnavailable
+				}
+				return nil, fmt.Errorf("failed to get subscription for user %s: %w", userID, err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to get active subscription: %w", err)
+		}
+	}
+
+	if subscription.UserEmail != nil && *subscription.UserEmail != "" {
+		email = *subscription.UserEmail
+	}
+	if subscription.Username != nil {
+		username = *subscription.Username
 	}
 
 	// Get the price details
@@ -177,6 +218,21 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 
 // getUserProfile gets user profile and validates email exists
 func (s *SubscriptionEmailService) getUserEmail(ctx context.Context, userID string) (username string, email string, err error) {
-	// No user directory: we cannot fetch email post hoc. Signal no email.
-	return "", "", fmt.Errorf("email unavailable for user %s", userID)
+	subscription, err := s.subscriptionService.GetByUserID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", "", fmt.Errorf("subscription not found for user %s: %w", userID, errUserEmailUnavailable)
+		}
+		return "", "", fmt.Errorf("failed to lookup subscription for user %s: %w", userID, err)
+	}
+
+	if subscription.UserEmail == nil || *subscription.UserEmail == "" {
+		return "", "", errUserEmailUnavailable
+	}
+
+	if subscription.Username != nil {
+		username = *subscription.Username
+	}
+
+	return username, *subscription.UserEmail, nil
 }

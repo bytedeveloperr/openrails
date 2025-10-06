@@ -36,9 +36,11 @@ const (
 type Subscription struct {
 	bun.BaseModel `bun:"table:subscriptions,alias:sub"`
 
-	ID      uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
-	UserID  string    `bun:"user_id,notnull" json:"user_id"`
-	PriceID uuid.UUID `bun:"price_id,type:uuid,notnull" json:"price_id"` // Required for all subscriptions
+	ID        uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
+	UserID    string    `bun:"user_id,notnull" json:"user_id"`
+	UserEmail *string   `bun:"user_email,nullzero" json:"user_email,omitempty"`
+	Username  *string   `bun:"user_name,nullzero" json:"user_name,omitempty"`
+	PriceID   uuid.UUID `bun:"price_id,type:uuid,notnull" json:"price_id"` // Required for all subscriptions
 
 	Status                SubscriptionStatus `bun:"status,notnull,default:'pending'" json:"status"`
 	StartedAt             time.Time          `bun:"started_at,notnull" json:"started_at"`

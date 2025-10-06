@@ -30,6 +30,7 @@ type State struct {
 	ProductService           *services.ProductService
 	PriceService             *services.PriceService
 	NotificationQueueService *services.NotificationQueueService
+	NotificationService      *services.NotificationService
 	PaymentMethodService     *services.PaymentMethodService
 	PaymentService           *services.PaymentService
 	// removed: WebhookEventProcessedService (replaced by idempotency store)

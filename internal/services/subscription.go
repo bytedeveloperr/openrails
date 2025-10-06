@@ -150,6 +150,12 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 		}
 
 		// Create a pending subscription which we'll activate on the receipt of the webhook from Mobius
+		var usernamePtr *string
+		if user.Username != "" {
+			usernameVal := user.Username
+			usernamePtr = &usernameVal
+		}
+
 		subscription := &models.Subscription{
 			UserID:                  user.ID,
 			PriceID:                 priceID,
@@ -157,6 +163,8 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			ProcessorSubscriptionID: resp.SubscriptionID,
 			Status:                  models.StatusPending,
 			Processor:               models.Processor(processor),
+			UserEmail:               user.Email,
+			Username:                usernamePtr,
 		}
 
 		if err := s.Create(ctx, subscription); err != nil {
@@ -288,7 +296,13 @@ func (s *SubscriptionService) GetByID(ctx context.Context, id uuid.UUID) (*model
 
 func (s *SubscriptionService) GetByUserID(ctx context.Context, id string) (*models.Subscription, error) {
 	var subscription models.Subscription
-	err := s.DB.GetDB().NewSelect().Model(&subscription).Relation("Price").Where("user_id = ?", id).Scan(ctx)
+	err := s.DB.GetDB().NewSelect().
+		Model(&subscription).
+		Relation("Price").
+		Where("user_id = ?", id).
+		Order("created_at DESC").
+		Limit(1).
+		Scan(ctx)
 	if err != nil {
 		return nil, err
 	}

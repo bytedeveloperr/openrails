@@ -78,6 +78,12 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 			if params.ProcessorSubscriptionID != nil {
 				existingSub.ProcessorSubscriptionID = *params.ProcessorSubscriptionID
 			}
+			if params.UserEmail != nil {
+				existingSub.UserEmail = params.UserEmail
+			}
+			if params.Username != nil {
+				existingSub.Username = params.Username
+			}
 
 			// Transaction IDs now stored in Purchase table
 			existingSub.CurrentPeriodStartsAt = &periodStartsAt
@@ -109,6 +115,8 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 				CurrentPeriodStartsAt: &periodStartsAt,
 				CurrentPeriodEndsAt:   &periodEndsAt,
 				StartedAt:             periodStartsAt,
+				UserEmail:             params.UserEmail,
+				Username:              params.Username,
 			}
 
 			if err := subService.Create(ctx, subscription); err != nil {
@@ -163,16 +171,6 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 			}
 		}
 
-		// Add notification
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    params.UserID,
-			EventType: models.NotificationPremiumStarted,
-		}
-		if err := notificationService.Create(ctx, notification); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to create membership started notification")
-		}
-
 		return nil
 	})
 
@@ -191,8 +189,6 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 		productService := NewProductService(db)
 		notificationQueueService := NewNotificationQueueService(db)
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
-		// no entitlement creation on renewal; open window remains
-		notificationService := NewNotificationQueueService(db)
 
 		// Find subscription
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), params.ProcessorSubscriptionID)
@@ -235,16 +231,6 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 
 		// On renewal: no new subscription entitlement needed; the open window remains.
 
-		// Add notification
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    subscription.UserID,
-			EventType: models.NotificationPremiumRenewed,
-		}
-		if err := notificationService.Create(ctx, notification); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to create membership renewed notification")
-		}
-
 		return nil
 	})
 }
@@ -258,7 +244,6 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		notificationQueueService := NewNotificationQueueService(db)
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
 		entSvc := NewEntitlementService(db)
-		notificationService := NewNotificationQueueService(db)
 
 		// Find subscription
 		var subscription *models.Subscription
@@ -314,16 +299,6 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 			}
 		}
 
-		// Add notification
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    subscription.UserID,
-			EventType: models.NotificationPremiumEnded,
-		}
-		if err := notificationService.Create(ctx, notification); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to create membership ended notification")
-		}
-
 		return nil
 	})
 }
@@ -337,7 +312,6 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 		notificationQueueService := NewNotificationQueueService(db)
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
 		entSvc := NewEntitlementService(db)
-		notificationService := NewNotificationQueueService(db)
 
 		subscription, err := subService.GetByID(ctx, subscriptionID)
 		if err != nil {
@@ -361,16 +335,6 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 			}
 		}
 
-		// Add notification
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    subscription.UserID,
-			EventType: models.NotificationPremiumEnded,
-		}
-		if err := notificationService.Create(ctx, notification); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to create membership expired notification")
-		}
-
 		return nil
 	})
 }
@@ -384,7 +348,6 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 		notificationQueueService := NewNotificationQueueService(db)
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
 		entSvc := NewEntitlementService(db)
-		notificationService := NewNotificationQueueService(db)
 
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), params.ProcessorSubscriptionID)
 		if err != nil {
@@ -437,21 +400,6 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 			}
 		}
 
-		// Add notification
-		eventType := models.NotificationPaymentMethodFailed
-		if subscription.Status == models.StatusCancelled {
-			eventType = models.NotificationPremiumEnded
-		}
-
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    subscription.UserID,
-			EventType: eventType,
-		}
-		if err := notificationService.Create(ctx, notification); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to create payment failed notification")
-		}
-
 		return nil
 	})
 }
@@ -465,6 +413,8 @@ type CreateMembershipParams struct {
 	PriceID                 uuid.UUID
 	Processor               models.Processor
 	ProcessorSubscriptionID *string
+	UserEmail               *string
+	Username                *string
 }
 
 type RenewMembershipParams struct {

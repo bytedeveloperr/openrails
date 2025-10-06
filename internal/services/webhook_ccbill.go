@@ -185,11 +185,23 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 	}
 
 	// Use SubscriptionLifecycleService to create membership
+	var emailPtr *string
+	if email != "" {
+		emailPtr = &email
+	}
+
+	var usernamePtr *string
+	if data.Username != "" {
+		usernamePtr = &data.Username
+	}
+
 	subscription, err := s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 		UserID:                  userID,
 		PriceID:                 price.ID,
 		Processor:               models.ProcessorCCBill,
 		ProcessorSubscriptionID: &ccBillSubID,
+		UserEmail:               emailPtr,
+		Username:                usernamePtr,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create membership: %w", err)
