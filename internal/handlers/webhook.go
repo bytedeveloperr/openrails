@@ -171,7 +171,6 @@ func handleMobiusWebhook(r *Request) {
 		BillingEventService:          r.State.BillingEventService,
 		SubscriptionService:          r.State.SubscriptionService,
 		NotificationQueueService:     r.State.NotificationQueueService,
-		NotificationService:          r.State.NotificationService,
 		SubscriptionLifecycleService: r.State.SubscriptionLifecycleService,
 	}
 

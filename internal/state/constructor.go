@@ -59,6 +59,7 @@ func NewState(cfg *config.Config) (*State, error) {
 		serviceInstances.NotificationQueueService,
 		subscriptionEmailService,
 	)
+	serviceInstances.SubscriptionLifecycleService.SetNotificationService(notificationService)
 
 	// Assemble State
 	state := &State{

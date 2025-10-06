@@ -178,9 +178,6 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 	if subscription.UserEmail != nil && *subscription.UserEmail != "" {
 		email = *subscription.UserEmail
 	}
-	if subscription.Username != nil {
-		username = *subscription.Username
-	}
 
 	// Get the price details
 	price, err := s.priceService.GetByID(ctx, subscription.PriceID)
@@ -230,9 +227,5 @@ func (s *SubscriptionEmailService) getUserEmail(ctx context.Context, userID stri
 		return "", "", errUserEmailUnavailable
 	}
 
-	if subscription.Username != nil {
-		username = *subscription.Username
-	}
-
-	return username, *subscription.UserEmail, nil
+	return userID, *subscription.UserEmail, nil
 }

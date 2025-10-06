@@ -190,18 +190,12 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		emailPtr = &email
 	}
 
-	var usernamePtr *string
-	if data.Username != "" {
-		usernamePtr = &data.Username
-	}
-
 	subscription, err := s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 		UserID:                  userID,
 		PriceID:                 price.ID,
 		Processor:               models.ProcessorCCBill,
 		ProcessorSubscriptionID: &ccBillSubID,
 		UserEmail:               emailPtr,
-		Username:                usernamePtr,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create membership: %w", err)
@@ -232,18 +226,6 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 
 		if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
 			log.WithError(err).Error("Failed to log payment event to ClickHouse")
-		}
-	}
-
-	// Add notification to queue for user and send immediate email
-	if s.NotificationService != nil {
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    subscription.UserID,
-			EventType: models.NotificationPremiumStarted,
-		}
-		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership started notification")
 		}
 	}
 
@@ -1414,18 +1396,6 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 
 		if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
 			log.WithError(err).Error("Failed to log renewal payment event to ClickHouse")
-		}
-	}
-
-	// Add notification to queue for user about successful renewal and send immediate email
-	if s.NotificationService != nil {
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    subscription.UserID,
-			EventType: models.NotificationPremiumRenewed,
-		}
-		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to create and deliver renewal success notification")
 		}
 	}
 

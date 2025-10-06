@@ -64,6 +64,11 @@ func (s *NotificationService) deliverExternalNotifications(ctx context.Context, 
 	return nil
 }
 
+// DeliverEmail sends the appropriate email for an already-created notification
+func (s *NotificationService) DeliverEmail(ctx context.Context, notification *models.NotificationQueue) error {
+	return s.sendEmailNotification(ctx, notification)
+}
+
 // sendEmailNotification sends appropriate email based on notification type
 func (s *NotificationService) sendEmailNotification(ctx context.Context, notification *models.NotificationQueue) error {
 	if s.subscriptionEmailSvc == nil {

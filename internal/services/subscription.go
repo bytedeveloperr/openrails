@@ -150,12 +150,6 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 		}
 
 		// Create a pending subscription which we'll activate on the receipt of the webhook from Mobius
-		var usernamePtr *string
-		if user.Username != "" {
-			usernameVal := user.Username
-			usernamePtr = &usernameVal
-		}
-
 		subscription := &models.Subscription{
 			UserID:                  user.ID,
 			PriceID:                 priceID,
@@ -164,7 +158,6 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			Status:                  models.StatusPending,
 			Processor:               models.Processor(processor),
 			UserEmail:               user.Email,
-			Username:                usernamePtr,
 		}
 
 		if err := s.Create(ctx, subscription); err != nil {
