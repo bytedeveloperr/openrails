@@ -14,16 +14,19 @@ import (
 type NotificationService struct {
 	notificationService  *NotificationQueueService
 	subscriptionEmailSvc *SubscriptionEmailService
+	emailService         *EmailService
 }
 
 // NewNotificationService creates a new notification service
 func NewNotificationService(
 	notificationService *NotificationQueueService,
 	subscriptionEmailSvc *SubscriptionEmailService,
+	emailService *EmailService,
 ) *NotificationService {
 	return &NotificationService{
 		notificationService:  notificationService,
 		subscriptionEmailSvc: subscriptionEmailSvc,
+		emailService:         emailService,
 	}
 }
 
@@ -70,24 +73,64 @@ func (s *NotificationService) DeliverEmail(ctx context.Context, notification *mo
 }
 
 // sendEmailNotification sends appropriate email based on notification type
-func (s *NotificationService) sendEmailNotification(ctx context.Context, notification *models.NotificationQueue) error {
-	if s.subscriptionEmailSvc == nil {
-		log.WithContext(ctx).Debug("subscription email service not available - skipping email")
-		return nil
-	}
 
+func (s *NotificationService) sendEmailNotification(ctx context.Context, notification *models.NotificationQueue) error {
 	switch notification.EventType {
 	case models.NotificationPremiumStarted:
+		if s.subscriptionEmailSvc == nil {
+			log.WithContext(ctx).Debug("subscription email service not available - skipping subscription confirmation email")
+			return nil
+		}
 		return s.subscriptionEmailSvc.SendSubscriptionConfirmed(ctx, notification.UserID)
 
 	case models.NotificationPremiumRenewed:
+		if s.subscriptionEmailSvc == nil {
+			log.WithContext(ctx).Debug("subscription email service not available - skipping subscription renewal email")
+			return nil
+		}
 		return s.subscriptionEmailSvc.SendSubscriptionRenewed(ctx, notification.UserID)
 
 	case models.NotificationPremiumEnded:
+		if s.subscriptionEmailSvc == nil {
+			log.WithContext(ctx).Debug("subscription email service not available - skipping subscription cancellation email")
+			return nil
+		}
 		return s.subscriptionEmailSvc.SendSubscriptionCancelled(ctx, notification.UserID, "Premium", "$29.99")
 
 	case models.NotificationPaymentMethodFailed:
+		if s.subscriptionEmailSvc == nil {
+			log.WithContext(ctx).Debug("subscription email service not available - skipping payment failure email")
+			return nil
+		}
 		return s.subscriptionEmailSvc.SendPaymentFailed(ctx, notification.UserID)
+
+	case models.NotificationOneOffPurchaseCompleted:
+		if s.emailService == nil {
+			log.WithContext(ctx).Debug("email service not available - skipping one-off purchase receipt email")
+			return nil
+		}
+
+		if notification.Data == nil {
+			log.WithContext(ctx).WithField("user_id", notification.UserID).Warn("one-off purchase notification missing data payload")
+			return nil
+		}
+
+		email, _ := notification.Data["user_email"].(string)
+		if email == "" {
+			log.WithContext(ctx).WithField("user_id", notification.UserID).Warn("one-off purchase notification missing user email")
+			return nil
+		}
+
+		amount, _ := notification.Data["amount"].(float64)
+		currency, _ := notification.Data["currency"].(string)
+		productName, _ := notification.Data["product_name"].(string)
+
+		return s.emailService.SendOneOffPurchaseReceipt(ctx, OneOffPurchaseEmailData{
+			UserEmail:   email,
+			Amount:      amount,
+			Currency:    currency,
+			ProductName: productName,
+		})
 
 	case models.NotificationPaymentMethodAutoUpdated:
 		// No specific email for auto-updated payment methods - they're informational

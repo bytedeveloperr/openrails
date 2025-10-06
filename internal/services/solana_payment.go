@@ -26,9 +26,17 @@ type SolanaPaymentService struct {
 	paymentSvc         *PaymentService
 	productService     *ProductService
 	entitlementService *EntitlementService
+	notificationSvc    *NotificationService
 }
 
-func NewSolanaPaymentService(db *db.DB, cfg *config.Config, price *PriceService, payment *PaymentService, product *ProductService, entitlement *EntitlementService) *SolanaPaymentService {
+type oneOffNotificationData struct {
+	UserID      string
+	Amount      float64
+	Currency    string
+	ProductName string
+}
+
+func NewSolanaPaymentService(db *db.DB, cfg *config.Config, price *PriceService, payment *PaymentService, product *ProductService, entitlement *EntitlementService, notification *NotificationService) *SolanaPaymentService {
 	return &SolanaPaymentService{
 		db:                 db,
 		cfg:                cfg,
@@ -36,7 +44,13 @@ func NewSolanaPaymentService(db *db.DB, cfg *config.Config, price *PriceService,
 		paymentSvc:         payment,
 		productService:     product,
 		entitlementService: entitlement,
+		notificationSvc:    notification,
 	}
+}
+
+// SetNotificationService wires the notification service after SolanaPaymentService construction
+func (s *SolanaPaymentService) SetNotificationService(notification *NotificationService) {
+	s.notificationSvc = notification
 }
 
 // Generate returns payment calculation for client-side transaction building.
@@ -87,8 +101,10 @@ func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, pric
 // Submit records a confirmed payment for the given price and user, and grants associated entitlements.
 // This is a pragmatic implementation that skips on-chain signature verification in this codebase.
 // userID: OIDC subject (string)
-func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceID uuid.UUID, signature string) (*models.Payment, error) {
+func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceID uuid.UUID, signature string, userEmail *string) (*models.Payment, error) {
 	var payment *models.Payment
+	var notificationData *oneOffNotificationData
+	var purchasedProductName string
 
 	err := s.db.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		// Create transactional services
@@ -140,6 +156,7 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 			if err != nil {
 				return fmt.Errorf("failed to get product: %w", err)
 			}
+			purchasedProductName = product.DisplayName
 
 			// Build list of entitlement names from product spec
 			entNames := make([]string, 0, 4)
@@ -195,6 +212,13 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 			Where("amount = ?", price.Amount).
 			Exec(ctx)
 
+		notificationData = &oneOffNotificationData{
+			UserID:      userID,
+			Amount:      price.Amount,
+			Currency:    price.Currency,
+			ProductName: purchasedProductName,
+		}
+
 		return nil
 	})
 
@@ -202,5 +226,41 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 		return nil, err
 	}
 
+	s.enqueueOneOffNotification(ctx, notificationData, userEmail)
+
 	return payment, nil
+}
+
+func (s *SolanaPaymentService) enqueueOneOffNotification(ctx context.Context, data *oneOffNotificationData, userEmail *string) {
+	if data == nil || s.notificationSvc == nil {
+		return
+	}
+
+	email := ""
+	if userEmail != nil {
+		email = *userEmail
+	}
+	if email == "" {
+		log.WithContext(ctx).WithField("user_id", data.UserID).Warn("skipping one-off receipt notification - user email missing")
+		return
+	}
+
+	notification := &models.NotificationQueue{
+		ID:        uuid.New(),
+		UserID:    data.UserID,
+		EventType: models.NotificationOneOffPurchaseCompleted,
+		Data: map[string]any{
+			"amount":       data.Amount,
+			"currency":     data.Currency,
+			"product_name": data.ProductName,
+			"user_email":   email,
+		},
+	}
+
+	if err := s.notificationSvc.CreateAndDeliver(ctx, notification); err != nil {
+		log.WithError(err).WithFields(log.Fields{
+			"user_id":    data.UserID,
+			"event_type": models.NotificationOneOffPurchaseCompleted,
+		}).Error("failed to create and deliver one-off purchase notification")
+	}
 }

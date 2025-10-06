@@ -21,6 +21,9 @@ const (
 	NotificationPaymentMethodAutoUpdated    NotificationEventType = "payment_method_auto_updated"    // (5) Payment method auto-updated
 	NotificationPaymentMethodUpdateRequired NotificationEventType = "payment_method_update_required" // (6) Payment method update required
 
+	// One-off payment notifications
+	NotificationOneOffPurchaseCompleted NotificationEventType = "one_off_purchase_completed" // (8) Solana or other one-off purchase completed
+
 	// System notifications (1 type)
 	NotificationSystemAlert NotificationEventType = "system_alert" // (7) Arbitrary system notifications
 

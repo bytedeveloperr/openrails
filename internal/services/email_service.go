@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
@@ -15,6 +16,14 @@ type EmailService struct {
 	config   *config.SendGridConfig
 	client   *sendgrid.Client
 	fromMail *mail.Email
+}
+
+// OneOffPurchaseEmailData contains data for one-off purchase receipts
+type OneOffPurchaseEmailData struct {
+	UserEmail   string
+	Amount      float64
+	Currency    string
+	ProductName string
 }
 
 func NewEmailService(cfg *config.SendGridConfig) (*EmailService, error) {
@@ -93,4 +102,48 @@ func (s *EmailService) SendTemplatedEmail(ctx context.Context, to, templateID st
 
 	log.Printf("Templated email sent successfully to %s (status: %d)", to, response.StatusCode)
 	return nil
+}
+
+// SendOneOffPurchaseReceipt sends a receipt for a one-off purchase (e.g., Solana payment)
+func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOffPurchaseEmailData) error {
+	if !s.IsEnabled() {
+		log.Printf("Email service disabled - would send one-off receipt to %s", data.UserEmail)
+		return nil
+	}
+
+	productName := data.ProductName
+	if productName == "" {
+		productName = "Doujins premium content"
+	}
+
+	amountLine := fmt.Sprintf("%.2f %s", data.Amount, data.Currency)
+	if data.Currency == "USD" {
+		amountLine = fmt.Sprintf("$%.2f %s", data.Amount, data.Currency)
+	}
+
+	subject := "Thanks for supporting Doujins!"
+	htmlContent := fmt.Sprintf(`
+		<h2>Payment Received</h2>
+		<p>Hi there,</p>
+		<p>Thanks for completing your purchase of <strong>%s</strong>.</p>
+		<ul>
+			<li><strong>Amount:</strong> %s</li>
+			<li><strong>Date:</strong> %s</li>
+		</ul>
+		<p>Your access has been updated instantly. Enjoy!</p>
+		<p>The Doujins Team</p>
+	`, productName, amountLine, time.Now().Format("Jan 2, 2006 15:04 MST"))
+
+	plainContent := fmt.Sprintf(`
+		Payment Received
+		
+		Thanks for completing your purchase of %s.
+		Amount: %s
+		Date: %s
+		
+		Your access has been updated instantly. Enjoy!
+		The Doujins Team
+	`, productName, amountLine, time.Now().Format("Jan 2, 2006 15:04 MST"))
+
+	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
 }

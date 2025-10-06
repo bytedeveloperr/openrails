@@ -58,8 +58,10 @@ func NewState(cfg *config.Config) (*State, error) {
 	notificationService := services.NewNotificationService(
 		serviceInstances.NotificationQueueService,
 		subscriptionEmailService,
+		emailService,
 	)
 	serviceInstances.SubscriptionLifecycleService.SetNotificationService(notificationService)
+	serviceInstances.SolanaPaymentService.SetNotificationService(notificationService)
 
 	// Assemble State
 	state := &State{
@@ -197,7 +199,7 @@ func createServices(db *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.REST
 	purchaseService := services.NewPaymentService(db)
 	entitlementService := services.NewEntitlementService(db)
 	solanaWalletService := services.NewSolanaWalletService(db)
-	solanaPaymentService := services.NewSolanaPaymentService(db, cfg, priceService, purchaseService, productService, entitlementService)
+	solanaPaymentService := services.NewSolanaPaymentService(db, cfg, priceService, purchaseService, productService, entitlementService, nil)
 	solanaPaymentIntentService := services.NewSolanaPaymentIntentService(db, cfg, priceService)
 
 	subscriptionLifecycleService := services.NewSubscriptionLifecycleService(
