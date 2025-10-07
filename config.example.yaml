@@ -133,11 +133,15 @@ clickhouse:
   database: "analytics"
   # Provide CLICKHOUSE_USERNAME and CLICKHOUSE_PASSWORD via env
 
-# SendGrid email service
-sendgrid:
-  # Provide SENDGRID_API_KEY via env
-  from_email: "noreply@your-domain.com"
+# Email service configuration
+email:
+  provider: "sendgrid"
+  from_address: "noreply@your-domain.com"
   from_name: "Doujins Billing"
+  retry_attempts: 1
+  retry_delay: 750ms
+  sendgrid:
+    # Provide SENDGRID_API_KEY via env
 
 # Rate limiting configuration
 rate_limits:

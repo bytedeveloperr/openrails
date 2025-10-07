@@ -126,7 +126,7 @@ services:
       clickhouse:
         condition: service_healthy
     ports:
-      - "2053:2053"  # Public API
+      - "2054:2053"  # Public API
     expose:
       - "8060"       # Private API (internal-only)
     env_file:

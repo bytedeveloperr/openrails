@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	email "github.com/doujins-org/doujins-email"
 	"github.com/joho/godotenv"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env"
@@ -31,7 +32,7 @@ type Config struct {
 	Redis       *RedisConfig      `koanf:"redis,omitempty"`
 	JWT         *JWTConfig        `koanf:"jwt,omitempty"`
 	ClickHouse  *ClickHouseConfig `koanf:"clickhouse,omitempty"`
-	SendGrid    *SendGridConfig   `koanf:"sendgrid,omitempty"`
+	Email       *email.Config     `koanf:"email,omitempty"`
 	CorsOrigins []string          `koanf:"cors_origins,omitempty"`
 	RateLimits  *RateLimitConfig  `koanf:"rate_limits,omitempty"`
 	Admin       *AdminConfig      `koanf:"admin,omitempty"`
@@ -137,15 +138,6 @@ type ClickHouseConfig struct {
 	Database  string `koanf:"database"`   // ClickHouse database name (e.g., analytics)
 	Username  string `koanf:"username"`   // Optional username for authentication
 	Password  string `koanf:"password"`   // Optional password for authentication
-}
-
-// FeatureFlags control optional integrations and startup gating
-// (No feature flags; Redis and ClickHouse behavior is dynamic at runtime.)
-
-type SendGridConfig struct {
-	APIKey    string `koanf:"api_key"`
-	FromEmail string `koanf:"from_email"`
-	FromName  string `koanf:"from_name"`
 }
 
 // AdminConfig controls private admin access
@@ -451,10 +443,17 @@ func Load(configPath string) (*Config, error) {
 		"MOBIUS_WEBHOOK_SECRET":   "mobius.webhook_secret",
 		"MOBIUS_TEST_MODE":        "mobius.test_mode",
 
-		// SendGrid
-		"SENDGRID_API_KEY":    "sendgrid.api_key",
-		"SENDGRID_FROM_EMAIL": "sendgrid.from_email",
-		"SENDGRID_FROM_NAME":  "sendgrid.from_name",
+		// Email configuration
+		"EMAIL_PROVIDER":        "email.provider",
+		"EMAIL_FROM_ADDRESS":    "email.from_address",
+		"EMAIL_FROM":            "email.from_address",
+		"EMAIL_FROM_NAME":       "email.from_name",
+		"EMAIL_DISABLED":        "email.disabled",
+		"SENDGRID_API_KEY":      "email.sendgrid.api_key",
+		"SENDGRID_API_HOST":     "email.sendgrid.api_host",
+		"SENDGRID_SANDBOX_MODE": "email.sendgrid.sandbox_mode",
+		"SENDGRID_FROM_EMAIL":   "email.from_address",
+		"SENDGRID_FROM_NAME":    "email.from_name",
 
 		// ClickHouse
 		"CLICKHOUSE_URL":      "clickhouse.server_url",

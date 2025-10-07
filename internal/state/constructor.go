@@ -41,8 +41,8 @@ func NewState(cfg *config.Config) (*State, error) {
 	// Initialize optional email services
 	var emailService *services.EmailService
 	var subscriptionEmailService *services.SubscriptionEmailService
-	if cfg.SendGrid != nil {
-		if es, err := services.NewEmailService(cfg.SendGrid); err != nil {
+	if cfg.Email != nil {
+		if es, err := services.NewEmailService(cfg.Email); err != nil {
 			log.WithError(err).Warn("EmailService init failed; email disabled")
 		} else {
 			emailService = es
