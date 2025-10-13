@@ -79,6 +79,7 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 			ID:        uuid.New(),
 			UserID:    subscription.UserID,
 			EventType: models.NotificationPremiumEnded,
+			Data:      map[string]any{"reason": string(PremiumEndReasonAdmin)},
 		}
 		if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
 			log.WithFields(log.Fields{

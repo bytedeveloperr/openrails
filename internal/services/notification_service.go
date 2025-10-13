@@ -95,7 +95,13 @@ func (s *NotificationService) sendEmailNotification(ctx context.Context, notific
 			log.WithContext(ctx).Debug("subscription email service not available - skipping subscription cancellation email")
 			return nil
 		}
-		return s.subscriptionEmailSvc.SendSubscriptionCancelled(ctx, notification.UserID, "Premium", "$29.99")
+		reason := PremiumEndReasonUnknown
+		if notification.Data != nil {
+			if r, ok := notification.Data["reason"].(string); ok {
+				reason = ParsePremiumEndReason(r)
+			}
+		}
+		return s.subscriptionEmailSvc.SendPremiumEnded(ctx, notification.UserID, reason)
 
 	case models.NotificationPaymentMethodFailed:
 		if s.subscriptionEmailSvc == nil {
@@ -124,12 +130,15 @@ func (s *NotificationService) sendEmailNotification(ctx context.Context, notific
 		amount, _ := notification.Data["amount"].(float64)
 		currency, _ := notification.Data["currency"].(string)
 		productName, _ := notification.Data["product_name"].(string)
+		paymentMethod, _ := notification.Data["payment_method"].(string)
 
 		return s.emailService.SendOneOffPurchaseReceipt(ctx, OneOffPurchaseEmailData{
-			UserEmail:   email,
-			Amount:      amount,
-			Currency:    currency,
-			ProductName: productName,
+			UserEmail:     email,
+			Amount:        amount,
+			Currency:      currency,
+			ProductName:   productName,
+			PaymentMethod: paymentMethod,
+			IsPremium:     true,
 		})
 
 	case models.NotificationPaymentMethodAutoUpdated:

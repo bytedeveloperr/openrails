@@ -3,12 +3,44 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 )
 
 // SubscriptionEmailData contains data for subscription-related emails
+type PremiumEndReason string
+
+const (
+	PremiumEndReasonUserCancel PremiumEndReason = "user_cancel"
+	PremiumEndReasonExpired    PremiumEndReason = "expired"
+	PremiumEndReasonChargeback PremiumEndReason = "chargeback"
+	PremiumEndReasonRefund     PremiumEndReason = "refund"
+	PremiumEndReasonAdmin      PremiumEndReason = "admin"
+	PremiumEndReasonProcessor  PremiumEndReason = "processor_cancel"
+	PremiumEndReasonUnknown    PremiumEndReason = "unknown"
+)
+
+func ParsePremiumEndReason(value string) PremiumEndReason {
+	switch strings.ToLower(value) {
+	case string(PremiumEndReasonUserCancel):
+		return PremiumEndReasonUserCancel
+	case string(PremiumEndReasonExpired):
+		return PremiumEndReasonExpired
+	case string(PremiumEndReasonChargeback):
+		return PremiumEndReasonChargeback
+	case string(PremiumEndReasonRefund):
+		return PremiumEndReasonRefund
+	case string(PremiumEndReasonAdmin):
+		return PremiumEndReasonAdmin
+	case string(PremiumEndReasonProcessor):
+		return PremiumEndReasonProcessor
+	default:
+		return PremiumEndReasonUnknown
+	}
+}
+
 type SubscriptionEmailData struct {
 	UserEmail      string
 	Username       string
@@ -119,93 +151,124 @@ func (s *EmailService) SendSubscriptionRenewal(ctx context.Context, data Subscri
 }
 
 // SendSubscriptionCancellation sends notification when subscription is cancelled
-func (s *EmailService) SendSubscriptionCancellation(ctx context.Context, data SubscriptionEmailData) error {
+func (s *EmailService) SendSubscriptionCancellation(ctx context.Context, data SubscriptionEmailData, reason PremiumEndReason) error {
+	periodEnd := data.PeriodEnd.Format("Jan 2, 2006")
 	subject := "Your Doujins Premium subscription has been cancelled"
+	reasonBlurb := "We've cancelled your premium membership as requested."
+	footer := "You can resubscribe at any time to regain premium access. We'd love to see you back!"
+
+	switch reason {
+	case PremiumEndReasonChargeback:
+		subject = "Your Doujins Premium subscription has been terminated"
+		reasonBlurb = "We received a dispute on your most recent payment, so the membership has been closed for now."
+		footer = "If this was unexpected, please reach out to support so we can help restore your access."
+	case PremiumEndReasonRefund:
+		subject = "Your Doujins Premium subscription was refunded"
+		reasonBlurb = "We've processed your refund and closed the associated premium membership."
+	case PremiumEndReasonAdmin:
+		subject = "Your Doujins Premium subscription was cancelled"
+		reasonBlurb = "Our support team closed this subscription."
+	case PremiumEndReasonProcessor:
+		subject = "Your Doujins Premium subscription was cancelled"
+		reasonBlurb = "Your payment provider confirmed this cancellation, so we’ve closed the membership."
+	}
 
 	htmlContent := fmt.Sprintf(`
-		<h2>Subscription Cancelled</h2>
+		<h2>%s</h2>
 		<p>Hi %s,</p>
-		<p>We're sorry to see you go! Your Doujins Premium subscription has been cancelled as requested.</p>
-		
-		<h3>Cancellation Details:</h3>
+		<p>%s</p>
 		<ul>
 			<li><strong>Subscription ID:</strong> %s</li>
-			<li><strong>Access Until:</strong> %s</li>
+			<li><strong>Premium access available until:</strong> %s</li>
 		</ul>
-		
-		<p>You'll continue to have premium access until %s. After that, your account will revert to the free tier.</p>
-		<p>You can resubscribe at any time to regain premium access. We'd love to have you back!</p>
+		<p>You'll continue to enjoy premium access until %s.</p>
+		<p>%s</p>
 		<p>The Doujins Team</p>
-	`, data.Username, data.SubscriptionID, data.PeriodEnd.Format("Jan 2, 2006"), data.PeriodEnd.Format("Jan 2, 2006"))
+	`, subject, data.Username, reasonBlurb, data.SubscriptionID, periodEnd, periodEnd, footer)
 
 	plainContent := fmt.Sprintf(`
-		Subscription Cancelled
+		%s
 		
 		Hi %s,
 		
-		Your Doujins Premium subscription has been cancelled as requested.
+		%s
 		
-		Cancellation Details:
-		- Subscription ID: %s
-		- Access Until: %s
+		Subscription ID: %s
+		Premium access available until: %s
 		
-		You'll continue to have premium access until %s, then revert to the free tier.
-		You can resubscribe at any time to regain premium access.
+		You'll continue to enjoy premium access until %s.
+		
+		%s
+		The Doujins Team
+	`, subject, data.Username, reasonBlurb, data.SubscriptionID, periodEnd, periodEnd, footer)
+
+	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
+}
+
+func (s *EmailService) SendSubscriptionExpired(ctx context.Context, data SubscriptionEmailData) error {
+	periodEnd := data.PeriodEnd.Format("Jan 2, 2006")
+	subject := "Your Doujins Premium access has expired"
+
+	htmlContent := fmt.Sprintf(`
+		<h2>Your Premium Access Has Expired</h2>
+		<p>Hi %s,</p>
+		<p>We tried to renew your Doujins Premium subscription several times but couldn’t complete the payment. Your premium access ended on <strong>%s</strong>.</p>
+		<p>If you’d like to jump back in, update your payment method and restart your membership any time.</p>
+		<p><a href="https://doujins.com/account/billing" style="display:inline-block;padding:10px 18px;background:#6c4ad0;color:#ffffff;text-decoration:none;border-radius:4px;">Manage billing settings</a></p>
+		<p>The Doujins Team</p>
+	`, data.Username, periodEnd)
+
+	plainContent := fmt.Sprintf(`
+		Your Premium Access Has Expired
+		
+		Hi %s,
+		
+		We tried to renew your Doujins Premium subscription several times but couldn’t complete the payment. Your premium access ended on %s.
+		
+		Update your payment method anytime to restart your membership: https://doujins.com/account/billing
 		
 		The Doujins Team
-	`, data.Username, data.SubscriptionID, data.PeriodEnd.Format("Jan 2, 2006"), data.PeriodEnd.Format("Jan 2, 2006"))
+	`, data.Username, periodEnd)
 
 	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
 }
 
 // SendPaymentFailed sends notification when subscription payment fails
 func (s *EmailService) SendPaymentFailed(ctx context.Context, data SubscriptionEmailData) error {
-	subject := "Action Required: Payment failed for your Doujins Premium subscription"
+	amountLine := fmt.Sprintf("$%.2f %s", data.Amount, data.Currency)
+	subject := "We couldn’t renew your Doujins Premium subscription"
 
 	htmlContent := fmt.Sprintf(`
-		<h2>Payment Failed - Action Required</h2>
+		<h2>Payment Attempt Unsuccessful</h2>
 		<p>Hi %s,</p>
-		<p>We were unable to process the payment for your Doujins Premium subscription. Your subscription is now past due.</p>
-		
-		<h3>Subscription Details:</h3>
+		<p>We just tried to renew your Doujins Premium subscription but the payment didn’t go through.</p>
 		<ul>
 			<li><strong>Subscription ID:</strong> %s</li>
-			<li><strong>Amount Due:</strong> $%.2f %s</li>
-			<li><strong>Payment Method:</strong> %s</li>
+			<li><strong>Amount:</strong> %s</li>
+			<li><strong>Payment method:</strong> %s</li>
 		</ul>
-		
-		<p><strong>What happens next:</strong></p>
-		<ul>
-			<li>Your premium access will continue for a grace period</li>
-			<li>We'll attempt to retry payment automatically</li>
-			<li>If payment continues to fail, your subscription will be cancelled</li>
-		</ul>
-		
-		<p>To resolve this issue, please update your payment method in your account settings or contact support.</p>
+		<p>Your premium access stays active while we retry automatically. To be safe, please take a moment to update your payment details.</p>
+		<p><a href="https://doujins.com/account/billing" style="display:inline-block;padding:10px 18px;background:#6c4ad0;color:#ffffff;text-decoration:none;border-radius:4px;">Update payment method</a></p>
+		<p>If payment continues to fail, your membership will expire.</p>
 		<p>The Doujins Team</p>
-	`, data.Username, data.SubscriptionID, data.Amount, data.Currency, data.PaymentMethod)
+	`, data.Username, data.SubscriptionID, amountLine, data.PaymentMethod)
 
 	plainContent := fmt.Sprintf(`
-		Payment Failed - Action Required
+		We couldn’t renew your Doujins Premium subscription
 		
 		Hi %s,
 		
-		We were unable to process payment for your Doujins Premium subscription. Your subscription is now past due.
+		We just tried to renew your Doujins Premium subscription but the payment didn’t go through.
+		Subscription ID: %s
+		Amount: %s
+		Payment method: %s
 		
-		Subscription Details:
-		- Subscription ID: %s
-		- Amount Due: $%.2f %s
-		- Payment Method: %s
+		Your premium stays active while we retry automatically. Update your payment details here to avoid losing access: https://doujins.com/account/billing
 		
-		What happens next:
-		- Your premium access continues for a grace period
-		- We'll retry payment automatically
-		- If payment continues to fail, subscription will be cancelled
-		
-		Please update your payment method in account settings or contact support.
+		If payment continues to fail, your membership will expire.
 		
 		The Doujins Team
-	`, data.Username, data.SubscriptionID, data.Amount, data.Currency, data.PaymentMethod)
+	`, data.Username, data.SubscriptionID, amountLine, data.PaymentMethod)
 
 	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
 }

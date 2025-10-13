@@ -250,10 +250,11 @@ func (s *SolanaPaymentService) enqueueOneOffNotification(ctx context.Context, da
 		UserID:    data.UserID,
 		EventType: models.NotificationOneOffPurchaseCompleted,
 		Data: map[string]any{
-			"amount":       data.Amount,
-			"currency":     data.Currency,
-			"product_name": data.ProductName,
-			"user_email":   email,
+			"amount":         data.Amount,
+			"currency":       data.Currency,
+			"product_name":   data.ProductName,
+			"user_email":     email,
+			"payment_method": "solana",
 		},
 	}
 

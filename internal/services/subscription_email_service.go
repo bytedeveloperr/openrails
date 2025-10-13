@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log"
 	"time"
-
-	"github.com/google/uuid"
 )
 
 var errUserEmailUnavailable = errors.New("user email unavailable")
@@ -75,43 +73,34 @@ func (s *SubscriptionEmailService) SendSubscriptionRenewed(ctx context.Context, 
 	return s.emailService.SendSubscriptionRenewal(ctx, *emailData)
 }
 
-// SendSubscriptionCancelled sends a subscription cancellation email
-func (s *SubscriptionEmailService) SendSubscriptionCancelled(ctx context.Context, userID string, subscriptionType, amount string) error {
+// SendPremiumEnded sends the appropriate email when a premium entitlement ends.
+func (s *SubscriptionEmailService) SendPremiumEnded(ctx context.Context, userID string, reason PremiumEndReason) error {
 	if s.emailService == nil || !s.emailService.IsEnabled() {
-		log.Println("Email service not available - skipping subscription cancellation email")
+		log.Println("Email service not available - skipping premium-ended email")
 		return nil
 	}
 
-	// For cancelled subscriptions, we might not have active subscription data
-	// so we accept the subscription details as parameters
-	username, email, err := s.getUserEmail(ctx, userID)
+	emailData, err := s.getEmailData(ctx, userID)
 	if err != nil {
 		if errors.Is(err, errUserEmailUnavailable) {
-			log.Printf("Email unavailable for user %s - skipping subscription cancellation email", userID)
+			log.Printf("Email unavailable for user %s - skipping premium-ended email", userID)
 			return nil
 		}
-		return fmt.Errorf("failed to get user profile: %w", err)
+		return fmt.Errorf("failed to get email data: %w", err)
 	}
 
-	// Parse amount string to float64
-	var amountFloat float64
-	if _, err := fmt.Sscanf(amount, "$%f", &amountFloat); err != nil {
-		amountFloat = 0 // Default if parsing fails
+	switch reason {
+	case PremiumEndReasonExpired:
+		return s.emailService.SendSubscriptionExpired(ctx, *emailData)
+	case PremiumEndReasonChargeback, PremiumEndReasonRefund, PremiumEndReasonAdmin, PremiumEndReasonProcessor:
+		return s.emailService.SendSubscriptionCancellation(ctx, *emailData, reason)
+	case PremiumEndReasonUserCancel:
+		fallthrough
+	case PremiumEndReasonUnknown:
+		return s.emailService.SendSubscriptionCancellation(ctx, *emailData, PremiumEndReasonUserCancel)
+	default:
+		return s.emailService.SendSubscriptionCancellation(ctx, *emailData, reason)
 	}
-
-	emailData := SubscriptionEmailData{
-		UserEmail:      email,
-		Username:       username,
-		SubscriptionID: uuid.Nil, // We don't have the subscription ID in this context
-		Amount:         amountFloat,
-		Currency:       "USD", // Default for cancellation emails without price context
-		PeriodStart:    time.Now(),
-		PeriodEnd:      time.Now(),
-		PaymentMethod:  "Credit Card",
-		TransactionID:  "",
-	}
-
-	return s.emailService.SendSubscriptionCancellation(ctx, emailData)
 }
 
 // SendPaymentFailed sends a payment failure email

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	email "github.com/doujins-org/doujins-email"
@@ -15,10 +16,12 @@ type EmailService struct {
 
 // OneOffPurchaseEmailData contains data for one-off purchase receipts
 type OneOffPurchaseEmailData struct {
-	UserEmail   string
-	Amount      float64
-	Currency    string
-	ProductName string
+	UserEmail     string
+	Amount        float64
+	Currency      string
+	ProductName   string
+	PaymentMethod string
+	IsPremium     bool
 }
 
 // NewEmailService wires the shared email package into the billing domain service.
@@ -98,29 +101,72 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 
 	issuedAt := time.Now().Format("Jan 2, 2006 15:04 MST")
 
+	paymentMethod := strings.ToLower(data.PaymentMethod)
+	isSolana := paymentMethod == "solana"
+
 	subject := "Thanks for supporting Doujins!"
+	if isSolana {
+		subject = "Your Solana premium purchase is confirmed"
+	}
+
+	messageIntro := "Thanks for completing your purchase!"
+	if data.IsPremium {
+		messageIntro = "Thanks for unlocking Doujins Premium!"
+	}
+
+	if isSolana {
+		htmlContent := fmt.Sprintf(`
+			<h2>Solana Payment Received</h2>
+			<p>Hi there,</p>
+			<p>%s This one-time Solana transaction instantly extended your premium access.</p>
+			<ul>
+				<li><strong>Product:</strong> %s</li>
+				<li><strong>Amount:</strong> %s</li>
+				<li><strong>Date:</strong> %s</li>
+			</ul>
+			<p>Enjoy your premium benefits—no rebill will occur automatically.</p>
+			<p>The Doujins Team</p>
+		`, messageIntro, productName, amountLine, issuedAt)
+
+		plainContent := fmt.Sprintf(`
+		Solana Payment Received
+		
+		%s This one-time Solana transaction instantly extended your premium access.
+		Product: %s
+		Amount: %s
+		Date: %s
+		
+		Enjoy your premium benefits—there won't be an automatic rebill.
+		The Doujins Team
+		`, messageIntro, productName, amountLine, issuedAt)
+
+		return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
+	}
+
 	htmlContent := fmt.Sprintf(`
 		<h2>Payment Received</h2>
 		<p>Hi there,</p>
-		<p>Thanks for completing your purchase of <strong>%s</strong>.</p>
+		<p>%s</p>
 		<ul>
+			<li><strong>Product:</strong> %s</li>
 			<li><strong>Amount:</strong> %s</li>
 			<li><strong>Date:</strong> %s</li>
 		</ul>
 		<p>Your access has been updated instantly. Enjoy!</p>
 		<p>The Doujins Team</p>
-	`, productName, amountLine, issuedAt)
+	`, messageIntro, productName, amountLine, issuedAt)
 
 	plainContent := fmt.Sprintf(`
 		Payment Received
 		
-		Thanks for completing your purchase of %s.
+		%s
+		Product: %s
 		Amount: %s
 		Date: %s
 		
 		Your access has been updated instantly. Enjoy!
 		The Doujins Team
-	`, productName, amountLine, issuedAt)
+	`, messageIntro, productName, amountLine, issuedAt)
 
 	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
 }

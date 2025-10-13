@@ -207,6 +207,9 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 		ID:        uuid.New(),
 		UserID:    userID,
 		EventType: models.NotificationPremiumEnded,
+		Data: map[string]any{
+			"reason": string(PremiumEndReasonUserCancel),
+		},
 	}
 	if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
 		log.WithError(err).Error("failed to create cancellation notification")
