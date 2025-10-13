@@ -5,7 +5,7 @@ go 1.24.2
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.1
 	github.com/doujins-org/authkit v0.1.0
-	github.com/doujins-org/doujins-email v0.0.0
+	github.com/doujins-org/doujins-email v0.1.0
 	github.com/doujins-org/solana-go v1.13.0
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.10.1
@@ -39,10 +39,6 @@ require (
 	golang.org/x/oauth2 v0.31.0 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 )
-
-replace github.com/doujins-org/doujins-email => ../Email
-
-replace github.com/doujins-org/authkit => ../authkit
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
