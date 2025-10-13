@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/doujins-org/doujins-billing/config"
+	"github.com/doujins-org/doujins-billing/internal/app"
 	"github.com/doujins-org/doujins-billing/internal/migrate"
 	"github.com/doujins-org/doujins-billing/internal/server"
 )
@@ -71,10 +72,30 @@ func runServer(cmd *cobra.Command, args []string) error {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	billingServer, err := server.New(cfg)
+	application, err := app.Bootstrap(cfg)
+	if err != nil {
+		return fmt.Errorf("bootstrap application: %w", err)
+	}
+	cleanupOnError := true
+	defer func() {
+		if cleanupOnError {
+			if err := application.Close(context.Background()); err != nil {
+				log.WithError(err).Error("Application cleanup failed")
+			}
+		}
+	}()
+
+	billingServer, err := server.New(server.Dependencies{
+		Config:       application.Config,
+		Cache:        application.Cache,
+		State:        application.State,
+		Redis:        application.RedisClient,
+		AuthVerifier: application.AuthVerifier,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create billing server: %w", err)
 	}
+	cleanupOnError = false
 
 	// Ensure API routes are registered and background workers are started
 	billingServer.StartWorkers(cmd.Context())
@@ -122,6 +143,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 	if err := billingServer.Close(shutdownCtx); err != nil {
 		log.WithError(err).Error("Error during billing server cleanup")
 	}
+	if err := application.Close(shutdownCtx); err != nil {
+		log.WithError(err).Error("Application shutdown encountered issues")
+	}
 
 	log.Info("Billing service shutdown complete")
 	return nil
@@ -129,10 +153,30 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 func runWorker(cmd *cobra.Command, args []string) error {
 	cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
-	billingServer, err := server.New(cfg)
+	application, err := app.Bootstrap(cfg)
+	if err != nil {
+		return fmt.Errorf("bootstrap application: %w", err)
+	}
+	cleanupOnError := true
+	defer func() {
+		if cleanupOnError {
+			if err := application.Close(context.Background()); err != nil {
+				log.WithError(err).Error("Application cleanup failed")
+			}
+		}
+	}()
+
+	billingServer, err := server.New(server.Dependencies{
+		Config:       application.Config,
+		Cache:        application.Cache,
+		State:        application.State,
+		Redis:        application.RedisClient,
+		AuthVerifier: application.AuthVerifier,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to create billing server: %w", err)
 	}
+	cleanupOnError = false
 
 	// Start only background workers (no HTTP server)
 	billingServer.StartWorkers(cmd.Context())
@@ -148,6 +192,9 @@ func runWorker(cmd *cobra.Command, args []string) error {
 
 	if err := billingServer.Close(shutdownCtx); err != nil {
 		log.WithError(err).Error("Error during billing server cleanup")
+	}
+	if err := application.Close(shutdownCtx); err != nil {
+		log.WithError(err).Error("Application shutdown encountered issues")
 	}
 
 	log.Info("Billing service workers shutdown complete")

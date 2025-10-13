@@ -4,6 +4,7 @@ go 1.24.2
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.1
+	github.com/doujins-org/authkit v0.0.0
 	github.com/doujins-org/doujins-email v0.0.0
 	github.com/doujins-org/solana-go v1.13.0
 	github.com/gin-contrib/cors v1.7.6
@@ -29,11 +30,19 @@ require (
 )
 
 require (
+	github.com/gorilla/schema v1.2.0 // indirect
+	github.com/gorilla/securecookie v1.1.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
+	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/sendgrid/sendgrid-go v3.16.1+incompatible // indirect
+	github.com/zitadel/oidc/v2 v2.12.0 // indirect
+	golang.org/x/oauth2 v0.31.0 // indirect
+	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 )
 
 replace github.com/doujins-org/doujins-email => ../Email
+
+replace github.com/doujins-org/authkit => ../authkit
 
 require (
 	dario.cat/mergo v1.0.1 // indirect

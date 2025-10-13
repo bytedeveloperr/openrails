@@ -4,101 +4,58 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/config"
+	"github.com/doujins-org/doujins-billing/internal/auth"
 	"github.com/doujins-org/doujins-billing/internal/handlers"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/state"
 	"github.com/doujins-org/doujins-billing/pkg/cache"
 )
 
+type Dependencies struct {
+	Config       *config.Config
+	Cache        cache.Cache
+	State        *state.State
+	Redis        *redis.Client
+	AuthVerifier auth.Verifier
+}
+
 type Server struct {
-	cfg *config.Config
-
-	cache cache.Cache
-
-	state *state.State
-
-	rdb *redis.Client
+	cfg          *config.Config
+	cache        cache.Cache
+	state        *state.State
+	rdb          *redis.Client
+	authVerifier auth.Verifier
 
 	publicHandler *gin.Engine
 	adminHandler  *gin.Engine
 }
 
-func New(cfg *config.Config) (*Server, error) {
-	log.Info("Initializing billing service...")
-
-	if err := config.Validate(cfg); err != nil {
-		return nil, fmt.Errorf("invalid billing configuration: %w", err)
+func New(deps Dependencies) (*Server, error) {
+	if deps.Config == nil {
+		return nil, fmt.Errorf("server config is required")
 	}
-
-	// Build shared state (DB, services, integrations)
-	st, err := state.NewState(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to initialize state: %w", err)
+	if deps.State == nil {
+		return nil, fmt.Errorf("server state is required")
 	}
-
-	// Dynamic Redis circuit: prefer Redis if reachable; otherwise in-memory. Swap live on health changes.
-	memoryCache := cache.NewMemoryCache()
-	var redisClient *redis.Client
-	var redisCache cache.Cache
-	if cfg.Redis != nil {
-		redisClient = redis.NewClient(&redis.Options{
-			Addr:     cfg.Redis.Addr,
-			Password: cfg.Redis.Password,
-			DB:       cfg.Redis.DB,
-		})
-		redisCache = cache.NewRedisCache(redisClient)
+	if deps.Cache == nil {
+		return nil, fmt.Errorf("server cache is required")
 	}
-	switchable := cache.NewSwitchableCache(memoryCache)
-	// Initial probe
-	if redisClient != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		if _, err := redisClient.Ping(ctx).Result(); err == nil {
-			switchable.SetBackend(redisCache)
-			log.Info("Redis available: using Redis cache")
-		} else {
-			log.WithError(err).Warn("Redis unavailable at startup: using in-memory cache")
-		}
-		cancel()
-		// Health monitor
-		go func() {
-			ticker := time.NewTicker(10 * time.Second)
-			defer ticker.Stop()
-			usingRedis := false
-			for range ticker.C {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				_, err := redisClient.Ping(ctx).Result()
-				cancel()
-				if err == nil {
-					if !usingRedis {
-						switchable.SetBackend(redisCache)
-						usingRedis = true
-						log.Info("Redis became available: switched to Redis cache")
-					}
-				} else {
-					if usingRedis {
-						switchable.SetBackend(memoryCache)
-						usingRedis = false
-						log.WithError(err).Warn("Redis lost: falling back to in-memory cache")
-					}
-				}
-			}
-		}()
-	} else {
-		log.Warn("Redis not configured: using in-memory cache")
+	if deps.AuthVerifier == nil {
+		return nil, fmt.Errorf("auth verifier is required")
 	}
 
 	s := &Server{
-		cfg:   cfg,
-		cache: switchable,
-		state: st,
-		rdb:   redisClient,
+		cfg:          deps.Config,
+		cache:        deps.Cache,
+		state:        deps.State,
+		rdb:          deps.Redis,
+		authVerifier: deps.AuthVerifier,
 	}
 
 	s.setupHandlers()
@@ -132,7 +89,7 @@ func (s *Server) setupPublicRoutes() {
 		subscriptions.GET("/page-data", s.wrap(handlers.GetSubscribePageData))
 	}
 
-	subscriptions.Use(middleware.AuthRequired(s.cfg.JWT))
+	subscriptions.Use(middleware.AuthRequired(s.authVerifier))
 	{
 		// Avoid wildcard conflict with admin routes by namespacing processor
 		subscriptions.POST("/process/:processor", s.wrap(handlers.Subscribe))
@@ -150,7 +107,7 @@ func (s *Server) setupPublicRoutes() {
 
 	// Payment methods
 	pms := api.Group("/payment-methods")
-	pms.Use(middleware.AuthRequired(s.cfg.JWT))
+	pms.Use(middleware.AuthRequired(s.authVerifier))
 	{
 		pms.GET("", s.wrap(handlers.ListPaymentMethods))
 		pms.DELETE(":id", s.wrap(handlers.DeletePaymentMethod))
@@ -159,7 +116,7 @@ func (s *Server) setupPublicRoutes() {
 
 	// Notifications
 	notifications := api.Group("/notifications")
-	notifications.Use(middleware.AuthRequired(s.cfg.JWT))
+	notifications.Use(middleware.AuthRequired(s.authVerifier))
 	{
 		notifications.GET("", s.wrap(handlers.GetNotifications))
 		notifications.GET("/unread-count", s.wrap(handlers.GetUnreadNotificationCount))
@@ -168,7 +125,7 @@ func (s *Server) setupPublicRoutes() {
 
 	// Wallet (Solana) - scaffold endpoints
 	wallet := api.Group("/wallet/solana")
-	wallet.Use(middleware.AuthRequired(s.cfg.JWT))
+	wallet.Use(middleware.AuthRequired(s.authVerifier))
 	{
 		wallet.GET("", s.wrap(handlers.ListSolanaWallets))
 		wallet.GET("/linked", s.wrap(handlers.GetSolanaWallet))
@@ -180,7 +137,7 @@ func (s *Server) setupPublicRoutes() {
 	// Solana payments (generate transaction and QR)
 	solana := api.Group("/solana")
 	solana.GET("/tokens", s.wrap(handlers.GetSupportedTokens))
-	solana.Use(middleware.AuthRequired(s.cfg.JWT))
+	solana.Use(middleware.AuthRequired(s.authVerifier))
 	{
 		solana.POST("/generate", s.wrap(handlers.GeneratePayment))
 		solana.POST("/submit", s.wrap(handlers.SubmitPayment))
@@ -220,7 +177,7 @@ func (s *Server) setupPublicRoutes() {
 
 	// Me: consolidated billing status
 	me := api.Group("/me")
-	me.Use(middleware.AuthRequired(s.cfg.JWT))
+	me.Use(middleware.AuthRequired(s.authVerifier))
 	{
 		me.GET("/billing-status", s.wrap(handlers.GetMyBillingStatus))
 	}
@@ -259,24 +216,9 @@ func (s *Server) wrap(fn func(r *handlers.Request)) func(c *gin.Context) {
 func (s *Server) Handler() http.Handler      { return s.publicHandler }
 func (s *Server) AdminHandler() http.Handler { return s.adminHandler }
 
-func (s *Server) Close(ctx context.Context) error {
-	var errs []error
-	// Close state (includes River, DB, services)
-	if s.state != nil {
-		if err := s.state.Close(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close state: %w", err))
-		}
-	}
-
-	if err := s.cache.Close(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to close cache: %w", err))
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("errors during cleanup: %v", errs)
-	}
-
-	log.Info("Billing service cleanup completed")
+// Close currently does not own underlying resources; callers should close the App.
+func (s *Server) Close(_ context.Context) error {
+	log.Info("Billing HTTP server shut down")
 	return nil
 }
 

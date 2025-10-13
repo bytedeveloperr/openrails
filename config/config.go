@@ -95,6 +95,7 @@ type JWTConfig struct {
 	Issuer string `koanf:"issuer"`
 	// Audience (client ID) to require in the "aud" claim (e.g., Casdoor Application Client ID)
 	Audience string `koanf:"audience"`
+	JWKSURL  string `koanf:"jwks_url"`
 	// Optional RSA public key PEM for verifying RS256 JWTs. If empty and Issuer is set,
 	// the service will attempt OIDC discovery at "{issuer}/.well-known/openid-configuration"
 	// and use JWKS for verification.
