@@ -5,17 +5,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sendgrid/sendgrid-go"
-	"github.com/sendgrid/sendgrid-go/helpers/mail"
+	email "github.com/doujins-org/doujins-email"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/doujins-org/doujins-billing/config"
 )
 
 type EmailService struct {
-	config   *config.SendGridConfig
-	client   *sendgrid.Client
-	fromMail *mail.Email
+	svc *email.Service
 }
 
 // OneOffPurchaseEmailData contains data for one-off purchase receipts
@@ -26,88 +21,68 @@ type OneOffPurchaseEmailData struct {
 	ProductName string
 }
 
-func NewEmailService(cfg *config.SendGridConfig) (*EmailService, error) {
-	if cfg == nil || cfg.APIKey == "" {
-		return nil, fmt.Errorf("SendGrid API key not configured - email service unavailable")
+// NewEmailService wires the shared email package into the billing domain service.
+func NewEmailService(cfg *email.Config) (*EmailService, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("email configuration not provided")
 	}
 
-	client := sendgrid.NewSendClient(cfg.APIKey)
-	fromMail := mail.NewEmail(cfg.FromName, cfg.FromEmail)
+	svc, err := email.NewService(*cfg, email.WithLogger(logrusAdapter{}))
+	if err != nil {
+		return nil, err
+	}
 
-	return &EmailService{
-		config:   cfg,
-		client:   client,
-		fromMail: fromMail,
-	}, nil
+	return &EmailService{svc: svc}, nil
 }
 
-// IsEnabled returns true if the email service is properly configured
+// IsEnabled returns true when delivery is possible.
 func (s *EmailService) IsEnabled() bool {
-	return s.config != nil && s.config.APIKey != "" && s.client != nil
+	return s != nil && s.svc != nil && s.svc.IsEnabled()
 }
 
-// SendEmail sends a basic email using SendGrid
+// SendEmail sends a basic email using the configured provider.
 func (s *EmailService) SendEmail(ctx context.Context, to, subject, htmlContent, plainContent string) error {
 	if !s.IsEnabled() {
-		log.Printf("Email service disabled - would send email to %s: %s", to, subject)
+		log.WithContext(ctx).WithFields(log.Fields{
+			"to":      to,
+			"subject": subject,
+		}).Debug("email service disabled - skipping send")
 		return nil
 	}
 
-	toMail := mail.NewEmail("", to)
-	message := mail.NewSingleEmail(s.fromMail, subject, toMail, plainContent, htmlContent)
-
-	response, err := s.client.Send(message)
-	if err != nil {
-		return fmt.Errorf("failed to send email via SendGrid: %w", err)
+	msg := email.Message{
+		To:       []email.Recipient{{Address: to}},
+		Subject:  subject,
+		HTMLBody: htmlContent,
+		TextBody: plainContent,
 	}
 
-	if response.StatusCode >= 400 {
-		return fmt.Errorf("SendGrid API error: status %d, body: %s", response.StatusCode, response.Body)
-	}
-
-	log.Printf("Email sent successfully to %s (status: %d)", to, response.StatusCode)
-	return nil
+	return s.send(ctx, msg, to)
 }
 
-// SendTemplatedEmail sends an email using a SendGrid template
+// SendTemplatedEmail sends a template-based email using the configured provider.
 func (s *EmailService) SendTemplatedEmail(ctx context.Context, to, templateID string, templateData map[string]any) error {
 	if !s.IsEnabled() {
-		log.Printf("Email service disabled - would send templated email to %s with template %s", to, templateID)
+		log.WithContext(ctx).WithFields(log.Fields{
+			"to":          to,
+			"template_id": templateID,
+		}).Debug("email service disabled - skipping templated send")
 		return nil
 	}
 
-	toMail := mail.NewEmail("", to)
-	message := mail.NewV3Mail()
-	message.SetFrom(s.fromMail)
-	message.SetTemplateID(templateID)
-
-	personalization := mail.NewPersonalization()
-	personalization.AddTos(toMail)
-
-	// Add template data as dynamic template data
-	for key, value := range templateData {
-		personalization.SetDynamicTemplateData(key, value)
+	msg := email.Message{
+		To:           []email.Recipient{{Address: to}},
+		TemplateID:   templateID,
+		TemplateData: templateData,
 	}
 
-	message.AddPersonalizations(personalization)
-
-	response, err := s.client.Send(message)
-	if err != nil {
-		return fmt.Errorf("failed to send templated email via SendGrid: %w", err)
-	}
-
-	if response.StatusCode >= 400 {
-		return fmt.Errorf("SendGrid API error: status %d, body: %s", response.StatusCode, response.Body)
-	}
-
-	log.Printf("Templated email sent successfully to %s (status: %d)", to, response.StatusCode)
-	return nil
+	return s.send(ctx, msg, to)
 }
 
-// SendOneOffPurchaseReceipt sends a receipt for a one-off purchase (e.g., Solana payment)
+// SendOneOffPurchaseReceipt sends a receipt for a one-off purchase (e.g., Solana payment).
 func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOffPurchaseEmailData) error {
 	if !s.IsEnabled() {
-		log.Printf("Email service disabled - would send one-off receipt to %s", data.UserEmail)
+		log.WithContext(ctx).WithField("user_email", data.UserEmail).Debug("email service disabled - skipping one-off receipt send")
 		return nil
 	}
 
@@ -121,6 +96,8 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 		amountLine = fmt.Sprintf("$%.2f %s", data.Amount, data.Currency)
 	}
 
+	issuedAt := time.Now().Format("Jan 2, 2006 15:04 MST")
+
 	subject := "Thanks for supporting Doujins!"
 	htmlContent := fmt.Sprintf(`
 		<h2>Payment Received</h2>
@@ -132,7 +109,7 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 		</ul>
 		<p>Your access has been updated instantly. Enjoy!</p>
 		<p>The Doujins Team</p>
-	`, productName, amountLine, time.Now().Format("Jan 2, 2006 15:04 MST"))
+	`, productName, amountLine, issuedAt)
 
 	plainContent := fmt.Sprintf(`
 		Payment Received
@@ -143,7 +120,32 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 		
 		Your access has been updated instantly. Enjoy!
 		The Doujins Team
-	`, productName, amountLine, time.Now().Format("Jan 2, 2006 15:04 MST"))
+	`, productName, amountLine, issuedAt)
 
 	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
 }
+
+func (s *EmailService) send(ctx context.Context, msg email.Message, to string) error {
+	res, err := s.svc.Send(ctx, msg)
+	if err != nil {
+		return fmt.Errorf("email send failed: %w", err)
+	}
+
+	if res != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"to":        to,
+			"provider":  res.Provider,
+			"status":    res.StatusCode,
+			"messageID": res.MessageID,
+		}).Debug("email sent successfully")
+	}
+
+	return nil
+}
+
+type logrusAdapter struct{}
+
+func (logrusAdapter) Debugf(format string, args ...any) { log.Debugf(format, args...) }
+func (logrusAdapter) Infof(format string, args ...any)  { log.Infof(format, args...) }
+func (logrusAdapter) Warnf(format string, args ...any)  { log.Warnf(format, args...) }
+func (logrusAdapter) Errorf(format string, args ...any) { log.Errorf(format, args...) }
