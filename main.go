@@ -88,7 +88,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 	billingServer, err := server.New(server.Dependencies{
 		Config:       application.Config,
 		Cache:        application.Cache,
-		State:        application.State,
+		Runtime:      application.Runtime,
 		Redis:        application.RedisClient,
 		AuthVerifier: application.AuthVerifier,
 	})
@@ -169,7 +169,7 @@ func runWorker(cmd *cobra.Command, args []string) error {
 	billingServer, err := server.New(server.Dependencies{
 		Config:       application.Config,
 		Cache:        application.Cache,
-		State:        application.State,
+		Runtime:      application.Runtime,
 		Redis:        application.RedisClient,
 		AuthVerifier: application.AuthVerifier,
 	})

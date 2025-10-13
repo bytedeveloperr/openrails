@@ -1,4 +1,4 @@
-package state
+package app
 
 import (
 	"context"
@@ -16,7 +16,8 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
-type State struct {
+// Runtime aggregates infrastructure clients and application services.
+type Runtime struct {
 	DB               *db.DB
 	RedisClient      *redis.Client
 	Config           *config.Config
@@ -33,22 +34,17 @@ type State struct {
 	NotificationService      *services.NotificationService
 	PaymentMethodService     *services.PaymentMethodService
 	PaymentService           *services.PaymentService
-	// removed: WebhookEventProcessedService (replaced by idempotency store)
 
-	// Wave 18 subscription services
 	UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService
 	AdminSubscriptionService  *services.AdminSubscriptionService
 
-	// Wave 18 email service
 	EmailService             *services.EmailService
 	SubscriptionEmailService *services.SubscriptionEmailService
 
-	// Billing event tracking service
 	BillingEventService *services.BillingEventService
 	EntitlementService  *services.EntitlementService
 
-	// Solana services
 	SolanaWalletService        *services.SolanaWalletService
 	SolanaPaymentService       *services.SolanaPaymentService
 	SolanaPaymentIntentService *services.SolanaPaymentIntentService
@@ -56,42 +52,48 @@ type State struct {
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 }
 
-// Close gracefully shuts down all state resources
-func (s *State) Close(ctx context.Context) error {
+// Close gracefully shuts down runtime resources.
+func (r *Runtime) Close(ctx context.Context) error {
+	if r == nil {
+		return nil
+	}
 	var errs []error
-
-	// Stop River client if it exists
-	if s.RiverClient != nil {
+	if r.RiverClient != nil {
 		log.Info("Stopping River background workers...")
-		if err := s.RiverClient.Stop(ctx); err != nil {
+		if err := r.RiverClient.Stop(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("failed to stop River client: %w", err))
 		}
 	}
-
-	// Close db
-	if s.DB != nil {
-		if err := s.DB.Close(); err != nil {
+	if r.DB != nil {
+		if err := r.DB.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close db: %w", err))
 		}
 	}
-
-	// Close billing event service
-	if s.BillingEventService != nil {
-		if err := s.BillingEventService.Close(); err != nil {
+	if r.BillingEventService != nil {
+		if err := r.BillingEventService.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close billing event service: %w", err))
 		}
 	}
-
-	// Close Redis client
-	if s.RedisClient != nil {
-		if err := s.RedisClient.Close(); err != nil {
+	if r.RedisClient != nil {
+		if err := r.RedisClient.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close Redis client: %w", err))
 		}
 	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("failed to close some resources: %v", errs)
+	if len(errs) == 0 {
+		return nil
 	}
+	return fmt.Errorf("failed to close some resources: %v", errs)
+}
 
+// InitRiver initialises the River client for background workers.
+func (r *Runtime) InitRiver(ctx context.Context) error {
+	if r.RiverClient != nil {
+		return nil
+	}
+	client, err := buildRiverClient(r.Config)
+	if err != nil {
+		return err
+	}
+	r.RiverClient = client
 	return nil
 }

@@ -1,23 +1,26 @@
-package state
+package app
 
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	redis "github.com/redis/go-redis/v9"
+	"github.com/riverqueue/river"
+	riverpgxv5 "github.com/riverqueue/river/riverdriver/riverpgxv5"
 	log "github.com/sirupsen/logrus"
-	"github.com/uptrace/bun"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
-func NewState(cfg *config.Config) (*State, error) {
-	db, err := createDatabase(cfg)
+func buildRuntime(cfg *config.Config) (*Runtime, error) {
+	database, err := createDatabase(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db: %w", err)
 	}
@@ -29,16 +32,13 @@ func NewState(cfg *config.Config) (*State, error) {
 
 	ccbillClient := createCCBillClient(cfg)
 	ccbillRESTClient := createCCBillRESTClient(cfg)
-	// ccbillDataLinkClient := createCCBillDataLinkClient(cfg)
 	mobiusClient, err := createMobiusClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mobius client: %w", err)
 	}
 
-	// Build all repositories
-	serviceInstances := createServices(db, cfg, ccbillRESTClient, mobiusClient)
+	serviceInstances := createServices(database, cfg, ccbillRESTClient, mobiusClient)
 
-	// Initialize optional email services
 	var emailService *services.EmailService
 	var subscriptionEmailService *services.SubscriptionEmailService
 	if cfg.Email != nil {
@@ -63,20 +63,16 @@ func NewState(cfg *config.Config) (*State, error) {
 	serviceInstances.SubscriptionLifecycleService.SetNotificationService(notificationService)
 	serviceInstances.SolanaPaymentService.SetNotificationService(notificationService)
 
-	// Assemble State
-	state := &State{
-		// Infrastructure
-		DB:               db,
+	runtime := &Runtime{
+		DB:               database,
 		RedisClient:      redisClient,
 		Config:           cfg,
 		CCBillClient:     ccbillClient,
 		CCBillRESTClient: ccbillRESTClient,
 		MobiusClient:     mobiusClient,
 
-		// Services
-		SubscriptionService: serviceInstances.SubscriptionService,
-		UserService:         serviceInstances.UserService,
-
+		SubscriptionService:        serviceInstances.SubscriptionService,
+		UserService:                serviceInstances.UserService,
 		ProductService:             serviceInstances.ProductService,
 		PriceService:               serviceInstances.PriceService,
 		NotificationQueueService:   serviceInstances.NotificationQueueService,
@@ -88,43 +84,44 @@ func NewState(cfg *config.Config) (*State, error) {
 		SolanaPaymentService:       serviceInstances.SolanaPaymentService,
 		SolanaPaymentIntentService: serviceInstances.SolanaPaymentIntentService,
 
-		// Wave 18 subscription services
 		UserSubscriptionService:   serviceInstances.UserSubscriptionService,
 		PublicSubscriptionService: serviceInstances.PublicSubscriptionService,
 		AdminSubscriptionService:  serviceInstances.AdminSubscriptionService,
 
-		// Wave 18 email services
 		EmailService:                 emailService,
 		SubscriptionEmailService:     subscriptionEmailService,
 		SubscriptionLifecycleService: serviceInstances.SubscriptionLifecycleService,
 	}
 
-	// Initialize optional analytics/event logging (ClickHouse)
+	if client, err := buildRiverClient(cfg); err != nil {
+		log.WithError(err).Warn("River client init failed; workers disabled")
+	} else {
+		runtime.RiverClient = client
+	}
+
 	if cfg.ClickHouse != nil {
 		if bes, err := services.NewBillingEventService(cfg.ClickHouse); err != nil {
 			log.WithError(err).Warn("BillingEventService init failed; analytics disabled")
 		} else {
-			state.BillingEventService = bes
+			runtime.BillingEventService = bes
 		}
 	}
 
-	return state, nil
+	return runtime, nil
 }
 
-// Infrastructure creation functions
-
 func createDatabase(cfg *config.Config) (*db.DB, error) {
-	db, err := db.NewDB(cfg.DB)
+	database, err := db.NewDB(cfg.DB)
 	if err != nil {
 		return nil, err
 	}
-
-	// Register models
-	models.RegisterModels(db.GetDB().(*bun.DB))
-	return db, nil
+	return database, nil
 }
 
 func createRedisClient(cfg *config.Config) (*redis.Client, error) {
+	if cfg.Redis == nil {
+		return nil, nil
+	}
 	redisOpts := &redis.Options{
 		Addr: cfg.Redis.Addr,
 		DB:   cfg.Redis.DB,
@@ -136,8 +133,7 @@ func createRedisClient(cfg *config.Config) (*redis.Client, error) {
 		log.Info("Redis authentication disabled - connecting without credentials")
 	}
 	client := redis.NewClient(redisOpts)
-	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), 2_000_000_000) // 2s
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if _, err := client.Ping(ctx).Result(); err != nil {
 		log.Warnf("Redis connection test failed: %v - rate limiting will fall back to permissive mode", err)
@@ -153,10 +149,6 @@ func createCCBillClient(cfg *config.Config) *ccbill.CCBillClient {
 
 func createCCBillRESTClient(cfg *config.Config) *ccbill.RESTClient {
 	return ccbill.NewRESTClient(cfg.CCBill)
-}
-
-func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
-	return ccbill.NewDataLinkClient(cfg.CCBill)
 }
 
 func createMobiusClient(cfg *config.Config) (*mobius.MobiusClient, error) {
@@ -177,42 +169,38 @@ type servicesInstances struct {
 	SolanaPaymentService       *services.SolanaPaymentService
 	SolanaPaymentIntentService *services.SolanaPaymentIntentService
 
-	// Wave 18 subscription services
 	UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService
 	AdminSubscriptionService  *services.AdminSubscriptionService
 
-	// Email services
 	EmailService             *services.EmailService
 	SubscriptionEmailService *services.SubscriptionEmailService
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 }
 
-func createServices(db *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, mobiusClient *mobius.MobiusClient) *servicesInstances {
-	// Create base services first
-	userService := services.NewUserService(db)
-	productService := services.NewProductService(db)
-	priceService := services.NewPriceService(db)
-	notificationQueueService := services.NewNotificationQueueService(db)
-	paymentMethodService := services.NewPaymentMethodService(db)
-	purchaseService := services.NewPaymentService(db)
-	entitlementService := services.NewEntitlementService(db)
-	solanaWalletService := services.NewSolanaWalletService(db)
-	solanaPaymentService := services.NewSolanaPaymentService(db, cfg, priceService, purchaseService, productService, entitlementService, nil)
-	solanaPaymentIntentService := services.NewSolanaPaymentIntentService(db, cfg, priceService)
+func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, mobiusClient *mobius.MobiusClient) *servicesInstances {
+	userService := services.NewUserService(database)
+	productService := services.NewProductService(database)
+	priceService := services.NewPriceService(database)
+	notificationQueueService := services.NewNotificationQueueService(database)
+	paymentMethodService := services.NewPaymentMethodService(database)
+	purchaseService := services.NewPaymentService(database)
+	entitlementService := services.NewEntitlementService(database)
+	solanaWalletService := services.NewSolanaWalletService(database)
+	solanaPaymentService := services.NewSolanaPaymentService(database, cfg, priceService, purchaseService, productService, entitlementService, nil)
+	solanaPaymentIntentService := services.NewSolanaPaymentIntentService(database, cfg, priceService)
 
 	subscriptionLifecycleService := services.NewSubscriptionLifecycleService(
-		db,
+		database,
 		productService,
 		priceService,
 		entitlementService,
 		notificationQueueService,
 	)
 
-	// Create SubscriptionService with all its dependencies
 	subscriptionService := services.NewSubscriptionService(
-		db,
+		database,
 		priceService,
 		productService,
 		notificationQueueService,
@@ -220,7 +208,6 @@ func createServices(db *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.REST
 		mobiusClient,
 	)
 
-	// Create Wave 18 subscription services that depend on base services
 	userSubscriptionService := services.NewUserSubscriptionService(
 		subscriptionService,
 		productService,
@@ -246,29 +233,38 @@ func createServices(db *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.REST
 	)
 
 	return &servicesInstances{
-		SubscriptionService: subscriptionService,
-		UserService:         userService,
-
-		// Wave 18 repositories
-		ProductService:             productService,
-		PriceService:               priceService,
-		NotificationQueueService:   notificationQueueService,
-		PaymentMethodService:       paymentMethodService,
-		PurchaseService:            purchaseService,
-		EntitlementService:         entitlementService,
-		SolanaWalletService:        solanaWalletService,
-		SolanaPaymentService:       solanaPaymentService,
-		SolanaPaymentIntentService: solanaPaymentIntentService,
-
-		// Wave 18 subscription services
-		UserSubscriptionService:   userSubscriptionService,
-		PublicSubscriptionService: publicSubscriptionService,
-		AdminSubscriptionService:  adminSubscriptionService,
-
-		// Email services will be set to nil initially - they require config
-		EmailService:             nil,
-		SubscriptionEmailService: nil,
-
+		SubscriptionService:          subscriptionService,
+		UserService:                  userService,
+		ProductService:               productService,
+		PriceService:                 priceService,
+		NotificationQueueService:     notificationQueueService,
+		PaymentMethodService:         paymentMethodService,
+		PurchaseService:              purchaseService,
+		EntitlementService:           entitlementService,
+		SolanaWalletService:          solanaWalletService,
+		SolanaPaymentService:         solanaPaymentService,
+		SolanaPaymentIntentService:   solanaPaymentIntentService,
+		UserSubscriptionService:      userSubscriptionService,
+		PublicSubscriptionService:    publicSubscriptionService,
+		AdminSubscriptionService:     adminSubscriptionService,
 		SubscriptionLifecycleService: subscriptionLifecycleService,
 	}
+}
+
+func buildRiverClient(cfg *config.Config) (*river.Client[pgx.Tx], error) {
+	if cfg.DB == nil || cfg.DB.URL == "" {
+		return nil, fmt.Errorf("missing database configuration for River")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, cfg.DB.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating pgx pool for River: %w", err)
+	}
+	drv := riverpgxv5.New(pool)
+	client, err := river.NewClient[pgx.Tx](drv, &river.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed creating River client: %w", err)
+	}
+	return client, nil
 }

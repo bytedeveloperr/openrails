@@ -16,6 +16,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/doujins-org/doujins-billing/config"
+	"github.com/doujins-org/doujins-billing/internal/app"
 	"github.com/doujins-org/doujins-billing/internal/server"
 )
 
@@ -47,7 +48,7 @@ func init() {
 }
 
 // Helper function to create a real server instance for testing
-func createTestServer(t *testing.T) *server.Server {
+func createTestServer(t *testing.T) (*server.Server, *app.App) {
 	// Try to load config, but if it fails, create minimal test config
 	cfg, err := config.Load("")
 	if err != nil {
@@ -62,13 +63,23 @@ func createTestServer(t *testing.T) *server.Server {
 	cfg.JWT.Secret = testJWTSecret
 	cfg.JWT.PublicKeyPEM = testRSAPublicPEM
 
-	server, err := server.New(cfg)
+	application, err := app.Bootstrap(cfg)
 	if err != nil {
-		// If server creation fails due to missing DB, skip the test gracefully
+		t.Skipf("Skipping test due to app bootstrap failure (expected in test environment): %v", err)
+	}
+
+	srv, err := server.New(server.Dependencies{
+		Config:       application.Config,
+		Cache:        application.Cache,
+		Runtime:      application.Runtime,
+		Redis:        application.RedisClient,
+		AuthVerifier: application.AuthVerifier,
+	})
+	if err != nil {
 		t.Skipf("Skipping test due to server initialization failure (expected in test environment): %v", err)
 	}
 
-	return server
+	return srv, application
 }
 
 // Helper function to create deterministic HS256 JWT token for testing
@@ -141,12 +152,13 @@ func logResponse(t *testing.T, w *httptest.ResponseRecorder, testName string) {
 
 // Helper function to create test server and defer cleanup
 func setupTestServer(t *testing.T) *server.Server {
-	server := createTestServer(t)
+	srv, application := createTestServer(t)
 	t.Cleanup(func() {
-		server.Close(context.Background())
+		srv.Close(context.Background())
+		application.Close(context.Background())
 	})
 
-	return server
+	return srv
 }
 
 // Helper function to create test server with JWT token

@@ -1,29 +1,31 @@
 package handlers
 
 import (
+	"errors"
 	"mime/multipart"
 	"net"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
 
+	"github.com/doujins-org/doujins-billing/internal/app"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/internal/state"
 	"github.com/doujins-org/doujins-billing/pkg/message"
 )
 
 type Request struct {
-	State   *state.State
+	State   *app.Runtime
 	GinCtx  *gin.Context
 	Request *http.Request
 }
 
-func NewRequest(ctx *gin.Context, state *state.State) *Request {
+func NewRequest(ctx *gin.Context, runtime *app.Runtime) *Request {
 	return &Request{
 		GinCtx:  ctx,
-		State:   state,
+		State:   runtime,
 		Request: ctx.Request,
 	}
 }
@@ -48,6 +50,14 @@ func (r *Request) SuccessJSONMessage(msg string) {
 
 func (r *Request) Bind(data any) error {
 	return r.GinCtx.Bind(data)
+}
+
+func (r *Request) BindJSON(data any) bool {
+	if err := r.GinCtx.ShouldBindJSON(data); err != nil {
+		r.ErrorJSON(http.StatusBadRequest, normaliseBindError(err))
+		return false
+	}
+	return true
 }
 
 func (r *Request) Param(key string) string {
@@ -131,6 +141,21 @@ func (r *Request) FormFile(key string) (multipart.File, *multipart.FileHeader, e
 	return r.GinCtx.Request.FormFile(key)
 }
 
-func (r *Request) GetState() *state.State {
+func (r *Request) GetState() *app.Runtime {
 	return r.State
+}
+
+func normaliseBindError(err error) string {
+	var verr validator.ValidationErrors
+	if errors.As(err, &verr) {
+		// return first field error message for brevity
+		if len(verr) > 0 {
+			e := verr[0]
+			return strings.ToLower(e.Field()) + " is invalid"
+		}
+	}
+	if strings.Contains(err.Error(), "EOF") {
+		return "empty_request_body"
+	}
+	return "invalid_request"
 }

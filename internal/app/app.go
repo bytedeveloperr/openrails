@@ -10,14 +10,13 @@ import (
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/auth"
-	"github.com/doujins-org/doujins-billing/internal/state"
 	"github.com/doujins-org/doujins-billing/pkg/cache"
 )
 
 // App encapsulates the long-lived dependencies shared across transports.
 type App struct {
 	Config       *config.Config
-	State        *state.State
+	Runtime      *Runtime
 	Cache        cache.Cache
 	RedisClient  *redis.Client
 	AuthVerifier auth.Verifier
@@ -39,26 +38,26 @@ func Bootstrap(cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("build auth verifier: %w", err)
 	}
 
-	st, err := state.NewState(cfg)
+	runtime, err := buildRuntime(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("initialise state: %w", err)
+		return nil, fmt.Errorf("initialise runtime: %w", err)
 	}
 
 	memoryCache := cache.NewMemoryCache()
 	switchable := cache.NewSwitchableCache(memoryCache)
 
 	var stop context.CancelFunc
-	if st.RedisClient != nil {
-		stop = monitorRedis(st.RedisClient, switchable, memoryCache)
+	if runtime.RedisClient != nil {
+		stop = monitorRedis(runtime.RedisClient, switchable, memoryCache)
 	} else {
 		log.Warn("redis not configured; cache operating in-memory only")
 	}
 
 	return &App{
 		Config:           cfg,
-		State:            st,
+		Runtime:          runtime,
 		Cache:            switchable,
-		RedisClient:      st.RedisClient,
+		RedisClient:      runtime.RedisClient,
 		AuthVerifier:     verifier,
 		stopRedisMonitor: stop,
 	}, nil
@@ -78,8 +77,8 @@ func (a *App) Close(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("close cache: %w", err))
 		}
 	}
-	if a.State != nil {
-		if err := a.State.Close(ctx); err != nil {
+	if a.Runtime != nil {
+		if err := a.Runtime.Close(ctx); err != nil {
 			errs = append(errs, err)
 		}
 	}
