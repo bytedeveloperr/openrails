@@ -24,8 +24,7 @@ type SolanaWalletChallengeRequest struct {
 // GenerateSolanaWalletChallenge generates a verification challenge for a wallet
 func GenerateSolanaWalletChallenge(r *Request) {
 	req := new(SolanaWalletChallengeRequest)
-	if err := r.Bind(req); err != nil {
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request body")
+	if !r.BindJSON(req) {
 		return
 	}
 
@@ -64,8 +63,7 @@ func GenerateSolanaWalletChallenge(r *Request) {
 // VerifySolanaWallet accepts a signature and marks wallet as verified
 func VerifySolanaWallet(r *Request) {
 	req := new(SolanaWalletVerifyRequest)
-	if err := r.Bind(req); err != nil {
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request body")
+	if !r.BindJSON(req) {
 		return
 	}
 

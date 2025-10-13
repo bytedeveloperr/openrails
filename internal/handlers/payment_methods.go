@@ -14,9 +14,7 @@ import (
 // ListPaymentMethods returns the user's payment methods (optionally including inactive)
 func ListPaymentMethods(r *Request) {
 	req := new(ListPaymentMethodsRequest)
-	if err := r.Bind(req); err != nil {
-		log.WithError(err).Error("Failed to bind list payment methods request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request parameters")
+	if !r.BindQuery(req) {
 		return
 	}
 
@@ -95,9 +93,7 @@ func ListPaymentMethods(r *Request) {
 // DeletePaymentMethod removes a payment method by ID
 func DeletePaymentMethod(r *Request) {
 	req := new(DeletePaymentMethodRequest)
-	if err := r.Bind(req); err != nil {
-		log.WithError(err).Error("Failed to bind delete payment method request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request parameters")
+	if !r.BindURI(req.Path()) {
 		return
 	}
 
@@ -177,9 +173,7 @@ func DeletePaymentMethod(r *Request) {
 // ActivatePaymentMethod activates a given payment method ID
 func ActivatePaymentMethod(r *Request) {
 	req := new(ActivatePaymentMethodRequest)
-	if err := r.Bind(req); err != nil {
-		log.WithError(err).Error("Failed to bind activate payment method request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request parameters")
+	if !r.BindURI(req.Path()) {
 		return
 	}
 

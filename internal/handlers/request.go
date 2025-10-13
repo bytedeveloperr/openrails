@@ -60,6 +60,22 @@ func (r *Request) BindJSON(data any) bool {
 	return true
 }
 
+func (r *Request) BindQuery(data any) bool {
+	if err := r.GinCtx.ShouldBindQuery(data); err != nil {
+		r.ErrorJSON(http.StatusBadRequest, normaliseBindError(err))
+		return false
+	}
+	return true
+}
+
+func (r *Request) BindURI(data any) bool {
+	if err := r.GinCtx.ShouldBindUri(data); err != nil {
+		r.ErrorJSON(http.StatusBadRequest, normaliseBindError(err))
+		return false
+	}
+	return true
+}
+
 func (r *Request) Param(key string) string {
 	return r.GinCtx.Param(key)
 }

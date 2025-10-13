@@ -12,9 +12,7 @@ import (
 
 func GenerateFlexFormURL(r *Request) {
 	var req GenerateFlexFormURLRequest
-	if err := r.Bind(&req); err != nil {
-		log.WithError(err).Error("Failed to bind FlexForm URL request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request")
+	if !r.BindJSON(&req) {
 		return
 	}
 

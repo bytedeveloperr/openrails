@@ -18,9 +18,7 @@ import (
 // but does not create a real Solana transaction to avoid external dependencies.
 func GeneratePayment(r *Request) {
 	req := new(GeneratePaymentRequest)
-	if err := r.Bind(req); err != nil {
-		log.WithError(err).Error("Failed to bind generate payment request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request body")
+	if !r.BindJSON(req) {
 		return
 	}
 

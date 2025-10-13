@@ -10,9 +10,7 @@ import (
 
 func Subscribe(r *Request) {
 	var req SubscribeRequest
-	if err := r.Bind(&req); err != nil {
-		log.WithError(err).Error("Failed to bind subscribe request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request")
+	if !r.BindJSON(&req) {
 		return
 	}
 

@@ -18,9 +18,7 @@ import (
 // GenerateSolanaPayQR generates a Solana Pay URL for wallet apps to scan
 func GenerateSolanaPayQR(r *Request) {
 	req := new(GenerateSolanaPayQRRequest)
-	if err := r.Bind(req); err != nil {
-		log.WithError(err).Error("Failed to bind generate QR request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request parameters")
+	if !r.BindJSON(req) {
 		return
 	}
 

@@ -26,9 +26,7 @@ import (
 // SubmitPayment accepts a signed transaction and processes payment with real on-chain verification
 func SubmitPayment(r *Request) {
 	req := new(SubmitPaymentRequest)
-	if err := r.Bind(req); err != nil {
-		log.WithError(err).Error("Failed to bind submit payment request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request body")
+	if !r.BindJSON(req) {
 		return
 	}
 

@@ -18,9 +18,7 @@ import (
 // CheckSolanaPayment checks if a Solana Pay transfer has been completed on-chain
 func CheckSolanaPayment(r *Request) {
 	req := new(CheckSolanaPaymentRequest)
-	if err := r.Bind(req); err != nil {
-		log.WithError(err).Error("Failed to bind check payment request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request parameters")
+	if !r.BindQuery(req.Query()) {
 		return
 	}
 

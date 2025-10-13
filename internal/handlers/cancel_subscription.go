@@ -4,15 +4,12 @@ import (
 	"net/http"
 
 	"github.com/doujins-org/doujins-billing/internal/middleware"
-	log "github.com/sirupsen/logrus"
 )
 
 // CancelSubscription cancels the current user's subscription
 func CancelSubscription(r *Request) {
 	req := new(CancelSubscriptionRequest)
-	if err := r.Bind(req); err != nil {
-		log.WithError(err).Error("Failed to bind cancel subscription request")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request")
+	if !r.BindJSON(req) {
 		return
 	}
 

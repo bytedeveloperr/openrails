@@ -9,8 +9,7 @@ import (
 
 func UpdateStatus(r *Request) {
 	var data services.UpdateSubscriptionStatusParams
-	if err := r.Bind(&data); err != nil {
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request body")
+	if !r.BindJSON(&data) {
 		return
 	}
 
@@ -30,8 +29,7 @@ func UpdateStatus(r *Request) {
 
 func ExtendSubscription(r *Request) {
 	var data services.ExtendSubscriptionParams
-	if err := r.Bind(&data); err != nil {
-		r.ErrorJSON(http.StatusBadRequest, "Invalid request body")
+	if !r.BindJSON(&data) {
 		return
 	}
 
