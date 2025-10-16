@@ -9,6 +9,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/pkg/query"
@@ -38,7 +39,7 @@ type GetSubscriptionsFilters struct {
 }
 
 type SubscriptionService struct {
-	DB                       *db.DB
+	subscriptionRepo         *repo.SubscriptionRepo
 	PriceService             *PriceService
 	ProductService           *ProductService
 	NotificationQueueService *NotificationQueueService
@@ -250,7 +251,7 @@ func NewSubscriptionService(
 	mobiusClient *mobius.MobiusClient,
 ) *SubscriptionService {
 	return &SubscriptionService{
-		DB:                       db,
+		subscriptionRepo:         repo.NewSubscriptionRepo(db),
 		PriceService:             priceService,
 		ProductService:           productService,
 		NotificationQueueService: notificationQueueService,
@@ -259,300 +260,76 @@ func NewSubscriptionService(
 	}
 }
 
-func (s *SubscriptionService) GetDB() *db.DB {
-	return s.DB
-}
-
 func (s *SubscriptionService) Create(ctx context.Context, subscription *models.Subscription) error {
-	result, err := s.DB.GetDB().NewInsert().Model(subscription).Exec(ctx)
-	if err != nil {
-		return err
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rowsAffected < 1 {
-		return errors.New("no rows affected")
-	}
-
-	return nil
+	return s.subscriptionRepo.Create(ctx, subscription)
 }
 
 func (s *SubscriptionService) GetByID(ctx context.Context, id uuid.UUID) (*models.Subscription, error) {
-	var subscription models.Subscription
-	err := s.DB.GetDB().NewSelect().
-		Model(&subscription).
-		Relation("Price").
-		Relation("PaymentMethod").
-		Where("id = ?", id).
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &subscription, nil
+	return s.subscriptionRepo.GetByID(ctx, id)
 }
 
 func (s *SubscriptionService) GetByUserID(ctx context.Context, id string) (*models.Subscription, error) {
-	var subscription models.Subscription
-	err := s.DB.GetDB().NewSelect().
-		Model(&subscription).
-		Relation("Price").
-		Relation("PaymentMethod").
-		Where("user_id = ?", id).
-		Order("created_at DESC").
-		Limit(1).
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return &subscription, nil
+	return s.subscriptionRepo.GetLatestByUserID(ctx, id)
 }
 
 func (s *SubscriptionService) GetByUserIDAndPriceID(ctx context.Context, id string, priceID uuid.UUID) (*models.Subscription, error) {
-	var subscription models.Subscription
-	if err := s.DB.GetDB().NewSelect().
-		Model(&subscription).
-		Where("user_id = ?", id).
-		Where("price_id = ?", priceID).
-		Scan(ctx); err != nil {
-		return nil, err
-	}
-
-	return &subscription, nil
+	return s.subscriptionRepo.GetByUserIDAndPriceID(ctx, id, priceID)
 }
 
 func (s *SubscriptionService) Update(ctx context.Context, subscription *models.Subscription) error {
-	result, err := s.DB.GetDB().NewUpdate().Model(subscription).WherePK().Exec(ctx)
-	if err != nil {
-		return err
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rowsAffected < 1 {
-		return errors.New("no rows affected")
-	}
-
-	return nil
+	return s.subscriptionRepo.Update(ctx, subscription)
 }
 
 func (s *SubscriptionService) GetSubscribers(ctx context.Context, params query.QueryOptions[GetSubscriptionsFilters]) ([]*models.Subscription, int64, error) {
-	q := s.DB.GetDB().NewSelect().
-		Model((*models.Subscription)(nil))
-		// Note: User relationship is not preloaded - fetch separately if needed using UsertService.GetFullUser
-
-	if params.Filters.Status != "" {
-		q = q.Where("status = ?", params.Filters.Status)
+	repoParams := query.QueryOptions[repo.SubscriptionFilters]{
+		Filters: repo.SubscriptionFilters{
+			UserID:    params.Filters.UserID,
+			Status:    params.Filters.Status,
+			PriceID:   params.Filters.PriceID,
+			Processor: params.Filters.Processor,
+		},
+		Limit:  params.Limit,
+		Offset: params.Offset,
 	}
 
-	if params.Filters.PriceID != uuid.Nil {
-		q = q.Where("price_id = ?", params.Filters.PriceID)
-	}
-
-	if params.Filters.Processor != "" {
-		q = q.Where("processor = ?", params.Filters.Processor)
-	}
-
-	var total int64
-	count, err := q.Count(ctx)
-	if err != nil {
-		return nil, 0, err
-	}
-	total = int64(count)
-
-	if params.Limit > 0 {
-		q = q.Limit(params.Limit)
-	}
-
-	if params.Offset > 0 {
-		q = q.Offset(params.Offset)
-	}
-
-	q = q.Order("created_at DESC")
-
-	var subscriptions []*models.Subscription
-	if err := q.Scan(ctx, &subscriptions); err != nil {
-		return nil, 0, err
-	}
-
-	return subscriptions, total, nil
+	return s.subscriptionRepo.GetSubscribers(ctx, repoParams)
 }
 
 func (s *SubscriptionService) GetPaginatedByUserID(ctx context.Context, userID string, page, pageSize int) ([]models.Subscription, int, error) {
-	var subscriptions []models.Subscription
-	var count int
-
-	offset := (page - 1) * pageSize
-
-	count, err := s.DB.GetDB().NewSelect().
-		Model(&models.Subscription{}).
-		Where("user_id = ?", userID).
-		Count(ctx)
-
-	if err != nil {
-		return nil, 0, err
-	}
-
-	query := s.DB.GetDB().NewSelect().
-		Model(&subscriptions).
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Limit(pageSize).
-		Offset(offset)
-
-	if err := query.Scan(ctx); err != nil {
-		return nil, 0, err
-	}
-
-	return subscriptions, count, nil
+	return s.subscriptionRepo.GetPaginatedByUserID(ctx, userID, page, pageSize)
 }
 
 // GetSubscriptionsWithDetailsForUser retrieves subscriptions with related price information for billing history
 func (s *SubscriptionService) GetSubscriptionsWithDetailsForUser(ctx context.Context, userID string, page, pageSize int) ([]models.Subscription, int, error) {
-	var subscriptions []models.Subscription
-	var count int
-
-	offset := (page - 1) * pageSize
-
-	// Get count
-	count, err := s.DB.GetDB().NewSelect().
-		Model(&models.Subscription{}).
-		Where("user_id = ?", userID).
-		Count(ctx)
-
-	if err != nil {
-		return nil, 0, err
-	}
-
-	// Get subscriptions with related data
-	query := s.DB.GetDB().NewSelect().
-		Model(&subscriptions).
-		Relation("Price").
-		Relation("PaymentMethod").
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Limit(pageSize).
-		Offset(offset)
-
-	if err := query.Scan(ctx); err != nil {
-		return nil, 0, err
-	}
-
-	return subscriptions, count, nil
+	return s.subscriptionRepo.GetSubscriptionsWithDetailsForUser(ctx, userID, page, pageSize)
 }
 
 // GetActiveSubscriptionsByUserID retrieves only active subscriptions for a user
 func (s *SubscriptionService) GetActiveSubscriptionsByUserID(ctx context.Context, userID string) ([]models.Subscription, error) {
-	var subscriptions []models.Subscription
-
-	query := s.DB.GetDB().NewSelect().
-		Model(&subscriptions).
-		Relation("Price").
-		Relation("PaymentMethod").
-		Where("user_id = ? AND status = ?", userID, models.StatusActive).
-		Order("created_at DESC")
-
-	if err := query.Scan(ctx); err != nil {
-		return nil, err
-	}
-
-	return subscriptions, nil
+	return s.subscriptionRepo.GetActiveSubscriptionsByUserID(ctx, userID)
 }
 
 // GetSubscriptionsByProcessorAndUserID retrieves subscriptions filtered by processor
 func (s *SubscriptionService) GetSubscriptionsByProcessorAndUserID(ctx context.Context, userID string, processor models.Processor) ([]models.Subscription, error) {
-	var subscriptions []models.Subscription
-
-	query := s.DB.GetDB().NewSelect().
-		Model(&subscriptions).
-		Relation("Price").
-		Relation("PaymentMethod").
-		Where("user_id = ? AND processor = ?", userID, processor).
-		Order("created_at DESC")
-
-	if err := query.Scan(ctx); err != nil {
-		return nil, err
-	}
-
-	return subscriptions, nil
+	return s.subscriptionRepo.GetSubscriptionsByProcessorAndUserID(ctx, userID, processor)
 }
 
 // GetActiveSubscription retrieves the active subscription for a user
 func (s *SubscriptionService) GetActiveSubscription(ctx context.Context, userID string) (*models.Subscription, error) {
-	var subscription models.Subscription
-	err := s.DB.GetDB().NewSelect().
-		Model(&subscription).
-		Relation("Price").
-		Relation("PaymentMethod").
-		Where("user_id = ?", userID).
-		Where("status = ?", models.StatusActive).
-		Where("(current_period_ends_at IS NULL OR current_period_ends_at > NOW())").
-		Order("created_at DESC").
-		Limit(1).
-		Scan(ctx)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &subscription, nil
+	return s.subscriptionRepo.GetActiveSubscription(ctx, userID)
 }
 
 // GetByProcessorSubscriptionID finds a subscription by processor and processor_subscription_id
 func (s *SubscriptionService) GetByProcessorSubscriptionID(ctx context.Context, processor, processorSubscriptionID string) (*models.Subscription, error) {
-	var subscription models.Subscription
-	err := s.DB.GetDB().NewSelect().
-		Model(&subscription).
-		Relation("Price").
-		Relation("PaymentMethod").
-		Where("processor = ?", processor).
-		Where("processor_subscription_id = ?", processorSubscriptionID).
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return &subscription, nil
+	return s.subscriptionRepo.GetByProcessorSubscriptionID(ctx, processor, processorSubscriptionID)
 }
 
 // GetActiveSubscriptionsByProcessor gets all active subscriptions for a processor
 func (s *SubscriptionService) GetActiveSubscriptionsByProcessor(ctx context.Context, processor string) ([]*models.Subscription, error) {
-	var subscriptions []*models.Subscription
-	err := s.DB.GetDB().NewSelect().
-		Model(&subscriptions).
-		Where("processor = ?", processor).
-		Where("status = ?", "active").
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return subscriptions, nil
+	return s.subscriptionRepo.GetActiveSubscriptionsByProcessor(ctx, processor)
 }
 
 // Delete removes a subscription from the database permanently
 func (s *SubscriptionService) Delete(ctx context.Context, id uuid.UUID) error {
-	result, err := s.DB.GetDB().NewDelete().
-		Model((*models.Subscription)(nil)).
-		Where("id = ?", id).
-		Exec(ctx)
-	if err != nil {
-		return err
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rowsAffected < 1 {
-		return errors.New("no rows affected")
-	}
-
-	return nil
+	return s.subscriptionRepo.Delete(ctx, id)
 }

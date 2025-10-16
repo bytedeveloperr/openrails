@@ -25,16 +25,7 @@ func GetAdminActiveEntitlements(r *Request) {
 
 	now := time.Now()
 	// Active if: revoked_at IS NULL AND start_at <= now AND (end_at IS NULL OR end_at > now)
-	var ents []map[string]any
-	err := svc.GetDB().GetDB().NewSelect().
-		Table("entitlements").
-		Column("id", "entitlement", "start_at", "end_at", "source_type", "source_id", "created_at", "updated_at").
-		Where("user_id = ?", path.UserID).
-		Where("revoked_at IS NULL").
-		Where("start_at <= ?", now).
-		Where("(end_at IS NULL OR end_at > ?)", now).
-		Order("start_at ASC").
-		Scan(r.Request.Context(), &ents)
+	ents, err := svc.ListActiveRecords(r.Request.Context(), path.UserID, now)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
 		return

@@ -9,6 +9,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/utils/solana"
 	"github.com/google/uuid"
 )
@@ -19,10 +20,11 @@ var (
 )
 
 // SolanaWalletService provides DB-backed operations for user wallets
-type SolanaWalletService struct{ db *db.DB }
+type SolanaWalletService struct{ repo *repo.SolanaWalletRepo }
 
-func NewSolanaWalletService(db *db.DB) *SolanaWalletService { return &SolanaWalletService{db: db} }
-func (s *SolanaWalletService) GetDB() *db.DB                { return s.db }
+func NewSolanaWalletService(db *db.DB) *SolanaWalletService {
+	return &SolanaWalletService{repo: repo.NewSolanaWalletRepo(db)}
+}
 
 // Link adds a wallet for a user if not present; returns existing or newly created
 func (s *SolanaWalletService) Link(ctx context.Context, userID, address string) (*models.SolanaWallet, error) {
@@ -33,21 +35,16 @@ func (s *SolanaWalletService) Link(ctx context.Context, userID, address string) 
 		return nil, fmt.Errorf("address validation failed: %w", err)
 	}
 
-	// Try to find existing
-	var existing models.SolanaWallet
-	err := s.db.GetDB().NewSelect().Model(&existing).
-		Where("user_id = ? AND address = ?", userID, address).
-		Scan(ctx)
+	existing, err := s.repo.GetByUserAndAddress(ctx, userID, address)
 	if err == nil {
-		return &existing, nil
+		return existing, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("failed to check existing wallet: %w", err)
 	}
 
-	// Create new
 	now := time.Now()
-	w := &models.SolanaWallet{
+	wallet := &models.SolanaWallet{
 		ID:         uuid.New(),
 		UserID:     userID,
 		Address:    address,
@@ -56,14 +53,14 @@ func (s *SolanaWalletService) Link(ctx context.Context, userID, address string) 
 		UpdatedAt:  now,
 	}
 
-	res, err := s.db.GetDB().NewInsert().Model(w).Exec(ctx)
-	if err != nil {
+	if err := s.repo.Insert(ctx, wallet); err != nil {
+		if errors.Is(err, repo.ErrNoRowsAffected) {
+			return nil, ErrWalletAlreadyExists
+		}
 		return nil, fmt.Errorf("failed to insert wallet: %w", err)
 	}
-	if rows, _ := res.RowsAffected(); rows < 1 {
-		return nil, fmt.Errorf("wallet insert affected 0 rows")
-	}
-	return w, nil
+
+	return wallet, nil
 }
 
 // List returns wallets for a user
@@ -71,12 +68,8 @@ func (s *SolanaWalletService) List(ctx context.Context, userID string) ([]*model
 	if userID == "" {
 		return nil, fmt.Errorf("userID cannot be empty")
 	}
-
-	var wallets []*models.SolanaWallet
-	if err := s.db.GetDB().NewSelect().Model(&wallets).
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
-		Scan(ctx); err != nil {
+	wallets, err := s.repo.ListByUser(ctx, userID)
+	if err != nil {
 		return nil, fmt.Errorf("failed to list wallets for user %s: %w", userID, err)
 	}
 	return wallets, nil
@@ -92,16 +85,11 @@ func (s *SolanaWalletService) Verify(ctx context.Context, userID, address string
 	}
 
 	now := time.Now()
-	res, err := s.db.GetDB().NewUpdate().Model((*models.SolanaWallet)(nil)).
-		Set("is_verified = ?", true).
-		Set("verified_at = ?", &now).
-		Set("updated_at = ?", now).
-		Where("user_id = ? AND address = ?", userID, address).
-		Exec(ctx)
+	rows, err := s.repo.MarkVerified(ctx, userID, address, now)
 	if err != nil {
 		return fmt.Errorf("failed to verify wallet %s for user %s: %w", address, userID, err)
 	}
-	if rows, _ := res.RowsAffected(); rows < 1 {
+	if rows < 1 {
 		return fmt.Errorf("%w: wallet %s for user %s", ErrWalletNotFound, address, userID)
 	}
 	return nil
@@ -116,13 +104,11 @@ func (s *SolanaWalletService) Delete(ctx context.Context, userID, address string
 		return fmt.Errorf("address validation failed: %w", err)
 	}
 
-	res, err := s.db.GetDB().NewDelete().Model((*models.SolanaWallet)(nil)).
-		Where("user_id = ? AND address = ?", userID, address).
-		Exec(ctx)
+	rows, err := s.repo.Delete(ctx, userID, address)
 	if err != nil {
 		return fmt.Errorf("failed to delete wallet %s for user %s: %w", address, userID, err)
 	}
-	if rows, _ := res.RowsAffected(); rows < 1 {
+	if rows < 1 {
 		return fmt.Errorf("%w: wallet %s for user %s", ErrWalletNotFound, address, userID)
 	}
 	return nil
@@ -137,19 +123,14 @@ func (s *SolanaWalletService) Get(ctx context.Context, userID, address string) (
 		return nil, fmt.Errorf("address validation failed: %w", err)
 	}
 
-	var wallet models.SolanaWallet
-	err := s.db.GetDB().NewSelect().Model(&wallet).
-		Where("user_id = ? AND address = ?", userID, address).
-		Order("updated_at DESC").
-		Limit(1).
-		Scan(ctx)
+	wallet, err := s.repo.GetLatest(ctx, userID, address)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: wallet %s for user %s", ErrWalletNotFound, address, userID)
 		}
 		return nil, fmt.Errorf("failed to get wallet %s for user %s: %w", address, userID, err)
 	}
-	return &wallet, nil
+	return wallet, nil
 }
 
 // GetPrimary returns the most recently verified wallet for a user.
@@ -158,18 +139,12 @@ func (s *SolanaWalletService) GetPrimary(ctx context.Context, userID string) (*m
 		return nil, fmt.Errorf("userID cannot be empty")
 	}
 
-	var wallet models.SolanaWallet
-	err := s.db.GetDB().NewSelect().Model(&wallet).
-		Where("user_id = ?", userID).
-		OrderExpr("is_verified DESC").
-		Order("updated_at DESC").
-		Limit(1).
-		Scan(ctx)
+	wallet, err := s.repo.GetPrimary(ctx, userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: no wallet for user %s", ErrWalletNotFound, userID)
 		}
 		return nil, fmt.Errorf("failed to get primary wallet for user %s: %w", userID, err)
 	}
-	return &wallet, nil
+	return wallet, nil
 }

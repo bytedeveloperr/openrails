@@ -373,13 +373,7 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
 	// Disallow one-off if any relevant entitlement has an active indefinite window
 	if s.EntitlementService != nil {
 		for _, g := range grants {
-			exists, err := s.EntitlementService.GetDB().GetDB().NewSelect().
-				Model((*models.Entitlement)(nil)).
-				Where("user_id = ? AND entitlement = ?", userID, g.name).
-				Where("revoked_at IS NULL").
-				Where("end_at IS NULL").
-				Where("start_at <= ?", time.Now()).
-				Exists(ctx)
+			exists, err := s.EntitlementService.HasActiveIndefinite(ctx, userID, g.name, time.Now())
 			if err != nil {
 				return fmt.Errorf("failed entitlement check: %w", err)
 			}

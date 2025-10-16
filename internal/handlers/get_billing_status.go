@@ -46,14 +46,11 @@ func GetMyBillingStatus(r *Request) {
 	// List entitlements (optional)
 	var ents any
 	if r.State.EntitlementService != nil {
-		// Query directly for now to avoid extra service APIs
-		var list []map[string]any
-		_ = r.State.EntitlementService.GetDB().GetDB().NewSelect().
-			TableExpr("entitlements").
-			Column("id", "entitlement", "start_at", "end_at", "source_type", "source_id", "revoked_at", "revoke_reason", "created_at", "updated_at").
-			Where("user_id = ?", user.ID).
-			Order("start_at DESC").
-			Scan(r.Request.Context(), &list)
+		list, err := r.State.EntitlementService.ListByUser(r.Request.Context(), user.ID)
+		if err != nil {
+			r.ErrorJSON(http.StatusInternalServerError, err.Error())
+			return
+		}
 		ents = list
 	}
 

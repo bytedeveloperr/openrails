@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -165,25 +167,19 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 			now := time.Now()
 			for _, ent := range entNames {
 				// Skip if this subscription already created this entitlement
-				exists, _ := entitlementService.GetDB().GetDB().NewSelect().
-					Model((*models.Entitlement)(nil)).
-					Where("source_type = ? AND source_id = ? AND entitlement = ? AND revoked_at IS NULL", models.EntitlementSourceSubscription, subscription.ID, ent).
-					Exists(ctx)
+				exists, err := entitlementService.ExistsBySource(ctx, models.EntitlementSourceSubscription, subscription.ID, ent)
+				if err != nil {
+					return fmt.Errorf("failed entitlement check: %w", err)
+				}
 				if exists {
 					continue
 				}
 				start := periodStartsAt
-				var finite models.Entitlement
-				_ = entitlementService.GetDB().GetDB().NewSelect().Model(&finite).
-					Where("user_id = ? AND entitlement = ?", params.UserID, ent).
-					Where("revoked_at IS NULL").
-					Where("end_at IS NOT NULL").
-					Where("start_at <= ?", now).
-					Where("end_at > ?", now).
-					Order("end_at DESC").
-					Limit(1).
-					Scan(ctx)
-				if finite.ID != uuid.Nil && finite.EndAt != nil {
+				finite, err := entitlementService.LatestFiniteWindow(ctx, params.UserID, ent, now)
+				if err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return fmt.Errorf("failed to fetch finite entitlement: %w", err)
+				}
+				if err == nil && finite != nil && finite.EndAt != nil {
 					start = *finite.EndAt
 				}
 				_, _ = entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID)

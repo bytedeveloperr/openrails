@@ -15,6 +15,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/utils/solana"
 )
 
@@ -22,7 +23,7 @@ const defaultChallengeTTL = 10 * time.Minute
 
 // SolanaVerificationService persists wallet verification challenges and validates signatures.
 type SolanaVerificationService struct {
-	db           *db.DB
+	challenges   *repo.SolanaChallengeRepo
 	wallets      *SolanaWalletService
 	challengeTTL time.Duration
 }
@@ -45,7 +46,7 @@ func NewSolanaVerificationService(db *db.DB, wallets *SolanaWalletService) *Sola
 	}
 
 	return &SolanaVerificationService{
-		db:           db,
+		challenges:   repo.NewSolanaChallengeRepo(db),
 		wallets:      wallets,
 		challengeTTL: ttl,
 	}
@@ -65,7 +66,6 @@ func (s *SolanaVerificationService) GenerateChallenge(ctx context.Context, userI
 		return nil, fmt.Errorf("invalid solana address: %w", err)
 	}
 
-	// Generate a random nonce for replay protection.
 	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return nil, fmt.Errorf("failed to generate nonce: %w", err)
@@ -92,15 +92,7 @@ func (s *SolanaVerificationService) GenerateChallenge(ctx context.Context, userI
 		UpdatedAt: now,
 	}
 
-	_, err = s.db.GetDB().NewInsert().Model(challenge).
-		Column("user_id", "address", "message", "nonce", "expires_at", "updated_at").
-		On("CONFLICT (user_id, address) DO UPDATE").
-		Set("message = EXCLUDED.message").
-		Set("nonce = EXCLUDED.nonce").
-		Set("expires_at = EXCLUDED.expires_at").
-		Set("updated_at = EXCLUDED.updated_at").
-		Exec(ctx)
-	if err != nil {
+	if err := s.challenges.Upsert(ctx, challenge); err != nil {
 		return nil, fmt.Errorf("failed to persist verification challenge: %w", err)
 	}
 
@@ -131,10 +123,7 @@ func (s *SolanaVerificationService) VerifySignature(ctx context.Context, userID,
 		return nil, fmt.Errorf("signature validation failed: %w", err)
 	}
 
-	var challenge models.SolanaWalletChallenge
-	err := s.db.GetDB().NewSelect().Model(&challenge).
-		Where("user_id = ? AND address = ?", userID, address).
-		Scan(ctx)
+	challenge, err := s.challenges.Get(ctx, userID, address)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			return nil, err
@@ -143,7 +132,7 @@ func (s *SolanaVerificationService) VerifySignature(ctx context.Context, userID,
 	}
 
 	if time.Now().After(challenge.ExpiresAt) {
-		_ = s.deleteChallenge(ctx, challenge.UserID, challenge.Address)
+		_ = s.challenges.Delete(ctx, challenge.UserID, challenge.Address)
 		return nil, fmt.Errorf("challenge expired")
 	}
 
@@ -164,7 +153,6 @@ func (s *SolanaVerificationService) VerifySignature(ctx context.Context, userID,
 		return nil, fmt.Errorf("signature verification failed")
 	}
 
-	// Ensure the wallet record exists then mark it verified.
 	if _, err := s.wallets.Link(ctx, userID, challenge.Address); err != nil {
 		return nil, fmt.Errorf("failed to link wallet prior to verification: %w", err)
 	}
@@ -173,8 +161,7 @@ func (s *SolanaVerificationService) VerifySignature(ctx context.Context, userID,
 		return nil, fmt.Errorf("failed to mark wallet verified: %w", err)
 	}
 
-	// Clean up challenge regardless of wallet retrieval outcome.
-	if err := s.deleteChallenge(ctx, challenge.UserID, challenge.Address); err != nil {
+	if err := s.challenges.Delete(ctx, challenge.UserID, challenge.Address); err != nil {
 		log.WithError(err).Warn("Failed to delete Solana wallet challenge after verification")
 	}
 
@@ -189,14 +176,4 @@ func (s *SolanaVerificationService) VerifySignature(ctx context.Context, userID,
 	}).Info("Successfully verified Solana wallet signature")
 
 	return wallet, nil
-}
-
-func (s *SolanaVerificationService) deleteChallenge(ctx context.Context, userID, address string) error {
-	_, err := s.db.GetDB().NewDelete().Model((*models.SolanaWalletChallenge)(nil)).
-		Where("user_id = ? AND address = ?", userID, address).
-		Exec(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to delete challenge for wallet %s: %w", address, err)
-	}
-	return nil
 }

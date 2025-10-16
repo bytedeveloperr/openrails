@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"errors"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -14,12 +15,71 @@ type ProductRepo struct {
 
 func NewProductRepo(d *db.DB) *ProductRepo { return &ProductRepo{db: d} }
 
-func (r *ProductRepo) Create(ctx context.Context, p *models.Product) error {
-	_, err := r.db.GetDB().NewInsert().Model(p).TableExpr(r.db.QualifiedTable("products")).Exec(ctx)
-	return err
+func (r *ProductRepo) Create(ctx context.Context, product *models.Product) error {
+	res, err := r.db.GetDB().NewInsert().Model(product).TableExpr(r.db.QualifiedTable("products")).Exec(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows < 1 {
+		return errors.New("no rows affected")
+	}
+	return nil
+}
+
+func (r *ProductRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Product, error) {
+	product := new(models.Product)
+	if err := r.db.GetDB().NewSelect().Model(product).TableExpr(r.db.QualifiedTable("products")).Where("id = ?", id).Scan(ctx); err != nil {
+		return nil, err
+	}
+	return product, nil
+}
+
+func (r *ProductRepo) GetActive(ctx context.Context) ([]*models.Product, error) {
+	products := []*models.Product{}
+	if err := r.db.GetDB().NewSelect().Model(&products).TableExpr(r.db.QualifiedTable("products")).Where("is_active = ?", true).Scan(ctx); err != nil {
+		return nil, err
+	}
+	return products, nil
+}
+
+func (r *ProductRepo) Update(ctx context.Context, product *models.Product) error {
+	res, err := r.db.GetDB().NewUpdate().Model(product).TableExpr(r.db.QualifiedTable("products")).WherePK().Exec(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows < 1 {
+		return errors.New("no rows affected")
+	}
+	return nil
 }
 
 func (r *ProductRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	_, err := r.db.GetDB().NewDelete().Model((*models.Product)(nil)).TableExpr(r.db.QualifiedTable("products")).Where("id = ?", id).Exec(ctx)
-	return err
+	res, err := r.db.GetDB().NewDelete().Model((*models.Product)(nil)).TableExpr(r.db.QualifiedTable("products")).Where("id = ?", id).Exec(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows < 1 {
+		return errors.New("no rows affected")
+	}
+	return nil
+}
+
+func (r *ProductRepo) GetBySlug(ctx context.Context, slug string) (*models.Product, error) {
+	product := new(models.Product)
+	if err := r.db.GetDB().NewSelect().Model(product).TableExpr(r.db.QualifiedTable("products")).Where("slug = ?", slug).Scan(ctx); err != nil {
+		return nil, err
+	}
+	return product, nil
 }
