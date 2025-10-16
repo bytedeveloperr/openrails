@@ -9,6 +9,7 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
@@ -82,14 +83,11 @@ func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, pric
 	exp := time.Now().Add(10 * time.Minute)
 
 	// Disallow one-off if a subscription entitlement is already active (indefinite)
-	if userID != "" {
-		exists, _ := s.db.GetDB().NewSelect().
-			Model((*models.Entitlement)(nil)).
-			Where("user_id = ? AND entitlement = ?", userID, "premium").
-			Where("revoked_at IS NULL").
-			Where("end_at IS NULL").
-			Where("start_at <= ?", time.Now()).
-			Exists(ctx)
+	if userID != "" && s.entitlementService != nil {
+		exists, err := s.entitlementService.HasActiveIndefinite(ctx, userID, "premium", time.Now())
+		if err != nil {
+			return 0, "", 0, time.Time{}, fmt.Errorf("failed entitlement check: %w", err)
+		}
 		if exists {
 			return 0, "", 0, time.Time{}, fmt.Errorf("one-off purchase not allowed while subscription entitlement is active")
 		}
@@ -113,6 +111,7 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 		paymentService := NewPaymentService(txDB)
 		productService := NewProductService(txDB)
 		entitlementService := NewEntitlementService(txDB)
+		solanaTxnRepo := repo.NewSolanaTransactionRepo(txDB)
 
 		// Get price information
 		price, err := priceService.GetByID(ctx, priceID)
@@ -122,13 +121,10 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 
 		// Disallow one-off if a subscription entitlement is already active (indefinite)
 		if userID != "" {
-			exists, _ := tx.NewSelect().
-				Model((*models.Entitlement)(nil)).
-				Where("user_id = ? AND entitlement = ?", userID, "premium").
-				Where("revoked_at IS NULL").
-				Where("end_at IS NULL").
-				Where("start_at <= ?", time.Now()).
-				Exists(ctx)
+			exists, err := entitlementService.HasActiveIndefinite(ctx, userID, "premium", time.Now())
+			if err != nil {
+				return fmt.Errorf("failed entitlement check: %w", err)
+			}
 			if exists {
 				return fmt.Errorf("one-off purchase not allowed while subscription entitlement is active")
 			}
@@ -204,13 +200,12 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 		}
 
 		// Mark any pending SolanaTransaction for this user and price as confirmed (best-effort)
-		_, _ = tx.NewUpdate().
-			TableExpr("solana_transactions").
-			Set("status = ?", "confirmed").
-			Set("signature = ?", signature).
-			Where("user_id = ?", userID).
-			Where("amount = ?", price.Amount).
-			Exec(ctx)
+		if err := solanaTxnRepo.MarkConfirmedByUserAndAmount(ctx, userID, price.Amount, signature); err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"user_id": userID,
+				"amount":  price.Amount,
+			}).Warn("failed to mark solana transactions as confirmed")
+		}
 
 		notificationData = &oneOffNotificationData{
 			UserID:      userID,

@@ -10,11 +10,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
 	log "github.com/sirupsen/logrus"
-	"github.com/uptrace/bun"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
 )
 
 const (
@@ -35,13 +35,13 @@ var (
 
 // SolanaPaymentIntentService manages persisted payment intents shared by direct and Solana Pay flows.
 type SolanaPaymentIntentService struct {
-	db           *db.DB
+	repo         *repo.SolanaPaymentIntentRepo
 	cfg          *config.Config
 	priceService *PriceService
 }
 
 func NewSolanaPaymentIntentService(db *db.DB, cfg *config.Config, priceService *PriceService) *SolanaPaymentIntentService {
-	return &SolanaPaymentIntentService{db: db, cfg: cfg, priceService: priceService}
+	return &SolanaPaymentIntentService{repo: repo.NewSolanaPaymentIntentRepo(db), cfg: cfg, priceService: priceService}
 }
 
 // CreateDirectIntent creates an intent for a direct wallet transaction using a verified payer wallet.
@@ -164,35 +164,29 @@ func (s *SolanaPaymentIntentService) CreateSolanaPayIntent(ctx context.Context, 
 
 // GetByID fetches an intent by ID.
 func (s *SolanaPaymentIntentService) GetByID(ctx context.Context, intentID uuid.UUID) (*models.SolanaPaymentIntent, error) {
-	var intent models.SolanaPaymentIntent
-	err := s.db.GetDB().NewSelect().Model(&intent).Where("id = ?", intentID).Scan(ctx)
+	intent, err := s.repo.GetByID(ctx, intentID)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrIntentNotFound, err)
 	}
-	return &intent, nil
+	return intent, nil
 }
 
 // GetByReference fetches an intent by reference value.
 func (s *SolanaPaymentIntentService) GetByReference(ctx context.Context, reference string) (*models.SolanaPaymentIntent, error) {
-	var intent models.SolanaPaymentIntent
-	err := s.db.GetDB().NewSelect().Model(&intent).Where("reference = ?", reference).Scan(ctx)
+	intent, err := s.repo.GetByReference(ctx, reference)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrIntentNotFound, err)
 	}
-	return &intent, nil
+	return intent, nil
 }
 
 // MarkProcessing marks an intent as processing to avoid races.
 func (s *SolanaPaymentIntentService) MarkProcessing(ctx context.Context, intentID uuid.UUID) error {
-	res, err := s.db.GetDB().NewUpdate().Model((*models.SolanaPaymentIntent)(nil)).
-		Set("status = ?", IntentStatusProcessing).
-		Set("updated_at = ?", time.Now()).
-		Where("id = ? AND status = ?", intentID, IntentStatusPending).
-		Exec(ctx)
+	rows, err := s.repo.MarkProcessing(ctx, intentID, IntentStatusProcessing, IntentStatusPending)
 	if err != nil {
 		return fmt.Errorf("failed to mark intent processing: %w", err)
 	}
-	if rows, _ := res.RowsAffected(); rows == 0 {
+	if rows == 0 {
 		return ErrIntentInvalidState
 	}
 	return nil
@@ -200,20 +194,11 @@ func (s *SolanaPaymentIntentService) MarkProcessing(ctx context.Context, intentI
 
 // MarkConfirmed marks an intent as confirmed and stores signature metadata.
 func (s *SolanaPaymentIntentService) MarkConfirmed(ctx context.Context, intentID uuid.UUID, signature string) error {
-	now := time.Now()
-	statuses := []string{IntentStatusPending, IntentStatusProcessing}
-	res, err := s.db.GetDB().NewUpdate().Model((*models.SolanaPaymentIntent)(nil)).
-		Set("status = ?", IntentStatusConfirmed).
-		Set("transaction_signature = ?", signature).
-		Set("signature = ?", signature).
-		Set("confirmed_at = ?", &now).
-		Set("updated_at = ?", now).
-		Where("id = ? AND status IN (?)", intentID, bun.In(statuses)).
-		Exec(ctx)
+	rows, err := s.repo.MarkConfirmed(ctx, intentID, IntentStatusConfirmed, []string{IntentStatusPending, IntentStatusProcessing}, signature)
 	if err != nil {
 		return fmt.Errorf("failed to confirm intent: %w", err)
 	}
-	if rows, _ := res.RowsAffected(); rows == 0 {
+	if rows == 0 {
 		return ErrIntentInvalidState
 	}
 	return nil
@@ -221,16 +206,11 @@ func (s *SolanaPaymentIntentService) MarkConfirmed(ctx context.Context, intentID
 
 // MarkFailed records an error for the intent.
 func (s *SolanaPaymentIntentService) MarkFailed(ctx context.Context, intentID uuid.UUID, message string) error {
-	res, err := s.db.GetDB().NewUpdate().Model((*models.SolanaPaymentIntent)(nil)).
-		Set("status = ?", IntentStatusFailed).
-		Set("error_message = ?", message).
-		Set("updated_at = ?", time.Now()).
-		Where("id = ?", intentID).
-		Exec(ctx)
+	rows, err := s.repo.MarkFailed(ctx, intentID, IntentStatusFailed, message)
 	if err != nil {
 		return fmt.Errorf("failed to mark intent failed: %w", err)
 	}
-	if rows, _ := res.RowsAffected(); rows == 0 {
+	if rows == 0 {
 		return ErrIntentInvalidState
 	}
 	return nil
@@ -239,8 +219,7 @@ func (s *SolanaPaymentIntentService) MarkFailed(ctx context.Context, intentID uu
 func (s *SolanaPaymentIntentService) insertIntent(ctx context.Context, intent *models.SolanaPaymentIntent) error {
 	intent.CreatedAt = time.Now()
 	intent.UpdatedAt = intent.CreatedAt
-	_, err := s.db.GetDB().NewInsert().Model(intent).Exec(ctx)
-	if err != nil {
+	if err := s.repo.Insert(ctx, intent); err != nil {
 		return fmt.Errorf("failed to create solana payment intent: %w", err)
 	}
 	log.WithFields(log.Fields{
