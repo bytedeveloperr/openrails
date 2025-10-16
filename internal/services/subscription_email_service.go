@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
+
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 )
 
 var errUserEmailUnavailable = errors.New("user email unavailable")
@@ -189,6 +192,14 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 		}
 	}
 
+	paymentMethod := describePaymentMethod(subscription)
+	if paymentMethod == "" {
+		paymentMethod = processorDisplayName(subscription.Processor)
+		if paymentMethod == "" {
+			paymentMethod = "Credit Card"
+		}
+	}
+
 	return &SubscriptionEmailData{
 		UserEmail:      email,
 		Username:       username,
@@ -197,8 +208,8 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 		Currency:       price.Currency,
 		PeriodStart:    periodStart,
 		PeriodEnd:      periodEnd,
-		PaymentMethod:  "Credit Card", // Default, could be enhanced to get actual payment method
-		TransactionID:  "",            // Would come from payment processor
+		PaymentMethod:  paymentMethod,
+		TransactionID:  "", // Would come from payment processor
 	}, nil
 }
 
@@ -217,4 +228,57 @@ func (s *SubscriptionEmailService) getUserEmail(ctx context.Context, userID stri
 	}
 
 	return userID, *subscription.UserEmail, nil
+}
+
+func describePaymentMethod(subscription *models.Subscription) string {
+	if subscription == nil || subscription.PaymentMethod == nil {
+		return ""
+	}
+
+	pm := subscription.PaymentMethod
+	cardType := ""
+	if pm.CardType != nil {
+		cardType = strings.TrimSpace(*pm.CardType)
+	}
+	lastFour := ""
+	if pm.LastFour != nil {
+		lastFour = strings.TrimSpace(*pm.LastFour)
+	}
+
+	parts := make([]string, 0, 2)
+	if cardType != "" {
+		parts = append(parts, cardType)
+	} else {
+		friendly := processorDisplayName(pm.Processor)
+		if friendly != "" {
+			parts = append(parts, friendly)
+		}
+	}
+
+	if lastFour != "" {
+		parts = append(parts, fmt.Sprintf("••••%s", lastFour))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func processorDisplayName(processor models.Processor) string {
+	switch processor {
+	case models.ProcessorMobius, models.ProcessorCCBill:
+		return "Credit Card"
+	case models.ProcessorPayPal:
+		return "PayPal"
+	case models.ProcessorSolana:
+		return "Solana"
+	default:
+		clean := strings.TrimSpace(string(processor))
+		if clean == "" {
+			return ""
+		}
+		return strings.ToUpper(clean)
+	}
 }

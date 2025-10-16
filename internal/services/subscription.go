@@ -283,7 +283,12 @@ func (s *SubscriptionService) Create(ctx context.Context, subscription *models.S
 
 func (s *SubscriptionService) GetByID(ctx context.Context, id uuid.UUID) (*models.Subscription, error) {
 	var subscription models.Subscription
-	err := s.DB.GetDB().NewSelect().Model(&subscription).Where("id = ?", id).Scan(ctx)
+	err := s.DB.GetDB().NewSelect().
+		Model(&subscription).
+		Relation("Price").
+		Relation("PaymentMethod").
+		Where("id = ?", id).
+		Scan(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -295,6 +300,7 @@ func (s *SubscriptionService) GetByUserID(ctx context.Context, id string) (*mode
 	err := s.DB.GetDB().NewSelect().
 		Model(&subscription).
 		Relation("Price").
+		Relation("PaymentMethod").
 		Where("user_id = ?", id).
 		Order("created_at DESC").
 		Limit(1).
@@ -484,6 +490,7 @@ func (s *SubscriptionService) GetActiveSubscription(ctx context.Context, userID 
 	err := s.DB.GetDB().NewSelect().
 		Model(&subscription).
 		Relation("Price").
+		Relation("PaymentMethod").
 		Where("user_id = ?", userID).
 		Where("status = ?", models.StatusActive).
 		Where("(current_period_ends_at IS NULL OR current_period_ends_at > NOW())").
@@ -504,6 +511,7 @@ func (s *SubscriptionService) GetByProcessorSubscriptionID(ctx context.Context, 
 	err := s.DB.GetDB().NewSelect().
 		Model(&subscription).
 		Relation("Price").
+		Relation("PaymentMethod").
 		Where("processor = ?", processor).
 		Where("processor_subscription_id = ?", processorSubscriptionID).
 		Scan(ctx)
