@@ -95,9 +95,8 @@ type JWTConfig struct {
 	Issuer   string `koanf:"issuer"`
 	Audience string `koanf:"audience"`
 	JWKSURL  string `koanf:"jwks_url"`
-	// Optional RSA public key PEM for verifying RS256 JWTs. If empty and Issuer is set,
-	// the service will attempt OIDC discovery at "{issuer}/.well-known/openid-configuration"
-	// and use JWKS for verification.
+	// Optional RSA public key PEM for verifying RS256 JWTs. If empty and a JWKS URL
+	// is not provided, the service defaults to "{issuer}/.well-known/jwks.json".
 	PublicKeyPEM         string `koanf:"public_key_pem"`
 	SkipExpiryValidation bool   `koanf:"skip_expiry_validation"`
 }
@@ -299,7 +298,7 @@ func GetDefaultBillingConfig() *Config {
 		},
 		JWT: &JWTConfig{
 			Secret:   "", // RS256 by default; no shared secret
-			Issuer:   "http://auth:8080",
+			Issuer:   "http://api:2052",
 			Audience: "doujins-app",
 		},
 		// Match docker-compose ClickHouse (service: clickhouse)
@@ -411,9 +410,9 @@ func Load(configPath string) (*Config, error) {
 		"ENVIRONMENT":  "env",
 
 		// JWT / OIDC
-		"JWT_SECRET":        "jwt.secret",   // for HS256
-		"JWT_ISSUER":        "jwt.issuer",
-		"JWT_AUDIENCE":      "jwt.audience",
+		"JWT_SECRET":         "jwt.secret", // for HS256
+		"JWT_ISSUER":         "jwt.issuer",
+		"JWT_AUDIENCE":       "jwt.audience",
 		"JWT_PUBLIC_KEY_PEM": "jwt.public_key_pem", // optional for RS256 if not using JWKS
 
 		// CCBill

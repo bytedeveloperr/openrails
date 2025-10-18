@@ -58,7 +58,7 @@ JWT verification
   - HS256/384/512 with `JWT_SECRET`.
   - RS256 via either:
     - `JWT_PUBLIC_KEY_PEM`, or
-    - OIDC discovery from `JWT_ISSUER` and JWKS lookup (no extra config needed).
+    - OIDC discovery from `JWT_ISSUER` and JWKS lookup (AuthKit publishes `http://localhost:2052/.well-known/jwks.json` in dev).
 - Required claims:
   - `iss` must equal the configured issuer (`jwt.issuer`).
   - `aud` must contain the configured audience (`jwt.audience`).

@@ -26,8 +26,8 @@ redis:
 
 # JWT configuration for authentication (non-secrets only)
 jwt:
-  # OIDC issuer (base URL). Example: https://auth.example.com
-  issuer: "https://auth.example.com"
+  # OIDC issuer (base URL). For local dev with AuthKit, use http://localhost:2052
+  issuer: "http://localhost:2052"
   # Audience / client ID to expect in JWTs
   audience: "your-client-id"
   # If using HS256, set JWT_SECRET in env to your IdP client secret.
