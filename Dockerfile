@@ -68,15 +68,11 @@ WORKDIR /app
 RUN addgroup -g 1001 -S billing && \
     adduser -S -D -H -u 1001 -s /sbin/nologin -G billing billing
 
-# Copy binary from builder stage
+# Copy binary and migrations from builder stage
 COPY --from=builder /app/bin/billing ./bin/billing
-
-# Copy migrations directory
 COPY --from=builder /app/migrations ./migrations/
 
-# Copy configuration defaults
-COPY config.yaml ./config.yaml
-COPY config.docker.yaml ./config.docker.yaml
+# Configuration files must be mounted at runtime; none are baked into the image.
 
 # Change ownership to non-root user
 RUN chown -R billing:billing /app
@@ -91,5 +87,6 @@ EXPOSE 2053 8060
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:2053/health || exit 1
 
-# Default command
-CMD ["./bin/billing", "server"]
+# Default entrypoint runs the CLI; override CMD to choose server vs worker.
+ENTRYPOINT ["./bin/billing"]
+CMD ["server"]

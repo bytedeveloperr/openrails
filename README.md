@@ -92,5 +92,9 @@ Troubleshooting
 - ClickHouse tables missing:
   - Check `clickhouse-init` logs. Ensure `migrations/clickhouse/*.sql` exist and the database is `analytics`.
 
+Container usage
+- Runtime configs (`config.yaml`, `config.docker.yaml`, etc.) are not baked into the image. Mount the desired file and point the CLI at it, e.g. `docker run -v $(pwd)/config.docker.yaml:/app/config.docker.yaml:ro doujins/billing:latest -c /app/config.docker.yaml server`.
+- The image entrypoint is the billing CLI. To launch workers only, override the command: `docker run ... doujins/billing:latest worker`.
+
 Notes
 - This repository manages only the billing service operations. Application-specific integration (e.g., role management in your app DB) is out of scope here.
