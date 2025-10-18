@@ -17,6 +17,7 @@ ENV GOPROXY=${GOPROXY}
 ENV GOPRIVATE=${GOPRIVATE}
 ENV GONOSUMDB=${GONOSUMDB}
 ENV GOSUMDB=${GOSUMDB}
+ENV GIT_TERMINAL_PROMPT=0
 
 # Copy go mod files first for better caching
 COPY go.mod go.sum ./
@@ -41,10 +42,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       NETRC_PATH="$HOME/.netrc"; \
       { \
         echo "machine github.com"; \
-        echo "  login x-access-token"; \
+        echo "  login oauth2"; \
         echo "  password ${GH_TOKEN}"; \
         echo "machine api.github.com"; \
-        echo "  login x-access-token"; \
+        echo "  login oauth2"; \
         echo "  password ${GH_TOKEN}"; \
       } > "${NETRC_PATH}"; \
       chmod 600 "${NETRC_PATH}"; \
