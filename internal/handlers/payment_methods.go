@@ -1,12 +1,11 @@
 package handlers
 
 import (
-	"database/sql"
 	"errors"
 	"net/http"
 	"strconv"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
@@ -61,32 +60,35 @@ func ListPaymentMethods(r *Request) {
 		return
 	}
 
-	// Read methods via service
-	var paymentMethods []*models.PaymentMethod
-	var err error
-
-	if req.IncludeInactive {
-		paymentMethods, err = r.State.PaymentMethodService.GetByUserID(r.Request.Context(), user.ID)
-	} else {
-		paymentMethods, err = r.State.PaymentMethodService.GetActiveByUserID(r.Request.Context(), user.ID)
-	}
-
+	methods, totalItems, err := r.State.PaymentMethodService.ListByUserID(
+		r.Request.Context(),
+		user.ID,
+		req.IncludeInactive,
+		req.Page,
+		req.PageSize,
+	)
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{
 			"user_id":          user.ID,
 			"include_inactive": req.IncludeInactive,
+			"page":             req.Page,
+			"page_size":        req.PageSize,
 		}).Error("Failed to retrieve payment methods")
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to retrieve payment methods")
 		return
 	}
 
-	totalItems := int64(len(paymentMethods))
+	totalPages := 0
+	if req.PageSize > 0 {
+		totalPages = int((totalItems + int64(req.PageSize) - 1) / int64(req.PageSize))
+	}
+
 	r.SuccessJSON(PaginatedResponse{
-		Data:       paymentMethods,
+		Data:       methods,
 		TotalItems: totalItems,
 		Page:       req.Page,
 		PageSize:   req.PageSize,
-		TotalPages: int((totalItems + int64(req.PageSize) - 1) / int64(req.PageSize)),
+		TotalPages: totalPages,
 	})
 }
 
@@ -115,33 +117,34 @@ func DeletePaymentMethod(r *Request) {
 	// Validate ownership and get payment method details
 	paymentMethod, err := r.State.PaymentMethodService.ValidatePaymentMethodOperation(r.Request.Context(), id, user.ID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || err.Error() == "payment method not found" {
+		switch {
+		case errors.Is(err, services.ErrPaymentMethodNotFound):
 			log.WithFields(log.Fields{
 				"payment_method_id": id,
 				"user_id":           user.ID,
 			}).Warn("Payment method not found for deletion")
 			r.ErrorJSON(http.StatusNotFound, "Payment method not found")
 			return
-		}
-		if err.Error() == "payment method not found or access denied" {
+		case errors.Is(err, services.ErrPaymentMethodAccessDenied):
 			log.WithFields(log.Fields{
 				"payment_method_id": id,
 				"user_id":           user.ID,
 			}).Warn("Unauthorized payment method deletion attempt")
 			r.ErrorJSON(http.StatusForbidden, "Access denied - you don't own this payment method")
 			return
+		default:
+			log.WithError(err).WithFields(log.Fields{
+				"payment_method_id": id,
+				"user_id":           user.ID,
+			}).Error("Failed to validate payment method ownership")
+			r.ErrorJSON(http.StatusInternalServerError, "Failed to validate payment method")
+			return
 		}
-		log.WithError(err).WithFields(log.Fields{
-			"payment_method_id": id,
-			"user_id":           user.ID,
-		}).Error("Failed to validate payment method ownership")
-		r.ErrorJSON(http.StatusInternalServerError, "Failed to validate payment method")
-		return
 	}
 
 	// Perform the deletion
 	if err := r.State.PaymentMethodService.Delete(r.Request.Context(), id); err != nil {
-		if err.Error() == "no rows affected" {
+		if errors.Is(err, services.ErrPaymentMethodNotFound) {
 			log.WithFields(log.Fields{
 				"payment_method_id": id,
 				"user_id":           user.ID,
@@ -195,28 +198,29 @@ func ActivatePaymentMethod(r *Request) {
 	// Validate ownership and get payment method details
 	paymentMethod, err := r.State.PaymentMethodService.ValidatePaymentMethodOperation(r.Request.Context(), id, user.ID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) || err.Error() == "payment method not found" {
+		switch {
+		case errors.Is(err, services.ErrPaymentMethodNotFound):
 			log.WithFields(log.Fields{
 				"payment_method_id": id,
 				"user_id":           user.ID,
 			}).Warn("Payment method not found for activation")
 			r.ErrorJSON(http.StatusNotFound, "Payment method not found")
 			return
-		}
-		if err.Error() == "payment method not found or access denied" {
+		case errors.Is(err, services.ErrPaymentMethodAccessDenied):
 			log.WithFields(log.Fields{
 				"payment_method_id": id,
 				"user_id":           user.ID,
 			}).Warn("Unauthorized payment method activation attempt")
 			r.ErrorJSON(http.StatusForbidden, "Access denied - you don't own this payment method")
 			return
+		default:
+			log.WithError(err).WithFields(log.Fields{
+				"payment_method_id": id,
+				"user_id":           user.ID,
+			}).Error("Failed to validate payment method ownership")
+			r.ErrorJSON(http.StatusInternalServerError, "Failed to validate payment method")
+			return
 		}
-		log.WithError(err).WithFields(log.Fields{
-			"payment_method_id": id,
-			"user_id":           user.ID,
-		}).Error("Failed to validate payment method ownership")
-		r.ErrorJSON(http.StatusInternalServerError, "Failed to validate payment method")
-		return
 	}
 
 	// Check if payment method is already active
@@ -245,7 +249,7 @@ func ActivatePaymentMethod(r *Request) {
 
 	// Perform the activation
 	if err := r.State.PaymentMethodService.ActivateByID(r.Request.Context(), id); err != nil {
-		if err.Error() == "no rows affected" {
+		if errors.Is(err, services.ErrPaymentMethodNotFound) {
 			log.WithFields(log.Fields{
 				"payment_method_id": id,
 				"user_id":           user.ID,

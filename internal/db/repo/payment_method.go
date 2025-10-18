@@ -17,6 +17,10 @@ type PaymentMethodRepo struct {
 
 func NewPaymentMethodRepo(d *db.DB) *PaymentMethodRepo { return &PaymentMethodRepo{db: d} }
 
+var (
+	ErrPaymentMethodNotFound = errors.New("payment method not found")
+)
+
 func (r *PaymentMethodRepo) Create(ctx context.Context, m *models.PaymentMethod) error {
 	res, err := r.db.GetDB().NewInsert().Model(m).TableExpr(r.db.QualifiedTable("payment_methods")).Exec(ctx)
 	if err != nil {
@@ -39,6 +43,9 @@ func (r *PaymentMethodRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.
 	pm := new(models.PaymentMethod)
 	err := r.db.GetDB().NewSelect().Model(pm).TableExpr(r.db.QualifiedTable("payment_methods")).Where("id = ?", id).Scan(ctx)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("payment method %s: %w", id, ErrPaymentMethodNotFound)
+		}
 		return nil, err
 	}
 	return pm, nil
@@ -56,7 +63,7 @@ func (r *PaymentMethodRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	}
 
 	if rows < 1 {
-		return errors.New("no rows affected")
+		return ErrPaymentMethodNotFound
 	}
 
 	return nil
@@ -89,6 +96,41 @@ func (r *PaymentMethodRepo) GetActiveByUserID(ctx context.Context, userID string
 	return methods, nil
 }
 
+func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, includeInactive bool, limit, offset int) ([]*models.PaymentMethod, int64, error) {
+	countQuery := r.db.GetDB().NewSelect().Model((*models.PaymentMethod)(nil)).
+		TableExpr(r.db.QualifiedTable("payment_methods")).
+		Where("user_id = ?", userID)
+	if !includeInactive {
+		countQuery.Where("is_active = ?", true)
+	}
+
+	total, err := countQuery.Count(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	methods := []*models.PaymentMethod{}
+	dataQuery := r.db.GetDB().NewSelect().Model(&methods).
+		TableExpr(r.db.QualifiedTable("payment_methods")).
+		Where("user_id = ?", userID).
+		Order("created_at DESC")
+	if !includeInactive {
+		dataQuery.Where("is_active = ?", true)
+	}
+	if limit > 0 {
+		dataQuery.Limit(limit)
+	}
+	if offset > 0 {
+		dataQuery.Offset(offset)
+	}
+
+	if err := dataQuery.Scan(ctx); err != nil {
+		return nil, 0, err
+	}
+
+	return methods, int64(total), nil
+}
+
 func (r *PaymentMethodRepo) GetByVaultID(ctx context.Context, vaultID string) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
 	err := r.db.GetDB().NewSelect().Model(pm).
@@ -97,6 +139,9 @@ func (r *PaymentMethodRepo) GetByVaultID(ctx context.Context, vaultID string) (*
 		Where("vault_id = ?", vaultID).
 		Scan(ctx)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrPaymentMethodNotFound
+		}
 		return nil, err
 	}
 	return pm, nil
@@ -110,6 +155,9 @@ func (r *PaymentMethodRepo) GetByBillingID(ctx context.Context, billingID string
 		Where("billing_id = ?", billingID).
 		Scan(ctx)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrPaymentMethodNotFound
+		}
 		return nil, err
 	}
 	return pm, nil
@@ -123,6 +171,9 @@ func (r *PaymentMethodRepo) GetByInitialTransactionID(ctx context.Context, initi
 		Where("initial_transaction_id = ?", initialTransactionID).
 		Scan(ctx)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrPaymentMethodNotFound
+		}
 		return nil, err
 	}
 	return pm, nil
@@ -140,7 +191,7 @@ func (r *PaymentMethodRepo) Update(ctx context.Context, method *models.PaymentMe
 	}
 
 	if rows < 1 {
-		return errors.New("no rows affected")
+		return ErrPaymentMethodNotFound
 	}
 
 	return nil
@@ -182,7 +233,7 @@ func (r *PaymentMethodRepo) ActivateByID(ctx context.Context, id uuid.UUID) erro
 	}
 
 	if rows < 1 {
-		return errors.New("no rows affected")
+		return ErrPaymentMethodNotFound
 	}
 
 	return nil
@@ -291,8 +342,8 @@ func (r *PaymentMethodRepo) GetActiveByProcessor(ctx context.Context, processor 
 func (r *PaymentMethodRepo) RequireByID(ctx context.Context, id uuid.UUID) (*models.PaymentMethod, error) {
 	pm, err := r.GetByID(ctx, id)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("payment method not found: %w", err)
+		if errors.Is(err, ErrPaymentMethodNotFound) {
+			return nil, err
 		}
 		return nil, err
 	}
