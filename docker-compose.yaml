@@ -103,7 +103,9 @@ services:
   #     - ./.env.docker
   #   environment:
   #     PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
-  #   command: ["./bin/billing", "migrate", "-c", "config.docker.yaml"]
+  #   volumes:
+  #     - ./config.docker.yaml:/app/config.docker.yaml:ro
+  #   command: ["migrate", "-c", "/app/config.docker.yaml"]
   #   restart: "no"
   #   networks:
   #     - local-doujins
@@ -132,7 +134,7 @@ services:
       - ./.env.docker
     environment:
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
-    command: ["./bin/billing", "server", "-c", "config.docker.yaml"]
+    command: ["server", "-c", "/app/config.docker.yaml"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:2053/health/live"]
       interval: 30s
@@ -140,6 +142,7 @@ services:
       retries: 3
       start_period: 40s
     volumes:
+      - ./config.docker.yaml:/app/config.docker.yaml:ro
       - billing_spool:/var/lib/doujins-billing/spool
     networks:
       - local-doujins
