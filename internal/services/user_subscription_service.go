@@ -77,6 +77,7 @@ func (s *UserSubscriptionService) GetUserSubscriptionHistory(ctx context.Context
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get subscription history: %w", err)
 	}
+	queryOpts.SetTotal(total)
 
 	responses := make([]*UserSubscriptionResponse, len(subscriptions))
 	for i, sub := range subscriptions {
@@ -110,6 +111,7 @@ func (s *UserSubscriptionService) GetUserPayments(ctx context.Context, userID st
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get purchases: %w", err)
 	}
+	queryOpts.SetTotal(total)
 
 	return purchases, total, nil
 }
@@ -125,6 +127,7 @@ func (s *UserSubscriptionService) GetUserNotifications(ctx context.Context, user
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get notifications: %w", err)
 	}
+	queryOpts.SetTotal(total)
 
 	return notifications, total, nil
 }
