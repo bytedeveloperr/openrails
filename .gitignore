@@ -113,9 +113,6 @@ Makefile.local
 dev.sh
 local.sh
 
-# API documentation output
-docs/api/
-
 # Terraform state files (if using terraform)
 *.tfstate
 *.tfstate.*
