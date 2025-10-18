@@ -24,21 +24,28 @@ COPY go.mod go.sum ./
 # Download dependencies with cache mount for Go modules (with retry)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=secret,id=github_token \
+    --mount=type=secret,id=gh_token,required=false \
+    --mount=type=secret,id=github_token,required=false \
     set -eu; \
-    if [ -f /run/secrets/github_token ]; then \
-      GITHUB_TOKEN=$(cat /run/secrets/github_token); \
-      mkdir -p "$HOME"; \
-      printf "machine github.com\\n  login oauth2\\n  password %s\\n" "${GITHUB_TOKEN}" > "$HOME/.netrc"; \
-      printf "machine api.github.com\\n  login oauth2\\n  password %s\\n" "${GITHUB_TOKEN}" >> "$HOME/.netrc"; \
-      chmod 600 "$HOME/.netrc"; \
+    GH_TOKEN=""; \
+    for secret in gh_token github_token; do \
+      if [ -f "/run/secrets/${secret}" ]; then \
+        GH_TOKEN=$(tr -d '\r' < "/run/secrets/${secret}"); \
+        if [ -n "${GH_TOKEN}" ]; then \
+          break; \
+        fi; \
+      fi; \
+    done; \
+    if [ -n "${GH_TOKEN}" ]; then \
+      git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; \
     fi; \
     for i in 1 2 3; do \
       go mod download && break || (echo "go mod download failed, retrying" && sleep 5); \
     done; \
-    if [ -f "$HOME/.netrc" ]; then \
-      rm -f "$HOME/.netrc"; \
-    fi
+    if [ -n "${GH_TOKEN}" ]; then \
+      git config --global --unset-all url."https://${GH_TOKEN}@github.com/".insteadOf || true; \
+    fi; \
+    unset GH_TOKEN
 
 # Copy source code
 COPY . .

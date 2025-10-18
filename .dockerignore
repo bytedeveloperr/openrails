@@ -63,7 +63,6 @@ test/
 # Temporary files
 tmp/
 temp/
-github-token.txt
 
 # Node modules (if any frontend assets)
 node_modules/
