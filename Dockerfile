@@ -75,12 +75,8 @@ COPY --from=builder /app/bin/billing ./bin/billing
 COPY --from=builder /app/migrations ./migrations/
 
 # Copy configuration defaults
-COPY --from=builder /app/config.yaml ./config.yaml
-COPY --from=builder /app/config.docker.yaml ./config.docker.yaml
-
-# Copy configuration defaults
-COPY --from=builder /app/config.yaml ./config.yaml
-COPY --from=builder /app/config.docker.yaml ./config.docker.yaml
+COPY config.yaml ./config.yaml
+COPY config.docker.yaml ./config.docker.yaml
 
 # Change ownership to non-root user
 RUN chown -R billing:billing /app

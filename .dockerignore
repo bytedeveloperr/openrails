@@ -64,6 +64,9 @@ test/
 tmp/
 temp/
 
+# Secret mounts
+.secrets/
+
 # Node modules (if any frontend assets)
 node_modules/
 npm-debug.log*
