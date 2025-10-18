@@ -38,27 +38,17 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       fi; \
     done; \
     if [ -n "${GH_TOKEN}" ]; then \
-      mkdir -p "$HOME"; \
-      NETRC_PATH="$HOME/.netrc"; \
-      { \
-        echo "machine github.com"; \
-        echo "  login x-access-token"; \
-        echo "  password ${GH_TOKEN}"; \
-        echo "machine api.github.com"; \
-        echo "  login x-access-token"; \
-        echo "  password ${GH_TOKEN}"; \
-      } > "${NETRC_PATH}"; \
-      chmod 600 "${NETRC_PATH}"; \
-      git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; \
+      git config --global url."https://${GH_TOKEN}:x-oauth-basic@github.com/doujins-org/".insteadOf "https://github.com/doujins-org/"; \
+      git config --global url."https://${GH_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"; \
     fi; \
     for i in 1 2 3; do \
       go mod download && break || (echo "go mod download failed, retrying" && sleep 5); \
     done; \
     if [ -n "${GH_TOKEN}" ]; then \
-      git config --global --unset-all url."https://${GH_TOKEN}@github.com/".insteadOf || true; \
-      rm -f "$HOME/.netrc"; \
+      git config --global --unset-all url."https://${GH_TOKEN}:x-oauth-basic@github.com/doujins-org/".insteadOf || true; \
+      git config --global --unset-all url."https://${GH_TOKEN}:x-oauth-basic@github.com/".insteadOf || true; \
     fi; \
-    unset GH_TOKEN NETRC_PATH
+    unset GH_TOKEN
 
 # Copy source code
 COPY . .
