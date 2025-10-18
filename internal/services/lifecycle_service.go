@@ -60,146 +60,17 @@ func (s *SubscriptionLifecycleService) dispatchNotifications(ctx context.Context
 
 // CreateMembership creates a new subscription and grants associated roles
 func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, params *CreateMembershipParams) (*models.Subscription, error) {
-	var subscription *models.Subscription
-	notifications := make([]*models.NotificationQueue, 0, 1)
+	var (
+		subscription  *models.Subscription
+		notifications []*models.NotificationQueue
+	)
 
 	err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		dbb := db.NewWithTx(tx)
-		priceService := NewPriceService(dbb)
-		productService := NewProductService(dbb)
-		entitlementService := NewEntitlementService(dbb)
-		notificationService := NewNotificationQueueService(dbb)
-		subService := NewSubscriptionService(dbb, priceService, productService, notificationService, nil, nil)
-
-		// Get price information
-		price, err := s.PriceService.GetByID(ctx, params.PriceID)
-		if err != nil {
-			return fmt.Errorf("failed to get price: %w", err)
-		}
-
-		// Check for existing active subscription
-		existingSub, err := subService.GetByUserID(ctx, params.UserID)
-		if err == nil && existingSub.Status == models.StatusActive {
-			return fmt.Errorf("user already has an active subscription")
-		}
-
-		// Calculate billing period
-		now := time.Now()
-		periodStartsAt := now
-		var periodEndsAt time.Time
-		if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
-			periodEndsAt = now.Add(time.Duration(*price.BillingCycleDays) * 24 * time.Hour)
-		} else {
-			// Default to 30 days if no billing cycle specified
-			periodEndsAt = now.Add(30 * 24 * time.Hour)
-		}
-
-		// Create or update subscription
-		if existingSub != nil {
-			// Update existing subscription
-			existingSub.PriceID = price.ID
-			existingSub.Status = models.StatusActive
-			existingSub.Processor = params.Processor
-			if params.ProcessorSubscriptionID != nil {
-				existingSub.ProcessorSubscriptionID = *params.ProcessorSubscriptionID
-			}
-			if params.UserEmail != nil {
-				existingSub.UserEmail = params.UserEmail
-			}
-
-			// Transaction IDs now stored in Purchase table
-			existingSub.CurrentPeriodStartsAt = &periodStartsAt
-			existingSub.CurrentPeriodEndsAt = &periodEndsAt
-			existingSub.StartedAt = periodStartsAt
-			existingSub.CancelledAt = nil
-			existingSub.CancelType = nil
-			existingSub.CancelFeedback = nil
-			existingSub.EndedAt = nil
-
-			if err := subService.Update(ctx, existingSub); err != nil {
-				return fmt.Errorf("failed to update subscription: %w", err)
-			}
-			subscription = existingSub
-		} else {
-			// Create new subscription
-			subscription = &models.Subscription{
-				ID:        uuid.New(),
-				UserID:    params.UserID,
-				PriceID:   price.ID,
-				Status:    models.StatusActive,
-				Processor: params.Processor,
-				ProcessorSubscriptionID: func() string {
-					if params.ProcessorSubscriptionID != nil {
-						return *params.ProcessorSubscriptionID
-					}
-					return ""
-				}(),
-				CurrentPeriodStartsAt: &periodStartsAt,
-				CurrentPeriodEndsAt:   &periodEndsAt,
-				StartedAt:             periodStartsAt,
-				UserEmail:             params.UserEmail,
-			}
-
-			if err := subService.Create(ctx, subscription); err != nil {
-				return fmt.Errorf("failed to create subscription: %w", err)
-			}
-		}
-
-		// Ensure subscription entitlements based on product EntitlementsSpec
-		if entitlementService != nil {
-			product, err := s.ProductService.GetByID(ctx, price.ProductID)
-			if err != nil {
-				return fmt.Errorf("failed to get product: %w", err)
-			}
-
-			// Build list of entitlement names
-			entNames := make([]string, 0, 4)
-			if len(product.EntitlementsSpec) > 0 {
-				for name := range product.EntitlementsSpec {
-					entNames = append(entNames, name)
-				}
-			} else {
-				entNames = append(entNames, "premium")
-			}
-
-			// For each entitlement: create an indefinite window starting at period start,
-			// aligned to end of any currently active finite window to avoid overlap.
-			now := time.Now()
-			for _, ent := range entNames {
-				// Skip if this subscription already created this entitlement
-				exists, err := entitlementService.ExistsBySource(ctx, models.EntitlementSourceSubscription, subscription.ID, ent)
-				if err != nil {
-					return fmt.Errorf("failed entitlement check: %w", err)
-				}
-				if exists {
-					continue
-				}
-				start := periodStartsAt
-				finite, err := entitlementService.LatestFiniteWindow(ctx, params.UserID, ent, now)
-				if err != nil && !errors.Is(err, sql.ErrNoRows) {
-					return fmt.Errorf("failed to fetch finite entitlement: %w", err)
-				}
-				if err == nil && finite != nil && finite.EndAt != nil {
-					start = *finite.EndAt
-				}
-				_, _ = entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID)
-			}
-		}
-
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    params.UserID,
-			EventType: models.NotificationPremiumStarted,
-		}
-		if err := notificationService.Create(ctx, notification); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to create membership started notification")
-		} else {
-			notifications = append(notifications, notification)
-		}
-
-		return nil
+		var err error
+		subscription, notifications, err = s.createMembershipCore(ctx, dbb, params)
+		return err
 	})
-
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +78,145 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 	s.dispatchNotifications(ctx, notifications)
 
 	return subscription, nil
+}
+
+// CreateMembershipTx executes the membership creation logic using the provided transactional DB.
+// The caller is responsible for wrapping the call in a transaction and dispatching any queued notifications.
+func (s *SubscriptionLifecycleService) CreateMembershipTx(ctx context.Context, txDB *db.DB, params *CreateMembershipParams) (*models.Subscription, []*models.NotificationQueue, error) {
+	if txDB == nil {
+		return nil, nil, errors.New("transaction DB is required")
+	}
+	return s.createMembershipCore(ctx, txDB, params)
+}
+
+func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context, dbb *db.DB, params *CreateMembershipParams) (*models.Subscription, []*models.NotificationQueue, error) {
+	if dbb == nil {
+		return nil, nil, errors.New("database handle is required")
+	}
+
+	priceService := NewPriceService(dbb)
+	productService := NewProductService(dbb)
+	entitlementService := NewEntitlementService(dbb)
+	notificationService := NewNotificationQueueService(dbb)
+	subService := NewSubscriptionService(dbb, priceService, productService, notificationService, nil, nil)
+
+	price, err := priceService.GetByID(ctx, params.PriceID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get price: %w", err)
+	}
+
+	existingSub, err := subService.GetByUserID(ctx, params.UserID)
+	if err == nil && existingSub.Status == models.StatusActive {
+		return nil, nil, fmt.Errorf("user already has an active subscription")
+	}
+
+	now := time.Now()
+	periodStartsAt := now
+	var periodEndsAt time.Time
+	if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
+		periodEndsAt = now.Add(time.Duration(*price.BillingCycleDays) * 24 * time.Hour)
+	} else {
+		periodEndsAt = now.Add(30 * 24 * time.Hour)
+	}
+
+	var subscription *models.Subscription
+	if existingSub != nil {
+		existingSub.PriceID = price.ID
+		existingSub.Status = models.StatusActive
+		existingSub.Processor = params.Processor
+		if params.ProcessorSubscriptionID != nil {
+			existingSub.ProcessorSubscriptionID = *params.ProcessorSubscriptionID
+		}
+		if params.UserEmail != nil {
+			existingSub.UserEmail = params.UserEmail
+		}
+
+		existingSub.CurrentPeriodStartsAt = &periodStartsAt
+		existingSub.CurrentPeriodEndsAt = &periodEndsAt
+		existingSub.StartedAt = periodStartsAt
+		existingSub.CancelledAt = nil
+		existingSub.CancelType = nil
+		existingSub.CancelFeedback = nil
+		existingSub.EndedAt = nil
+
+		if err := subService.Update(ctx, existingSub); err != nil {
+			return nil, nil, fmt.Errorf("failed to update subscription: %w", err)
+		}
+		subscription = existingSub
+	} else {
+		subscription = &models.Subscription{
+			ID:        uuid.New(),
+			UserID:    params.UserID,
+			PriceID:   price.ID,
+			Status:    models.StatusActive,
+			Processor: params.Processor,
+			ProcessorSubscriptionID: func() string {
+				if params.ProcessorSubscriptionID != nil {
+					return *params.ProcessorSubscriptionID
+				}
+				return ""
+			}(),
+			CurrentPeriodStartsAt: &periodStartsAt,
+			CurrentPeriodEndsAt:   &periodEndsAt,
+			StartedAt:             periodStartsAt,
+			UserEmail:             params.UserEmail,
+		}
+
+		if err := subService.Create(ctx, subscription); err != nil {
+			return nil, nil, fmt.Errorf("failed to create subscription: %w", err)
+		}
+	}
+
+	notifications := make([]*models.NotificationQueue, 0, 1)
+
+	if entitlementService != nil {
+		product, err := productService.GetByID(ctx, price.ProductID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get product: %w", err)
+		}
+
+		entNames := make([]string, 0, 4)
+		if len(product.EntitlementsSpec) > 0 {
+			for name := range product.EntitlementsSpec {
+				entNames = append(entNames, name)
+			}
+		} else {
+			entNames = append(entNames, "premium")
+		}
+
+		for _, ent := range entNames {
+			exists, err := entitlementService.ExistsBySource(ctx, models.EntitlementSourceSubscription, subscription.ID, ent)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed entitlement check: %w", err)
+			}
+			if exists {
+				continue
+			}
+
+			start := periodStartsAt
+			finite, err := entitlementService.LatestFiniteWindow(ctx, params.UserID, ent, now)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return nil, nil, fmt.Errorf("failed to fetch finite entitlement: %w", err)
+			}
+			if err == nil && finite != nil && finite.EndAt != nil {
+				start = *finite.EndAt
+			}
+			_, _ = entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID)
+		}
+	}
+
+	notification := &models.NotificationQueue{
+		ID:        uuid.New(),
+		UserID:    params.UserID,
+		EventType: models.NotificationPremiumStarted,
+	}
+	if err := notificationService.Create(ctx, notification); err != nil {
+		log.WithContext(ctx).WithError(err).Error("failed to create membership started notification")
+	} else {
+		notifications = append(notifications, notification)
+	}
+
+	return subscription, notifications, nil
 }
 
 // RenewMembership renews an existing subscription and extends the membership

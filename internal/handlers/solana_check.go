@@ -120,7 +120,7 @@ func CheckSolanaPayment(r *Request) {
 		log.WithError(err).Warn("Failed to mark Solana Pay intent confirmed")
 	}
 
-	pay, err := r.State.SolanaPaymentService.Submit(ctx, user.ID, intent.PriceID, signatureStr, user.Email)
+	pay, err := r.State.SolanaPaymentService.Submit(ctx, user.ID, intent.ID, intent.PriceID, signatureStr, user.Email)
 	if err != nil {
 		log.WithError(err).Error("Failed to record Solana Pay purchase")
 		_ = r.State.SolanaPaymentIntentService.MarkFailed(ctx, intent.ID, err.Error())

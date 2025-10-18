@@ -172,7 +172,7 @@ func SubmitPayment(r *Request) {
 		log.WithError(err).Warn("Failed to mark payment intent confirmed")
 	}
 
-	pay, err := r.State.SolanaPaymentService.Submit(ctx, user.ID, priceID, signature, user.Email)
+	pay, err := r.State.SolanaPaymentService.Submit(ctx, user.ID, intent.ID, priceID, signature, user.Email)
 	if err != nil {
 		log.WithError(err).Error("Failed to process payment and grant entitlements")
 		_ = r.State.SolanaPaymentIntentService.MarkFailed(ctx, intent.ID, err.Error())

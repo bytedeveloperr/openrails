@@ -30,13 +30,6 @@ type SolanaPaymentService struct {
 	notificationSvc    *NotificationService
 }
 
-type oneOffNotificationData struct {
-	UserID      string
-	Amount      float64
-	Currency    string
-	ProductName string
-}
-
 func NewSolanaPaymentService(db *db.DB, cfg *config.Config, price *PriceService, payment *PaymentService, product *ProductService, entitlement *EntitlementService, notification *NotificationService) *SolanaPaymentService {
 	return &SolanaPaymentService{
 		db:                 db,
@@ -99,10 +92,13 @@ func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, pric
 // Submit records a confirmed payment for the given price and user, and grants associated entitlements.
 // This is a pragmatic implementation that skips on-chain signature verification in this codebase.
 // userID: OIDC subject (string)
-func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceID uuid.UUID, signature string, userEmail *string) (*models.Payment, error) {
+func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intentID uuid.UUID, priceID uuid.UUID, signature string, userEmail *string) (*models.Payment, error) {
 	var payment *models.Payment
-	var notificationData *oneOffNotificationData
-	var purchasedProductName string
+	var subscription *models.Subscription
+	var lifecycleNotifications []*models.NotificationQueue
+
+	intentRef := intentID.String()
+	processorSubscriptionID := &intentRef
 
 	err := s.db.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		// Create transactional services
@@ -112,6 +108,9 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 		productService := NewProductService(txDB)
 		entitlementService := NewEntitlementService(txDB)
 		solanaTxnRepo := repo.NewSolanaTransactionRepo(txDB)
+		notificationQueueService := NewNotificationQueueService(txDB)
+		lifecycleService := NewSubscriptionLifecycleService(txDB, productService, priceService, entitlementService, notificationQueueService)
+		lifecycleService.SetNotificationService(s.notificationSvc)
 
 		// Get price information
 		price, err := priceService.GetByID(ctx, priceID)
@@ -130,12 +129,33 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 			}
 		}
 
+		// Create or activate subscription membership through lifecycle service
+		lifecycleParams := &CreateMembershipParams{
+			UserID:                  userID,
+			PriceID:                 price.ID,
+			Processor:               models.ProcessorSolana,
+			ProcessorSubscriptionID: processorSubscriptionID,
+			UserEmail:               userEmail,
+		}
+		sub, notifications, err := lifecycleService.CreateMembershipTx(ctx, txDB, lifecycleParams)
+		if err != nil {
+			return fmt.Errorf("failed to create solana membership: %w", err)
+		}
+		subscription = sub
+		lifecycleNotifications = notifications
+
 		// Create canonical payment record
 		now := time.Now()
 		payment = &models.Payment{
-			ID:            uuid.New(),
-			UserID:        userID,
-			PriceID:       price.ID,
+			ID:      uuid.New(),
+			UserID:  userID,
+			PriceID: price.ID,
+			SubscriptionID: func() *uuid.UUID {
+				if subscription != nil {
+					return &subscription.ID
+				}
+				return nil
+			}(),
 			Processor:     models.ProcessorSolana,
 			TransactionID: signature,
 			Amount:        price.Amount,
@@ -146,72 +166,12 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 			return fmt.Errorf("failed to create payment: %w", err)
 		}
 
-		// Grant entitlements based on product specification
-		if s.entitlementService != nil && s.productService != nil {
-			product, err := productService.GetByID(ctx, price.ProductID)
-			if err != nil {
-				return fmt.Errorf("failed to get product: %w", err)
-			}
-			purchasedProductName = product.DisplayName
-
-			// Build list of entitlement names from product spec
-			entNames := make([]string, 0, 4)
-			if len(product.EntitlementsSpec) > 0 {
-				for name := range product.EntitlementsSpec {
-					entNames = append(entNames, name)
-				}
-			} else {
-				// Default to premium entitlement if no spec provided
-				entNames = append(entNames, "premium")
-			}
-
-			// Grant entitlements for each entitlement name
-			for _, entName := range entNames {
-				// Get entitlement configuration from product spec
-				spec, exists := product.EntitlementsSpec[entName]
-				var days int
-				if exists && spec != nil {
-					days = *spec
-				} else {
-					// Default to 30 days for one-off payments if not specified
-					days = 30
-				}
-
-				// Grant entitlement using AppendEntitlementDays to avoid overlap with existing windows
-				_, err := entitlementService.AppendEntitlementDays(ctx, userID, entName, days, models.EntitlementSourceOneOff, &payment.ID)
-				if err != nil {
-					log.WithFields(log.Fields{
-						"payment_id":  payment.ID,
-						"user_id":     userID,
-						"entitlement": entName,
-						"days":        days,
-						"error":       err.Error(),
-					}).Error("Failed to grant entitlement for Solana payment")
-					return fmt.Errorf("failed to grant entitlement %s: %w", entName, err)
-				}
-
-				log.WithFields(log.Fields{
-					"payment_id":  payment.ID,
-					"user_id":     userID,
-					"entitlement": entName,
-					"days":        days,
-				}).Info("Successfully granted entitlement for Solana payment")
-			}
-		}
-
 		// Mark any pending SolanaTransaction for this user and price as confirmed (best-effort)
 		if err := solanaTxnRepo.MarkConfirmedByUserAndAmount(ctx, userID, price.Amount, signature); err != nil {
 			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
 				"user_id": userID,
 				"amount":  price.Amount,
 			}).Warn("failed to mark solana transactions as confirmed")
-		}
-
-		notificationData = &oneOffNotificationData{
-			UserID:      userID,
-			Amount:      price.Amount,
-			Currency:    price.Currency,
-			ProductName: purchasedProductName,
 		}
 
 		return nil
@@ -221,42 +181,11 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, priceI
 		return nil, err
 	}
 
-	s.enqueueOneOffNotification(ctx, notificationData, userEmail)
+	if subscription != nil && len(lifecycleNotifications) > 0 {
+		lifecycleService := NewSubscriptionLifecycleService(s.db, s.productService, s.priceService, s.entitlementService, NewNotificationQueueService(s.db))
+		lifecycleService.SetNotificationService(s.notificationSvc)
+		lifecycleService.dispatchNotifications(ctx, lifecycleNotifications)
+	}
 
 	return payment, nil
-}
-
-func (s *SolanaPaymentService) enqueueOneOffNotification(ctx context.Context, data *oneOffNotificationData, userEmail *string) {
-	if data == nil || s.notificationSvc == nil {
-		return
-	}
-
-	email := ""
-	if userEmail != nil {
-		email = *userEmail
-	}
-	if email == "" {
-		log.WithContext(ctx).WithField("user_id", data.UserID).Warn("skipping one-off receipt notification - user email missing")
-		return
-	}
-
-	notification := &models.NotificationQueue{
-		ID:        uuid.New(),
-		UserID:    data.UserID,
-		EventType: models.NotificationOneOffPurchaseCompleted,
-		Data: map[string]any{
-			"amount":         data.Amount,
-			"currency":       data.Currency,
-			"product_name":   data.ProductName,
-			"user_email":     email,
-			"payment_method": "solana",
-		},
-	}
-
-	if err := s.notificationSvc.CreateAndDeliver(ctx, notification); err != nil {
-		log.WithError(err).WithFields(log.Fields{
-			"user_id":    data.UserID,
-			"event_type": models.NotificationOneOffPurchaseCompleted,
-		}).Error("failed to create and deliver one-off purchase notification")
-	}
 }
