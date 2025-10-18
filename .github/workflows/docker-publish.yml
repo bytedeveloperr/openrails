@@ -29,15 +29,15 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Verify GH_TOKEN is present
+      - name: Prepare GitHub token secret file
         run: |
           if [ -z "${GH_TOKEN}" ]; then
             echo "GH_TOKEN secret is required to fetch private Go modules." >&2
             exit 1
           fi
-          printf '%s' "$GH_TOKEN" > gh_token.txt
-          chmod 600 gh_token.txt
-          echo "Token file created at gh_token.txt with size $(stat -c%s gh_token.txt) bytes"
+          mkdir -p .secrets
+          printf '%s' "$GH_TOKEN" > .secrets/gh_token
+          chmod 600 .secrets/gh_token
 
       - name: Get short commit hash
         id: vars
@@ -51,19 +51,9 @@ jobs:
           tags: |
             ${{ env.ORG_NAME }}/${{ env.REPO_NAME }}:${{ steps.vars.outputs.sha_short }}
             ${{ env.ORG_NAME }}/${{ env.REPO_NAME }}:latest
-          secrets: |
-            id=gh_token,src=gh_token.txt
-      - name: Confirm token file contents
-        run: |
-          if [ ! -f gh_token.txt ]; then
-            echo "gh_token.txt missing before cleanup" >&2
-            exit 1
-          fi
-          if [ $(stat -c%s gh_token.txt) -eq 0 ]; then
-            echo "gh_token.txt is empty" >&2
-            exit 1
-          fi
+          secret-files: |
+            gh_token=${{ github.workspace }}/.secrets/gh_token
 
       - name: Cleanup token file
         if: always()
-        run: rm -f gh_token.txt
+        run: rm -f .secrets/gh_token
