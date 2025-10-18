@@ -17,6 +17,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/internal/workers"
 )
 
 func buildRuntime(cfg *config.Config) (*Runtime, error) {
@@ -32,12 +33,14 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 
 	ccbillClient := createCCBillClient(cfg)
 	ccbillRESTClient := createCCBillRESTClient(cfg)
+	ccbillDataLinkClient := createCCBillDataLinkClient(cfg)
 	mobiusClient, err := createMobiusClient(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create mobius client: %w", err)
 	}
 
 	serviceInstances := createServices(database, cfg, ccbillRESTClient, mobiusClient)
+	workerManager := workers.NewManager(database, mobiusClient, ccbillDataLinkClient, serviceInstances.SubscriptionService)
 
 	var emailService *services.EmailService
 	var subscriptionEmailService *services.SubscriptionEmailService
@@ -69,6 +72,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		Config:           cfg,
 		CCBillClient:     ccbillClient,
 		CCBillRESTClient: ccbillRESTClient,
+		CCBillDataLink:   ccbillDataLinkClient,
 		MobiusClient:     mobiusClient,
 
 		SubscriptionService:        serviceInstances.SubscriptionService,
@@ -91,6 +95,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		EmailService:                 emailService,
 		SubscriptionEmailService:     subscriptionEmailService,
 		SubscriptionLifecycleService: serviceInstances.SubscriptionLifecycleService,
+		WorkerManager:                workerManager,
 	}
 
 	if client, err := buildRiverClient(cfg); err != nil {
@@ -149,6 +154,23 @@ func createCCBillClient(cfg *config.Config) *ccbill.CCBillClient {
 
 func createCCBillRESTClient(cfg *config.Config) *ccbill.RESTClient {
 	return ccbill.NewRESTClient(cfg.CCBill)
+}
+
+func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
+	if cfg.CCBill == nil {
+		return nil
+	}
+	if cfg.CCBill.DataLinkUsername == "" || cfg.CCBill.DataLinkPassword == "" || cfg.CCBill.DataLinkClientAccNum == "" {
+		log.Info("CCBill DataLink credentials missing; DataLink worker disabled")
+		return nil
+	}
+
+	client := ccbill.NewDataLinkClient(cfg.CCBill)
+	if err := client.ValidateConfig(); err != nil {
+		log.WithError(err).Warn("Invalid CCBill DataLink configuration; worker disabled")
+		return nil
+	}
+	return client
 }
 
 func createMobiusClient(cfg *config.Config) (*mobius.MobiusClient, error) {

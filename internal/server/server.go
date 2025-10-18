@@ -100,18 +100,7 @@ func (s *Server) StartWorkers(ctx context.Context) {
 		log.Warn("No state available; skipping worker startup")
 		return
 	}
-	if err := s.runtime.InitRiver(ctx); err != nil {
-		log.WithError(err).Error("Failed to initialize River client")
-		return
-	}
-	go func() {
-		log.Info("Starting River background workers in-server")
-		if err := s.runtime.RiverClient.Start(ctx); err != nil {
-			log.WithError(err).Error("River workers stopped with error")
-		} else {
-			log.Info("River workers stopped")
-		}
-	}()
+	s.runtime.StartWorkers(ctx)
 }
 
 func (s *Server) Cfg() *config.Config {
