@@ -91,9 +91,8 @@ type RedisConfig struct {
 }
 
 type JWTConfig struct {
-	Secret string `koanf:"secret"`
-	Issuer string `koanf:"issuer"`
-	// Audience (client ID) to require in the "aud" claim (e.g., Casdoor Application Client ID)
+	Secret   string `koanf:"secret"`
+	Issuer   string `koanf:"issuer"`
 	Audience string `koanf:"audience"`
 	JWKSURL  string `koanf:"jwks_url"`
 	// Optional RSA public key PEM for verifying RS256 JWTs. If empty and Issuer is set,
@@ -300,7 +299,7 @@ func GetDefaultBillingConfig() *Config {
 		},
 		JWT: &JWTConfig{
 			Secret:   "", // RS256 by default; no shared secret
-			Issuer:   "http://casdoor:8010",
+			Issuer:   "http://auth:8080",
 			Audience: "doujins-app",
 		},
 		// Match docker-compose ClickHouse (service: clickhouse)
@@ -411,13 +410,10 @@ func Load(configPath string) (*Config, error) {
 		"ENV":          "env",
 		"ENVIRONMENT":  "env",
 
-		// JWT / Casdoor
-		"JWT_SECRET":         "jwt.secret",         // for HS256
-		"JWT_ISSUER":         "jwt.issuer",         // legacy name
-		"CASDOOR_SERVER_URL": "jwt.issuer",         // preferred name
-		"JWT_AUDIENCE":       "jwt.audience",       // legacy
-		"JWT_CLIENT_ID":      "jwt.audience",       // legacy
-		"CASDOOR_CLIENT_ID":  "jwt.audience",       // preferred
+		// JWT / OIDC
+		"JWT_SECRET":        "jwt.secret",   // for HS256
+		"JWT_ISSUER":        "jwt.issuer",
+		"JWT_AUDIENCE":      "jwt.audience",
 		"JWT_PUBLIC_KEY_PEM": "jwt.public_key_pem", // optional for RS256 if not using JWKS
 
 		// CCBill

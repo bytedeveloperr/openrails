@@ -26,7 +26,7 @@ Quick Start
 
 Overriding configuration (optional)
 - Config file: place `config.yaml` in repo root or `./config/config.yaml`.
-- Env vars: common overrides include `DATABASE_URL`, `REDIS_URL`, `CLICKHOUSE_URL`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `CASDOOR_SERVER_URL`.
+- Env vars: common overrides include `DATABASE_URL`, `REDIS_URL`, `CLICKHOUSE_URL`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `JWT_ISSUER`.
 - If not provided, the service uses the defaults above.
 
 Developer tasks
@@ -52,16 +52,16 @@ Admin access
 - Override via env `BILLING_INTERNAL_API_KEY` or config `admin.api_key`.
 - mTLS (optional): set `tls.private.enabled: true` and provide `tls.private.cert_file`, `tls.private.key_file`. To require client certs, also set `tls.private.client_ca_file` and `tls.private.require_client_cert: true`.
 
-JWT verification (Casdoor)
-- Public endpoints use JWTs issued by your IdP (Casdoor). The middleware validates signature and claims, extracts `sub` (user ID), `email`, optional `preferred_username`/`username`/`name`, and `roles` if present.
+JWT verification
+- Public endpoints use JWTs issued by your IdP. The middleware validates signature and claims, extracting `sub` (user ID), `email`, optional `preferred_username`/`username`/`name`, and `roles` if present.
 - Supported signing:
-  - HS256/384/512 with `JWT_SECRET` (Casdoor Application Client Secret).
+  - HS256/384/512 with `JWT_SECRET`.
   - RS256 via either:
     - `JWT_PUBLIC_KEY_PEM`, or
-    - OIDC discovery from `CASDOOR_SERVER_URL` and JWKS lookup (no extra config needed).
+    - OIDC discovery from `JWT_ISSUER` and JWKS lookup (no extra config needed).
 - Required claims:
-  - `iss` must equal `CASDOOR_SERVER_URL` (e.g., `https://casdoor.example.com`).
-  - `aud` must contain `CASDOOR_CLIENT_ID` (Casdoor Application Client ID).
+  - `iss` must equal the configured issuer (`jwt.issuer`).
+  - `aud` must contain the configured audience (`jwt.audience`).
   - `exp` must be valid.
 
 - Postgres

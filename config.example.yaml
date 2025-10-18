@@ -11,7 +11,7 @@ cors_origins:
 
 # Database configuration (non-secrets only)
 # Provide DATABASE_URL via environment (.env) instead of here
-# Service role passwords come from env: DOUJINS_DB_PASSWORD, BILLING_DB_PASSWORD, CASDOOR_DB_PASSWORD
+# Service role passwords come from env: DOUJINS_DB_PASSWORD, BILLING_DB_PASSWORD
 db:
   # Schema the app uses (compose defaults DB_SCHEMA=billing)
   schema: "billing"
@@ -26,11 +26,11 @@ redis:
 
 # JWT configuration for authentication (non-secrets only)
 jwt:
-  # Casdoor issuer (base URL). Example: https://casdoor.example.com
-  issuer: "https://casdoor.example.com"
-  # Audience: Casdoor Application Client ID
-  audience: "your-casdoor-client-id"
-  # If using HS256 (Casdoor default), set JWT_SECRET in env to your Casdoor Application Client Secret.
+  # OIDC issuer (base URL). Example: https://auth.example.com
+  issuer: "https://auth.example.com"
+  # Audience / client ID to expect in JWTs
+  audience: "your-client-id"
+  # If using HS256, set JWT_SECRET in env to your IdP client secret.
   # If using RS256, either set JWT_PUBLIC_KEY_PEM or leave it empty and the server will use OIDC discovery + JWKS from the issuer.
   # public_key_pem: |
   #   -----BEGIN PUBLIC KEY-----

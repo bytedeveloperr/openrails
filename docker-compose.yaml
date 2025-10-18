@@ -79,7 +79,6 @@ services:
       "-v", "ON_ERROR_STOP=1",
       "-v", "DOUJINS_PW=${DOUJINS_DB_PASSWORD:-doujins_password}",
       "-v", "BILLING_PW=${BILLING_DB_PASSWORD:-billing_password}",
-      "-v", "CASDOOR_PW=${CASDOOR_DB_PASSWORD:-casdoor_pw}",
       "-h", "postgres",
       "-U", "admin",
       "-d", "doujins_db",
