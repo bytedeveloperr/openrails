@@ -27,6 +27,11 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
+      - name: Write GitHub token for private modules
+        run: |
+          echo "${{ secrets.GH_TOKEN }}" > github-token.txt
+          chmod 600 github-token.txt
+
       - name: Get short commit hash
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
@@ -39,3 +44,9 @@ jobs:
           tags: |
             ${{ env.ORG_NAME }}/${{ env.REPO_NAME }}:${{ steps.vars.outputs.sha_short }}
             ${{ env.ORG_NAME }}/${{ env.REPO_NAME }}:latest
+          secrets: |
+            id=github_token,src=github-token.txt
+
+      - name: Cleanup secrets
+        if: always()
+        run: rm -f github-token.txt

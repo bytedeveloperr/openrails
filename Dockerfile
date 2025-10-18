@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1.7
 
 # Stage 1: build
 
@@ -10,8 +10,12 @@ RUN apk add --no-cache git ca-certificates
 WORKDIR /app
 
 ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOPRIVATE=github.com/doujins-org/*
+ARG GONOSUMDB=github.com/doujins-org/*
 ARG GOSUMDB=sum.golang.org
 ENV GOPROXY=${GOPROXY}
+ENV GOPRIVATE=${GOPRIVATE}
+ENV GONOSUMDB=${GONOSUMDB}
 ENV GOSUMDB=${GOSUMDB}
 
 # Copy go mod files first for better caching
@@ -20,9 +24,21 @@ COPY go.mod go.sum ./
 # Download dependencies with cache mount for Go modules (with retry)
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=secret,id=github_token \
+    set -eu; \
+    if [ -f /run/secrets/github_token ]; then \
+      GITHUB_TOKEN=$(cat /run/secrets/github_token); \
+      mkdir -p "$HOME"; \
+      printf "machine github.com\\n  login oauth2\\n  password %s\\n" "${GITHUB_TOKEN}" > "$HOME/.netrc"; \
+      printf "machine api.github.com\\n  login oauth2\\n  password %s\\n" "${GITHUB_TOKEN}" >> "$HOME/.netrc"; \
+      chmod 600 "$HOME/.netrc"; \
+    fi; \
     for i in 1 2 3; do \
       go mod download && break || (echo "go mod download failed, retrying" && sleep 5); \
-    done
+    done; \
+    if [ -f "$HOME/.netrc" ]; then \
+      rm -f "$HOME/.netrc"; \
+    fi
 
 # Copy source code
 COPY . .
