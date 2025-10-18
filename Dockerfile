@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     GH_TOKEN=""; \
     for secret in gh_token github_token; do \
       if [ -f "/run/secrets/${secret}" ]; then \
-        GH_TOKEN=$(tr -d '\r' < "/run/secrets/${secret}"); \
+        GH_TOKEN=$(tr -d '\r\n' < "/run/secrets/${secret}"); \
         if [ -n "${GH_TOKEN}" ]; then \
           break; \
         fi; \
