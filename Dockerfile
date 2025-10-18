@@ -37,15 +37,25 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       fi; \
     done; \
     if [ -n "${GH_TOKEN}" ]; then \
-      git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; \
+      mkdir -p "$HOME"; \
+      NETRC_PATH="$HOME/.netrc"; \
+      { \
+        echo "machine github.com"; \
+        echo "  login x-access-token"; \
+        echo "  password ${GH_TOKEN}"; \
+        echo "machine api.github.com"; \
+        echo "  login x-access-token"; \
+        echo "  password ${GH_TOKEN}"; \
+      } > "${NETRC_PATH}"; \
+      chmod 600 "${NETRC_PATH}"; \
     fi; \
     for i in 1 2 3; do \
       go mod download && break || (echo "go mod download failed, retrying" && sleep 5); \
     done; \
     if [ -n "${GH_TOKEN}" ]; then \
-      git config --global --unset-all url."https://${GH_TOKEN}@github.com/".insteadOf || true; \
+      rm -f "$HOME/.netrc"; \
     fi; \
-    unset GH_TOKEN
+    unset GH_TOKEN NETRC_PATH
 
 # Copy source code
 COPY . .
