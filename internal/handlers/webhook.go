@@ -35,8 +35,10 @@ func Webhook(r *Request) {
 	}
 	clientIP := r.GetClientIP()
 
-	fmt.Println("Received webhook request for processor:", processor)
-	fmt.Println("Client IP:", clientIP)
+	log.WithFields(log.Fields{
+		"processor": processor,
+		"client_ip": clientIP,
+	}).Debug("Received webhook")
 
 	ccbillTestMode := true
 	if r.State != nil && r.State.CCBillRESTClient != nil {
@@ -111,11 +113,12 @@ func Webhook(r *Request) {
 		handleMobiusWebhook(r)
 		return
 	default:
-		// Log unknown processor to dead letter queue
-		body, readErr := readRequestBody(r.Request.Body)
-		if readErr == nil {
-			deadLetterService.LogUnknownEvent(context.Background(), processor, "unknown", json.RawMessage(body), headers, clientIP)
+		webhookBody, readErr := readRequestBody(r.Request.Body)
+		if readErr != nil {
+			log.WithError(readErr).WithField("processor", processor).Warn("Failed to read body for unknown webhook processor")
 		}
+		// Log unknown processor to dead letter queue
+		deadLetterService.LogUnknownEvent(context.Background(), processor, "unknown", json.RawMessage(webhookBody), headers, clientIP)
 		r.ErrorJSON(http.StatusBadRequest, "Invalid processor")
 		return
 	}
