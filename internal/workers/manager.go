@@ -9,9 +9,11 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/google/uuid"
 )
 
 // Manager coordinates and manages all background workers
@@ -230,15 +232,126 @@ func (w *MobiusRebillWorker) Start(ctx context.Context) error {
 func (w *MobiusRebillWorker) processRetries(ctx context.Context) {
 	log.Info("Processing Mobius payment retries")
 
-	// Placeholder implementation
-	// In production, this would:
-	// 1. Query payment_attempts table for failed attempts ready for retry
-	// 2. Apply exponential backoff logic
-	// 3. Attempt manual rebill via Mobius API
-	// 4. Update payment attempts and subscription statuses
-	// 5. Create billing events for retry attempts
+	if w.mobiusClient == nil {
+		log.Debug("Mobius client not configured; skipping retries")
+		return
+	}
 
-	log.Info("Mobius payment retries completed")
+	// Find Mobius subscriptions in past_due with a retry due now or earlier
+	due := []*models.Subscription{}
+	if err := w.db.GetDB().NewSelect().
+		Model(&due).
+		Relation("Price").
+		Relation("PaymentMethod").
+		Where("processor = ?", models.ProcessorMobius).
+		Where("status = ?", models.StatusPastDue).
+		Where("next_retry_at IS NOT NULL AND next_retry_at <= NOW()").
+		Scan(ctx); err != nil {
+		log.WithError(err).Error("failed to query past_due subscriptions for Mobius retries")
+		return
+	}
+
+	if len(due) == 0 {
+		log.Info("No Mobius retries due")
+		return
+	}
+
+	priceSvc := services.NewPriceService(w.db)
+	productSvc := services.NewProductService(w.db)
+	entitlementSvc := services.NewEntitlementService(w.db)
+	notifQueueSvc := services.NewNotificationQueueService(w.db)
+	lifecycle := services.NewSubscriptionLifecycleService(w.db, productSvc, priceSvc, entitlementSvc, notifQueueSvc)
+	paymentSvc := services.NewPaymentService(w.db)
+
+	for _, sub := range due {
+		// Ensure we have a usable payment method
+		pm := sub.PaymentMethod
+		if pm == nil || !pm.IsActive || pm.VaultID == "" || pm.BillingID == nil || *pm.BillingID == "" {
+			reason := "payment method unavailable for rebill"
+			if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
+				Processor:               models.ProcessorMobius,
+				ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
+				FailureReason:           &reason,
+			}); err != nil {
+				log.WithError(err).WithField("subscription_id", sub.ID).Warn("failed to mark membership failed (missing payment method)")
+			}
+			continue
+		}
+
+		// Attempt manual rebill via Mobius vault
+		rebillResp, err := w.mobiusClient.AttemptManualRebill(mobius.ManualRebillParams{
+			VaultID:        pm.VaultID,
+			BillingID:      *pm.BillingID,
+			SubscriptionID: sub.ProcessorSubscriptionID,
+		})
+		if err != nil {
+			// Treat as failure and schedule next attempt
+			msg := fmt.Sprintf("manual rebill request failed: %v", err)
+			if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
+				Processor:               models.ProcessorMobius,
+				ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
+				FailureReason:           &msg,
+			}); err != nil {
+				log.WithError(err).WithField("subscription_id", sub.ID).Warn("failed to record rebill failure")
+			}
+			continue
+		}
+
+		if rebillResp == nil || !rebillResp.Success {
+			// Failed charge — increment attempts and schedule NextRetryAt per policy
+			reason := "rebill declined"
+			if rebillResp != nil && rebillResp.ErrorMessage != "" {
+				reason = rebillResp.ErrorMessage
+			}
+			if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
+				Processor:               models.ProcessorMobius,
+				ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
+				FailureReason:           &reason,
+			}); err != nil {
+				log.WithError(err).WithField("subscription_id", sub.ID).Warn("failed to apply failure policy after declined rebill")
+			}
+			continue
+		}
+
+		// Success: renew membership window and create a payment record
+		if err := lifecycle.RenewMembership(ctx, &services.RenewMembershipParams{
+			Processor:               models.ProcessorMobius,
+			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
+		}); err != nil {
+			log.WithError(err).WithField("subscription_id", sub.ID).Error("failed to renew membership after successful rebill")
+			// Do not create payment if renewal failed
+			continue
+		}
+
+		// Create canonical payment record
+		amount := 0.0
+		currency := "USD"
+		if sub.Price != nil {
+			amount = sub.Price.Amount
+			currency = sub.Price.Currency
+		} else if p, err := priceSvc.GetByID(ctx, sub.PriceID); err == nil {
+			amount = p.Amount
+			currency = p.Currency
+		}
+
+		pay := &models.Payment{
+			ID:             uuid.New(),
+			UserID:         sub.UserID,
+			PriceID:        sub.PriceID,
+			SubscriptionID: &sub.ID,
+			Processor:      models.ProcessorMobius,
+			TransactionID:  rebillResp.TransactionID,
+			Amount:         amount,
+			Currency:       currency,
+			PurchasedAt:    time.Now(),
+			CreatedAt:      time.Now(),
+		}
+		if err := paymentSvc.Create(ctx, pay); err != nil {
+			log.WithError(err).WithField("subscription_id", sub.ID).Warn("failed to create payment record for rebill")
+		}
+	}
+
+	log.WithField("count", len(due)).Info("Mobius payment retries processed")
 }
 
 // IdempotencyCleanupWorker cleans up expired idempotency records

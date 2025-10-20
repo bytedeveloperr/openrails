@@ -469,10 +469,11 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 			return fmt.Errorf("subscription not found: %w", err)
 		}
 
-		// Update subscription status - Wave 18: failed payment = past_due (still trying to recover)
+		// Update subscription status: failed payment -> past_due (we will continue retrying)
 		subscription.Status = models.StatusPastDue
 
-		// Set up retry logic for manual rebilling
+		// Retry policy (Mobius): try every 3 days, up to 5 failures total
+		// Example timeline (D = day of initial failure): D+3, D+6, D+9, D+12, D+15
 		now := time.Now()
 		subscription.LastRetryAt = &now
 		if subscription.RetryAttempts == nil {
@@ -482,22 +483,12 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 			*subscription.RetryAttempts++
 		}
 
-		// Calculate next retry time (exponential backoff: 1 day, 3 days, 7 days)
-		var nextRetry time.Time
-		switch *subscription.RetryAttempts {
-		case 1:
-			nextRetry = now.Add(24 * time.Hour)
-		case 2:
-			nextRetry = now.Add(72 * time.Hour) // 3 days
-		case 3:
-			nextRetry = now.Add(168 * time.Hour) // 7 days
-		default:
-			// After 3 attempts, stop trying - Wave 18: cancelled (never rebill again)
+		// If we've reached 5 failures, cancel; otherwise schedule next attempt in 3 days
+		if *subscription.RetryAttempts >= 5 {
 			subscription.Status = models.StatusCancelled
 			subscription.EndedAt = &now
-		}
-
-		if subscription.Status == models.StatusPastDue {
+		} else {
+			nextRetry := now.Add(72 * time.Hour) // 3 days
 			subscription.NextRetryAt = &nextRetry
 		}
 

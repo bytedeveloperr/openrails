@@ -92,7 +92,7 @@ func (r *EntitlementRepo) Insert(ctx context.Context, entitlement *models.Entitl
 func (r *EntitlementRepo) ListActiveEntitlements(ctx context.Context, userID string, at time.Time) ([]string, error) {
 	var out []string
 	if err := r.db.GetDB().NewSelect().
-		TableExpr(r.db.QualifiedTable("entitlements") + " AS ent").
+		TableExpr(r.db.QualifiedTable("entitlements")+" AS ent").
 		ColumnExpr("DISTINCT ent.entitlement").
 		Where("user_id = ?", userID).
 		Where("start_at <= ?", at).

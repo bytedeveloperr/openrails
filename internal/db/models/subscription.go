@@ -157,7 +157,7 @@ func (s *Subscription) Validate(amount float64) error {
 	}
 
 	if s.Status == StatusPastDue {
-		if s.RetryAttempts != nil && *s.RetryAttempts >= 3 {
+		if s.RetryAttempts != nil && *s.RetryAttempts >= 5 {
 			return fmt.Errorf("subscription has exceeded maximum retry attempts, should be cancelled")
 		}
 	}

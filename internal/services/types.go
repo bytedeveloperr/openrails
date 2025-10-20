@@ -773,7 +773,7 @@ func validateSubscription(sub *models.Subscription, newStatus models.Subscriptio
 	}
 
 	if newStatus == models.StatusPastDue {
-		if sub.RetryAttempts != nil && *sub.RetryAttempts >= 3 {
+		if sub.RetryAttempts != nil && *sub.RetryAttempts >= 5 {
 			return fmt.Errorf("subscription has exceeded maximum retry attempts, should be cancelled")
 		}
 	}
