@@ -1,42 +1,18 @@
-name: Build and Push Docker Image (multi-arch, native)
+name: Build Docker Image
 
 on:
   push:
+    branches: [ master ]
     tags:
       - '*'
-  workflow_dispatch:
 
 env:
   IMAGE: docker.io/doujins/billing
 
 jobs:
-  verify-tag-on-master:
-    name: Verify tag points to master
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-22.04
-    outputs:
-      allowed: ${{ steps.check.outputs.allowed }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Fetch master
-        run: git fetch origin master --depth=1
-      - name: Check if tag commit is reachable from master
-        id: check
-        run: |
-          if git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
-            echo "allowed=true" >> $GITHUB_OUTPUT
-          else
-            echo "Tag commit is not on master; skipping publish" >&2
-            echo "allowed=false" >> $GITHUB_OUTPUT
-          fi
-
   build-x86:
     name: Build x86 image
-    runs-on: ubuntu-22.04
-    needs: [verify-tag-on-master]
-    if: needs.verify-tag-on-master.outputs.allowed == 'true'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -59,34 +35,40 @@ jobs:
           printf '%s' "${{ secrets.GH_TOKEN }}" > .secrets/gh_token
           chmod 600 .secrets/gh_token
 
-      - name: Determine base tag (tag name or commit hash)
-        id: vars
+      - name: Determine Docker tags
+        id: meta
         run: |
-          sha_short=$(git rev-parse --short HEAD)
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            base_tag="${GITHUB_REF_NAME}"
-          else
-            base_tag="$sha_short"
-          fi
-          echo "sha_short=$sha_short" >> $GITHUB_OUTPUT
-          echo "base_tag=$base_tag" >> $GITHUB_OUTPUT
+          # Default to commit hash
+          TAG="${GITHUB_SHA::7}"
 
-      - name: Build and push x86 (linux/amd64)
+          # If this is a tag push, use the tag name instead
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using tag: $TAG"
+
+      - name: Build and push x86 image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           platforms: linux/amd64
           tags: |
-            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-x86
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}-x86
           secret-files: |
             gh_token=${{ github.workspace }}/.secrets/gh_token
 
+      - name: Cleanup secrets
+        if: always()
+        run: |
+          rm -f .secrets/gh_token
+          rmdir .secrets 2>/dev/null || true
+
   build-arm64:
     name: Build arm64 image
-    runs-on: ubuntu-22.04-arm
-    needs: [verify-tag-on-master]
-    if: needs.verify-tag-on-master.outputs.allowed == 'true'
+    runs-on: linux-arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -109,34 +91,41 @@ jobs:
           printf '%s' "${{ secrets.GH_TOKEN }}" > .secrets/gh_token
           chmod 600 .secrets/gh_token
 
-      - name: Determine base tag (tag name or commit hash)
-        id: vars
+      - name: Determine Docker tags
+        id: meta
         run: |
-          sha_short=$(git rev-parse --short HEAD)
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            base_tag="${GITHUB_REF_NAME}"
-          else
-            base_tag="$sha_short"
-          fi
-          echo "sha_short=$sha_short" >> $GITHUB_OUTPUT
-          echo "base_tag=$base_tag" >> $GITHUB_OUTPUT
+          # Default to commit hash
+          TAG="${GITHUB_SHA::7}"
 
-      - name: Build and push arm64 (linux/arm64)
+          # If this is a tag push, use the tag name instead
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using tag: $TAG"
+
+      - name: Build and push arm64 image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           platforms: linux/arm64
           tags: |
-            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-arm64
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}-arm64
           secret-files: |
             gh_token=${{ github.workspace }}/.secrets/gh_token
 
-  merge-manifest:
+      - name: Cleanup secrets
+        if: always()
+        run: |
+          rm -f .secrets/gh_token
+          rmdir .secrets 2>/dev/null || true
+
+  create-manifest:
     name: Create multi-arch manifest
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: [build-x86, build-arm64]
-    if: needs.build-x86.result == 'success' && needs.build-arm64.result == 'success'
     steps:
       - name: Login to DockerHub
         uses: docker/login-action@v3
@@ -144,31 +133,24 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Determine base tag (tag name or commit hash)
-        id: vars
+      - name: Determine Docker tags
+        id: meta
         run: |
-          sha_short=$(git rev-parse --short HEAD)
+          # Default to commit hash
+          TAG="${GITHUB_SHA::7}"
+
+          # If this is a tag push, use the tag name instead
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            base_tag="${GITHUB_REF_NAME}"
-          else
-            base_tag="$sha_short"
+            TAG="${GITHUB_REF_NAME}"
           fi
-          echo "sha_short=$sha_short" >> $GITHUB_OUTPUT
-          echo "base_tag=$base_tag" >> $GITHUB_OUTPUT
 
-      - name: Create and push manifest (base tag)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using tag: $TAG"
+
+      - name: Create and push multi-arch manifest
         run: |
           docker buildx imagetools create \
-            -t ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }} \
-            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-x86 \
-            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-arm64
-
-      - name: Create and push manifest (latest)
-        run: |
-          docker buildx imagetools create \
+            -t ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }} \
             -t ${{ env.IMAGE }}:latest \
-            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-x86 \
-            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-arm64
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}-x86 \
+            ${{ env.IMAGE }}:${{ steps.meta.outputs.tag }}-arm64
