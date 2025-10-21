@@ -1,27 +1,44 @@
-name: Build and Push Docker Image
+name: Build and Push Docker Image (multi-arch, native)
 
 on:
   push:
-    branches:
-      - master
+    tags:
+      - '*'
   workflow_dispatch:
 
 env:
-  ORG_NAME: doujins
-  REPO_NAME: billing
+  IMAGE: docker.io/doujins/billing
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ secrets.GH_TOKEN }}
-
+  verify-tag-on-master:
+    name: Verify tag points to master
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    outputs:
+      allowed: ${{ steps.check.outputs.allowed }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch master
+        run: git fetch origin master --depth=1
+      - name: Check if tag commit is reachable from master
+        id: check
+        run: |
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "allowed=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag commit is not on master; skipping publish" >&2
+            echo "allowed=false" >> $GITHUB_OUTPUT
+          fi
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+  build-x86:
+    name: Build x86 image
+    runs-on: ubuntu-22.04
+    needs: [verify-tag-on-master]
+    if: needs.verify-tag-on-master.outputs.allowed == 'true'
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Login to DockerHub
         uses: docker/login-action@v3
@@ -29,31 +46,129 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Prepare GitHub token secret file
         run: |
-          if [ -z "${GH_TOKEN}" ]; then
+          if [ -z "${{ secrets.GH_TOKEN }}" ]; then
             echo "GH_TOKEN secret is required to fetch private Go modules." >&2
             exit 1
           fi
           mkdir -p .secrets
-          printf '%s' "$GH_TOKEN" > .secrets/gh_token
+          printf '%s' "${{ secrets.GH_TOKEN }}" > .secrets/gh_token
           chmod 600 .secrets/gh_token
 
-      - name: Get short commit hash
+      - name: Determine base tag (tag name or commit hash)
         id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          sha_short=$(git rev-parse --short HEAD)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            base_tag="${GITHUB_REF_NAME}"
+          else
+            base_tag="$sha_short"
+          fi
+          echo "sha_short=$sha_short" >> $GITHUB_OUTPUT
+          echo "base_tag=$base_tag" >> $GITHUB_OUTPUT
 
-      - name: Build and Push Docker image
+      - name: Build and push x86 (linux/amd64)
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
+          platforms: linux/amd64
           tags: |
-            ${{ env.ORG_NAME }}/${{ env.REPO_NAME }}:${{ steps.vars.outputs.sha_short }}
-            ${{ env.ORG_NAME }}/${{ env.REPO_NAME }}:latest
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-x86
           secret-files: |
             gh_token=${{ github.workspace }}/.secrets/gh_token
 
-      - name: Cleanup token file
-        if: always()
-        run: rm -f .secrets/gh_token
+  build-arm64:
+    name: Build arm64 image
+    runs-on: ubuntu-22.04-arm
+    needs: [verify-tag-on-master]
+    if: needs.verify-tag-on-master.outputs.allowed == 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Prepare GitHub token secret file
+        run: |
+          if [ -z "${{ secrets.GH_TOKEN }}" ]; then
+            echo "GH_TOKEN secret is required to fetch private Go modules." >&2
+            exit 1
+          fi
+          mkdir -p .secrets
+          printf '%s' "${{ secrets.GH_TOKEN }}" > .secrets/gh_token
+          chmod 600 .secrets/gh_token
+
+      - name: Determine base tag (tag name or commit hash)
+        id: vars
+        run: |
+          sha_short=$(git rev-parse --short HEAD)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            base_tag="${GITHUB_REF_NAME}"
+          else
+            base_tag="$sha_short"
+          fi
+          echo "sha_short=$sha_short" >> $GITHUB_OUTPUT
+          echo "base_tag=$base_tag" >> $GITHUB_OUTPUT
+
+      - name: Build and push arm64 (linux/arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          platforms: linux/arm64
+          tags: |
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-arm64
+          secret-files: |
+            gh_token=${{ github.workspace }}/.secrets/gh_token
+
+  merge-manifest:
+    name: Create multi-arch manifest
+    runs-on: ubuntu-22.04
+    needs: [build-x86, build-arm64]
+    if: needs.build-x86.result == 'success' && needs.build-arm64.result == 'success'
+    steps:
+      - name: Login to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Determine base tag (tag name or commit hash)
+        id: vars
+        run: |
+          sha_short=$(git rev-parse --short HEAD)
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            base_tag="${GITHUB_REF_NAME}"
+          else
+            base_tag="$sha_short"
+          fi
+          echo "sha_short=$sha_short" >> $GITHUB_OUTPUT
+          echo "base_tag=$base_tag" >> $GITHUB_OUTPUT
+
+      - name: Create and push manifest (base tag)
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }} \
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-x86 \
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-arm64
+
+      - name: Create and push manifest (latest)
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.IMAGE }}:latest \
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-x86 \
+            ${{ env.IMAGE }}:${{ steps.vars.outputs.base_tag }}-arm64
