@@ -13,7 +13,7 @@ type SolanaWalletChallenge struct {
 	bun.BaseModel `bun:"table:solana_wallet_challenges,alias:swc"`
 
 	ID        uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
-	UserID    string    `bun:"user_id,notnull" json:"user_id"`
+	UserID    uuid.UUID `bun:"user_id,notnull,type:uuid" json:"user_id"`
 	Address   string    `bun:"address,notnull" json:"address"`
 	Message   string    `bun:"message,notnull" json:"message"`
 	Nonce     string    `bun:"nonce,notnull" json:"nonce"`

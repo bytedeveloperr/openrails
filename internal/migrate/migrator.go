@@ -3,7 +3,6 @@ package migrate
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -54,13 +53,17 @@ func Run(ctx context.Context, cfg *config.Config) error {
 			log.WithError(unlockErr).Warn("migrations: unlock failed")
 		}
 	}()
-	if _, err := m.Migrate(ctx); err != nil {
-		// Bun returns an error when there are zero discovered migrations.
-		// Treat that as a no-op so ClickHouse migrations can still run.
-		if strings.Contains(err.Error(), "there are no migrations") {
-			log.Info("No Postgres migrations discovered; skipping PG migrate")
+	group, err := m.Migrate(ctx)
+	if err != nil {
+		migErr = fmt.Errorf("migrations: apply: %w", err)
+	} else {
+		if group.ID == 0 {
+			log.Info("No new Postgres migrations to apply")
 		} else {
-			migErr = fmt.Errorf("migrations: apply: %w", err)
+			log.WithFields(log.Fields{
+				"group_id": group.ID,
+				"count":    len(group.Migrations),
+			}).Info("Applied Postgres migrations")
 		}
 	}
 	if migErr != nil {

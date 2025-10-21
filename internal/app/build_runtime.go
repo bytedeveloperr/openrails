@@ -14,10 +14,10 @@ import (
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
+	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/internal/workers"
 )
 
 func buildRuntime(cfg *config.Config) (*Runtime, error) {
@@ -40,7 +40,6 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	}
 
 	serviceInstances := createServices(database, cfg, ccbillRESTClient, mobiusClient)
-	workerManager := workers.NewManager(database, mobiusClient, ccbillDataLinkClient, serviceInstances.SubscriptionService)
 
 	var emailService *services.EmailService
 	var subscriptionEmailService *services.SubscriptionEmailService
@@ -54,6 +53,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 				serviceInstances.SubscriptionService,
 				serviceInstances.ProductService,
 				serviceInstances.PriceService,
+				repo.NewProfileRepo(database),
 			)
 		}
 	}
@@ -95,14 +95,14 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		EmailService:                 emailService,
 		SubscriptionEmailService:     subscriptionEmailService,
 		SubscriptionLifecycleService: serviceInstances.SubscriptionLifecycleService,
-		WorkerManager:                workerManager,
 	}
 
-	if client, err := buildRiverClient(cfg); err != nil {
-		log.WithError(err).Warn("River client init failed; workers disabled")
-	} else {
-		runtime.RiverClient = client
-	}
+	// River client will be initialized later in StartWorkers with proper worker registration
+	// if client, err := buildRiverClient(cfg); err != nil {
+	// 	log.WithError(err).Warn("River client init failed; workers disabled")
+	// } else {
+	// 	runtime.RiverClient = client
+	// }
 
 	if cfg.ClickHouse != nil {
 		if bes, err := services.NewBillingEventService(cfg.ClickHouse); err != nil {
@@ -273,7 +273,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	}
 }
 
-func buildRiverClient(cfg *config.Config) (*river.Client[pgx.Tx], error) {
+func buildRiverClient(cfg *config.Config, workers *river.Workers) (*river.Client[pgx.Tx], error) {
 	if cfg.DB == nil || cfg.DB.URL == "" {
 		return nil, fmt.Errorf("missing database configuration for River")
 	}
@@ -284,7 +284,13 @@ func buildRiverClient(cfg *config.Config) (*river.Client[pgx.Tx], error) {
 		return nil, fmt.Errorf("failed creating pgx pool for River: %w", err)
 	}
 	drv := riverpgxv5.New(pool)
-	client, err := river.NewClient[pgx.Tx](drv, &river.Config{})
+	client, err := river.NewClient[pgx.Tx](drv, &river.Config{
+		Queues: map[string]river.QueueConfig{
+			river.QueueDefault: {MaxWorkers: 10},
+			"billing":          {MaxWorkers: 20},
+		},
+		Workers: workers,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed creating River client: %w", err)
 	}

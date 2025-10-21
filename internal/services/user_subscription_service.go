@@ -140,7 +140,7 @@ func (s *UserSubscriptionService) MarkNotificationRead(ctx context.Context, user
 	}
 
 	// Verify the notification belongs to the user
-	if notification.UserID != userID {
+	if uid, err := uuid.Parse(userID); err != nil || notification.UserID != uid {
 		return ErrNotificationAccessDenied
 	}
 
@@ -179,9 +179,13 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 	}
 
 	// Add notification
+	uid, perr := uuid.Parse(userID)
+	if perr != nil {
+		return fmt.Errorf("invalid user id: %w", perr)
+	}
 	notification := &models.NotificationQueue{
 		ID:        uuid.New(),
-		UserID:    userID,
+		UserID:    uid,
 		EventType: models.NotificationPremiumEnded,
 		Data:      map[string]any{"reason": string(PremiumEndReasonUserCancel)},
 	}

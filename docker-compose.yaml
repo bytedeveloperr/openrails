@@ -137,6 +137,8 @@ services:
         condition: service_healthy
       db-bootstrap:
         condition: service_completed_successfully
+      clickhouse:
+        condition: service_healthy
     environment:
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
     command: ["migrate"]

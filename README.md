@@ -1,16 +1,24 @@
-Doujins Billing Service — Operations Manual
+### Doujins Billing Service — Operations Manual
 
-Overview
-- Purpose: Runs billing APIs and background workers, connects to Postgres for data, Garnet (Redis-compatible) for caching/rate limiting, and ClickHouse for analytics event logging.
-- Zero‑config: Defaults are aligned with docker-compose. You can start the whole stack without writing config.
+#### Scope
+- Provides a billing-related API server for the frontend to use (signups, cancellations, etc.), and an admin-API server for the backend to use (admin cancellations).
+- Handles webhooks from supported payment providers, and updates corresponding subscriptions / entitlements.
+- Runs periodic jobs to update subscriptions / entitlements.
 
-Stack
+#### Interactions with other services (Intended Contract)
+- Entitlements (app reads from): Billing owns the `billing.entitlements` table and writes premium access windows when memberships start/renew and revokes them on cancel/expiry. The main Doujins app can read this table to decide if a user is “premium” at a given point in time (current time ∈ [start_at, end_at) and `revoked_at IS NULL`).
+
+- Profiles (billing reads from): When emailing users (e.g., subscription started/renewed/ended, payment failures, one‑off receipts), Billing reads the current email address from `profiles.users`. We treat user IDs as UUIDs; the service performs a direct, schema‑qualified lookup: `SELECT username, email, email_verified, is_active FROM profiles.users WHERE id = $1`.
+
+---
+
+#### Stack
 - Postgres: shared `postgres:17-bookworm` container from the Doujins backend stack (DB `doujins_db`, service user `billing_app` / `billing_password`)
 - Garnet (Redis-compatible): `ghcr.io/microsoft/garnet` on `6379`
 - ClickHouse: `clickhouse/clickhouse-server` (DB `analytics`, user `analytics_user`, pass `analytics_password`)
 - Billing service: this server exposing public API on `:2053` and a private/internal port `:8060` (exposed to the compose network only). Admin routes require an internal shared secret.
 
-Quick Start
+#### Quick Start
 - Ensure the shared Postgres container from `doujins-backend` is running and attached to the `local-doujins` network
 - Start services: `task docker-up` (or `docker-compose up -d`)
 - Follow logs: `task docker-logs` (Ctrl+C to stop following)
@@ -24,7 +32,7 @@ Quick Start
 - Redis (Garnet): `garnet:6379`, DB `0`
 - ClickHouse: `http://clickhouse:8123` with `analytics_user/analytics_password` on DB `analytics`
 
-Overriding configuration (optional)
+#### Overriding configuration (optional)
 - Config file: place `config.yaml` in repo root or `./config/config.yaml`.
 - Env vars: common overrides include `DATABASE_URL`, `REDIS_URL`, `CLICKHOUSE_URL`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `JWT_ISSUER`.
 - If not provided, the service uses the defaults above.
@@ -98,3 +106,5 @@ Container usage
 
 Notes
 - This repository manages only the billing service operations. Application-specific integration (e.g., role management in your app DB) is out of scope here.
+ - Premium checks in the Doujins app should come from `billing.entitlements` (not from subscription rows). Email addresses should come from `profiles.users` (not denormalized into billing records).
+

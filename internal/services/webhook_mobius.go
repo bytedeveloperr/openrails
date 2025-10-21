@@ -167,10 +167,9 @@ func (s *MobiusWebhookService) handleAddSubscription(ctx context.Context) error 
 
 	_, err = s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 		PriceID:                 price.ID,
-		UserID:                  subscription.UserID,
+		UserID:                  subscription.UserID.String(),
 		Processor:               models.ProcessorMobius,
 		ProcessorSubscriptionID: &subscription.ProcessorSubscriptionID,
-		UserEmail:               subscription.UserEmail,
 	})
 
 	if err != nil {

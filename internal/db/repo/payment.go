@@ -51,8 +51,12 @@ func (r *PaymentRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Paymen
 }
 
 func (r *PaymentRepo) GetByUserID(ctx context.Context, userID string) ([]*models.Payment, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, err
+	}
 	payments := []*models.Payment{}
-	if err := r.db.GetDB().NewSelect().Model(&payments).TableExpr(r.db.QualifiedTable("payments")).Where("user_id = ?", userID).Order("purchased_at DESC").Scan(ctx); err != nil {
+	if err := r.db.GetDB().NewSelect().Model(&payments).TableExpr(r.db.QualifiedTable("payments")).Where("user_id = ?", uid).Order("purchased_at DESC").Scan(ctx); err != nil {
 		return nil, err
 	}
 	return payments, nil
@@ -101,12 +105,17 @@ func (r *PaymentRepo) GetPaginatedByUserID(ctx context.Context, userID string, p
 	payments := []*models.Payment{}
 	offset := (page - 1) * pageSize
 
-	count, err := r.db.GetDB().NewSelect().Model((*models.Payment)(nil)).TableExpr(r.db.QualifiedTable("payments")).Where("user_id = ?", userID).Count(ctx)
+	uid, err := uuid.Parse(userID)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	if err := r.db.GetDB().NewSelect().Model(&payments).TableExpr(r.db.QualifiedTable("payments")).Where("user_id = ?", userID).Order("purchased_at DESC").Limit(pageSize).Offset(offset).Scan(ctx); err != nil {
+	count, err := r.db.GetDB().NewSelect().Model((*models.Payment)(nil)).TableExpr(r.db.QualifiedTable("payments")).Where("user_id = ?", uid).Count(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if err := r.db.GetDB().NewSelect().Model(&payments).TableExpr(r.db.QualifiedTable("payments")).Where("user_id = ?", uid).Order("purchased_at DESC").Limit(pageSize).Offset(offset).Scan(ctx); err != nil {
 		return nil, 0, err
 	}
 
@@ -121,7 +130,11 @@ func (r *PaymentRepo) GetPayments(ctx context.Context, opts query.QueryOptions[P
 	q = q.Relation("Price").Relation("Price.Product")
 
 	if opts.Filters.UserID != "" {
-		q = q.Where("payments.user_id = ?", opts.Filters.UserID)
+		if uid, err := uuid.Parse(opts.Filters.UserID); err == nil {
+			q = q.Where("payments.user_id = ?", uid)
+		} else {
+			return nil, 0, err
+		}
 	}
 	if opts.Filters.PriceID != uuid.Nil {
 		q = q.Where("payments.price_id = ?", opts.Filters.PriceID)

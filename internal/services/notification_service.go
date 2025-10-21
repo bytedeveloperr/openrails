@@ -81,14 +81,14 @@ func (s *NotificationService) sendEmailNotification(ctx context.Context, notific
 			log.WithContext(ctx).Debug("subscription email service not available - skipping subscription confirmation email")
 			return nil
 		}
-		return s.subscriptionEmailSvc.SendSubscriptionConfirmed(ctx, notification.UserID)
+		return s.subscriptionEmailSvc.SendSubscriptionConfirmed(ctx, notification.UserID.String())
 
 	case models.NotificationPremiumRenewed:
 		if s.subscriptionEmailSvc == nil {
 			log.WithContext(ctx).Debug("subscription email service not available - skipping subscription renewal email")
 			return nil
 		}
-		return s.subscriptionEmailSvc.SendSubscriptionRenewed(ctx, notification.UserID)
+		return s.subscriptionEmailSvc.SendSubscriptionRenewed(ctx, notification.UserID.String())
 
 	case models.NotificationPremiumEnded:
 		if s.subscriptionEmailSvc == nil {
@@ -101,14 +101,14 @@ func (s *NotificationService) sendEmailNotification(ctx context.Context, notific
 				reason = ParsePremiumEndReason(r)
 			}
 		}
-		return s.subscriptionEmailSvc.SendPremiumEnded(ctx, notification.UserID, reason)
+		return s.subscriptionEmailSvc.SendPremiumEnded(ctx, notification.UserID.String(), reason)
 
 	case models.NotificationPaymentMethodFailed:
 		if s.subscriptionEmailSvc == nil {
 			log.WithContext(ctx).Debug("subscription email service not available - skipping payment failure email")
 			return nil
 		}
-		return s.subscriptionEmailSvc.SendPaymentFailed(ctx, notification.UserID)
+		return s.subscriptionEmailSvc.SendPaymentFailed(ctx, notification.UserID.String())
 
 	case models.NotificationOneOffPurchaseCompleted:
 		if s.emailService == nil {
@@ -122,8 +122,15 @@ func (s *NotificationService) sendEmailNotification(ctx context.Context, notific
 		}
 
 		email, _ := notification.Data["user_email"].(string)
+		if email == "" && s.subscriptionEmailSvc != nil {
+			// Fallback to profiles lookup via subscription email service
+			if uname, mail, err := s.subscriptionEmailSvc.getUserEmail(ctx, notification.UserID.String()); err == nil && mail != "" {
+				_ = uname
+				email = mail
+			}
+		}
 		if email == "" {
-			log.WithContext(ctx).WithField("user_id", notification.UserID).Warn("one-off purchase notification missing user email")
+			log.WithContext(ctx).WithField("user_id", notification.UserID).Warn("one-off purchase notification missing user email and profile lookup failed")
 			return nil
 		}
 
@@ -190,7 +197,7 @@ func (s *NotificationService) cleanupObsoleteNotifications(ctx context.Context, 
 
 	// Remove obsolete unseen notifications for this user
 	if len(obsoleteEventTypes) > 0 {
-		cleanedCount, err := s.removeObsoleteNotifications(ctx, newNotification.UserID, obsoleteEventTypes)
+		cleanedCount, err := s.removeObsoleteNotifications(ctx, newNotification.UserID.String(), obsoleteEventTypes)
 		if err != nil {
 			return fmt.Errorf("failed to remove obsolete notifications: %w", err)
 		}

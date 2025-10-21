@@ -1,3 +1,4 @@
+-- bun:up
 -- 00002_seed_billings_tables.sql
 -- Seed data for billing tables - products, prices, and default subscription plans
 
@@ -123,4 +124,3 @@ COMMENT ON TABLE products IS 'Product catalog - modify these via your applicatio
 COMMENT ON TABLE prices IS 'Pricing tiers with processor integration - modify these via your application for new campaigns';
 COMMENT ON COLUMN prices.is_active IS 'Set to false to disable pricing tier without deleting (useful for campaigns)';
 COMMENT ON COLUMN prices.ccbill_price_id IS 'CCBill FlexForm price identifier - update when creating new CCBill products';
-COMMENT ON COLUMN prices.mobius_plan_id IS 'Mobius plan identifier - update when creating new Mobius plans';

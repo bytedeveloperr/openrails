@@ -30,7 +30,7 @@ type Entitlement struct {
 	bun.BaseModel `bun:"table:entitlements,alias:ent"`
 
 	ID          uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
-	UserID      string    `bun:"user_id,notnull" json:"user_id"`
+	UserID      uuid.UUID `bun:"user_id,notnull,type:uuid" json:"user_id"`
 	Entitlement string    `bun:"entitlement,notnull" json:"entitlement"`
 
 	StartAt time.Time  `bun:"start_at,notnull" json:"start_at"`

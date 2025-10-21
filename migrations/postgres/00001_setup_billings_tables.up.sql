@@ -1,7 +1,7 @@
+-- bun:up
 -- Set timeouts to prevent hanging migrations
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';
-SET search_path = billing, public;
 
 -- Backward-compat cleanup: subscription_events moved to ClickHouse only
 DROP TABLE IF EXISTS subscription_events CASCADE;
@@ -27,7 +27,7 @@ END$$;
 -- 1.3: Create subscriptions table
 CREATE TABLE IF NOT EXISTS subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL, -- OIDC subject (sub)
+    user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     price_id UUID, -- References prices table (created later)
     status subscription_status NOT NULL DEFAULT 'pending',
     
@@ -157,7 +157,7 @@ END$$;
 
 CREATE TABLE IF NOT EXISTS entitlements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL,
+    user_id UUID NOT NULL,
     entitlement TEXT NOT NULL,
     start_at TIMESTAMPTZ NOT NULL,
     end_at TIMESTAMPTZ,
@@ -203,7 +203,7 @@ ALTER TABLE entitlements DROP COLUMN IF EXISTS active;
 -- 4.1: Create payment_methods table
 CREATE TABLE IF NOT EXISTS payment_methods (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL, -- OIDC subject (sub)
+    user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     processor VARCHAR(50) NOT NULL, -- 'mobius', 'ccbill', etc.
     
     -- Processor-specific vault/payment method identifiers
@@ -217,6 +217,7 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     card_type VARCHAR(50), -- 'Visa', 'MasterCard', etc.
     expiry_date VARCHAR(5), -- 'MM/YY' format
     failure_reason TEXT, -- Reason if inactive
+    wallet_address TEXT, -- Base58 wallet address for crypto (e.g., Solana)
     
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
@@ -227,10 +228,12 @@ CREATE INDEX IF NOT EXISTS idx_payment_methods_processor ON payment_methods(proc
 CREATE INDEX IF NOT EXISTS idx_payment_methods_vault_id ON payment_methods(vault_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_processor_vault_id ON payment_methods(processor, vault_id);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_is_active ON payment_methods(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_payment_methods_wallet_address ON payment_methods(wallet_address) WHERE wallet_address IS NOT NULL;
 
 COMMENT ON TABLE payment_methods IS 'Generalized payment method table supporting multiple processors.';
 COMMENT ON COLUMN payment_methods.processor IS 'Payment processor type: mobius, ccbill, stripe, etc.';
 COMMENT ON COLUMN payment_methods.vault_id IS 'Primary payment method identifier in the processor system';
+COMMENT ON COLUMN payment_methods.wallet_address IS 'Solana wallet address for crypto payment methods (Base58 encoded)';
 
 -- Add payment_method_id reference to subscriptions table
 DO $$
@@ -257,7 +260,7 @@ CREATE TYPE purchase_status AS ENUM ('pending', 'completed', 'failed', 'refunded
 -- 4.3: Create payments table (formerly purchases)
 CREATE TABLE IF NOT EXISTS payments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL, -- OIDC subject (sub)
+    user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     price_id UUID NOT NULL REFERENCES prices(id),
     processor processor_type NOT NULL,
     transaction_id TEXT NOT NULL,
@@ -279,10 +282,40 @@ CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON payments(subscription
 
 COMMENT ON COLUMN payments.subscription_id IS 'Links a payment to the subscription that generated it (nullable for one-off payments)';
 
--- 4.4: Create solana_transactions table (pending and confirmed Solana payments)
+-- 4.4: Create solana_payment_intents table (unified Solana payment flow)
+CREATE TABLE IF NOT EXISTS solana_payment_intents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    price_id UUID NOT NULL,
+    flow_type TEXT NOT NULL, -- direct | solanapay
+    token TEXT NOT NULL,
+    token_mint TEXT NOT NULL,
+    amount DECIMAL(18,9) NOT NULL,
+    currency TEXT NOT NULL,
+    expected_amount_lamports BIGINT NOT NULL,
+    payer_wallet TEXT,
+    recipient_wallet TEXT NOT NULL,
+    reference TEXT,
+    memo TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    signature TEXT,
+    transaction_signature TEXT,
+    error_message TEXT,
+    expires_at TIMESTAMPTZ,
+    confirmed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    UNIQUE(reference)
+);
+
+CREATE INDEX IF NOT EXISTS idx_solana_payment_intents_user_status ON solana_payment_intents(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_solana_payment_intents_reference ON solana_payment_intents(reference) WHERE reference IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_solana_payment_intents_expires ON solana_payment_intents(expires_at) WHERE expires_at IS NOT NULL;
+
+-- 4.5: Create solana_transactions table (pending and confirmed Solana payments)
 CREATE TABLE IF NOT EXISTS solana_transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT, -- OIDC subject (sub), nullable for anonymous intents
+    user_id UUID, -- AuthKit user ID (UUID), nullable for anonymous intents
     signature TEXT, -- Solana transaction signature (set when confirmed)
     status TEXT NOT NULL, -- pending, confirmed, failed
 
@@ -298,6 +331,7 @@ CREATE TABLE IF NOT EXISTS solana_transactions (
     -- Optional references
     product_id UUID,
     purchase_id UUID,
+    intent_id UUID REFERENCES solana_payment_intents(id) ON DELETE SET NULL,
 
     -- Blockchain metadata
     block_time TIMESTAMPTZ,
@@ -323,6 +357,8 @@ CREATE TABLE IF NOT EXISTS solana_transactions (
 CREATE INDEX IF NOT EXISTS idx_solana_transactions_user_id ON solana_transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_solana_transactions_status ON solana_transactions(status);
 CREATE INDEX IF NOT EXISTS idx_solana_transactions_expires_at ON solana_transactions(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_solana_transactions_intent_id ON solana_transactions(intent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_tx_signature ON solana_transactions(signature) WHERE signature IS NOT NULL;
 
 -- ============================================================================
 -- SECTION 5: SUPPORTING TABLES
@@ -331,7 +367,7 @@ CREATE INDEX IF NOT EXISTS idx_solana_transactions_expires_at ON solana_transact
 -- 5.1: Create notification_queue table
 CREATE TABLE IF NOT EXISTS notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL, -- OIDC subject (sub)
+    user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     notification_type TEXT NOT NULL, -- entitlement_expired, subscription_failed, etc.
     title TEXT NOT NULL,
     message TEXT NOT NULL,
@@ -346,58 +382,27 @@ CREATE INDEX IF NOT EXISTS idx_notification_queue_type ON notification_queue(not
 CREATE INDEX IF NOT EXISTS idx_notification_queue_is_read ON notification_queue(is_read);
 CREATE INDEX IF NOT EXISTS idx_notification_queue_created_at ON notification_queue(created_at);
 
--- 5.2: Create solana_transactions table (tracks pending/confirmed Solana payments)
-CREATE TABLE IF NOT EXISTS solana_transactions (
+
+-- 5.2: Solana wallet challenges (for address verification)
+CREATE TABLE IF NOT EXISTS solana_wallet_challenges (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT, -- OIDC subject (sub); nullable for anonymous/pending
-
-    -- Transaction details
-    signature TEXT, -- on-chain signature when confirmed
-    status TEXT NOT NULL, -- pending, confirmed, failed
-
-    -- Payment details
-    amount NUMERIC(18,9) NOT NULL,
-    token TEXT NOT NULL, -- SOL, USDC, PYUSD
-    token_mint TEXT NOT NULL,
-
-    -- Addresses
-    from_address TEXT NOT NULL,
-    to_address TEXT NOT NULL,
-
-    -- Optional references
-    product_id UUID,
-    purchase_id UUID,
-
-    -- Blockchain details
-    block_time TIMESTAMPTZ,
-    slot BIGINT,
-    confirmations INTEGER NOT NULL DEFAULT 0,
-    transaction_fee NUMERIC(18,9),
-
-    -- Processing metadata
-    processing_result JSONB,
-    error_message TEXT,
-
-    -- QR/payment UI reference
-    qr_code_id TEXT,
-
-    -- Pending expiration
-    expires_at TIMESTAMPTZ,
-
-    -- Timestamps
+    user_id UUID NOT NULL,
+    address TEXT NOT NULL,
+    message TEXT NOT NULL,
+    nonce TEXT NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
+    UNIQUE(user_id, address)
 );
 
-CREATE INDEX IF NOT EXISTS idx_solana_tx_user_id ON solana_transactions(user_id);
-CREATE INDEX IF NOT EXISTS idx_solana_tx_status ON solana_transactions(status);
-CREATE INDEX IF NOT EXISTS idx_solana_tx_created_at ON solana_transactions(created_at);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_tx_signature ON solana_transactions(signature) WHERE signature IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_solana_wallet_challenges_user ON solana_wallet_challenges(user_id);
+CREATE INDEX IF NOT EXISTS idx_solana_wallet_challenges_expires ON solana_wallet_challenges(expires_at);
 
 -- 5.3: Create solana_wallets table (user wallet linking and verification)
 CREATE TABLE IF NOT EXISTS solana_wallets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id TEXT NOT NULL, -- OIDC subject (sub)
+    user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     address TEXT NOT NULL, -- Base58 encoded Solana wallet address
     is_verified BOOLEAN NOT NULL DEFAULT false,
     verified_at TIMESTAMPTZ,
@@ -442,3 +447,4 @@ COMMENT ON TABLE products IS 'Product definitions that can be purchased or subsc
 COMMENT ON TABLE prices IS 'Pricing tiers for products with processor-specific identifiers';
 COMMENT ON TABLE payments IS 'Records of all payment transactions (formerly purchases table)';
 COMMENT ON TABLE notification_queue IS 'Queue for user notifications related to billing and subscriptions';
+

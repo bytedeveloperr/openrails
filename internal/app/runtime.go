@@ -14,7 +14,6 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
 	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/internal/workers"
 )
 
 // Runtime aggregates infrastructure clients and application services.
@@ -27,7 +26,6 @@ type Runtime struct {
 	CCBillDataLink   *ccbill.DataLinkClient
 	MobiusClient     *mobius.MobiusClient
 	RiverClient      *river.Client[pgx.Tx]
-	WorkerManager    *workers.Manager
 
 	UserService              *services.UserService
 	SubscriptionService      *services.SubscriptionService
@@ -54,8 +52,7 @@ type Runtime struct {
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 
-	riverStarted   bool
-	managerStarted bool
+	riverStarted bool
 }
 
 // Close gracefully shuts down runtime resources.
@@ -70,12 +67,6 @@ func (r *Runtime) Close(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("failed to stop River client: %w", err))
 		}
 		r.riverStarted = false
-	}
-	if r.WorkerManager != nil && r.managerStarted {
-		if err := r.WorkerManager.Stop(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to stop worker manager: %w", err))
-		}
-		r.managerStarted = false
 	}
 	if r.DB != nil {
 		if err := r.DB.Close(); err != nil {
@@ -103,7 +94,11 @@ func (r *Runtime) InitRiver(ctx context.Context) error {
 	if r.RiverClient != nil {
 		return nil
 	}
-	client, err := buildRiverClient(r.Config)
+	workers, err := r.buildRiverWorkers(ctx)
+	if err != nil {
+		return fmt.Errorf("build river workers: %w", err)
+	}
+	client, err := buildRiverClient(r.Config, workers)
 	if err != nil {
 		return err
 	}
@@ -111,7 +106,7 @@ func (r *Runtime) InitRiver(ctx context.Context) error {
 	return nil
 }
 
-// StartWorkers spins up background workers (River queue + custom worker manager).
+// StartWorkers spins up background workers using the River queue system.
 func (r *Runtime) StartWorkers(ctx context.Context) {
 	if r == nil {
 		return
@@ -119,7 +114,20 @@ func (r *Runtime) StartWorkers(ctx context.Context) {
 	if !r.riverStarted {
 		if err := r.InitRiver(ctx); err != nil {
 			log.WithError(err).Error("Failed to initialize River client")
-		} else if r.RiverClient != nil {
+			return
+		}
+		if r.RiverClient != nil {
+			// Build periodic jobs
+			periodicJobs, err := r.buildRiverPeriodicJobs(ctx)
+			if err != nil {
+				log.WithError(err).Error("Failed to configure River periodic jobs")
+				return
+			}
+			// Add periodic jobs to the client
+			for _, job := range periodicJobs {
+				r.RiverClient.PeriodicJobs().Add(job)
+			}
+
 			r.riverStarted = true
 			go func() {
 				log.Info("Starting River background workers in-server")
@@ -129,13 +137,6 @@ func (r *Runtime) StartWorkers(ctx context.Context) {
 					log.Info("River workers stopped")
 				}
 			}()
-		}
-	}
-	if r.WorkerManager != nil && !r.managerStarted {
-		if err := r.WorkerManager.Start(ctx); err != nil {
-			log.WithError(err).Error("Failed to start billing worker manager")
-		} else {
-			r.managerStarted = true
 		}
 	}
 }

@@ -17,4 +17,7 @@ func init() {
 	if err := Migrations.Discover(migrationFS); err != nil {
 		log.WithError(err).Fatal("failed to discover Postgres migrations")
 	}
+
+	migrations := Migrations.Sorted()
+	log.WithField("count", len(migrations)).Info("Postgres migrations discovered")
 }

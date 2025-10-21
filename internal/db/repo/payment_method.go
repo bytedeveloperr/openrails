@@ -70,10 +70,14 @@ func (r *PaymentMethodRepo) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 func (r *PaymentMethodRepo) GetByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
 	methods := []*models.PaymentMethod{}
-	err := r.db.GetDB().NewSelect().Model(&methods).
+	err = r.db.GetDB().NewSelect().Model(&methods).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", uid).
 		Order("created_at DESC").
 		Scan(ctx)
 	if err != nil {
@@ -83,10 +87,14 @@ func (r *PaymentMethodRepo) GetByUserID(ctx context.Context, userID string) ([]*
 }
 
 func (r *PaymentMethodRepo) GetActiveByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
 	methods := []*models.PaymentMethod{}
-	err := r.db.GetDB().NewSelect().Model(&methods).
+	err = r.db.GetDB().NewSelect().Model(&methods).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", uid).
 		Where("is_active = ?", true).
 		Order("created_at DESC").
 		Scan(ctx)
@@ -97,9 +105,13 @@ func (r *PaymentMethodRepo) GetActiveByUserID(ctx context.Context, userID string
 }
 
 func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, includeInactive bool, limit, offset int) ([]*models.PaymentMethod, int64, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("invalid user id: %w", err)
+	}
 	countQuery := r.db.GetDB().NewSelect().Model((*models.PaymentMethod)(nil)).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID)
+		Where("user_id = ?", uid)
 	if !includeInactive {
 		countQuery.Where("is_active = ?", true)
 	}
@@ -112,7 +124,7 @@ func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, inc
 	methods := []*models.PaymentMethod{}
 	dataQuery := r.db.GetDB().NewSelect().Model(&methods).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", uid).
 		Order("created_at DESC")
 	if !includeInactive {
 		dataQuery.Where("is_active = ?", true)
@@ -198,11 +210,15 @@ func (r *PaymentMethodRepo) Update(ctx context.Context, method *models.PaymentMe
 }
 
 func (r *PaymentMethodRepo) DeactivateByUserID(ctx context.Context, userID string) error {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
 	res, err := r.db.GetDB().NewUpdate().
 		Model((*models.PaymentMethod)(nil)).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
 		Set("is_active = ?", false).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", uid).
 		Exec(ctx)
 	if err != nil {
 		return err
@@ -267,10 +283,14 @@ func (r *PaymentMethodRepo) GetActiveMobius(ctx context.Context) ([]*models.Paym
 }
 
 func (r *PaymentMethodRepo) GetMobiusByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
 	methods := []*models.PaymentMethod{}
-	err := r.db.GetDB().NewSelect().Model(&methods).
+	err = r.db.GetDB().NewSelect().Model(&methods).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", uid).
 		Where("processor = ?", models.ProcessorMobius).
 		Order("created_at DESC").
 		Scan(ctx)
@@ -281,10 +301,14 @@ func (r *PaymentMethodRepo) GetMobiusByUserID(ctx context.Context, userID string
 }
 
 func (r *PaymentMethodRepo) GetActiveMobiusByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
 	methods := []*models.PaymentMethod{}
-	err := r.db.GetDB().NewSelect().Model(&methods).
+	err = r.db.GetDB().NewSelect().Model(&methods).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", uid).
 		Where("processor = ?", models.ProcessorMobius).
 		Where("is_active = ?", true).
 		Order("created_at DESC").
@@ -296,11 +320,15 @@ func (r *PaymentMethodRepo) GetActiveMobiusByUserID(ctx context.Context, userID 
 }
 
 func (r *PaymentMethodRepo) ExistsForUser(ctx context.Context, id uuid.UUID, userID string) (bool, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return false, fmt.Errorf("invalid user id: %w", err)
+	}
 	count, err := r.db.GetDB().NewSelect().
 		Model((*models.PaymentMethod)(nil)).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
 		Where("id = ?", id).
-		Where("user_id = ?", userID).
+		Where("user_id = ?", uid).
 		Count(ctx)
 	if err != nil {
 		return false, err

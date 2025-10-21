@@ -159,11 +159,6 @@ func (s *PaymentMethodService) GetActiveMobiusByUserID(ctx context.Context, user
 	return s.repo.GetActiveMobiusByUserID(ctx, userID)
 }
 
-// GetACUPendingMethods is deprecated since payment methods only support Mobius
-// ACU fields were removed from the model, so this returns empty
-func (s *PaymentMethodService) GetACUPendingMethods(ctx context.Context) ([]*models.PaymentMethod, error) {
-	return []*models.PaymentMethod{}, nil
-}
 
 // ValidateOwnership verifies that a payment method belongs to the specified user
 // Returns error if the payment method doesn't exist or doesn't belong to the user

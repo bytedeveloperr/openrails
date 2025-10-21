@@ -43,10 +43,14 @@ func (s *SolanaWalletService) Link(ctx context.Context, userID, address string) 
 		return nil, fmt.Errorf("failed to check existing wallet: %w", err)
 	}
 
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user id: %w", err)
+	}
 	now := time.Now()
 	wallet := &models.SolanaWallet{
 		ID:         uuid.New(),
-		UserID:     userID,
+		UserID:     uid,
 		Address:    address,
 		IsVerified: false,
 		CreatedAt:  now,

@@ -1,0 +1,199 @@
+package riverjobs
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
+	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/google/uuid"
+	"github.com/riverqueue/river"
+	log "github.com/sirupsen/logrus"
+)
+
+const (
+	QueueBilling       = "billing"
+	KindDunningAttempt = "billing.dunning_attempt"
+	KindDunningScan    = "billing.dunning_scan"
+)
+
+// DunningAttemptArgs schedules a single dunning attempt for a subscription.
+type DunningAttemptArgs struct {
+	SubscriptionID uuid.UUID `json:"subscription_id"`
+}
+
+func (DunningAttemptArgs) Kind() string { return KindDunningAttempt }
+
+// DunningAttemptWorker performs a dunning attempt against Mobius for a single subscription.
+type DunningAttemptWorker struct {
+	river.WorkerDefaults[DunningAttemptArgs]
+	DB     *db.DB
+	Mobius *mobius.MobiusClient
+}
+
+func (DunningAttemptWorker) Kind() string { return KindDunningAttempt }
+
+func (w *DunningAttemptWorker) Work(ctx context.Context, job *river.Job[DunningAttemptArgs]) error {
+	if w.DB == nil {
+		return fmt.Errorf("db is required")
+	}
+	if w.Mobius == nil {
+		// Nothing to do if Mobius is not configured; consider this a no-op
+		log.WithContext(ctx).Warn("Mobius client not configured; skipping dunning attempt")
+		return nil
+	}
+
+	// Load subscription with relations required
+	var sub models.Subscription
+	if err := w.DB.GetDB().NewSelect().
+		Model(&sub).
+		Where("id = ?", job.Args.SubscriptionID).
+		Relation("Price").
+		Relation("PaymentMethod").
+		Scan(ctx); err != nil {
+		return fmt.Errorf("load subscription: %w", err)
+	}
+
+	priceSvc := services.NewPriceService(w.DB)
+	productSvc := services.NewProductService(w.DB)
+	entitlementSvc := services.NewEntitlementService(w.DB)
+	notifQueueSvc := services.NewNotificationQueueService(w.DB)
+	lifecycle := services.NewSubscriptionLifecycleService(w.DB, productSvc, priceSvc, entitlementSvc, notifQueueSvc)
+	paymentSvc := services.NewPaymentService(w.DB)
+
+	// Validate payment method
+	pm := sub.PaymentMethod
+	if pm == nil || !pm.IsActive || pm.VaultID == "" || pm.BillingID == nil || *pm.BillingID == "" {
+		reason := "payment method unavailable for rebill"
+		if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
+			Processor:               models.ProcessorMobius,
+			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
+			FailureReason:           &reason,
+		}); err != nil {
+			log.WithContext(ctx).WithError(err).WithField("subscription_id", sub.ID).Warn("fail-membership after missing payment method")
+		}
+		return nil
+	}
+
+	// Attempt manual rebill via Mobius
+	rebillResp, err := w.Mobius.AttemptManualRebill(mobius.ManualRebillParams{
+		VaultID:        pm.VaultID,
+		BillingID:      *pm.BillingID,
+		SubscriptionID: sub.ProcessorSubscriptionID,
+	})
+	if err != nil {
+		msg := fmt.Sprintf("manual rebill request failed: %v", err)
+		if err2 := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
+			Processor:               models.ProcessorMobius,
+			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
+			FailureReason:           &msg,
+		}); err2 != nil {
+			log.WithContext(ctx).WithError(err2).WithField("subscription_id", sub.ID).Warn("record rebill failure")
+		}
+		return nil
+	}
+
+	if rebillResp == nil || !rebillResp.Success {
+		reason := "rebill declined"
+		if rebillResp != nil && rebillResp.ErrorMessage != "" {
+			reason = rebillResp.ErrorMessage
+		}
+		if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
+			Processor:               models.ProcessorMobius,
+			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
+			FailureReason:           &reason,
+		}); err != nil {
+			log.WithContext(ctx).WithError(err).WithField("subscription_id", sub.ID).Warn("apply failure policy after declined rebill")
+		}
+		return nil
+	}
+
+	// Success: renew membership window and create a payment record
+	if err := lifecycle.RenewMembership(ctx, &services.RenewMembershipParams{
+		Processor:               models.ProcessorMobius,
+		ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
+	}); err != nil {
+		log.WithContext(ctx).WithError(err).WithField("subscription_id", sub.ID).Error("renew membership after successful rebill")
+		return nil
+	}
+
+	// Create payment record
+	amount := 0.0
+	currency := "USD"
+	if sub.Price != nil {
+		amount = sub.Price.Amount
+		currency = sub.Price.Currency
+	} else if p, err := priceSvc.GetByID(ctx, sub.PriceID); err == nil {
+		amount = p.Amount
+		currency = p.Currency
+	}
+
+	pay := &models.Payment{
+		ID:             uuid.New(),
+		UserID:         sub.UserID,
+		PriceID:        sub.PriceID,
+		SubscriptionID: &sub.ID,
+		Processor:      models.ProcessorMobius,
+		TransactionID:  rebillResp.TransactionID,
+		Amount:         amount,
+		Currency:       currency,
+		PurchasedAt:    time.Now(),
+		CreatedAt:      time.Now(),
+	}
+	if err := paymentSvc.Create(ctx, pay); err != nil {
+		log.WithContext(ctx).WithError(err).WithField("subscription_id", sub.ID).Warn("create payment record for rebill")
+	}
+	return nil
+}
+
+// DunningSweepArgs triggers a scan and inline processing of due dunning attempts.
+type DunningSweepArgs struct{}
+
+func (DunningSweepArgs) Kind() string { return KindDunningScan }
+
+// DunningSweepWorker scans for due past_due Mobius subscriptions and processes attempts inline.
+type DunningSweepWorker struct {
+	river.WorkerDefaults[DunningSweepArgs]
+	DB     *db.DB
+	Mobius *mobius.MobiusClient
+}
+
+func (DunningSweepWorker) Kind() string { return KindDunningScan }
+
+func (w *DunningSweepWorker) Work(ctx context.Context, job *river.Job[DunningSweepArgs]) error {
+	if w.DB == nil {
+		return fmt.Errorf("db is required")
+	}
+	// query due subs
+	due := []models.Subscription{}
+	if err := w.DB.GetDB().NewSelect().
+		Model(&due).
+		Where("processor = ?", models.ProcessorMobius).
+		Where("status = ?", models.StatusPastDue).
+		Where("next_retry_at IS NOT NULL AND next_retry_at <= NOW()").
+		Column("id").
+		Scan(ctx); err != nil {
+		return fmt.Errorf("query due subscriptions: %w", err)
+	}
+	if len(due) == 0 {
+		log.WithContext(ctx).Info("DunningScan: no attempts due")
+		return nil
+	}
+	// Process attempts inline to avoid needing a client within workers
+	count := 0
+	for _, sub := range due {
+		// Reuse attempt logic from DunningAttemptWorker by calling it directly
+		// Simplify by creating a temporary worker bound to current DB/Mobius
+		tmp := DunningAttemptWorker{DB: w.DB, Mobius: w.Mobius}
+		if err := tmp.Work(ctx, &river.Job[DunningAttemptArgs]{Args: DunningAttemptArgs{SubscriptionID: sub.ID}}); err != nil {
+			log.WithContext(ctx).WithError(err).WithField("subscription_id", sub.ID).Warn("dunning attempt failed")
+			continue
+		}
+		count++
+	}
+	log.WithContext(ctx).WithField("count", count).Info("DunningSweep: processed attempts")
+	return nil
+}

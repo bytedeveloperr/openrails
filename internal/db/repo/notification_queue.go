@@ -47,16 +47,24 @@ func (r *NotificationQueueRepo) GetByID(ctx context.Context, id uuid.UUID) (*mod
 }
 
 func (r *NotificationQueueRepo) GetByUserID(ctx context.Context, userID string) ([]*models.NotificationQueue, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, err
+	}
 	notifications := []*models.NotificationQueue{}
-	if err := r.db.GetDB().NewSelect().Model(&notifications).TableExpr(r.db.QualifiedTable("notification_queue")).Where("user_id = ?", userID).Order("created_at DESC").Scan(ctx); err != nil {
+	if err := r.db.GetDB().NewSelect().Model(&notifications).TableExpr(r.db.QualifiedTable("notification_queue")).Where("user_id = ?", uid).Order("created_at DESC").Scan(ctx); err != nil {
 		return nil, err
 	}
 	return notifications, nil
 }
 
 func (r *NotificationQueueRepo) GetUnseenByUserID(ctx context.Context, userID string) ([]*models.NotificationQueue, error) {
+	uid, err := uuid.Parse(userID)
+	if err != nil {
+		return nil, err
+	}
 	notifications := []*models.NotificationQueue{}
-	if err := r.db.GetDB().NewSelect().Model(&notifications).TableExpr(r.db.QualifiedTable("notification_queue")).Where("user_id = ?", userID).Where("seen = ?", false).Order("created_at DESC").Scan(ctx); err != nil {
+	if err := r.db.GetDB().NewSelect().Model(&notifications).TableExpr(r.db.QualifiedTable("notification_queue")).Where("user_id = ?", uid).Where("seen = ?", false).Order("created_at DESC").Scan(ctx); err != nil {
 		return nil, err
 	}
 	return notifications, nil
@@ -147,7 +155,11 @@ func (r *NotificationQueueRepo) GetNotifications(ctx context.Context, opts query
 	q := r.db.GetDB().NewSelect().Model(&notifications).TableExpr(r.db.QualifiedTable("notification_queue"))
 
 	if opts.Filters.UserID != "" {
-		q = q.Where("notification_queue.user_id = ?", opts.Filters.UserID)
+		if uid, err := uuid.Parse(opts.Filters.UserID); err == nil {
+			q = q.Where("notification_queue.user_id = ?", uid)
+		} else {
+			return nil, 0, err
+		}
 	}
 	if opts.Filters.EventType != "" {
 		q = q.Where("notification_queue.event_type = ?", opts.Filters.EventType)

@@ -74,9 +74,13 @@ func (s *SolanaPaymentIntentService) CreateDirectIntent(ctx context.Context, use
 	}
 
 	expiresAt := time.Now().Add(10 * time.Minute)
+	uid, uerr := uuid.Parse(userID)
+	if uerr != nil {
+		return nil, fmt.Errorf("invalid user id: %w", uerr)
+	}
 	intent := &models.SolanaPaymentIntent{
 		ID:                     uuid.New(),
-		UserID:                 userID,
+		UserID:                 uid,
 		PriceID:                price.ID,
 		FlowType:               FlowTypeDirect,
 		Token:                  tokenSymbol,
@@ -138,9 +142,13 @@ func (s *SolanaPaymentIntentService) CreateSolanaPayIntent(ctx context.Context, 
 	memo := fmt.Sprintf("purchase:%s:%s", userID, price.ID.String())
 	expiresAt := time.Now().Add(15 * time.Minute)
 
+	uid2, uerr2 := uuid.Parse(userID)
+	if uerr2 != nil {
+		return nil, fmt.Errorf("invalid user id: %w", uerr2)
+	}
 	intent := &models.SolanaPaymentIntent{
 		ID:                     uuid.New(),
-		UserID:                 userID,
+		UserID:                 uid2,
 		PriceID:                price.ID,
 		FlowType:               FlowTypeSolanaPay,
 		Token:                  tokenSymbol,

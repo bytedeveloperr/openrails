@@ -185,17 +185,11 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 	}
 
 	// Use SubscriptionLifecycleService to create membership
-	var emailPtr *string
-	if email != "" {
-		emailPtr = &email
-	}
-
 	subscription, err := s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 		UserID:                  userID,
 		PriceID:                 price.ID,
 		Processor:               models.ProcessorCCBill,
 		ProcessorSubscriptionID: &ccBillSubID,
-		UserEmail:               emailPtr,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create membership: %w", err)
@@ -213,7 +207,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		paymentEventData := PaymentEventData{
 			EventID:        uuid.New(),
 			SubscriptionID: &subscription.ID,
-			UserID:         subscription.UserID,
+			UserID:         subscription.UserID.String(),
 			EventType:      "charge_success",
 			Processor:      "ccbill",
 			Amount:         &billedAmount,
@@ -300,13 +294,17 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 
 		// Add notification to queue for user about payment failure and send immediate email
 		if s.NotificationService != nil && userID != "" {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    userID,
-				EventType: models.NotificationPaymentMethodFailed,
-			}
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver new sale failure notification")
+			if uid, err := uuid.Parse(userID); err == nil {
+				notification := &models.NotificationQueue{
+					ID:        uuid.New(),
+					UserID:    uid,
+					EventType: models.NotificationPaymentMethodFailed,
+				}
+				if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+					log.WithContext(ctx).WithError(err).Error("failed to create and deliver new sale failure notification")
+				}
+			} else {
+				log.WithContext(ctx).WithError(err).Warn("invalid user id for notification; skipping")
 			}
 		}
 
@@ -422,7 +420,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 			paymentEventData := PaymentEventData{
 				EventID:        uuid.New(),
 				SubscriptionID: &subscription.ID,
-				UserID:         subscription.UserID,
+				UserID:         subscription.UserID.String(),
 				EventType:      "charge_success",
 				Processor:      "ccbill",
 				Amount:         &billedAmount,
@@ -526,13 +524,17 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 
 		// Add notification to queue for user about upgrade failure and send immediate email
 		if s.NotificationService != nil && userID != "" {
-			notification := &models.NotificationQueue{
-				ID:        uuid.New(),
-				UserID:    userID,
-				EventType: models.NotificationPaymentMethodFailed,
-			}
-			if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to create and deliver upgrade failure notification")
+			if uid, err := uuid.Parse(userID); err == nil {
+				notification := &models.NotificationQueue{
+					ID:        uuid.New(),
+					UserID:    uid,
+					EventType: models.NotificationPaymentMethodFailed,
+				}
+				if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
+					log.WithContext(ctx).WithError(err).Error("failed to create and deliver upgrade failure notification")
+				}
+			} else {
+				log.WithContext(ctx).WithError(err).Warn("invalid user id for upgrade failure notification")
 			}
 		}
 
@@ -609,10 +611,11 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 				"new_renewal_date":          newRenewalDate,
 			}
 
+			uid1 := sub.UserID.String()
 			subscriptionEventData := SubscriptionEventData{
 				EventID:                 uuid.New(),
 				SubscriptionID:          sub.ID,
-				UserID:                  sub.UserID,
+				UserID:                  uid1,
 				EventType:               "billing_date_changed",
 				Processor:               "ccbill",
 				ProcessorSubscriptionID: &pSubscriptionID,
@@ -693,10 +696,11 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 				},
 			}
 
+			uid2 := sub.UserID.String()
 			subscriptionEventData := SubscriptionEventData{
 				EventID:                 uuid.New(),
 				SubscriptionID:          sub.ID,
-				UserID:                  sub.UserID,
+				UserID:                  uid2,
 				EventType:               "customer_data_updated",
 				Processor:               "ccbill",
 				ProcessorSubscriptionID: &pSubscriptionID,
@@ -801,10 +805,11 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 				"reactivation_type":         "user_initiated",
 			}
 
+			uid3 := sub.UserID.String()
 			subscriptionEventData := SubscriptionEventData{
 				EventID:                 uuid.New(),
 				SubscriptionID:          sub.ID,
-				UserID:                  sub.UserID,
+				UserID:                  uid3,
 				EventType:               "subscription_reactivated",
 				Processor:               "ccbill",
 				ProcessorSubscriptionID: &pSubscriptionID,
@@ -966,7 +971,7 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 			paymentEventData := PaymentEventData{
 				EventID:        uuid.New(),
 				SubscriptionID: &sub.ID,
-				UserID:         sub.UserID,
+				UserID:         sub.UserID.String(),
 				EventType:      "refund",
 				Processor:      "ccbill",
 				Amount:         &negativeAmount,
@@ -1109,7 +1114,7 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 			paymentEventData := PaymentEventData{
 				EventID:        uuid.New(),
 				SubscriptionID: &sub.ID,
-				UserID:         sub.UserID,
+				UserID:         sub.UserID.String(),
 				EventType:      "void",
 				Processor:      "ccbill",
 				Amount:         &negativeAmount,
@@ -1285,7 +1290,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 			paymentEventData := PaymentEventData{
 				EventID:        uuid.New(),
 				SubscriptionID: &sub.ID,
-				UserID:         sub.UserID,
+				UserID:         sub.UserID.String(),
 				EventType:      "chargeback",
 				Processor:      "ccbill",
 				Amount:         &negativeAmount,
@@ -1385,7 +1390,7 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 		paymentEventData := PaymentEventData{
 			EventID:        uuid.New(),
 			SubscriptionID: &subscription.ID,
-			UserID:         subscription.UserID,
+			UserID:         subscription.UserID.String(),
 			EventType:      "charge_success",
 			Processor:      "ccbill",
 			Amount:         &billedAmount,
@@ -1508,10 +1513,11 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 			"is_failed_rebill":          data.Source == "failedRB",
 		}
 
+		uidStr := subscription.UserID.String()
 		subscriptionEventData := SubscriptionEventData{
 			EventID:                 uuid.New(),
 			SubscriptionID:          subscription.ID,
-			UserID:                  subscription.UserID,
+			UserID:                  uidStr,
 			EventType:               "subscription_cancelled",
 			Processor:               "ccbill",
 			ProcessorSubscriptionID: &ccBillSubID,
@@ -1581,10 +1587,11 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 			"is_expiration":             true,
 		}
 
+		uidStr := subscription.UserID.String()
 		subscriptionEventData := SubscriptionEventData{
 			EventID:                 uuid.New(),
 			SubscriptionID:          subscription.ID,
-			UserID:                  subscription.UserID,
+			UserID:                  uidStr,
 			EventType:               "subscription_expired",
 			Processor:               "ccbill",
 			ProcessorSubscriptionID: &ccBillSubID,

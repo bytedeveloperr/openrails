@@ -53,9 +53,6 @@ const (
 	ProcessorCCBill = "ccbill"
 	ProcessorMobius = "mobius"
 
-	CurrencyUSD = "USD"
-	CurrencyEUR = "EUR"
-
 	BillingCycleMonthly = 30
 
 	WebhookSourceCCBill = "ccbill_webhook"
@@ -151,14 +148,17 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 		}
 
 		// Create a pending subscription which we'll activate on the receipt of the webhook from Mobius
+		uid, err := uuid.Parse(user.ID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid user id: %w", err)
+		}
 		subscription := &models.Subscription{
-			UserID:                  user.ID,
+			UserID:                  uid,
 			PriceID:                 priceID,
 			ID:                      uuid.New(),
 			ProcessorSubscriptionID: resp.SubscriptionID,
 			Status:                  models.StatusPending,
 			Processor:               models.Processor(processor),
-			UserEmail:               user.Email,
 		}
 
 		if err := s.Create(ctx, subscription); err != nil {
@@ -204,9 +204,13 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 	// Entitlements are managed in lifecycle and user flows
 
 	// Add notification
+	uid, perr := uuid.Parse(userID)
+	if perr != nil {
+		return fmt.Errorf("invalid user id: %w", perr)
+	}
 	notification := &models.NotificationQueue{
 		ID:        uuid.New(),
-		UserID:    userID,
+		UserID:    uid,
 		EventType: models.NotificationPremiumEnded,
 		Data: map[string]any{
 			"reason": string(PremiumEndReasonUserCancel),

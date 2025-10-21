@@ -37,20 +37,6 @@ type FlexFormResponse struct {
 	DeclineURL string `json:"decline_url"`
 }
 
-// Legacy struct for backward compatibility - will be deprecated
-type GenerateCCBillURLParams struct {
-	Username      string `json:"username"`
-	Email         string `json:"email"`
-	Password      string `json:"password"`
-	CustomerFName string `json:"customer_fname"`
-	CustomerLName string `json:"customer_lname"`
-	Address1      string `json:"address1"`
-	City          string `json:"city"`
-	State         string `json:"state"`
-	ZipCode       string `json:"zipcode"`
-	Country       string `json:"country"`
-}
-
 type CCBillClient struct {
 	config *config.CCBillConfig
 	ApiURL string
@@ -118,30 +104,6 @@ func (c *CCBillClient) GenerateFlexFormURL(params *GenerateFlexFormURLParams) (*
 	}, nil
 }
 
-// GenerateCCBillURL provides backward compatibility for legacy FlexForm generation
-// Deprecated: Use GenerateFlexFormURL instead
-func (c *CCBillClient) GenerateCCBillURL(sp *GenerateCCBillURLParams) (string, error) {
-	// Convert legacy params to new FlexForm params
-	flexParams := &GenerateFlexFormURLParams{
-		Username:      sp.Username,
-		Email:         sp.Email,
-		Password:      sp.Password,
-		CustomerFName: sp.CustomerFName,
-		CustomerLName: sp.CustomerLName,
-		Address1:      sp.Address1,
-		City:          sp.City,
-		State:         sp.State,
-		ZipCode:       sp.ZipCode,
-		Country:       sp.Country,
-	}
-
-	response, err := c.GenerateFlexFormURL(flexParams)
-	if err != nil {
-		return "", err
-	}
-
-	return response.IFrameURL, nil
-}
 
 func (c *CCBillClient) generateCCBillSignature(query url.Values) string {
 	hash := sha256.Sum256([]byte(c.createSignatureInput(query)))

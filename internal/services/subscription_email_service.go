@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
+	"github.com/google/uuid"
 )
 
 var errUserEmailUnavailable = errors.New("user email unavailable")
@@ -21,6 +23,7 @@ type SubscriptionEmailService struct {
 	subscriptionService *SubscriptionService
 	productService      *ProductService
 	priceService        *PriceService
+	profiles            *repo.ProfileRepo
 }
 
 // NewSubscriptionEmailService creates a new subscription email service
@@ -29,12 +32,14 @@ func NewSubscriptionEmailService(
 	subscriptionService *SubscriptionService,
 	productService *ProductService,
 	priceService *PriceService,
+	profiles *repo.ProfileRepo,
 ) *SubscriptionEmailService {
 	return &SubscriptionEmailService{
 		emailService:        emailService,
 		subscriptionService: subscriptionService,
 		productService:      productService,
 		priceService:        priceService,
+		profiles:            profiles,
 	}
 }
 
@@ -167,9 +172,7 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 		}
 	}
 
-	if subscription.UserEmail != nil && *subscription.UserEmail != "" {
-		email = *subscription.UserEmail
-	}
+	// Email address comes from the user directory; subscription no longer caches it.
 
 	// Get the price details
 	price, err := s.priceService.GetByID(ctx, subscription.PriceID)
@@ -215,19 +218,19 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 
 // getUserProfile gets user profile and validates email exists
 func (s *SubscriptionEmailService) getUserEmail(ctx context.Context, userID string) (username string, email string, err error) {
-	subscription, err := s.subscriptionService.GetByUserID(ctx, userID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", "", fmt.Errorf("subscription not found for user %s: %w", userID, errUserEmailUnavailable)
-		}
-		return "", "", fmt.Errorf("failed to lookup subscription for user %s: %w", userID, err)
-	}
-
-	if subscription.UserEmail == nil || *subscription.UserEmail == "" {
+	if s.profiles == nil {
 		return "", "", errUserEmailUnavailable
 	}
-
-	return userID, *subscription.UserEmail, nil
+	uid, perr := uuid.Parse(userID)
+	if perr != nil {
+		return "", "", errUserEmailUnavailable
+	}
+	uname, mail, verified, active, qerr := s.profiles.GetUserEmail(ctx, uid)
+	if qerr != nil || mail == "" || !active {
+		return "", "", errUserEmailUnavailable
+	}
+	_ = verified // reserved for future policy checks
+	return uname, mail, nil
 }
 
 func describePaymentMethod(subscription *models.Subscription) string {

@@ -1,8 +1,5 @@
-# syntax=docker/dockerfile:1.7
-
 # Stage 1: build
-
-FROM golang:1.24.2-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git ca-certificates

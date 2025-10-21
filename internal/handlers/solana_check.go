@@ -54,7 +54,14 @@ func CheckSolanaPayment(r *Request) {
 		return
 	}
 
-	if intent.UserID != user.ID {
+	userUUID, err := uuid.Parse(user.ID)
+	if err != nil {
+		log.WithError(err).Error("Invalid user ID format")
+		r.ErrorJSON(http.StatusInternalServerError, "Invalid user ID")
+		return
+	}
+
+	if intent.UserID != userUUID {
 		log.WithFields(log.Fields{"intent_id": intent.ID, "user_id": user.ID}).Warn("Attempt to access intent belonging to another user")
 		r.ErrorJSON(http.StatusForbidden, "Payment intent does not belong to you")
 		return
@@ -132,7 +139,7 @@ func CheckSolanaPayment(r *Request) {
 
 	solanaTransaction := &models.SolanaTransaction{
 		ID:          uuid.New(),
-		UserID:      &user.ID,
+		UserID:      &userUUID,
 		Signature:   &signatureStr,
 		Status:      "confirmed",
 		Amount:      pay.Amount,
