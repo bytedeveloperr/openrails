@@ -63,10 +63,9 @@ func main() {
 
 func runServer(cmd *cobra.Command, args []string) error {
 	cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
-	// Auto-apply app migrations on startup (idempotent; guarded by advisory lock)
-	if err := migrate.Run(cmd.Context(), cfg); err != nil {
-		return fmt.Errorf("auto-migrate failed: %w", err)
-	}
+	// Note: migrations are no longer auto-run on server startup.
+	// In Docker Compose, a separate one-shot service runs `billing migrate`
+	// before the server starts. Use the `migrate` CLI for manual runs.
 
 	if cfg.Env == "production" || cfg.Env == "prod" {
 		gin.SetMode(gin.ReleaseMode)

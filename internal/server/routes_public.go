@@ -10,6 +10,15 @@ import (
 )
 
 func (s *Server) registerPublicRoutes() {
+	// Root: simple JSON banner for API servers
+	s.publicHandler.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"service":   "billing",
+			"status":    "ok",
+			"endpoints": []string{"/health/live", "/health/ready", "/v1"},
+		})
+	})
+
 	api := s.publicHandler.Group("/v1")
 
 	subscriptions := api.Group("/subscriptions")

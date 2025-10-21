@@ -1,7 +1,59 @@
 services:
-  # Requires the shared Postgres container (service name `postgres`) to already be running
-  # and connected to the `local-doujins` network (e.g., from the doujins-backend stack).
-  # Redis-compatible cache (Microsoft Garnet)
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: doujins_db
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Install pgvector at container startup (dev-only) then launch postgres.
+    # This avoids a custom Dockerfile.
+    user: root
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        if [ ! -f /usr/lib/postgresql/17/lib/vector.so ]; then
+          apt-get update
+          apt-get install -y --no-install-recommends postgresql-17-pgvector
+          rm -rf /var/lib/apt/lists/*
+        fi
+        export PATH="/usr/lib/postgresql/17/bin:$PATH"
+        exec /usr/local/bin/docker-entrypoint.sh postgres \
+          -c listen_addresses='*' \
+          -c log_min_messages=warning \
+          -c client_min_messages=warning \
+          -c log_error_verbosity=terse \
+          -c log_connections=off \
+          -c log_disconnections=off \
+          -c log_statement=none \
+          -c log_min_error_statement=error \
+          -c log_min_duration_statement=-1
+    networks:
+      - local-doujins
+    healthcheck:
+      # Wait until the main DB (app) is reachable on the TCP port.
+      test:
+        [
+          "CMD",
+          "pg_isready",
+          "-U",
+          "admin",
+          "-d",
+          "doujins_db",
+          "-h",
+          "localhost",
+        ]
+      interval: 5s
+      timeout: 5s
+      start_period: 90s
+      retries: 1
+  
   garnet:
     image: ghcr.io/microsoft/garnet:latest
     volumes:
@@ -45,26 +97,7 @@ services:
     networks:
       - local-doujins
 
-  # One-shot migrator for ClickHouse. Applies all SQL in migrations/clickhouse
-  clickhouse-init:
-    # Use the server image; it includes `clickhouse-client`
-    image: clickhouse/clickhouse-server:25.8-alpine
-    depends_on:
-      clickhouse:
-        condition: service_healthy
-    environment:
-      CLICKHOUSE_HOST: clickhouse
-      CLICKHOUSE_PORT: "9000"
-      CLICKHOUSE_USER: analytics_user
-      CLICKHOUSE_PASSWORD: analytics_password
-    volumes:
-      - ./migrations/clickhouse:/migrations:ro
-    # Apply each .sql file once ClickHouse is healthy
-    command: >
-      sh -lc 'for f in /migrations/*.sql; do [ -e "$${f}" ] || continue; echo "Applying $${f}"; clickhouse-client --host=$$CLICKHOUSE_HOST --port=$$CLICKHOUSE_PORT --user=$$CLICKHOUSE_USER --password=$$CLICKHOUSE_PASSWORD --database analytics --multiquery --queries-file "$${f}" || exit 1; done && echo "ClickHouse migrations complete"'
-    restart: "no"
-    networks:
-      - local-doujins
+  
 
   # Bootstrap DB: create roles/schema/extensions using superuser
   db-bootstrap:
@@ -87,54 +120,57 @@ services:
     restart: "no"
     networks:
       - local-doujins
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 
   # App migrations: run embedded migrator in the billing image
-  # billing-migrate:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     db-bootstrap:
-  #       condition: service_completed_successfully
-  #   env_file:
-  #     - ./.env.docker
-  #   environment:
-  #     PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
-  #   volumes:
-  #     - ./config.docker.yaml:/app/config.docker.yaml:ro
-  #   command: ["migrate", "-c", "/app/config.docker.yaml"]
-  #   restart: "no"
-  #   networks:
-  #     - local-doujins
+  billing-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - gh_token
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
+    command: ["migrate"]
+    restart: "no"
+    networks:
+      - local-doujins
 
   # Billing service (server + in-process workers)
   billing:
     build:
       context: .
       dockerfile: Dockerfile
+      secrets:
+        - gh_token
     # Avoid infinite restart loops if the app panics at startup
     restart: on-failure:3
     depends_on:
+      postgres:
+        condition: service_healthy
       db-bootstrap:
         condition: service_completed_successfully
-      # billing-migrate:
-      #   condition: service_completed_successfully
+      billing-migrate:
+        condition: service_completed_successfully
       garnet:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
     ports:
-      - "2054:2053"  # Public API
+      - "2053:2053"  # Public API
     expose:
       - "8060"       # Private API (internal-only)
-    env_file:
-      - ./.env.docker
     environment:
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
-    command: ["server", "-c", "/app/config.docker.yaml"]
+    command: ["server"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:2053/health/live"]
       interval: 30s
@@ -142,18 +178,24 @@ services:
       retries: 3
       start_period: 40s
     volumes:
-      - ./config.docker.yaml:/app/config.docker.yaml:ro
       - billing_spool:/var/lib/doujins-billing/spool
     networks:
       - local-doujins
 
 volumes:
+  postgres_data:
   garnet_data:
+  go_mod_cache:
+    external: true
+    name: go_mod_cache_persistent
   clickhouse_data:
   clickhouse_logs:
   billing_spool:
 
 networks:
   local-doujins:
-    external: true
     name: local-doujins
+
+secrets:
+  gh_token:
+    file: .secrets/gh_token

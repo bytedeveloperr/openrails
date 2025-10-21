@@ -469,10 +469,10 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 			return fmt.Errorf("subscription not found: %w", err)
 		}
 
-		// Update subscription status: failed payment -> past_due (we will continue retrying)
+		// Update subscription status: failed payment -> past_due (enter dunning)
 		subscription.Status = models.StatusPastDue
 
-		// Retry policy (Mobius): try every 3 days, up to 5 failures total
+		// Dunning policy (Mobius): try every 3 days, up to 5 failures total
 		// Example timeline (D = day of initial failure): D+3, D+6, D+9, D+12, D+15
 		now := time.Now()
 		subscription.LastRetryAt = &now
@@ -483,12 +483,12 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 			*subscription.RetryAttempts++
 		}
 
-		// If we've reached 5 failures, cancel; otherwise schedule next attempt in 3 days
-		if *subscription.RetryAttempts >= 5 {
+		// If we've reached MaxDunningFailures, cancel; otherwise schedule next attempt in DunningInterval
+		if *subscription.RetryAttempts >= MaxDunningFailures {
 			subscription.Status = models.StatusCancelled
 			subscription.EndedAt = &now
 		} else {
-			nextRetry := now.Add(72 * time.Hour) // 3 days
+			nextRetry := now.Add(DunningInterval)
 			subscription.NextRetryAt = &nextRetry
 		}
 

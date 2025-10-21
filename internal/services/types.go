@@ -773,8 +773,8 @@ func validateSubscription(sub *models.Subscription, newStatus models.Subscriptio
 	}
 
 	if newStatus == models.StatusPastDue {
-		if sub.RetryAttempts != nil && *sub.RetryAttempts >= 5 {
-			return fmt.Errorf("subscription has exceeded maximum retry attempts, should be cancelled")
+		if sub.RetryAttempts != nil && *sub.RetryAttempts >= MaxDunningFailures {
+			return fmt.Errorf("subscription has exceeded maximum dunning attempts, should be cancelled")
 		}
 	}
 

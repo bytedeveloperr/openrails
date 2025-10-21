@@ -191,7 +191,7 @@ func (w *CCBillDataLinkWorker) reconcile(ctx context.Context) {
 	log.Info("CCBill DataLink reconciliation completed")
 }
 
-// MobiusRebillWorker handles Mobius failed payment retries
+// MobiusRebillWorker handles Mobius dunning (failed payment retries within cycle)
 type MobiusRebillWorker struct {
 	db                  *db.DB
 	mobiusClient        *mobius.MobiusClient
@@ -230,14 +230,14 @@ func (w *MobiusRebillWorker) Start(ctx context.Context) error {
 
 // processRetries processes failed payment retries
 func (w *MobiusRebillWorker) processRetries(ctx context.Context) {
-	log.Info("Processing Mobius payment retries")
+	log.Info("Processing Mobius dunning attempts")
 
 	if w.mobiusClient == nil {
 		log.Debug("Mobius client not configured; skipping retries")
 		return
 	}
 
-	// Find Mobius subscriptions in past_due with a retry due now or earlier
+	// Find Mobius subscriptions in past_due with a dunning attempt due now or earlier
 	due := []*models.Subscription{}
 	if err := w.db.GetDB().NewSelect().
 		Model(&due).
@@ -252,7 +252,7 @@ func (w *MobiusRebillWorker) processRetries(ctx context.Context) {
 	}
 
 	if len(due) == 0 {
-		log.Info("No Mobius retries due")
+		log.Info("No Mobius dunning attempts due")
 		return
 	}
 
@@ -278,7 +278,7 @@ func (w *MobiusRebillWorker) processRetries(ctx context.Context) {
 			continue
 		}
 
-		// Attempt manual rebill via Mobius vault
+		// Attempt dunning charge via Mobius vault
 		rebillResp, err := w.mobiusClient.AttemptManualRebill(mobius.ManualRebillParams{
 			VaultID:        pm.VaultID,
 			BillingID:      *pm.BillingID,
@@ -298,7 +298,7 @@ func (w *MobiusRebillWorker) processRetries(ctx context.Context) {
 		}
 
 		if rebillResp == nil || !rebillResp.Success {
-			// Failed charge — increment attempts and schedule NextRetryAt per policy
+			// Failed dunning charge — increment attempts and schedule NextRetryAt per policy
 			reason := "rebill declined"
 			if rebillResp != nil && rebillResp.ErrorMessage != "" {
 				reason = rebillResp.ErrorMessage

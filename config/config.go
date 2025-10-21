@@ -285,8 +285,9 @@ func GetDefaultBillingConfig() *Config {
 		Host: "0.0.0.0",
 		Port: 2053,
 		DB: &DBConfig{
-			// Default to host-accessible Postgres so local tests hit docker-compose via localhost
-			URL:     "postgres://billing_app:billing_password@localhost:5432/doujins_db?sslmode=disable",
+			// Defaults align with docker-compose: Postgres service is `postgres` on the compose network.
+			// Developers running the binary on the host can override via DATABASE_URL.
+			URL:     "postgres://billing_app:billing_password@postgres:5432/doujins_db?sslmode=disable",
 			Schema:  "billing",
 			Dialect: "postgres",
 		},
@@ -371,7 +372,8 @@ func loadConfigIfExists(k *koanf.Koanf, path string) error {
 func Load(configPath string) (*Config, error) {
 	k := koanf.New(".")
 
-	cfg := &Config{}
+	// Start from sensible defaults so zero-config works in containers/compose.
+	cfg := GetDefaultBillingConfig()
 
 	if err := godotenv.Load(); err != nil {
 		var pathErr *os.PathError
@@ -495,7 +497,7 @@ func Load(configPath string) (*Config, error) {
 		}
 	}
 
-	// Unmarshal into config struct
+	// Unmarshal into config struct (overlay onto defaults)
 	if err := k.Unmarshal("", cfg); err != nil {
 		return nil, fmt.Errorf("unmarshaling config: %w", err)
 	}
