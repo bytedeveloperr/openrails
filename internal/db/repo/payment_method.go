@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -143,13 +144,25 @@ func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, inc
 	return methods, int64(total), nil
 }
 
-func (r *PaymentMethodRepo) GetByVaultID(ctx context.Context, vaultID string) (*models.PaymentMethod, error) {
+func (r *PaymentMethodRepo) GetByVaultID(ctx context.Context, provider, vaultID string) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
-	err := r.db.GetDB().NewSelect().Model(pm).
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	if provider == "" {
+		provider = "mobius"
+	}
+
+	query := r.db.GetDB().NewSelect().Model(pm).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
 		Where("processor = ?", models.ProcessorNMI).
-		Where("vault_id = ?", vaultID).
-		Scan(ctx)
+		Where("vault_id = ?", vaultID)
+
+	if provider == "mobius" {
+		query = query.Where("(processor_provider = ? OR processor_provider IS NULL OR processor_provider = '')", provider)
+	} else {
+		query = query.Where("processor_provider = ?", provider)
+	}
+
+	err := query.Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPaymentMethodNotFound
@@ -159,13 +172,25 @@ func (r *PaymentMethodRepo) GetByVaultID(ctx context.Context, vaultID string) (*
 	return pm, nil
 }
 
-func (r *PaymentMethodRepo) GetByBillingID(ctx context.Context, billingID string) (*models.PaymentMethod, error) {
+func (r *PaymentMethodRepo) GetByBillingID(ctx context.Context, provider, billingID string) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
-	err := r.db.GetDB().NewSelect().Model(pm).
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	if provider == "" {
+		provider = "mobius"
+	}
+
+	query := r.db.GetDB().NewSelect().Model(pm).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
 		Where("processor = ?", models.ProcessorNMI).
-		Where("billing_id = ?", billingID).
-		Scan(ctx)
+		Where("billing_id = ?", billingID)
+
+	if provider == "mobius" {
+		query = query.Where("(processor_provider = ? OR processor_provider IS NULL OR processor_provider = '')", provider)
+	} else {
+		query = query.Where("processor_provider = ?", provider)
+	}
+
+	err := query.Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPaymentMethodNotFound
@@ -175,13 +200,25 @@ func (r *PaymentMethodRepo) GetByBillingID(ctx context.Context, billingID string
 	return pm, nil
 }
 
-func (r *PaymentMethodRepo) GetByInitialTransactionID(ctx context.Context, initialTransactionID string) (*models.PaymentMethod, error) {
+func (r *PaymentMethodRepo) GetByInitialTransactionID(ctx context.Context, provider, initialTransactionID string) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
-	err := r.db.GetDB().NewSelect().Model(pm).
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	if provider == "" {
+		provider = "mobius"
+	}
+
+	query := r.db.GetDB().NewSelect().Model(pm).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
 		Where("processor = ?", models.ProcessorNMI).
-		Where("initial_transaction_id = ?", initialTransactionID).
-		Scan(ctx)
+		Where("initial_transaction_id = ?", initialTransactionID)
+
+	if provider == "mobius" {
+		query = query.Where("(processor_provider = ? OR processor_provider IS NULL OR processor_provider = '')", provider)
+	} else {
+		query = query.Where("processor_provider = ?", provider)
+	}
+
+	err := query.Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrPaymentMethodNotFound

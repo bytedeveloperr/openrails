@@ -47,7 +47,8 @@ type Subscription struct {
 	CurrentPeriodEndsAt   *time.Time         `bun:"current_period_ends_at,nullzero" json:"current_period_ends_at"`
 
 	// Payment processor information
-	Processor               Processor  `bun:"processor,notnull" json:"processor"`                                 // Required for all subscriptions
+	Processor               Processor  `bun:"processor,notnull" json:"processor"` // Required for all subscriptions
+	ProcessorProvider       *string    `bun:"processor_provider,nullzero" json:"processor_provider"`
 	ProcessorSubscriptionID string     `bun:"processor_subscription_id,notnull" json:"processor_subscription_id"` // Set by payment processor
 	PaymentMethodID         *uuid.UUID `bun:"payment_method_id,type:uuid,nullzero" json:"payment_method_id"`      // Reference to stored payment method
 

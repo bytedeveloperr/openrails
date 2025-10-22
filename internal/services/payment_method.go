@@ -67,8 +67,8 @@ func (s *PaymentMethodService) ListByUserID(ctx context.Context, userID string, 
 }
 
 // GetByVaultID finds a NMI payment method by vault ID
-func (s *PaymentMethodService) GetByVaultID(ctx context.Context, vaultID string) (*models.PaymentMethod, error) {
-	pm, err := s.repo.GetByVaultID(ctx, vaultID)
+func (s *PaymentMethodService) GetByVaultID(ctx context.Context, provider, vaultID string) (*models.PaymentMethod, error) {
+	pm, err := s.repo.GetByVaultID(ctx, provider, vaultID)
 	if err != nil {
 		if errors.Is(err, repo.ErrPaymentMethodNotFound) {
 			return nil, ErrPaymentMethodNotFound
@@ -80,8 +80,8 @@ func (s *PaymentMethodService) GetByVaultID(ctx context.Context, vaultID string)
 
 // GetByBillingID is no longer needed since payment methods only support NMI
 // Keeping for backwards compatibility, but always filters for NMI processor
-func (s *PaymentMethodService) GetByBillingID(ctx context.Context, billingID string) (*models.PaymentMethod, error) {
-	pm, err := s.repo.GetByBillingID(ctx, billingID)
+func (s *PaymentMethodService) GetByBillingID(ctx context.Context, provider, billingID string) (*models.PaymentMethod, error) {
+	pm, err := s.repo.GetByBillingID(ctx, provider, billingID)
 	if err != nil {
 		if errors.Is(err, repo.ErrPaymentMethodNotFound) {
 			return nil, ErrPaymentMethodNotFound
@@ -92,8 +92,8 @@ func (s *PaymentMethodService) GetByBillingID(ctx context.Context, billingID str
 }
 
 // GetByInitialTransactionID finds a NMI payment method by initial transaction ID
-func (s *PaymentMethodService) GetByInitialTransactionID(ctx context.Context, initialTransactionID string) (*models.PaymentMethod, error) {
-	pm, err := s.repo.GetByInitialTransactionID(ctx, initialTransactionID)
+func (s *PaymentMethodService) GetByInitialTransactionID(ctx context.Context, provider, initialTransactionID string) (*models.PaymentMethod, error) {
+	pm, err := s.repo.GetByInitialTransactionID(ctx, provider, initialTransactionID)
 	if err != nil {
 		if errors.Is(err, repo.ErrPaymentMethodNotFound) {
 			return nil, ErrPaymentMethodNotFound

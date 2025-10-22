@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
@@ -28,7 +29,7 @@ type UserSubscriptionService struct {
 	PaymentService           *PaymentService
 	NotificationQueueService *NotificationQueueService
 	EntitlementService       *EntitlementService
-	NMIClient                *nmi.NMIClient
+	NMIClients               map[string]*nmi.NMIClient
 }
 
 // UserSubscriptionResponse represents a user's subscription with enriched data
@@ -172,9 +173,22 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 	// }
 
 	// Cancel subscription with NMI
-	if s.NMIClient != nil {
-		if err := s.NMIClient.DeleteRecurringSubscription(*subscription.Price.NMIPlanID); err != nil {
-			return fmt.Errorf("failed to cancel subscription with NMI: %w", err)
+	if s.NMIClients != nil {
+		provider := ""
+		if subscription.ProcessorProvider != nil {
+			provider = strings.ToLower(strings.TrimSpace(*subscription.ProcessorProvider))
+		}
+		if provider == "" && subscription.Price != nil && subscription.Price.NMIProvider != nil {
+			provider = strings.ToLower(strings.TrimSpace(*subscription.Price.NMIProvider))
+		}
+		if provider == "" {
+			provider = "mobius"
+		}
+
+		if client, ok := s.NMIClients[provider]; ok && subscription.Price != nil && subscription.Price.NMIPlanID != nil {
+			if err := client.DeleteRecurringSubscription(*subscription.Price.NMIPlanID); err != nil {
+				return fmt.Errorf("failed to cancel subscription with NMI provider '%s': %w", provider, err)
+			}
 		}
 	}
 
@@ -209,10 +223,10 @@ func NewUserSubscriptionService(
 	paymentService *PaymentService,
 	notificationQueueService *NotificationQueueService,
 	entitlementService *EntitlementService,
-	nmiClient *nmi.NMIClient,
+	nmiClients map[string]*nmi.NMIClient,
 ) *UserSubscriptionService {
 	return &UserSubscriptionService{
-		NMIClient:                nmiClient,
+		NMIClients:               nmiClients,
 		SubscriptionService:      subscriptionService,
 		ProductService:           productService,
 		PriceService:             priceService,

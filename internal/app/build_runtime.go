@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -34,13 +35,13 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	ccbillClient := createCCBillClient(cfg)
 	ccbillRESTClient := createCCBillRESTClient(cfg)
 	ccbillDataLinkClient := createCCBillDataLinkClient(cfg)
-	nmiClient, err := createNMIClient(cfg)
+	nmiClients, err := createNMIClients(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create nmi client: %w", err)
+		return nil, fmt.Errorf("failed to create nmi clients: %w", err)
 	}
 
-	serviceInstances := createServices(database, cfg, ccbillRESTClient, nmiClient)
-	workerManager := workers.NewManager(database, nmiClient, ccbillDataLinkClient, serviceInstances.SubscriptionService)
+	serviceInstances := createServices(database, cfg, ccbillRESTClient, nmiClients)
+	workerManager := workers.NewManager(database, nmiClients, ccbillDataLinkClient, serviceInstances.SubscriptionService)
 
 	var emailService *services.EmailService
 	var subscriptionEmailService *services.SubscriptionEmailService
@@ -74,7 +75,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		CCBillClient:     ccbillClient,
 		CCBillRESTClient: ccbillRESTClient,
 		CCBillDataLink:   ccbillDataLinkClient,
-		NMIClient:        nmiClient,
+		NMIClients:       nmiClients,
 
 		SubscriptionService:        serviceInstances.SubscriptionService,
 		UserService:                serviceInstances.UserService,
@@ -122,6 +123,36 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 		return nil, err
 	}
 	return database, nil
+}
+
+func createNMIClients(cfg *config.Config) (map[string]*nmi.NMIClient, error) {
+	clients := make(map[string]*nmi.NMIClient)
+	if cfg == nil || cfg.NMI == nil {
+		return clients, nil
+	}
+
+	for name := range cfg.NMI.Providers {
+		settings, err := cfg.NMI.ProviderSettings(name)
+		if err != nil {
+			return nil, err
+		}
+		providerKey := strings.TrimSpace(strings.ToLower(settings.Name))
+		if providerKey == "" {
+			providerKey = "mobius"
+		}
+
+		if _, exists := clients[providerKey]; exists {
+			return nil, fmt.Errorf("duplicate nmi provider '%s' detected in configuration", providerKey)
+		}
+
+		client, err := nmi.NewClient(providerKey, settings, cfg.Env == config.EnvProd)
+		if err != nil {
+			return nil, err
+		}
+		clients[providerKey] = client
+	}
+
+	return clients, nil
 }
 
 func createRedisClient(cfg *config.Config) (*redis.Client, error) {
@@ -174,10 +205,6 @@ func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
 	return client
 }
 
-func createNMIClient(cfg *config.Config) (*nmi.NMIClient, error) {
-	return nmi.NewClient(cfg.NMI, cfg.Env == config.EnvProd)
-}
-
 type servicesInstances struct {
 	SubscriptionService *services.SubscriptionService
 	UserService         *services.UserService
@@ -202,7 +229,7 @@ type servicesInstances struct {
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 }
 
-func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, nmiClient *nmi.NMIClient) *servicesInstances {
+func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, nmiClients map[string]*nmi.NMIClient) *servicesInstances {
 	userService := services.NewUserService(database)
 	productService := services.NewProductService(database)
 	priceService := services.NewPriceService(database)
@@ -228,7 +255,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		productService,
 		notificationQueueService,
 		ccbillRESTClient,
-		nmiClient,
+		nmiClients,
 	)
 
 	userSubscriptionService := services.NewUserSubscriptionService(
@@ -238,7 +265,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		purchaseService,
 		notificationQueueService,
 		entitlementService,
-		nmiClient,
+		nmiClients,
 	)
 
 	publicSubscriptionService := services.NewPublicSubscriptionService(

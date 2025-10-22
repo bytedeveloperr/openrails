@@ -218,7 +218,7 @@ func TestNMIWebhookReplay(t *testing.T) {
 			// Create request
 			w := httptest.NewRecorder()
 			req, err := http.NewRequest("POST",
-				"/v1/subscriptions/webhook/nmi",
+				"/v1/subscriptions/webhook/nmi/mobius",
 				bytes.NewBuffer(webhookData))
 			require.NoError(t, err)
 
@@ -305,7 +305,7 @@ func TestNMIWebhookWithMalformedJSON(t *testing.T) {
 
 
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/nmi",
+	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/nmi/mobius",
 		strings.NewReader("{invalid json"))
 	require.NoError(t, err)
 
@@ -398,7 +398,7 @@ func TestWebhookContentTypeValidation(t *testing.T) {
 		// NMI expects JSON, send form data instead
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/nmi",
+			"/v1/subscriptions/webhook/nmi/mobius",
 			strings.NewReader("test=data&foo=bar"))
 		require.NoError(t, err)
 
@@ -445,7 +445,7 @@ func TestWebhookReplayEmptyBody(t *testing.T) {
 	t.Run("NMI_EmptyBody", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/nmi",
+			"/v1/subscriptions/webhook/nmi/mobius",
 			nil)
 		require.NoError(t, err)
 

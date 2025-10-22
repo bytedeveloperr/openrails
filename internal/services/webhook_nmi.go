@@ -25,6 +25,7 @@ type NMIWebhookService struct {
 	PriceService                 *PriceService
 	ProductService               *ProductService
 	Data                         NMIWebhookEvent
+	Provider                     string
 	DeadLetterService            *DeadLetterService
 	NMIClient                    *nmi.NMIClient
 	BillingEventService          *BillingEventService
@@ -235,6 +236,11 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription ID", map[string]interface{}{}, nil)
 	}
 
+	provider := strings.TrimSpace(strings.ToLower(s.Provider))
+	if provider == "" {
+		provider = "mobius"
+	}
+
 	var nmiPlanID string
 	if body.Plan != nil {
 		nmiPlanID = body.Plan.ID.Trimmed()
@@ -245,12 +251,12 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 		}, nil)
 	}
 
-	price, err := s.PriceService.GetByNMIPlanID(ctx, nmiPlanID)
+	price, err := s.PriceService.GetByNMIPlan(ctx, provider, nmiPlanID)
 	if err != nil {
 		return fmt.Errorf("failed to find price for NMI plan ID %s: %w", nmiPlanID, err)
 	}
 
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorNMI, nmiSubID)
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorNMI, provider, nmiSubID)
 	if err != nil {
 		return fmt.Errorf("failed to load subscription for processor ID %s: %w", nmiSubID, err)
 	}
@@ -269,6 +275,7 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 		Processor:               models.ProcessorNMI,
 		ProcessorSubscriptionID: &subscription.ProcessorSubscriptionID,
 		UserEmail:               subscription.UserEmail,
+		ProcessorProvider:       provider,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create membership: %w", err)
@@ -321,12 +328,17 @@ func (s *NMIWebhookService) handleDeleteSubscription(ctx context.Context) error 
 		return err
 	}
 
+	provider := strings.TrimSpace(strings.ToLower(s.Provider))
+	if provider == "" {
+		provider = "mobius"
+	}
+
 	nmiSubID := body.SubscriptionID.Trimmed()
 	if nmiSubID == "" {
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription ID", map[string]interface{}{}, nil)
 	}
 
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorNMI), nmiSubID)
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorNMI), provider, nmiSubID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			log.WithContext(ctx).
@@ -354,6 +366,7 @@ func (s *NMIWebhookService) handleDeleteSubscription(ctx context.Context) error 
 		CancelFeedback:          &cancelFeedback,
 		SubscriptionID:          &subscription.ID,
 		CancelType:              models.CancelTypeMerchant,
+		ProcessorProvider:       provider,
 	}); err != nil {
 		return fmt.Errorf("failed to cancel subscription: %w", err)
 	}
@@ -372,6 +385,11 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		return err
 	}
 
+	provider := strings.TrimSpace(strings.ToLower(s.Provider))
+	if provider == "" {
+		provider = "mobius"
+	}
+
 	nmiSubID := transactionSubscriptionID(body)
 	if nmiSubID == "" {
 		if alt := body.OrderID.Trimmed(); alt != "" {
@@ -384,7 +402,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription reference", map[string]interface{}{}, nil)
 	}
 
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorNMI, nmiSubID)
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorNMI, provider, nmiSubID)
 	if err != nil {
 		return fmt.Errorf("failed to load subscription for transaction event: %w", err)
 	}
@@ -414,6 +432,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			Processor:               models.ProcessorNMI,
 			ProcessorSubscriptionID: &subscription.ProcessorSubscriptionID,
 			UserEmail:               subscription.UserEmail,
+			ProcessorProvider:       provider,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to activate subscription: %w", err)
@@ -424,6 +443,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			if err := s.SubscriptionLifecycleService.RenewMembership(ctx, &RenewMembershipParams{
 				Processor:               models.ProcessorNMI,
 				ProcessorSubscriptionID: nmiSubID,
+				ProcessorProvider:       provider,
 			}); err != nil {
 				return fmt.Errorf("failed to renew subscription: %w", err)
 			}
@@ -447,6 +467,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			"event_type":      s.Data.EventType,
 			"action_source":   actionSource,
 			"previous_status": subscription.Status,
+			"provider":        provider,
 		}
 		if txnID != "" {
 			metadata["transaction_id"] = txnID
@@ -503,6 +524,11 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		return err
 	}
 
+	provider := strings.TrimSpace(strings.ToLower(s.Provider))
+	if provider == "" {
+		provider = "mobius"
+	}
+
 	nmiSubID := transactionSubscriptionID(body)
 	if nmiSubID == "" {
 		if alt := body.OrderID.Trimmed(); alt != "" {
@@ -520,7 +546,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		fetchErr     error
 	)
 	if s.SubscriptionService != nil {
-		subscription, fetchErr = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorNMI, nmiSubID)
+		subscription, fetchErr = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorNMI, provider, nmiSubID)
 		if fetchErr != nil && !errors.Is(fetchErr, sql.ErrNoRows) {
 			return fmt.Errorf("failed to load subscription for transaction event: %w", fetchErr)
 		}
@@ -554,6 +580,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		ProcessorSubscriptionID: nmiSubID,
 		FailureReason:           failureReason,
 		FailureCode:             failureCode,
+		ProcessorProvider:       provider,
 	}); err != nil {
 		return fmt.Errorf("failed to mark subscription as failed: %w", err)
 	}
@@ -562,6 +589,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		metadata := map[string]interface{}{
 			"event_type":      s.Data.EventType,
 			"previous_status": subscription.Status,
+			"provider":        provider,
 		}
 		if failureReason != nil && *failureReason != "" {
 			metadata["failure_reason"] = *failureReason

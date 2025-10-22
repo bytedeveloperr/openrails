@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -54,9 +55,24 @@ func (r *PriceRepo) GetActiveByProductID(ctx context.Context, productID uuid.UUI
 	return prices, nil
 }
 
-func (r *PriceRepo) GetByNMIPlanID(ctx context.Context, nmiPlanID string) (*models.Price, error) {
+func (r *PriceRepo) GetByNMIPlan(ctx context.Context, provider, nmiPlanID string) (*models.Price, error) {
 	price := new(models.Price)
-	if err := r.db.GetDB().NewSelect().Model(price).TableExpr(r.db.QualifiedTable("prices")).Where("nmi_plan_id = ?", nmiPlanID).Where("is_active = ?", true).Scan(ctx); err != nil {
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	if provider == "" {
+		provider = "mobius"
+	}
+
+	query := r.db.GetDB().NewSelect().Model(price).TableExpr(r.db.QualifiedTable("prices")).
+		Where("nmi_plan_id = ?", nmiPlanID).
+		Where("is_active = ?", true)
+
+	if provider == "mobius" {
+		query = query.Where("(nmi_provider = ? OR nmi_provider IS NULL OR nmi_provider = '')", provider)
+	} else {
+		query = query.Where("nmi_provider = ?", provider)
+	}
+
+	if err := query.Scan(ctx); err != nil {
 		return nil, err
 	}
 	return price, nil

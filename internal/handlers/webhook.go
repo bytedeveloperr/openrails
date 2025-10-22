@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
@@ -15,6 +16,10 @@ import (
 
 func Webhook(r *Request) {
 	processor := r.Param("processor")
+	provider := strings.Trim(strings.Trim(r.Param("provider"), "/"), " ")
+	if provider == "" {
+		provider = strings.TrimSpace(r.Query("provider"))
+	}
 
 	// NOTE: Webhook authentication can be bypassed for testing by setting test_mode: true
 	// in the respective processor config (nmi.test_mode or ccbill.test_mode)
@@ -110,7 +115,7 @@ func Webhook(r *Request) {
 			return
 		}
 	case services.ProcessorNMI:
-		handleNMIWebhook(r)
+		handleNMIWebhook(r, provider)
 		return
 	default:
 		webhookBody, readErr := readRequestBody(r.Request.Body)
@@ -125,7 +130,7 @@ func Webhook(r *Request) {
 
 }
 
-func handleNMIWebhook(r *Request) {
+func handleNMIWebhook(r *Request, provider string) {
 	// Read the request body for signature verification
 	body, err := readRequestBody(r.Request.Body)
 	if err != nil {
@@ -133,10 +138,21 @@ func handleNMIWebhook(r *Request) {
 		return
 	}
 
+	providerKey := strings.TrimSpace(strings.ToLower(provider))
+	if providerKey == "" {
+		providerKey = "mobius"
+	}
+
+	client, ok := r.State.NMIClients[providerKey]
+	if !ok || client == nil {
+		r.ErrorJSON(http.StatusNotFound, fmt.Sprintf("unknown nmi provider '%s'", providerKey))
+		return
+	}
+
 	// Check if NMI is in test mode - bypass authentication for testing
-	if !r.State.NMIClient.Config().TestMode {
+	if !client.Config().TestMode {
 		// Verify webhook signature if webhook secret is configured
-		if r.State.NMIClient.GetWebhookSecret() != "" {
+		if client.GetWebhookSecret() != "" {
 			signature := r.Request.Header.Get("X-Signature")
 			if signature == "" {
 				signature = r.Request.Header.Get("X-NMI-Signature")
@@ -150,7 +166,7 @@ func handleNMIWebhook(r *Request) {
 				return
 			}
 
-			if err := r.State.NMIClient.VerifyWebhookSignature(body, signature); err != nil {
+			if err := client.VerifyWebhookSignature(body, signature); err != nil {
 				log.WithError(err).Error("NMI webhook signature verification failed")
 				r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
 				return
@@ -173,7 +189,8 @@ func handleNMIWebhook(r *Request) {
 		DB:                           r.State.DB,
 		PriceService:                 r.State.PriceService,
 		ProductService:               r.State.ProductService,
-		NMIClient:                    r.State.NMIClient,
+		Provider:                     providerKey,
+		NMIClient:                    client,
 		BillingEventService:          r.State.BillingEventService,
 		SubscriptionService:          r.State.SubscriptionService,
 		NotificationQueueService:     r.State.NotificationQueueService,

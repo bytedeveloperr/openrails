@@ -19,8 +19,9 @@ type Payment struct {
 	// Optional linkage to the subscription that generated this payment
 	SubscriptionID *uuid.UUID `bun:"subscription_id,type:uuid,nullzero" json:"subscription_id,omitempty"`
 
-	Processor     Processor `bun:"processor,notnull" json:"processor"`
-	TransactionID string    `bun:"transaction_id,notnull" json:"transaction_id"`
+	Processor         Processor `bun:"processor,notnull" json:"processor"`
+	ProcessorProvider *string   `bun:"processor_provider,nullzero" json:"processor_provider"`
+	TransactionID     string    `bun:"transaction_id,notnull" json:"transaction_id"`
 
 	// Payment details
 	Amount   float64 `bun:"amount,notnull,type:numeric" json:"amount"`

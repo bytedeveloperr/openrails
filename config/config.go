@@ -23,22 +23,22 @@ const EnvDev string = "dev"
 const ConfigContextKey string = "config"
 
 type Config struct {
-	Env          string            `koanf:"env,omitempty"`
-	Port         int16             `koanf:"port,omitempty"`
-	Host         string            `koanf:"host,omitempty"`
-	NMI          *NMIConfig        `koanf:"nmi,omitempty"`
-	LegacyMobius *NMIConfig        `koanf:"mobius,omitempty"` // Deprecated: fallback for legacy configs
-	CCBill       *CCBillConfig     `koanf:"ccbill,omitempty"`
-	Solana       *SolanaConfig     `koanf:"solana,omitempty"`
-	DB           *DBConfig         `koanf:"db,omitempty"`
-	Redis        *RedisConfig      `koanf:"redis,omitempty"`
-	JWT          *JWTConfig        `koanf:"jwt,omitempty"`
-	ClickHouse   *ClickHouseConfig `koanf:"clickhouse,omitempty"`
-	Email        *email.Config     `koanf:"email,omitempty"`
-	CorsOrigins  []string          `koanf:"cors_origins,omitempty"`
-	RateLimits   *RateLimitConfig  `koanf:"rate_limits,omitempty"`
-	Admin        *AdminConfig      `koanf:"admin,omitempty"`
-	TLS          *TLSConfig        `koanf:"tls,omitempty"`
+	Env          string             `koanf:"env,omitempty"`
+	Port         int16              `koanf:"port,omitempty"`
+	Host         string             `koanf:"host,omitempty"`
+	NMI          *NMIConfig         `koanf:"nmi,omitempty"`
+	LegacyMobius *NMIProviderConfig `koanf:"mobius,omitempty"` // Deprecated: fallback for legacy configs
+	CCBill       *CCBillConfig      `koanf:"ccbill,omitempty"`
+	Solana       *SolanaConfig      `koanf:"solana,omitempty"`
+	DB           *DBConfig          `koanf:"db,omitempty"`
+	Redis        *RedisConfig       `koanf:"redis,omitempty"`
+	JWT          *JWTConfig         `koanf:"jwt,omitempty"`
+	ClickHouse   *ClickHouseConfig  `koanf:"clickhouse,omitempty"`
+	Email        *email.Config      `koanf:"email,omitempty"`
+	CorsOrigins  []string           `koanf:"cors_origins,omitempty"`
+	RateLimits   *RateLimitConfig   `koanf:"rate_limits,omitempty"`
+	Admin        *AdminConfig       `koanf:"admin,omitempty"`
+	TLS          *TLSConfig         `koanf:"tls,omitempty"`
 }
 
 type DBConfig struct {
@@ -48,12 +48,79 @@ type DBConfig struct {
 }
 
 type NMIConfig struct {
+	SecurityKey     string                        `koanf:"security_key"`
+	TokenizationKey string                        `koanf:"tokenization_key"`
+	WebhookSecret   string                        `koanf:"webhook_secret"`
+	TestMode        bool                          `koanf:"test_mode"`
+	DirectPostURL   string                        `koanf:"direct_post_url"`
+	QueryURL        string                        `koanf:"query_url"`
+	Providers       map[string]*NMIProviderConfig `koanf:"providers"`
+}
+
+type NMIProviderConfig struct {
 	SecurityKey     string `koanf:"security_key"`
 	TokenizationKey string `koanf:"tokenization_key"`
 	WebhookSecret   string `koanf:"webhook_secret"`
-	TestMode        bool   `koanf:"test_mode"`
+	TestMode        *bool  `koanf:"test_mode"`
 	DirectPostURL   string `koanf:"direct_post_url"`
 	QueryURL        string `koanf:"query_url"`
+}
+
+type NMIProviderSettings struct {
+	Name            string
+	SecurityKey     string
+	TokenizationKey string
+	WebhookSecret   string
+	TestMode        bool
+	DirectPostURL   string
+	QueryURL        string
+}
+
+func (cfg *NMIConfig) ProviderSettings(name string) (*NMIProviderSettings, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("nmi configuration is missing")
+	}
+
+	providerKey := strings.TrimSpace(strings.ToLower(name))
+	if providerKey == "" {
+		providerKey = "mobius"
+	}
+
+	provider, ok := cfg.Providers[providerKey]
+	if !ok || provider == nil {
+		return nil, fmt.Errorf("nmi provider '%s' is not configured", providerKey)
+	}
+
+	settings := &NMIProviderSettings{
+		Name:            providerKey,
+		SecurityKey:     firstNonEmpty(provider.SecurityKey, cfg.SecurityKey),
+		TokenizationKey: firstNonEmpty(provider.TokenizationKey, cfg.TokenizationKey),
+		WebhookSecret:   firstNonEmpty(provider.WebhookSecret, cfg.WebhookSecret),
+		DirectPostURL:   firstNonEmpty(provider.DirectPostURL, cfg.DirectPostURL),
+		QueryURL:        firstNonEmpty(provider.QueryURL, cfg.QueryURL),
+		TestMode:        cfg.TestMode,
+	}
+	if provider.TestMode != nil {
+		settings.TestMode = *provider.TestMode
+	}
+
+	if settings.SecurityKey == "" {
+		return nil, fmt.Errorf("nmi provider '%s' security key is required", providerKey)
+	}
+	if settings.WebhookSecret == "" {
+		log.Warnf("nmi provider '%s' webhook secret is not configured; signature validation will be disabled", providerKey)
+	}
+
+	return settings, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 type CCBillConfig struct {
@@ -199,17 +266,6 @@ func validateNMI(cfg *NMIConfig) error {
 		return fmt.Errorf("nmi configuration is required")
 	}
 
-	if cfg.SecurityKey == "" {
-		return fmt.Errorf("nmi security key is required in production")
-	}
-
-	// TokenizationKey is not required by the billing service; frontend integrates
-	// with NMI Collect.js directly. Keep optional for backward compatibility.
-
-	if cfg.WebhookSecret == "" {
-		return fmt.Errorf("nmi webhook secret is recommended for security")
-	}
-
 	if cfg.DirectPostURL != "" {
 		if _, err := url.Parse(cfg.DirectPostURL); err != nil {
 			return fmt.Errorf("invalid nmi direct_post_url: %w", err)
@@ -219,6 +275,32 @@ func validateNMI(cfg *NMIConfig) error {
 	if cfg.QueryURL != "" {
 		if _, err := url.Parse(cfg.QueryURL); err != nil {
 			return fmt.Errorf("invalid nmi query_url: %w", err)
+		}
+	}
+
+	if len(cfg.Providers) == 0 {
+		return fmt.Errorf("at least one nmi provider must be configured")
+	}
+
+	for name, provider := range cfg.Providers {
+		if provider == nil {
+			return fmt.Errorf("nmi provider '%s' configuration is missing", name)
+		}
+		if provider.SecurityKey == "" && cfg.SecurityKey == "" {
+			return fmt.Errorf("nmi provider '%s' security key is required", name)
+		}
+		if provider.WebhookSecret == "" && cfg.WebhookSecret == "" {
+			return fmt.Errorf("nmi provider '%s' webhook secret is recommended for security", name)
+		}
+		if provider.DirectPostURL != "" {
+			if _, err := url.Parse(provider.DirectPostURL); err != nil {
+				return fmt.Errorf("invalid nmi provider '%s' direct_post_url: %w", name, err)
+			}
+		}
+		if provider.QueryURL != "" {
+			if _, err := url.Parse(provider.QueryURL); err != nil {
+				return fmt.Errorf("invalid nmi provider '%s' query_url: %w", name, err)
+			}
 		}
 	}
 
@@ -536,10 +618,36 @@ func Load(configPath string) (*Config, error) {
 		cfg.Solana.SupportedTokens = TokensForNetwork(cfg.Solana.Network)
 	}
 
-	if cfg.NMI == nil && cfg.LegacyMobius != nil {
-		log.Warn("config.mobius is deprecated; please migrate to config.nmi")
-		cfg.NMI = cfg.LegacyMobius
+	if cfg.NMI == nil {
+		cfg.NMI = &NMIConfig{}
+	}
+	if cfg.NMI.Providers == nil {
+		cfg.NMI.Providers = make(map[string]*NMIProviderConfig)
+	}
+	if cfg.LegacyMobius != nil {
+		log.Warn("config.mobius is deprecated; please migrate to config.nmi.providers")
+		if _, exists := cfg.NMI.Providers["mobius"]; !exists {
+			cfg.NMI.Providers["mobius"] = cfg.LegacyMobius
+		}
 		cfg.LegacyMobius = nil
+	}
+
+	if len(cfg.NMI.Providers) > 0 {
+		normalized := make(map[string]*NMIProviderConfig, len(cfg.NMI.Providers))
+		for name, provider := range cfg.NMI.Providers {
+			key := strings.TrimSpace(strings.ToLower(name))
+			if key == "" {
+				log.Warnf("ignoring NMI provider with empty name (original key: %q)", name)
+				continue
+			}
+
+			if existing, exists := normalized[key]; exists && existing != nil {
+				log.Warnf("duplicate NMI provider configuration detected for key '%s'; overriding previous value", key)
+			}
+
+			normalized[key] = provider
+		}
+		cfg.NMI.Providers = normalized
 	}
 
 	// Validate the loaded configuration

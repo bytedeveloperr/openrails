@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -28,6 +29,7 @@ type SubscribeData struct {
 	Country      string `json:"country"`
 	PriceID      string `json:"price_id"`
 	Processor    string `json:"processor"`
+	Provider     string `json:"provider,omitempty"`
 	PaymentToken string `json:"payment_token"`
 }
 
@@ -44,7 +46,22 @@ type SubscriptionService struct {
 	ProductService           *ProductService
 	NotificationQueueService *NotificationQueueService
 	CCBillRESTClient         *ccbill.RESTClient
-	NMIClient                *nmi.NMIClient
+	NMIClients               map[string]*nmi.NMIClient
+}
+
+func (s *SubscriptionService) nmiClientForProvider(provider string) (*nmi.NMIClient, error) {
+	providerKey := strings.TrimSpace(strings.ToLower(provider))
+	if providerKey == "" {
+		providerKey = "mobius"
+	}
+	if s.NMIClients == nil {
+		return nil, fmt.Errorf("nmi provider '%s' is not configured", providerKey)
+	}
+	client, ok := s.NMIClients[providerKey]
+	if !ok {
+		return nil, fmt.Errorf("nmi provider '%s' is not configured", providerKey)
+	}
+	return client, nil
 }
 
 type PaymentProcessor = int
@@ -128,6 +145,28 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			"flexform_endpoint": "/v1/subscriptions/ccbill/flexform-url",
 		}, nil
 	case ProcessorNMI:
+		provider := strings.TrimSpace(strings.ToLower(data.Provider))
+		if price.NMIProvider != nil {
+			expected := strings.TrimSpace(strings.ToLower(*price.NMIProvider))
+			if provider != "" && provider != expected {
+				return nil, fmt.Errorf("provider %s does not match price provider %s", provider, expected)
+			}
+			provider = expected
+		}
+
+		if provider == "" {
+			provider = "mobius"
+		}
+
+		client, err := s.nmiClientForProvider(provider)
+		if err != nil {
+			return nil, err
+		}
+
+		if price.NMIPlanID == nil || strings.TrimSpace(*price.NMIPlanID) == "" {
+			return nil, fmt.Errorf("price %s is missing an NMI plan configuration", price.ID)
+		}
+
 		params := nmi.RecurringPaymentData{
 			CardUserData: nmi.CardUserData{
 				FirstName: data.FirstName,
@@ -138,19 +177,19 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				Zip:       data.Zip,
 				Country:   data.Country,
 			},
-			PlanID:       *price.NMIPlanID, // Use price's NMI plan ID
-			Amount:       price.Amount,     // Use price amount
-			Currency:     price.Currency,   // Use price currency
+			PlanID:       strings.TrimSpace(*price.NMIPlanID),
+			Amount:       price.Amount,
+			Currency:     price.Currency,
 			Email:        *user.Email,
-			PaymentToken: data.PaymentToken, // CollectJS payment token
+			PaymentToken: data.PaymentToken,
 		}
 
-		resp, err := s.NMIClient.AddRecurringSubscription(params)
+		resp, err := client.AddRecurringSubscription(params)
 		if err != nil {
 			return nil, err
 		}
 
-		// Create a pending subscription which we'll activate on the receipt of the webhook from NMI
+		processorProvider := provider
 		subscription := &models.Subscription{
 			UserID:                  uid,
 			PriceID:                 priceID,
@@ -158,6 +197,8 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			ProcessorSubscriptionID: resp.SubscriptionID,
 			Status:                  models.StatusPending,
 			Processor:               models.Processor(processor),
+			ProcessorProvider:       &processorProvider,
+			UserEmail:               user.Email,
 		}
 
 		if err := s.Create(ctx, subscription); err != nil {
@@ -168,8 +209,6 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 		return nil, errors.New("invalid payment processor")
 	}
 }
-
-// ensureSubscription creates or gets existing subscription for Wave 18
 
 // GetUserSubscription retrieves the current subscription for a user
 func (s *SubscriptionService) GetUserSubscription(ctx context.Context, userID string) (*models.Subscription, error) {
@@ -251,7 +290,7 @@ func NewSubscriptionService(
 	productService *ProductService,
 	notificationQueueService *NotificationQueueService,
 	ccbillRESTClient *ccbill.RESTClient,
-	nmiClient *nmi.NMIClient,
+	nmiClients map[string]*nmi.NMIClient,
 ) *SubscriptionService {
 	return &SubscriptionService{
 		subscriptionRepo:         repo.NewSubscriptionRepo(db),
@@ -259,7 +298,7 @@ func NewSubscriptionService(
 		ProductService:           productService,
 		NotificationQueueService: notificationQueueService,
 		CCBillRESTClient:         ccbillRESTClient,
-		NMIClient:                nmiClient,
+		NMIClients:               nmiClients,
 	}
 }
 
@@ -322,9 +361,9 @@ func (s *SubscriptionService) GetActiveSubscription(ctx context.Context, userID 
 	return s.subscriptionRepo.GetActiveSubscription(ctx, userID)
 }
 
-// GetByProcessorSubscriptionID finds a subscription by processor and processor_subscription_id
-func (s *SubscriptionService) GetByProcessorSubscriptionID(ctx context.Context, processor, processorSubscriptionID string) (*models.Subscription, error) {
-	return s.subscriptionRepo.GetByProcessorSubscriptionID(ctx, processor, processorSubscriptionID)
+// GetByProcessorSubscriptionID finds a subscription by processor, provider, and processor_subscription_id
+func (s *SubscriptionService) GetByProcessorSubscriptionID(ctx context.Context, processor, provider, processorSubscriptionID string) (*models.Subscription, error) {
+	return s.subscriptionRepo.GetByProcessorSubscriptionID(ctx, processor, provider, processorSubscriptionID)
 }
 
 // GetActiveSubscriptionsByProcessor gets all active subscriptions for a processor

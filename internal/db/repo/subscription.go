@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -139,12 +140,26 @@ func (r *SubscriptionRepo) GetActiveSubscription(ctx context.Context, userID str
 	return sub, nil
 }
 
-func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, processor, processorSubscriptionID string) (*models.Subscription, error) {
+func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, processor, provider, processorSubscriptionID string) (*models.Subscription, error) {
 	sub := new(models.Subscription)
-	err := r.selectWithDetails(sub).
+	query := r.selectWithDetails(sub).
 		Where("processor = ?", processor).
-		Where("processor_subscription_id = ?", processorSubscriptionID).
-		Scan(ctx)
+		Where("processor_subscription_id = ?", processorSubscriptionID)
+
+	if strings.EqualFold(processor, string(models.ProcessorNMI)) {
+		provider = strings.TrimSpace(strings.ToLower(provider))
+		if provider == "" {
+			provider = "mobius"
+		}
+
+		if provider == "mobius" {
+			query = query.Where("(processor_provider = ? OR processor_provider IS NULL OR processor_provider = '')", provider)
+		} else {
+			query = query.Where("processor_provider = ?", provider)
+		}
+	}
+
+	err := query.Scan(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     
     -- Processor information
     processor TEXT NOT NULL DEFAULT 'ccbill',
+    processor_provider TEXT,
     processor_subscription_id TEXT NOT NULL DEFAULT '',
     payment_method_id UUID, -- References payment_methods table (created later)
     
@@ -69,6 +70,9 @@ CREATE TABLE IF NOT EXISTS subscriptions (
 -- Ensure newer columns exist when migrating older schemas
 ALTER TABLE subscriptions
     ADD COLUMN IF NOT EXISTS processor TEXT;
+
+ALTER TABLE subscriptions
+    ADD COLUMN IF NOT EXISTS processor_provider TEXT;
 ALTER TABLE subscriptions
     ALTER COLUMN processor SET DEFAULT 'ccbill';
 UPDATE subscriptions SET processor = 'ccbill' WHERE processor IS NULL;
@@ -88,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_price_id ON subscriptions(price_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_processor ON subscriptions(processor);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_processor_subscription_id ON subscriptions(processor_subscription_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_processor_subscription ON subscriptions(processor, coalesce(processor_provider, ''), processor_subscription_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_next_retry_at ON subscriptions(next_retry_at) WHERE next_retry_at IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_user_active ON subscriptions(user_id) WHERE status = 'active';
 
@@ -123,6 +127,7 @@ CREATE TABLE IF NOT EXISTS prices (
     currency TEXT NOT NULL,
     billing_cycle_days INTEGER, -- 30 for monthly, 365 for yearly, NULL for one-time
     nmi_plan_id TEXT, -- NMI processor plan ID
+    nmi_provider TEXT, -- NMI provider slug (e.g., mobius)
     ccbill_price_id TEXT, -- CCBill processor price ID  
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
@@ -130,7 +135,7 @@ CREATE TABLE IF NOT EXISTS prices (
 );
 
 CREATE INDEX IF NOT EXISTS idx_prices_product_id ON prices(product_id);
-CREATE INDEX IF NOT EXISTS idx_prices_nmi_plan_id ON prices(nmi_plan_id) WHERE nmi_plan_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_prices_nmi_plan_provider ON prices(nmi_provider, nmi_plan_id) WHERE nmi_plan_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_prices_ccbill_price_id ON prices(ccbill_price_id) WHERE ccbill_price_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_prices_is_active ON prices(is_active);
 
@@ -205,6 +210,7 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL, -- OIDC subject (sub)
     processor VARCHAR(50) NOT NULL, -- 'nmi', 'ccbill', etc.
+    processor_provider VARCHAR(50), -- provider slug for multi-tenant processors (e.g., mobius)
     
     -- Processor-specific vault/payment method identifiers
     vault_id VARCHAR(255) NOT NULL, -- Primary identifier in processor's system
@@ -223,10 +229,13 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
+ALTER TABLE payment_methods
+    ADD COLUMN IF NOT EXISTS processor_provider VARCHAR(50);
+
 CREATE INDEX IF NOT EXISTS idx_payment_methods_user_id ON payment_methods(user_id);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_processor ON payment_methods(processor);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_vault_id ON payment_methods(vault_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_processor_vault_id ON payment_methods(processor, vault_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_processor_vault_id ON payment_methods(processor, coalesce(processor_provider, ''), vault_id);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_is_active ON payment_methods(is_active) WHERE is_active = true;
 CREATE INDEX IF NOT EXISTS idx_payment_methods_wallet_address ON payment_methods(wallet_address) WHERE wallet_address IS NOT NULL;
 
@@ -263,6 +272,7 @@ CREATE TABLE IF NOT EXISTS payments (
     user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     price_id UUID NOT NULL REFERENCES prices(id),
     processor processor_type NOT NULL,
+    processor_provider TEXT,
     transaction_id TEXT NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     currency TEXT NOT NULL DEFAULT 'USD',
@@ -274,9 +284,13 @@ CREATE TABLE IF NOT EXISTS payments (
     UNIQUE(processor, transaction_id)
 );
 
+ALTER TABLE payments
+    ADD COLUMN IF NOT EXISTS processor_provider TEXT;
+
 CREATE INDEX IF NOT EXISTS idx_payments_user_id ON payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_price_id ON payments(price_id);
 CREATE INDEX IF NOT EXISTS idx_payments_processor ON payments(processor);
+CREATE INDEX IF NOT EXISTS idx_payments_processor_provider ON payments(processor, coalesce(processor_provider, ''));
 CREATE INDEX IF NOT EXISTS idx_payments_purchased_at ON payments(purchased_at);
 CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON payments(subscription_id);
 

@@ -24,7 +24,7 @@ type Runtime struct {
 	CCBillClient     *ccbill.CCBillClient
 	CCBillRESTClient *ccbill.RESTClient
 	CCBillDataLink   *ccbill.DataLinkClient
-	NMIClient        *nmi.NMIClient
+	NMIClients       map[string]*nmi.NMIClient
 	RiverClient      *river.Client[pgx.Tx]
 
 	UserService              *services.UserService

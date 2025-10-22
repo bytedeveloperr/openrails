@@ -56,7 +56,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 		subscribeData := handlers.SubscribeRequest{
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
 				SubscribeData: services.SubscribeData{
-					Processor: "nmi",
+					Processor: "nmi", Provider: "mobius",
 					PriceID:   uuid.New().String(),
 				},
 			},
@@ -77,7 +77,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 		subscribeData := handlers.SubscribeRequest{
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
 				SubscribeData: services.SubscribeData{
-					Processor: "nmi",
+					Processor: "nmi", Provider: "mobius",
 					PriceID:   uuid.New().String(),
 				},
 			},
@@ -105,7 +105,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 		subscribeData := handlers.SubscribeRequest{
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
 				SubscribeData: services.SubscribeData{
-					Processor: "nmi",
+					Processor: "nmi", Provider: "mobius",
 					PriceID:   uuid.New().String(),
 				},
 			},

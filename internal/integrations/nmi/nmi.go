@@ -24,7 +24,8 @@ const (
 )
 
 type NMIClient struct {
-	config        *config.NMIConfig
+	providerName  string
+	config        *config.NMIProviderSettings
 	SecurityKey   string
 	WebhookSecret string
 	DirectPostURL string
@@ -111,11 +112,17 @@ type ManualRebillResponse struct {
 	ErrorMessage  string
 }
 
-func resolveWebhookSecret(cfg *config.NMIConfig) string {
+func resolveWebhookSecret(provider string, cfg *config.NMIProviderSettings) string {
+	upperProvider := strings.ToUpper(provider)
 	secrets := []string{
-		strings.TrimSpace(os.Getenv("NMI_WEBHOOK_SECRET")),
-		strings.TrimSpace(os.Getenv("MOBIUS_WEBHOOK_SECRET")),
+		strings.TrimSpace(os.Getenv(fmt.Sprintf("NMI_%s_WEBHOOK_SECRET", upperProvider))),
 	}
+	if strings.EqualFold(provider, "mobius") {
+		secrets = append(secrets, strings.TrimSpace(os.Getenv("MOBIUS_WEBHOOK_SECRET")))
+	}
+	secrets = append(secrets,
+		strings.TrimSpace(os.Getenv("NMI_WEBHOOK_SECRET")),
+	)
 	for _, candidate := range secrets {
 		if candidate != "" {
 			return candidate
@@ -139,35 +146,57 @@ func resolveEndpoint(defaultURL string, cfgValue string, envKeys ...string) stri
 	return defaultURL
 }
 
-func NewClient(cfg *config.NMIConfig, isProd bool) (*NMIClient, error) {
-	webhookSecret := resolveWebhookSecret(cfg)
-	if webhookSecret == "" {
-		log.Warn("NMI webhook secret not configured (neither NMI_WEBHOOK_SECRET/MOBIUS_WEBHOOK_SECRET env vars nor config.nmi.webhook_secret) - webhook signature verification will be disabled")
-	}
-
+func NewClient(provider string, cfg *config.NMIProviderSettings, isProd bool) (*NMIClient, error) {
 	if cfg == nil {
-		if isProd {
-			return nil, errors.New("nmi config is required in production mode")
-		}
-		log.Warn("NMI configuration not provided - NMI payment processing will be disabled")
-		emptyConfig := &config.NMIConfig{TestMode: true}
-		cfg = emptyConfig
+		return nil, errors.New("nmi provider configuration is required")
 	}
 
-	if isProd && strings.TrimSpace(cfg.SecurityKey) == "" {
-		return nil, errors.New("nmi security key is required in production mode")
+	webhookSecret := resolveWebhookSecret(provider, cfg)
+	if webhookSecret == "" {
+		log.WithField("provider", provider).Warn("NMI webhook secret not configured - webhook signature verification will be disabled")
 	}
 
-	if !isProd && strings.TrimSpace(cfg.SecurityKey) == "" {
-		log.Warn("NMI security_key not configured - NMI API calls will be disabled")
+	securityKey := strings.TrimSpace(firstNonEmpty(
+		os.Getenv(fmt.Sprintf("NMI_%s_SECURITY_KEY", strings.ToUpper(provider))),
+		cfg.SecurityKey,
+	))
+	if strings.EqualFold(provider, "mobius") && securityKey == "" {
+		securityKey = strings.TrimSpace(os.Getenv("MOBIUS_SECURITY_KEY"))
+	}
+	if securityKey == "" && cfg.SecurityKey != "" {
+		securityKey = strings.TrimSpace(cfg.SecurityKey)
 	}
 
-	directPostURL := resolveEndpoint(DefaultDirectPostURL, cfg.DirectPostURL, "NMI_DIRECT_POST_URL", "MOBIUS_DIRECT_POST_URL")
-	queryURL := resolveEndpoint(DefaultQueryAPIURL, cfg.QueryURL, "NMI_QUERY_URL", "MOBIUS_QUERY_URL")
+	if isProd && securityKey == "" {
+		return nil, fmt.Errorf("nmi provider '%s' security key is required in production mode", provider)
+	}
+
+	if !isProd && securityKey == "" {
+		log.WithField("provider", provider).Warn("NMI security_key not configured - NMI API calls will be disabled")
+	}
+
+	directPostURL := resolveEndpoint(
+		firstNonEmpty(cfg.DirectPostURL, DefaultDirectPostURL),
+		cfg.DirectPostURL,
+		fmt.Sprintf("NMI_%s_DIRECT_POST_URL", strings.ToUpper(provider)),
+	)
+	if strings.EqualFold(provider, "mobius") {
+		directPostURL = resolveEndpoint(directPostURL, cfg.DirectPostURL, "MOBIUS_DIRECT_POST_URL")
+	}
+
+	queryURL := resolveEndpoint(
+		firstNonEmpty(cfg.QueryURL, DefaultQueryAPIURL),
+		cfg.QueryURL,
+		fmt.Sprintf("NMI_%s_QUERY_URL", strings.ToUpper(provider)),
+	)
+	if strings.EqualFold(provider, "mobius") {
+		queryURL = resolveEndpoint(queryURL, cfg.QueryURL, "MOBIUS_QUERY_URL")
+	}
 
 	return &NMIClient{
+		providerName:  provider,
 		config:        cfg,
-		SecurityKey:   strings.TrimSpace(cfg.SecurityKey),
+		SecurityKey:   securityKey,
 		WebhookSecret: webhookSecret,
 		DirectPostURL: directPostURL,
 		QueryURL:      queryURL,
@@ -176,7 +205,7 @@ func NewClient(cfg *config.NMIConfig, isProd bool) (*NMIClient, error) {
 }
 
 // Config returns the NMI configuration
-func (c *NMIClient) Config() *config.NMIConfig {
+func (c *NMIClient) Config() *config.NMIProviderSettings {
 	return c.config
 }
 
@@ -188,7 +217,7 @@ func (c *NMIClient) isConfigured() bool {
 // checkConfiguration returns an error if the client is not configured properly
 func (c *NMIClient) checkConfiguration() error {
 	if !c.isConfigured() {
-		return errors.New("nmi payment processing is not configured - this feature is disabled in development mode")
+		return fmt.Errorf("nmi provider '%s' payment processing is not configured - this feature is disabled in development mode", c.providerName)
 	}
 	return nil
 }
@@ -777,4 +806,13 @@ func (c *NMIClient) VerifyWebhookSignature(body []byte, signature string) error 
 
 func (c *NMIClient) GetWebhookSecret() string {
 	return c.WebhookSecret
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

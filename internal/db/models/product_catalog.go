@@ -46,6 +46,7 @@ type Price struct {
 
 	// Payment processor specific IDs
 	NMIPlanID     *string `bun:"nmi_plan_id,nullzero" json:"nmi_plan_id"`
+	NMIProvider   *string `bun:"nmi_provider,nullzero" json:"nmi_provider"`
 	CCBillPriceID *string `bun:"ccbill_price_id,nullzero" json:"ccbill_price_id"`
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`

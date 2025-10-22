@@ -202,7 +202,11 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 	}
 
 	// Build webhook URL
-	webhookURL, err := url.JoinPath(rs.TargetEndpoint, "api", "v1", "subscriptions", "webhook", result.Processor)
+	pathParts := []string{"api", "v1", "subscriptions", "webhook", result.Processor}
+	if result.Processor == "nmi" {
+		pathParts = append(pathParts, "mobius")
+	}
+	webhookURL, err := url.JoinPath(rs.TargetEndpoint, pathParts...)
 	if err != nil {
 		result.Error = fmt.Sprintf("Failed to build webhook URL: %v", err)
 		return result, nil

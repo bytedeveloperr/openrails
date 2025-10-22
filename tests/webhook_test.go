@@ -38,7 +38,7 @@ func TestWebhookEndpoints(t *testing.T) {
 
 		body, _ := json.Marshal(webhookData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/webhook/nmi", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/webhook/nmi/mobius", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		server.Handler().ServeHTTP(w, req)

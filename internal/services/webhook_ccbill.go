@@ -353,7 +353,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
 
 		// Find subscription by processor subscription ID
-		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), originalSubscriptionID)
+		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", originalSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", originalSubscriptionID)
@@ -576,7 +576,7 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
 
 		// Find subscription by processor subscription ID
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", pSubscriptionID)
@@ -664,7 +664,7 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
 
 		// Find subscription by processor subscription ID
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", pSubscriptionID)
@@ -756,7 +756,7 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 		// but for now we'll rely on the subscription lookup
 
 		// Find subscription by processor subscription ID
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", pSubscriptionID)
@@ -886,7 +886,7 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 		entSvc := NewEntitlementService(txdb)
 
 		// Find subscription by processor subscription ID
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return fmt.Errorf("subscription not found for processor subscription ID: %s", pSubscriptionID)
@@ -1038,7 +1038,7 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 
 		// Try to find subscription by processor subscription ID
 		// Note: For voids, the subscription might not exist yet since the transaction was voided
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				// This is expected for voids - the subscription may never have been created
@@ -1182,7 +1182,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 		entSvc := NewEntitlementService(db)
 
 		// Find subscription by processor subscription ID
-		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), pSubscriptionID)
+		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", pSubscriptionID)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				log.WithContext(ctx).WithFields(log.Fields{
@@ -1371,7 +1371,7 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 	}
 
 	// Get the subscription for logging
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", ccBillSubID)
 	if err != nil {
 		return fmt.Errorf("failed to get subscription for logging: %w", err)
 	}
@@ -1454,7 +1454,7 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 	}
 
 	// Get the subscription to determine cancel type and for logging
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", ccBillSubID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
@@ -1550,7 +1550,7 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 	ccBillSubID := data.SubscriptionID
 
 	// Get the subscription for logging
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), ccBillSubID)
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", ccBillSubID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("subscription not found for processor subscription ID: %s", ccBillSubID)
