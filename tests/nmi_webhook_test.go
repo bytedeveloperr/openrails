@@ -2,17 +2,19 @@ package tests
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
+	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/internal/services/webhook"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestMobiusWebhookPayloads tests loading and validating Mobius webhook payloads
-func TestMobiusWebhookPayloads(t *testing.T) {
+// TestNMIWebhookPayloads tests loading and validating NMI webhook payloads
+func TestNMIWebhookPayloads(t *testing.T) {
 	t.Run("Load Subscription Add Payload", func(t *testing.T) {
-		payload, err := webhook.LoadTestWebhookPayload("mobius", "recurring_subscription_add.json")
+		payload, err := webhook.LoadTestWebhookPayload("nmi", "recurring_subscription_add.json")
 		require.NoError(t, err, "Should load subscription add payload")
 		assert.NotEmpty(t, payload, "Payload should not be empty")
 
@@ -32,11 +34,11 @@ func TestMobiusWebhookPayloads(t *testing.T) {
 		require.True(t, ok, "event_type should be string")
 		assert.Equal(t, "recurring.subscription.add", eventType, "Should be subscription add event")
 
-		t.Logf("Loaded Mobius subscription add payload with %d events", len(events))
+		t.Logf("Loaded NMI subscription add payload with %d events", len(events))
 	})
 
 	t.Run("Load Subscription Update Payload", func(t *testing.T) {
-		payload, err := webhook.LoadTestWebhookPayload("mobius", "recurring_subscription_update.json")
+		payload, err := webhook.LoadTestWebhookPayload("nmi", "recurring_subscription_update.json")
 		require.NoError(t, err, "Should load subscription update payload")
 		assert.NotEmpty(t, payload, "Payload should not be empty")
 
@@ -51,11 +53,11 @@ func TestMobiusWebhookPayloads(t *testing.T) {
 			assert.Equal(t, "recurring.subscription.update", eventType, "Should be subscription update event")
 		}
 
-		t.Logf("Loaded Mobius subscription update payload")
+		t.Logf("Loaded NMI subscription update payload")
 	})
 
 	t.Run("Load Subscription Delete Payload", func(t *testing.T) {
-		payload, err := webhook.LoadTestWebhookPayload("mobius", "recurring_subscription_delete.json")
+		payload, err := webhook.LoadTestWebhookPayload("nmi", "recurring_subscription_delete.json")
 		require.NoError(t, err, "Should load subscription delete payload")
 		assert.NotEmpty(t, payload, "Payload should not be empty")
 
@@ -70,40 +72,40 @@ func TestMobiusWebhookPayloads(t *testing.T) {
 			assert.Equal(t, "recurring.subscription.delete", eventType, "Should be subscription delete event")
 		}
 
-		t.Logf("Loaded Mobius subscription delete payload")
+		t.Logf("Loaded NMI subscription delete payload")
 	})
 
 	t.Run("Invalid Payload File", func(t *testing.T) {
-		_, err := webhook.LoadTestWebhookPayload("mobius", "nonexistent.json")
+		_, err := webhook.LoadTestWebhookPayload("nmi", "nonexistent.json")
 		assert.Error(t, err, "Should fail for nonexistent file")
 		assert.Contains(t, err.Error(), "failed to read payload file", "Should have appropriate error message")
 	})
 }
 
-// TestMobiusWebhookValidation tests webhook payload validation
-func TestMobiusWebhookValidation(t *testing.T) {
+// TestNMIWebhookValidation tests webhook payload validation
+func TestNMIWebhookValidation(t *testing.T) {
 	t.Run("Validate Subscription Add Event", func(t *testing.T) {
-		err := webhook.ValidateEvent("mobius", "recurring_subscription_add.json")
+		err := webhook.ValidateEvent("nmi", "recurring_subscription_add.json")
 		assert.NoError(t, err, "Should validate subscription add event")
-		t.Log("Mobius subscription add event validated successfully")
+		t.Log("NMI subscription add event validated successfully")
 	})
 
 	t.Run("Validate Subscription Update Event", func(t *testing.T) {
-		err := webhook.ValidateEvent("mobius", "recurring_subscription_update.json")
+		err := webhook.ValidateEvent("nmi", "recurring_subscription_update.json")
 		assert.NoError(t, err, "Should validate subscription update event")
-		t.Log("Mobius subscription update event validated successfully")
+		t.Log("NMI subscription update event validated successfully")
 	})
 
 	t.Run("Validate Subscription Delete Event", func(t *testing.T) {
-		err := webhook.ValidateEvent("mobius", "recurring_subscription_delete.json")
+		err := webhook.ValidateEvent("nmi", "recurring_subscription_delete.json")
 		assert.NoError(t, err, "Should validate subscription delete event")
-		t.Log("Mobius subscription delete event validated successfully")
+		t.Log("NMI subscription delete event validated successfully")
 	})
 
-	t.Run("Validate All Mobius Events", func(t *testing.T) {
-		err := webhook.ValidateAllEvents("mobius")
-		assert.NoError(t, err, "Should validate all Mobius events")
-		t.Log("All Mobius events validated successfully")
+	t.Run("Validate All NMI Events", func(t *testing.T) {
+		err := webhook.ValidateAllEvents("nmi")
+		assert.NoError(t, err, "Should validate all NMI events")
+		t.Log("All NMI events validated successfully")
 	})
 
 	t.Run("Invalid Processor", func(t *testing.T) {
@@ -113,10 +115,10 @@ func TestMobiusWebhookValidation(t *testing.T) {
 	})
 }
 
-// TestMobiusWebhookStructure tests the structure of Mobius webhook payloads
-func TestMobiusWebhookStructure(t *testing.T) {
+// TestNMIWebhookStructure tests the structure of NMI webhook payloads
+func TestNMIWebhookStructure(t *testing.T) {
 	t.Run("Subscription Add Structure", func(t *testing.T) {
-		payload, err := webhook.LoadTestWebhookPayload("mobius", "recurring_subscription_add.json")
+		payload, err := webhook.LoadTestWebhookPayload("nmi", "recurring_subscription_add.json")
 		require.NoError(t, err, "Should load payload")
 
 		var events []map[string]interface{}
@@ -154,12 +156,12 @@ func TestMobiusWebhookStructure(t *testing.T) {
 				assert.Contains(t, plan, "amount", "Should have amount in plan")
 			}
 
-			t.Log("Mobius subscription add structure validated")
+			t.Log("NMI subscription add structure validated")
 		}
 	})
 
 	t.Run("Event ID Format", func(t *testing.T) {
-		payload, err := webhook.LoadTestWebhookPayload("mobius", "recurring_subscription_add.json")
+		payload, err := webhook.LoadTestWebhookPayload("nmi", "recurring_subscription_add.json")
 		require.NoError(t, err, "Should load payload")
 
 		var events []map[string]interface{}
@@ -181,10 +183,10 @@ func TestMobiusWebhookStructure(t *testing.T) {
 	})
 }
 
-// TestMobiusWebhookCustomization tests customizing webhook payloads for testing
-func TestMobiusWebhookCustomization(t *testing.T) {
+// TestNMIWebhookCustomization tests customizing webhook payloads for testing
+func TestNMIWebhookCustomization(t *testing.T) {
 	t.Run("Customize Subscription ID", func(t *testing.T) {
-		payload, err := webhook.LoadTestWebhookPayload("mobius", "recurring_subscription_add.json")
+		payload, err := webhook.LoadTestWebhookPayload("nmi", "recurring_subscription_add.json")
 		require.NoError(t, err, "Should load payload")
 
 		var events []map[string]interface{}
@@ -214,7 +216,7 @@ func TestMobiusWebhookCustomization(t *testing.T) {
 	})
 
 	t.Run("Customize Email Address", func(t *testing.T) {
-		payload, err := webhook.LoadTestWebhookPayload("mobius", "recurring_subscription_add.json")
+		payload, err := webhook.LoadTestWebhookPayload("nmi", "recurring_subscription_add.json")
 		require.NoError(t, err, "Should load payload")
 
 		var events []map[string]interface{}
@@ -234,4 +236,22 @@ func TestMobiusWebhookCustomization(t *testing.T) {
 			t.Logf("Successfully customized email to: %s", customEmail)
 		}
 	})
+}
+
+func TestStringishSubscriptionIDNormalization(t *testing.T) {
+	payload, err := webhook.LoadTestWebhookPayload("nmi", "recurring_subscription_add.json")
+	require.NoError(t, err, "Should load payload")
+
+	var events []services.NMIWebhookEvent
+	require.NoError(t, json.Unmarshal([]byte(payload), &events))
+	require.NotEmpty(t, events, "expected at least one event payload")
+
+	for _, evt := range events {
+		var body services.NMIRecurringEventBody
+		require.NoError(t, json.Unmarshal(evt.EventBody, &body))
+
+		subID := body.SubscriptionID.Trimmed()
+		assert.NotEmpty(t, subID, "subscription_id should not be empty")
+		assert.False(t, strings.Contains(strings.ToLower(subID), "e+"), "subscription_id must not use scientific notation")
+	}
 }

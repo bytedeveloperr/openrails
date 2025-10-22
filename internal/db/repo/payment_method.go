@@ -147,7 +147,7 @@ func (r *PaymentMethodRepo) GetByVaultID(ctx context.Context, vaultID string) (*
 	pm := new(models.PaymentMethod)
 	err := r.db.GetDB().NewSelect().Model(pm).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", models.ProcessorMobius).
+		Where("processor = ?", models.ProcessorNMI).
 		Where("vault_id = ?", vaultID).
 		Scan(ctx)
 	if err != nil {
@@ -163,7 +163,7 @@ func (r *PaymentMethodRepo) GetByBillingID(ctx context.Context, billingID string
 	pm := new(models.PaymentMethod)
 	err := r.db.GetDB().NewSelect().Model(pm).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", models.ProcessorMobius).
+		Where("processor = ?", models.ProcessorNMI).
 		Where("billing_id = ?", billingID).
 		Scan(ctx)
 	if err != nil {
@@ -179,7 +179,7 @@ func (r *PaymentMethodRepo) GetByInitialTransactionID(ctx context.Context, initi
 	pm := new(models.PaymentMethod)
 	err := r.db.GetDB().NewSelect().Model(pm).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", models.ProcessorMobius).
+		Where("processor = ?", models.ProcessorNMI).
 		Where("initial_transaction_id = ?", initialTransactionID).
 		Scan(ctx)
 	if err != nil {
@@ -255,11 +255,11 @@ func (r *PaymentMethodRepo) ActivateByID(ctx context.Context, id uuid.UUID) erro
 	return nil
 }
 
-func (r *PaymentMethodRepo) GetAllMobius(ctx context.Context) ([]*models.PaymentMethod, error) {
+func (r *PaymentMethodRepo) GetAllNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	err := r.db.GetDB().NewSelect().Model(&methods).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", models.ProcessorMobius).
+		Where("processor = ?", models.ProcessorNMI).
 		Order("created_at DESC").
 		Scan(ctx)
 	if err != nil {
@@ -268,11 +268,11 @@ func (r *PaymentMethodRepo) GetAllMobius(ctx context.Context) ([]*models.Payment
 	return methods, nil
 }
 
-func (r *PaymentMethodRepo) GetActiveMobius(ctx context.Context) ([]*models.PaymentMethod, error) {
+func (r *PaymentMethodRepo) GetActiveNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	err := r.db.GetDB().NewSelect().Model(&methods).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", models.ProcessorMobius).
+		Where("processor = ?", models.ProcessorNMI).
 		Where("is_active = ?", true).
 		Order("created_at DESC").
 		Scan(ctx)
@@ -282,16 +282,12 @@ func (r *PaymentMethodRepo) GetActiveMobius(ctx context.Context) ([]*models.Paym
 	return methods, nil
 }
 
-func (r *PaymentMethodRepo) GetMobiusByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid user id: %w", err)
-	}
+func (r *PaymentMethodRepo) GetNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	err = r.db.GetDB().NewSelect().Model(&methods).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", uid).
-		Where("processor = ?", models.ProcessorMobius).
+		Where("user_id = ?", userID).
+		Where("processor = ?", models.ProcessorNMI).
 		Order("created_at DESC").
 		Scan(ctx)
 	if err != nil {
@@ -300,16 +296,12 @@ func (r *PaymentMethodRepo) GetMobiusByUserID(ctx context.Context, userID string
 	return methods, nil
 }
 
-func (r *PaymentMethodRepo) GetActiveMobiusByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid user id: %w", err)
-	}
+func (r *PaymentMethodRepo) GetActiveNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	err = r.db.GetDB().NewSelect().Model(&methods).
 		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", uid).
-		Where("processor = ?", models.ProcessorMobius).
+		Where("user_id = ?", userID).
+		Where("processor = ?", models.ProcessorNMI).
 		Where("is_active = ?", true).
 		Order("created_at DESC").
 		Scan(ctx)

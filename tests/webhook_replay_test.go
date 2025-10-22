@@ -20,17 +20,21 @@ import (
 func loadCCBillWebhookData(t *testing.T, eventType string) string {
 	t.Helper()
 
+
 	// Map event type to file name
 	fileName := strings.ToLower(eventType) + ".json"
 	filePath := filepath.Join("../testdata/webhooks/ccbill", fileName)
 
+
 	data, err := os.ReadFile(filePath)
 	require.NoError(t, err, "Failed to read CCBill webhook test data for %s", eventType)
+
 
 	// Parse JSON to convert to form data
 	var jsonData map[string]interface{}
 	err = json.Unmarshal(data, &jsonData)
 	require.NoError(t, err, "Failed to parse CCBill webhook JSON for %s", eventType)
+
 
 	// Convert to URL-encoded form data
 	return jsonToFormData(jsonData)
@@ -62,9 +66,10 @@ func jsonToFormData(data map[string]interface{}) string {
 	return values.Encode()
 }
 
-// Helper function to load Mobius webhook data
-func loadMobiusWebhookData(t *testing.T, eventType string) []byte {
+// Helper function to load NMI webhook data
+func loadNMIWebhookData(t *testing.T, eventType string) []byte {
 	t.Helper()
+
 
 	// Map event type to file name
 	var fileName string
@@ -76,22 +81,22 @@ func loadMobiusWebhookData(t *testing.T, eventType string) []byte {
 	case "recurring.subscription.delete":
 		fileName = "recurring_subscription_delete.json"
 	default:
-		t.Fatalf("Unknown Mobius event type: %s", eventType)
+		t.Fatalf("Unknown NMI event type: %s", eventType)
 	}
 
-	filePath := filepath.Join("../testdata/webhooks/mobius", fileName)
+	filePath := filepath.Join("../testdata/webhooks/nmi", fileName)
 	data, err := os.ReadFile(filePath)
-	require.NoError(t, err, "Failed to read Mobius webhook test data for %s", eventType)
+	require.NoError(t, err, "Failed to read NMI webhook test data for %s", eventType)
 
-	// Mobius sends arrays of events, so we need to extract the first event
+	// NMI sends arrays of events, so we need to extract the first event
 	var events []map[string]interface{}
 	err = json.Unmarshal(data, &events)
-	require.NoError(t, err, "Failed to parse Mobius webhook JSON for %s", eventType)
-	require.NotEmpty(t, events, "No events found in Mobius webhook data for %s", eventType)
+	require.NoError(t, err, "Failed to parse NMI webhook JSON for %s", eventType)
+	require.NotEmpty(t, events, "No events found in NMI webhook data for %s", eventType)
 
 	// Use the first event for testing
 	eventData, err := json.Marshal(events[0])
-	require.NoError(t, err, "Failed to marshal Mobius event for %s", eventType)
+	require.NoError(t, err, "Failed to marshal NMI event for %s", eventType)
 
 	return eventData
 }
@@ -100,8 +105,12 @@ func loadMobiusWebhookData(t *testing.T, eventType string) []byte {
 func TestCCBillWebhookReplay(t *testing.T) {
 	server := setupTestServer(t)
 
+
 	// Test all CCBill event types
 	eventTypes := []struct {
+		name       string
+		eventType  string
+		filePrefix string
 		name       string
 		eventType  string
 		filePrefix string
@@ -122,6 +131,7 @@ func TestCCBillWebhookReplay(t *testing.T) {
 		{"Void", "Void", "void"},
 	}
 
+
 	for _, et := range eventTypes {
 		t.Run(et.name, func(t *testing.T) {
 			// Check if file exists first
@@ -131,39 +141,51 @@ func TestCCBillWebhookReplay(t *testing.T) {
 				return
 			}
 
+
 			// Load test data
 			data, err := os.ReadFile(filePath)
 			require.NoError(t, err, "Failed to read test data")
+
 
 			// Parse JSON to convert to form data
 			var jsonData map[string]interface{}
 			err = json.Unmarshal(data, &jsonData)
 			require.NoError(t, err, "Failed to parse JSON")
 
+
 			// Convert to form data
 			formData := jsonToFormData(jsonData)
 
+
 			// Create request
 			w := httptest.NewRecorder()
+			req, err := http.NewRequest("POST",
 			req, err := http.NewRequest("POST",
 				fmt.Sprintf("/v1/subscriptions/webhook/ccbill?eventType=%s", et.eventType),
 				strings.NewReader(formData))
 			require.NoError(t, err)
 
+
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
 
 			// Send request
 			server.Handler().ServeHTTP(w, req)
+
 
 			// Check response
 			// We expect either OK, rate limited, or internal error (due to missing services in test)
 			assert.Contains(t, []int{
 				http.StatusOK,
 				http.StatusInternalServerError,
+				http.StatusOK,
+				http.StatusInternalServerError,
 				http.StatusTooManyRequests,
 				http.StatusForbidden, // IP verification might fail in test
 			}, w.Code,
+			}, w.Code,
 				"Unexpected status code for CCBill %s webhook: %d", et.name, w.Code)
+
 
 			// Log response for debugging
 			if w.Code != http.StatusOK && w.Code != http.StatusTooManyRequests {
@@ -173,11 +195,11 @@ func TestCCBillWebhookReplay(t *testing.T) {
 	}
 }
 
-// TestMobiusWebhookReplay tests Mobius webhooks with real replay data
-func TestMobiusWebhookReplay(t *testing.T) {
+// TestNMIWebhookReplay tests NMI webhooks with real replay data
+func TestNMIWebhookReplay(t *testing.T) {
 	server := setupTestServer(t)
 
-	// Test all Mobius event types
+	// Test all NMI event types
 	eventTypes := []struct {
 		name      string
 		eventType string
@@ -187,36 +209,42 @@ func TestMobiusWebhookReplay(t *testing.T) {
 		{"SubscriptionDelete", "recurring.subscription.delete"},
 	}
 
+
 	for _, et := range eventTypes {
 		t.Run(et.name, func(t *testing.T) {
 			// Load test data
-			webhookData := loadMobiusWebhookData(t, et.eventType)
+			webhookData := loadNMIWebhookData(t, et.eventType)
 
 			// Create request
 			w := httptest.NewRecorder()
 			req, err := http.NewRequest("POST",
-				"/v1/subscriptions/webhook/mobius",
+				"/v1/subscriptions/webhook/nmi",
 				bytes.NewBuffer(webhookData))
 			require.NoError(t, err)
 
+
 			req.Header.Set("Content-Type", "application/json")
+
 
 			// Send request
 			server.Handler().ServeHTTP(w, req)
+
 
 			// Check response
 			// We expect either OK, rate limited, unauthorized (signature), or internal error
 			assert.Contains(t, []int{
 				http.StatusOK,
 				http.StatusInternalServerError,
+				http.StatusOK,
+				http.StatusInternalServerError,
 				http.StatusTooManyRequests,
 				http.StatusUnauthorized, // Signature verification might fail
 			}, w.Code,
-				"Unexpected status code for Mobius %s webhook: %d", et.name, w.Code)
+				"Unexpected status code for NMI %s webhook: %d", et.name, w.Code)
 
 			// Log response for debugging
 			if w.Code != http.StatusOK && w.Code != http.StatusTooManyRequests {
-				t.Logf("Mobius %s webhook response: %d - %s", et.name, w.Code, w.Body.String())
+				t.Logf("NMI %s webhook response: %d - %s", et.name, w.Code, w.Body.String())
 			}
 		})
 	}
@@ -226,15 +254,20 @@ func TestMobiusWebhookReplay(t *testing.T) {
 func TestWebhookWithInvalidProcessor(t *testing.T) {
 	server := setupTestServer(t)
 
+
 	w := httptest.NewRecorder()
+	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/invalid",
 	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/invalid",
 		strings.NewReader("test=data"))
 	require.NoError(t, err)
 
+
 	server.Handler().ServeHTTP(w, req)
+
 
 	// Should return bad request or rate limited
 	assert.Contains(t, []int{
+		http.StatusBadRequest,
 		http.StatusBadRequest,
 		http.StatusTooManyRequests,
 	}, w.Code)
@@ -244,14 +277,18 @@ func TestWebhookWithInvalidProcessor(t *testing.T) {
 func TestCCBillWebhookWithMissingEventType(t *testing.T) {
 	server := setupTestServer(t)
 
+
 	w := httptest.NewRecorder()
 	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/ccbill",
 		strings.NewReader("subscriptionId=123456"))
 	require.NoError(t, err)
 
+
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
+
 	server.Handler().ServeHTTP(w, req)
+
 
 	// Should still process but with empty eventType
 	assert.Contains(t, []int{
@@ -262,18 +299,22 @@ func TestCCBillWebhookWithMissingEventType(t *testing.T) {
 	}, w.Code)
 }
 
-// TestMobiusWebhookWithMalformedJSON tests Mobius webhook with invalid JSON
-func TestMobiusWebhookWithMalformedJSON(t *testing.T) {
+// TestNMIWebhookWithMalformedJSON tests NMI webhook with invalid JSON
+func TestNMIWebhookWithMalformedJSON(t *testing.T) {
 	server := setupTestServer(t)
 
+
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/mobius",
+	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/nmi",
 		strings.NewReader("{invalid json"))
 	require.NoError(t, err)
 
+
 	req.Header.Set("Content-Type", "application/json")
 
+
 	server.Handler().ServeHTTP(w, req)
+
 
 	// Should return bad request or rate limited
 	assert.Contains(t, []int{
@@ -287,6 +328,7 @@ func TestMobiusWebhookWithMalformedJSON(t *testing.T) {
 func TestWebhookReplayWithLargePayload(t *testing.T) {
 	server := setupTestServer(t)
 
+
 	// Create a large payload (simulate a webhook with many fields)
 	largeData := make(map[string]interface{})
 	for i := 0; i < 100; i++ {
@@ -295,17 +337,23 @@ func TestWebhookReplayWithLargePayload(t *testing.T) {
 	largeData["eventType"] = "TestEvent"
 	largeData["subscriptionId"] = "123456789"
 
+
 	formData := jsonToFormData(largeData)
 
+
 	w := httptest.NewRecorder()
+	req, err := http.NewRequest("POST",
 	req, err := http.NewRequest("POST",
 		"/v1/subscriptions/webhook/ccbill?eventType=TestEvent",
 		strings.NewReader(formData))
 	require.NoError(t, err)
 
+
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
+
 	server.Handler().ServeHTTP(w, req)
+
 
 	// Should handle large payload without crashing
 	assert.Contains(t, []int{
@@ -320,17 +368,22 @@ func TestWebhookReplayWithLargePayload(t *testing.T) {
 func TestWebhookContentTypeValidation(t *testing.T) {
 	server := setupTestServer(t)
 
+
 	t.Run("CCBill_WrongContentType", func(t *testing.T) {
 		// CCBill expects form data, send JSON instead
 		w := httptest.NewRecorder()
+		req, err := http.NewRequest("POST",
 		req, err := http.NewRequest("POST",
 			"/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
 			strings.NewReader(`{"test": "data"}`))
 		require.NoError(t, err)
 
+
 		req.Header.Set("Content-Type", "application/json") // Wrong content type
 
+
 		server.Handler().ServeHTTP(w, req)
+
 
 		// Should still attempt to process (handler reads raw body)
 		assert.Contains(t, []int{
@@ -341,17 +394,20 @@ func TestWebhookContentTypeValidation(t *testing.T) {
 		}, w.Code)
 	})
 
-	t.Run("Mobius_WrongContentType", func(t *testing.T) {
-		// Mobius expects JSON, send form data instead
+	t.Run("NMI_WrongContentType", func(t *testing.T) {
+		// NMI expects JSON, send form data instead
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/mobius",
+			"/v1/subscriptions/webhook/nmi",
 			strings.NewReader("test=data&foo=bar"))
 		require.NoError(t, err)
 
+
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded") // Wrong content type
 
+
 		server.Handler().ServeHTTP(w, req)
+
 
 		// Should fail JSON parsing
 		assert.Contains(t, []int{
@@ -366,14 +422,18 @@ func TestWebhookContentTypeValidation(t *testing.T) {
 func TestWebhookReplayEmptyBody(t *testing.T) {
 	server := setupTestServer(t)
 
+
 	t.Run("CCBill_EmptyBody", func(t *testing.T) {
 		w := httptest.NewRecorder()
+		req, err := http.NewRequest("POST",
 		req, err := http.NewRequest("POST",
 			"/v1/subscriptions/webhook/ccbill?eventType=Test",
 			nil)
 		require.NoError(t, err)
 
+
 		server.Handler().ServeHTTP(w, req)
+
 
 		assert.Contains(t, []int{
 			http.StatusInternalServerError,
@@ -382,14 +442,16 @@ func TestWebhookReplayEmptyBody(t *testing.T) {
 		}, w.Code)
 	})
 
-	t.Run("Mobius_EmptyBody", func(t *testing.T) {
+	t.Run("NMI_EmptyBody", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/mobius",
+			"/v1/subscriptions/webhook/nmi",
 			nil)
 		require.NoError(t, err)
 
+
 		server.Handler().ServeHTTP(w, req)
+
 
 		assert.Contains(t, []int{
 			http.StatusBadRequest,

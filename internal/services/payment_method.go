@@ -66,7 +66,7 @@ func (s *PaymentMethodService) ListByUserID(ctx context.Context, userID string, 
 	return items, total, nil
 }
 
-// GetByVaultID finds a Mobius payment method by vault ID
+// GetByVaultID finds a NMI payment method by vault ID
 func (s *PaymentMethodService) GetByVaultID(ctx context.Context, vaultID string) (*models.PaymentMethod, error) {
 	pm, err := s.repo.GetByVaultID(ctx, vaultID)
 	if err != nil {
@@ -78,8 +78,8 @@ func (s *PaymentMethodService) GetByVaultID(ctx context.Context, vaultID string)
 	return pm, nil
 }
 
-// GetByBillingID is no longer needed since payment methods only support Mobius
-// Keeping for backwards compatibility, but always filters for Mobius processor
+// GetByBillingID is no longer needed since payment methods only support NMI
+// Keeping for backwards compatibility, but always filters for NMI processor
 func (s *PaymentMethodService) GetByBillingID(ctx context.Context, billingID string) (*models.PaymentMethod, error) {
 	pm, err := s.repo.GetByBillingID(ctx, billingID)
 	if err != nil {
@@ -91,7 +91,7 @@ func (s *PaymentMethodService) GetByBillingID(ctx context.Context, billingID str
 	return pm, nil
 }
 
-// GetByInitialTransactionID finds a Mobius payment method by initial transaction ID
+// GetByInitialTransactionID finds a NMI payment method by initial transaction ID
 func (s *PaymentMethodService) GetByInitialTransactionID(ctx context.Context, initialTransactionID string) (*models.PaymentMethod, error) {
 	pm, err := s.repo.GetByInitialTransactionID(ctx, initialTransactionID)
 	if err != nil {
@@ -139,26 +139,31 @@ func (s *PaymentMethodService) ActivateByID(ctx context.Context, id uuid.UUID) e
 	return nil
 }
 
-// GetAllMobius returns all Mobius payment methods
-func (s *PaymentMethodService) GetAllMobius(ctx context.Context) ([]*models.PaymentMethod, error) {
-	return s.repo.GetAllMobius(ctx)
+// GetAllNMI returns all NMI payment methods
+func (s *PaymentMethodService) GetAllNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
+	return s.repo.GetAllNMI(ctx)
 }
 
-// GetActiveMobius returns all active Mobius payment methods
-func (s *PaymentMethodService) GetActiveMobius(ctx context.Context) ([]*models.PaymentMethod, error) {
-	return s.repo.GetActiveMobius(ctx)
+// GetActiveNMI returns all active NMI payment methods
+func (s *PaymentMethodService) GetActiveNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
+	return s.repo.GetActiveNMI(ctx)
 }
 
-// GetMobiusByUserID returns Mobius payment methods for a specific user
-func (s *PaymentMethodService) GetMobiusByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	return s.repo.GetMobiusByUserID(ctx, userID)
+// GetNMIByUserID returns NMI payment methods for a specific user
+func (s *PaymentMethodService) GetNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
+	return s.repo.GetNMIByUserID(ctx, userID)
 }
 
-// GetActiveMobiusByUserID returns active Mobius payment methods for a specific user
-func (s *PaymentMethodService) GetActiveMobiusByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	return s.repo.GetActiveMobiusByUserID(ctx, userID)
+// GetActiveNMIByUserID returns active NMI payment methods for a specific user
+func (s *PaymentMethodService) GetActiveNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
+	return s.repo.GetActiveNMIByUserID(ctx, userID)
 }
 
+// GetACUPendingMethods is deprecated since payment methods only support NMI
+// ACU fields were removed from the model, so this returns empty
+func (s *PaymentMethodService) GetACUPendingMethods(ctx context.Context) ([]*models.PaymentMethod, error) {
+	return []*models.PaymentMethod{}, nil
+}
 
 // ValidateOwnership verifies that a payment method belongs to the specified user
 // Returns error if the payment method doesn't exist or doesn't belong to the user

@@ -102,7 +102,7 @@ type PublicPriceResponse struct {
 	BillingCycleDays int     `json:"billing_cycle_days"`
 }
 
-// (Removed) Mobius setup response and nonce: no longer needed because
+// (Removed) NMI setup response and nonce: no longer needed because
 // the Collect.js tokenization key is injected into the frontend template.
 
 type GetSubscribePageDataResponse = map[string]any
@@ -444,15 +444,15 @@ type GetUserBillingHistoryResponse = GetBillingHistoryResponse
 
 // -------------------------------- Payment Method Responses --------------------------------
 
-// PaymentMethodResponse represents a Mobius payment method response
-// Payment methods only support Mobius card vaults
+// PaymentMethodResponse represents a NMI payment method response
+// Payment methods only support NMI card vaults
 type PaymentMethodResponse struct {
 	ID        string `json:"id"`
-	Type      string `json:"type"`      // Always "card" for Mobius
-	Processor string `json:"processor"` // Always "mobius"
+	Type      string `json:"type"`      // Always "card" for NMI
+	Processor string `json:"processor"` // Always "nmi"
 	IsActive  bool   `json:"is_active"`
 
-	// Card-specific fields (Mobius only)
+	// Card-specific fields (NMI only)
 	LastFour   *string `json:"last_four,omitempty"`
 	CardType   *string `json:"card_type,omitempty"`
 	ExpiryDate *string `json:"expiry_date,omitempty"`

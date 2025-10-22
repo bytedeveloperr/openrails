@@ -2,18 +2,18 @@ package mocks
 
 // Lightweight local stubs to satisfy imports in integration tests.
 
-type MobiusMockServer struct{}
+type NMIMockServer struct{}
 
-func NewMobiusMockServer(args ...string) *MobiusMockServer { return &MobiusMockServer{} }
-func (m *MobiusMockServer) GetBaseURL() string             { return "http://localhost:18080" }
-func (m *MobiusMockServer) EnableWebhooks(url string)      {}
-func (m *MobiusMockServer) Stop()                          {}
-func (m *MobiusMockServer) Close()                         {}
+func NewNMIMockServer(args ...string) *NMIMockServer { return &NMIMockServer{} }
+func (m *NMIMockServer) GetBaseURL() string          { return "http://localhost:18080" }
+func (m *NMIMockServer) EnableWebhooks(url string)   {}
+func (m *NMIMockServer) Stop()                       {}
+func (m *NMIMockServer) Close()                      {}
 
-type MobiusClientMock struct{}
+type NMIClientMock struct{}
 
-func NewMobiusClientMock() *MobiusClientMock               { return &MobiusClientMock{} }
-func (c *MobiusClientMock) SetResponse(name string, v any) {}
+func NewNMIClientMock() *NMIClientMock                  { return &NMIClientMock{} }
+func (c *NMIClientMock) SetResponse(name string, v any) {}
 
 type CCBillMockServer struct{}
 

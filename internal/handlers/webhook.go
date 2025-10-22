@@ -17,7 +17,7 @@ func Webhook(r *Request) {
 	processor := r.Param("processor")
 
 	// NOTE: Webhook authentication can be bypassed for testing by setting test_mode: true
-	// in the respective processor config (mobius.test_mode or ccbill.test_mode)
+	// in the respective processor config (nmi.test_mode or ccbill.test_mode)
 	// This is useful for integration tests and development environments
 
 	// Create dead letter service
@@ -109,8 +109,8 @@ func Webhook(r *Request) {
 			r.ErrorJSON(http.StatusInternalServerError, err.Error())
 			return
 		}
-	case services.ProcessorMobius:
-		handleMobiusWebhook(r)
+	case services.ProcessorNMI:
+		handleNMIWebhook(r)
 		return
 	default:
 		webhookBody, readErr := readRequestBody(r.Request.Body)
@@ -125,7 +125,7 @@ func Webhook(r *Request) {
 
 }
 
-func handleMobiusWebhook(r *Request) {
+func handleNMIWebhook(r *Request) {
 	// Read the request body for signature verification
 	body, err := readRequestBody(r.Request.Body)
 	if err != nil {
@@ -133,51 +133,54 @@ func handleMobiusWebhook(r *Request) {
 		return
 	}
 
-	// Check if Mobius is in test mode - bypass authentication for testing
-	if !r.State.MobiusClient.Config().TestMode {
+	// Check if NMI is in test mode - bypass authentication for testing
+	if !r.State.NMIClient.Config().TestMode {
 		// Verify webhook signature if webhook secret is configured
-		if r.State.MobiusClient.GetWebhookSecret() != "" {
+		if r.State.NMIClient.GetWebhookSecret() != "" {
 			signature := r.Request.Header.Get("X-Signature")
+			if signature == "" {
+				signature = r.Request.Header.Get("X-NMI-Signature")
+			}
 			if signature == "" {
 				signature = r.Request.Header.Get("X-Mobius-Signature")
 			}
 			if signature == "" {
-				log.Error("Missing webhook signature for Mobius webhook")
+				log.Error("Missing webhook signature for NMI webhook")
 				r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
 				return
 			}
 
-			if err := r.State.MobiusClient.VerifyWebhookSignature(body, signature); err != nil {
-				log.WithError(err).Error("Mobius webhook signature verification failed")
+			if err := r.State.NMIClient.VerifyWebhookSignature(body, signature); err != nil {
+				log.WithError(err).Error("NMI webhook signature verification failed")
 				r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
 				return
 			}
 		} else {
-			log.Warn("Mobius webhook secret not configured - skipping signature verification")
+			log.Warn("NMI webhook secret not configured - skipping signature verification")
 		}
 	} else {
-		log.Debug("Mobius webhook authentication bypassed - test mode enabled")
+		log.Debug("NMI webhook authentication bypassed - test mode enabled")
 	}
 
-	var data services.MobiusWebhookEvent
+	var data services.NMIWebhookEvent
 	if err := json.Unmarshal(body, &data); err != nil {
-		log.WithError(err).Error("failed to parse Mobius webhook JSON")
+		log.WithError(err).Error("failed to parse NMI webhook JSON")
 		r.ErrorJSON(http.StatusBadRequest, "Invalid JSON data")
 		return
 	}
-	service := services.MobiusWebhookService{
+	service := services.NMIWebhookService{
 		Data:                         data,
 		DB:                           r.State.DB,
 		PriceService:                 r.State.PriceService,
 		ProductService:               r.State.ProductService,
-		MobiusClient:                 r.State.MobiusClient,
+		NMIClient:                    r.State.NMIClient,
 		BillingEventService:          r.State.BillingEventService,
 		SubscriptionService:          r.State.SubscriptionService,
 		NotificationQueueService:     r.State.NotificationQueueService,
 		SubscriptionLifecycleService: r.State.SubscriptionLifecycleService,
 	}
 
-	if err := service.HandleMobiusWebhook(context.Background()); err != nil {
+	if err := service.HandleNMIWebhook(context.Background()); err != nil {
 		log.WithError(err).Error("failed to process webhook")
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
 		return

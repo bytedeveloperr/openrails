@@ -14,6 +14,7 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
+	log "github.com/sirupsen/logrus"
 )
 
 const EnvProd string = "prod"
@@ -22,21 +23,22 @@ const EnvDev string = "dev"
 const ConfigContextKey string = "config"
 
 type Config struct {
-	Env         string            `koanf:"env,omitempty"`
-	Port        int16             `koanf:"port,omitempty"`
-	Host        string            `koanf:"host,omitempty"`
-	Mobius      *MobiusConfig     `koanf:"mobius,omitempty"`
-	CCBill      *CCBillConfig     `koanf:"ccbill,omitempty"`
-	Solana      *SolanaConfig     `koanf:"solana,omitempty"`
-	DB          *DBConfig         `koanf:"db,omitempty"`
-	Redis       *RedisConfig      `koanf:"redis,omitempty"`
-	JWT         *JWTConfig        `koanf:"jwt,omitempty"`
-	ClickHouse  *ClickHouseConfig `koanf:"clickhouse,omitempty"`
-	Email       *email.Config     `koanf:"email,omitempty"`
-	CorsOrigins []string          `koanf:"cors_origins,omitempty"`
-	RateLimits  *RateLimitConfig  `koanf:"rate_limits,omitempty"`
-	Admin       *AdminConfig      `koanf:"admin,omitempty"`
-	TLS         *TLSConfig        `koanf:"tls,omitempty"`
+	Env          string            `koanf:"env,omitempty"`
+	Port         int16             `koanf:"port,omitempty"`
+	Host         string            `koanf:"host,omitempty"`
+	NMI          *NMIConfig        `koanf:"nmi,omitempty"`
+	LegacyMobius *NMIConfig        `koanf:"mobius,omitempty"` // Deprecated: fallback for legacy configs
+	CCBill       *CCBillConfig     `koanf:"ccbill,omitempty"`
+	Solana       *SolanaConfig     `koanf:"solana,omitempty"`
+	DB           *DBConfig         `koanf:"db,omitempty"`
+	Redis        *RedisConfig      `koanf:"redis,omitempty"`
+	JWT          *JWTConfig        `koanf:"jwt,omitempty"`
+	ClickHouse   *ClickHouseConfig `koanf:"clickhouse,omitempty"`
+	Email        *email.Config     `koanf:"email,omitempty"`
+	CorsOrigins  []string          `koanf:"cors_origins,omitempty"`
+	RateLimits   *RateLimitConfig  `koanf:"rate_limits,omitempty"`
+	Admin        *AdminConfig      `koanf:"admin,omitempty"`
+	TLS          *TLSConfig        `koanf:"tls,omitempty"`
 }
 
 type DBConfig struct {
@@ -45,11 +47,13 @@ type DBConfig struct {
 	Dialect string `koanf:"dialect"`
 }
 
-type MobiusConfig struct {
+type NMIConfig struct {
 	SecurityKey     string `koanf:"security_key"`
 	TokenizationKey string `koanf:"tokenization_key"`
 	WebhookSecret   string `koanf:"webhook_secret"`
 	TestMode        bool   `koanf:"test_mode"`
+	DirectPostURL   string `koanf:"direct_post_url"`
+	QueryURL        string `koanf:"query_url"`
 }
 
 type CCBillConfig struct {
@@ -171,8 +175,8 @@ func Validate(cfg *Config) error {
 	isDev := cfg.Env == "development" || cfg.Env == "dev" || cfg.Env == ""
 
 	if !isDev {
-		if err := validateMobius(cfg.Mobius); err != nil {
-			return fmt.Errorf("mobius config validation failed: %w", err)
+		if err := validateNMI(cfg.NMI); err != nil {
+			return fmt.Errorf("nmi config validation failed: %w", err)
 		}
 
 		// Validate CCBill configuration
@@ -189,21 +193,33 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
-// validateMobius validates Mobius-specific configuration
-func validateMobius(cfg *MobiusConfig) error {
+// validateNMI validates NMI-specific configuration
+func validateNMI(cfg *NMIConfig) error {
 	if cfg == nil {
-		return fmt.Errorf("mobius configuration is required")
+		return fmt.Errorf("nmi configuration is required")
 	}
 
 	if cfg.SecurityKey == "" {
-		return fmt.Errorf("mobius security key is required in production")
+		return fmt.Errorf("nmi security key is required in production")
 	}
 
 	// TokenizationKey is not required by the billing service; frontend integrates
-	// with Mobius Collect.js directly. Keep optional for backward compatibility.
+	// with NMI Collect.js directly. Keep optional for backward compatibility.
 
 	if cfg.WebhookSecret == "" {
-		return fmt.Errorf("mobius webhook secret is recommended for security")
+		return fmt.Errorf("nmi webhook secret is recommended for security")
+	}
+
+	if cfg.DirectPostURL != "" {
+		if _, err := url.Parse(cfg.DirectPostURL); err != nil {
+			return fmt.Errorf("invalid nmi direct_post_url: %w", err)
+		}
+	}
+
+	if cfg.QueryURL != "" {
+		if _, err := url.Parse(cfg.QueryURL); err != nil {
+			return fmt.Errorf("invalid nmi query_url: %w", err)
+		}
 	}
 
 	return nil
@@ -435,11 +451,19 @@ func Load(configPath string) (*Config, error) {
 		"CCBILL_SUCCESS_URL":          "ccbill.success_url",
 		"CCBILL_DECLINE_URL":          "ccbill.decline_url",
 
-		// Mobius
-		"MOBIUS_SECURITY_KEY":     "mobius.security_key",
-		"MOBIUS_TOKENIZATION_KEY": "mobius.tokenization_key",
-		"MOBIUS_WEBHOOK_SECRET":   "mobius.webhook_secret",
-		"MOBIUS_TEST_MODE":        "mobius.test_mode",
+		// NMI
+		"NMI_SECURITY_KEY":        "nmi.security_key",
+		"NMI_TOKENIZATION_KEY":    "nmi.tokenization_key",
+		"NMI_WEBHOOK_SECRET":      "nmi.webhook_secret",
+		"NMI_TEST_MODE":           "nmi.test_mode",
+		"NMI_DIRECT_POST_URL":     "nmi.direct_post_url",
+		"NMI_QUERY_URL":           "nmi.query_url",
+		"MOBIUS_SECURITY_KEY":     "nmi.security_key",
+		"MOBIUS_TOKENIZATION_KEY": "nmi.tokenization_key",
+		"MOBIUS_WEBHOOK_SECRET":   "nmi.webhook_secret",
+		"MOBIUS_TEST_MODE":        "nmi.test_mode",
+		"MOBIUS_DIRECT_POST_URL":  "nmi.direct_post_url",
+		"MOBIUS_QUERY_URL":        "nmi.query_url",
 
 		// Email configuration
 		"EMAIL_PROVIDER":        "email.provider",
@@ -510,6 +534,12 @@ func Load(configPath string) (*Config, error) {
 	}
 	if len(cfg.Solana.SupportedTokens) == 0 {
 		cfg.Solana.SupportedTokens = TokensForNetwork(cfg.Solana.Network)
+	}
+
+	if cfg.NMI == nil && cfg.LegacyMobius != nil {
+		log.Warn("config.mobius is deprecated; please migrate to config.nmi")
+		cfg.NMI = cfg.LegacyMobius
+		cfg.LegacyMobius = nil
 	}
 
 	// Validate the loaded configuration

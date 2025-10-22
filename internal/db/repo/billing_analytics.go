@@ -31,7 +31,7 @@ func (r *BillingAnalyticsRepo) CountActiveUsersWithAutoRenew(ctx context.Context
 		ColumnExpr("COUNT(*)").
 		TableExpr(r.db.QualifiedTable("subscriptions")).
 		Where("status = ?", models.StatusActive).
-		Where("processor IN (?)", []string{string(models.ProcessorCCBill), string(models.ProcessorMobius)}).
+		Where("processor IN (?)", []string{string(models.ProcessorCCBill), string(models.ProcessorNMI)}).
 		Scan(ctx, &count)
 	return count, err
 }

@@ -51,10 +51,10 @@ type Subscription struct {
 	ProcessorSubscriptionID string     `bun:"processor_subscription_id,notnull" json:"processor_subscription_id"` // Set by payment processor
 	PaymentMethodID         *uuid.UUID `bun:"payment_method_id,type:uuid,nullzero" json:"payment_method_id"`      // Reference to stored payment method
 
-	// Dunning (manual rebill within the same cycle) tracking for Mobius
-	LastRetryAt   *time.Time `bun:"last_retry_at,nullzero" json:"last_retry_at"`   // Timestamp of last dunning attempt
-	RetryAttempts *int       `bun:"retry_attempts,nullzero" json:"retry_attempts"` // Number of dunning attempts (nullable for new subscriptions)
-	NextRetryAt   *time.Time `bun:"next_retry_at,nullzero" json:"next_retry_at"`   // When to try next dunning attempt
+	// Manual rebill attempt fields for NMI
+	LastRetryAt   *time.Time `bun:"last_retry_at,nullzero" json:"last_retry_at"`   // Date of last rebill attempt
+	RetryAttempts *int       `bun:"retry_attempts,nullzero" json:"retry_attempts"` // Number of retry attempts (nullable for new subscriptions)
+	NextRetryAt   *time.Time `bun:"next_retry_at,nullzero" json:"next_retry_at"`   // When to try next rebill
 
 	// Cancellation information
 	CancelFeedback *string     `bun:"cancel_feedback,nullzero" json:"cancel_feedback"` // User's cancellation message

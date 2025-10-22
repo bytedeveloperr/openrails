@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS prices (
     amount DECIMAL(10,2) NOT NULL,
     currency TEXT NOT NULL,
     billing_cycle_days INTEGER, -- 30 for monthly, 365 for yearly, NULL for one-time
-    mobius_plan_id TEXT, -- Mobius processor plan ID
+    nmi_plan_id TEXT, -- NMI processor plan ID
     ccbill_price_id TEXT, -- CCBill processor price ID  
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
@@ -130,7 +130,7 @@ CREATE TABLE IF NOT EXISTS prices (
 );
 
 CREATE INDEX IF NOT EXISTS idx_prices_product_id ON prices(product_id);
-CREATE INDEX IF NOT EXISTS idx_prices_mobius_plan_id ON prices(mobius_plan_id) WHERE mobius_plan_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_prices_nmi_plan_id ON prices(nmi_plan_id) WHERE nmi_plan_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_prices_ccbill_price_id ON prices(ccbill_price_id) WHERE ccbill_price_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_prices_is_active ON prices(is_active);
 
@@ -203,8 +203,8 @@ ALTER TABLE entitlements DROP COLUMN IF EXISTS active;
 -- 4.1: Create payment_methods table
 CREATE TABLE IF NOT EXISTS payment_methods (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL, -- AuthKit user ID (UUID)
-    processor VARCHAR(50) NOT NULL, -- 'mobius', 'ccbill', etc.
+    user_id TEXT NOT NULL, -- OIDC subject (sub)
+    processor VARCHAR(50) NOT NULL, -- 'nmi', 'ccbill', etc.
     
     -- Processor-specific vault/payment method identifiers
     vault_id VARCHAR(255) NOT NULL, -- Primary identifier in processor's system
@@ -231,7 +231,7 @@ CREATE INDEX IF NOT EXISTS idx_payment_methods_is_active ON payment_methods(is_a
 CREATE INDEX IF NOT EXISTS idx_payment_methods_wallet_address ON payment_methods(wallet_address) WHERE wallet_address IS NOT NULL;
 
 COMMENT ON TABLE payment_methods IS 'Generalized payment method table supporting multiple processors.';
-COMMENT ON COLUMN payment_methods.processor IS 'Payment processor type: mobius, ccbill, stripe, etc.';
+COMMENT ON COLUMN payment_methods.processor IS 'Payment processor type: nmi, ccbill, stripe, etc.';
 COMMENT ON COLUMN payment_methods.vault_id IS 'Primary payment method identifier in the processor system';
 COMMENT ON COLUMN payment_methods.wallet_address IS 'Solana wallet address for crypto payment methods (Base58 encoded)';
 
@@ -252,7 +252,7 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_payment_method_id ON subscriptions(
 
 -- 4.2: Create processor and purchase status enums
 DROP TYPE IF EXISTS processor_type CASCADE;
-CREATE TYPE processor_type AS ENUM ('paypal', 'solana', 'stripe', 'crypto', 'mobius', 'ccbill');
+CREATE TYPE processor_type AS ENUM ('paypal', 'solana', 'stripe', 'crypto', 'nmi', 'ccbill');
 
 DROP TYPE IF EXISTS purchase_status CASCADE;
 CREATE TYPE purchase_status AS ENUM ('pending', 'completed', 'failed', 'refunded');

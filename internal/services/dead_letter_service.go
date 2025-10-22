@@ -19,7 +19,7 @@ type DeadLetterService struct {
 // WebhookDeadLetter represents a failed or unexpected webhook event
 type WebhookDeadLetter struct {
 	ID               uuid.UUID         `json:"id"`
-	Processor        string            `json:"processor"`        // "ccbill" or "mobius"
+	Processor        string            `json:"processor"`        // "ccbill" or "nmi"
 	EventType        string            `json:"event_type"`       // The event type that failed
 	RawPayload       json.RawMessage   `json:"raw_payload"`      // Original webhook payload
 	FailureReason    string            `json:"failure_reason"`   // Why it failed

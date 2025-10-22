@@ -11,7 +11,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
-	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
+	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -44,19 +44,22 @@ type SubscriptionService struct {
 	ProductService           *ProductService
 	NotificationQueueService *NotificationQueueService
 	CCBillRESTClient         *ccbill.RESTClient
-	MobiusClient             *mobius.MobiusClient
+	NMIClient                *nmi.NMIClient
 }
 
 type PaymentProcessor = int
 
 const (
 	ProcessorCCBill = "ccbill"
-	ProcessorMobius = "mobius"
+	ProcessorNMI    = "nmi"
+
+	CurrencyUSD = "USD"
+	CurrencyEUR = "EUR"
 
 	BillingCycleMonthly = 30
 
 	WebhookSourceCCBill = "ccbill_webhook"
-	WebhookSourceMobius = "mobius_webhook"
+	WebhookSourceNMI    = "nmi_webhook"
 	WebhookSourceSystem = "system"
 
 	EventReasonSubscriptionExpired        = "subscription_expired"
@@ -68,13 +71,13 @@ const (
 
 const (
 	CCBill PaymentProcessor = iota
-	Mobius
+	NMI
 )
 
 var (
 	PaymentProcessors = map[string]PaymentProcessor{
 		ProcessorCCBill: CCBill,
-		ProcessorMobius: Mobius,
+		ProcessorNMI:    NMI,
 	}
 )
 
@@ -124,9 +127,9 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			},
 			"flexform_endpoint": "/v1/subscriptions/ccbill/flexform-url",
 		}, nil
-	case ProcessorMobius:
-		params := mobius.RecurringPaymentData{
-			CardUserData: mobius.CardUserData{
+	case ProcessorNMI:
+		params := nmi.RecurringPaymentData{
+			CardUserData: nmi.CardUserData{
 				FirstName: data.FirstName,
 				LastName:  data.LastName,
 				Address1:  data.Address1,
@@ -135,23 +138,19 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				Zip:       data.Zip,
 				Country:   data.Country,
 			},
-			PlanID:       *price.MobiusPlanID, // Use price's Mobius plan ID
-			Amount:       price.Amount,        // Use price amount
-			Currency:     price.Currency,      // Use price currency
+			PlanID:       *price.NMIPlanID, // Use price's NMI plan ID
+			Amount:       price.Amount,     // Use price amount
+			Currency:     price.Currency,   // Use price currency
 			Email:        *user.Email,
 			PaymentToken: data.PaymentToken, // CollectJS payment token
 		}
 
-		resp, err := s.MobiusClient.AddRecurringSubscription(params)
+		resp, err := s.NMIClient.AddRecurringSubscription(params)
 		if err != nil {
 			return nil, err
 		}
 
-		// Create a pending subscription which we'll activate on the receipt of the webhook from Mobius
-		uid, err := uuid.Parse(user.ID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid user id: %w", err)
-		}
+		// Create a pending subscription which we'll activate on the receipt of the webhook from NMI
 		subscription := &models.Subscription{
 			UserID:                  uid,
 			PriceID:                 priceID,
@@ -252,7 +251,7 @@ func NewSubscriptionService(
 	productService *ProductService,
 	notificationQueueService *NotificationQueueService,
 	ccbillRESTClient *ccbill.RESTClient,
-	mobiusClient *mobius.MobiusClient,
+	nmiClient *nmi.NMIClient,
 ) *SubscriptionService {
 	return &SubscriptionService{
 		subscriptionRepo:         repo.NewSubscriptionRepo(db),
@@ -260,7 +259,7 @@ func NewSubscriptionService(
 		ProductService:           productService,
 		NotificationQueueService: notificationQueueService,
 		CCBillRESTClient:         ccbillRESTClient,
-		MobiusClient:             mobiusClient,
+		NMIClient:                nmiClient,
 	}
 }
 

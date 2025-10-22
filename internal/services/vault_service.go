@@ -8,7 +8,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
+	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
@@ -16,7 +16,7 @@ import (
 type VaultService struct {
 	PaymentMethodService *PaymentMethodService
 	SubscriptionService  *SubscriptionService
-	MobiusClient         *mobius.MobiusClient
+	NMIClient            *nmi.NMIClient
 	DB                   *db.DB
 }
 
@@ -53,18 +53,18 @@ type UpdateVaultRequest struct {
 	Address2  *string
 }
 
-func NewVaultService(pm *PaymentMethodService, sub *SubscriptionService, mob *mobius.MobiusClient, dbx *db.DB) *VaultService {
+func NewVaultService(pm *PaymentMethodService, sub *SubscriptionService, mob *nmi.NMIClient, dbx *db.DB) *VaultService {
 	return &VaultService{
 		PaymentMethodService: pm,
 		SubscriptionService:  sub,
-		MobiusClient:         mob,
+		NMIClient:            mob,
 		DB:                   dbx,
 	}
 }
 
-// CreateVault creates a Mobius customer vault and stores a local PaymentMethod
+// CreateVault creates a NMI customer vault and stores a local PaymentMethod
 func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req *CreateVaultRequest) (*models.PaymentMethod, error) {
-	vaultData := mobius.CreateCustomerVaultData{
+	vaultData := nmi.CreateCustomerVaultData{
 		PaymentToken: req.PaymentToken,
 		CCNumber:     req.CCNumber,
 		CCExp:        req.CCExp,
@@ -81,9 +81,9 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 		Address2:     req.Address2,
 	}
 
-	mobiusResponse, err := s.MobiusClient.CreateCustomerVault(vaultData)
+	nmiResponse, err := s.NMIClient.CreateCustomerVault(vaultData)
 	if err != nil {
-		log.WithError(err).WithFields(log.Fields{"user_id": user.ID}).Error("Failed to create vault in Mobius")
+		log.WithError(err).WithFields(log.Fields{"user_id": user.ID}).Error("Failed to create vault in NMI")
 		return nil, fmt.Errorf("failed to create payment vault: %w", err)
 	}
 
@@ -93,9 +93,9 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 	}
 	pm := &models.PaymentMethod{
 		ID:                   uuid.New(),
-		UserID:               uid,
-		Processor:            models.ProcessorMobius,
-		VaultID:              mobiusResponse.CustomerVaultID,
+		UserID:               user.ID,
+		Processor:            models.ProcessorNMI,
+		VaultID:              nmiResponse.CustomerVaultID,
 		InitialTransactionID: "",
 		IsActive:             true,
 		CreatedAt:            time.Now(),
@@ -103,9 +103,9 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 	}
 
 	if err := s.PaymentMethodService.Create(ctx, pm); err != nil {
-		log.WithError(err).WithFields(log.Fields{"user_id": user.ID, "vault_id": mobiusResponse.CustomerVaultID}).Error("Failed to store vault locally")
+		log.WithError(err).WithFields(log.Fields{"user_id": user.ID, "vault_id": nmiResponse.CustomerVaultID}).Error("Failed to store vault locally")
 		// Attempt remote cleanup
-		_ = s.MobiusClient.DeleteCustomerVault(mobius.DeleteCustomerVaultData{CustomerVaultID: mobiusResponse.CustomerVaultID})
+		_ = s.NMIClient.DeleteCustomerVault(nmi.DeleteCustomerVaultData{CustomerVaultID: nmiResponse.CustomerVaultID})
 		return nil, fmt.Errorf("failed to store vault locally: %w", err)
 	}
 
@@ -113,9 +113,9 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 	return pm, nil
 }
 
-// UpdateVault updates vault in Mobius and updates local record timestamp
+// UpdateVault updates vault in NMI and updates local record timestamp
 func (s *VaultService) UpdateVault(ctx context.Context, pm *models.PaymentMethod, req *UpdateVaultRequest) (*models.PaymentMethod, error) {
-	upd := mobius.UpdateCustomerVaultData{CustomerVaultID: pm.VaultID}
+	upd := nmi.UpdateCustomerVaultData{CustomerVaultID: pm.VaultID}
 	if req.CCNumber != nil {
 		upd.CCNumber = *req.CCNumber
 	}
@@ -156,8 +156,8 @@ func (s *VaultService) UpdateVault(ctx context.Context, pm *models.PaymentMethod
 		upd.Address2 = *req.Address2
 	}
 
-	if err := s.MobiusClient.UpdateCustomerVault(upd); err != nil {
-		log.WithError(err).WithField("vault_id", pm.VaultID).Error("Failed to update vault in Mobius")
+	if err := s.NMIClient.UpdateCustomerVault(upd); err != nil {
+		log.WithError(err).WithField("vault_id", pm.VaultID).Error("Failed to update vault in NMI")
 		return nil, fmt.Errorf("failed to update payment vault: %w", err)
 	}
 
@@ -190,8 +190,8 @@ func (s *VaultService) DeleteVault(ctx context.Context, pm *models.PaymentMethod
 		return fmt.Errorf("cannot delete vault: %d active subscription(s) are using this payment method", activeCount)
 	}
 
-	if err := s.MobiusClient.DeleteCustomerVault(mobius.DeleteCustomerVaultData{CustomerVaultID: pm.VaultID}); err != nil {
-		log.WithError(err).WithField("vault_id", pm.VaultID).Error("Failed to delete vault from Mobius")
+	if err := s.NMIClient.DeleteCustomerVault(nmi.DeleteCustomerVaultData{CustomerVaultID: pm.VaultID}); err != nil {
+		log.WithError(err).WithField("vault_id", pm.VaultID).Error("Failed to delete vault from NMI")
 		return fmt.Errorf("failed to delete payment vault: %w", err)
 	}
 

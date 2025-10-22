@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
+	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -28,7 +28,7 @@ type UserSubscriptionService struct {
 	PaymentService           *PaymentService
 	NotificationQueueService *NotificationQueueService
 	EntitlementService       *EntitlementService
-	MobiusClient             *mobius.MobiusClient
+	NMIClient                *nmi.NMIClient
 }
 
 // UserSubscriptionResponse represents a user's subscription with enriched data
@@ -155,7 +155,7 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 		return fmt.Errorf("%w: %w", ErrSubscriptionNotFound, err)
 	}
 
-	if subscription.Processor != models.ProcessorMobius {
+	if subscription.Processor != models.ProcessorNMI {
 		return fmt.Errorf("unable to cancel subscription for processor %s", subscription.Processor)
 	}
 
@@ -171,10 +171,10 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 	// 	}
 	// }
 
-	// Cancel subscription with Mobius
-	if s.MobiusClient != nil {
-		if err := s.MobiusClient.DeleteRecurringSubscription(*subscription.Price.MobiusPlanID); err != nil {
-			return fmt.Errorf("failed to cancel subscription with Mobius: %w", err)
+	// Cancel subscription with NMI
+	if s.NMIClient != nil {
+		if err := s.NMIClient.DeleteRecurringSubscription(*subscription.Price.NMIPlanID); err != nil {
+			return fmt.Errorf("failed to cancel subscription with NMI: %w", err)
 		}
 	}
 
@@ -209,10 +209,10 @@ func NewUserSubscriptionService(
 	paymentService *PaymentService,
 	notificationQueueService *NotificationQueueService,
 	entitlementService *EntitlementService,
-	mobiusClient *mobius.MobiusClient,
+	nmiClient *nmi.NMIClient,
 ) *UserSubscriptionService {
 	return &UserSubscriptionService{
-		MobiusClient:             mobiusClient,
+		NMIClient:                nmiClient,
 		SubscriptionService:      subscriptionService,
 		ProductService:           productService,
 		PriceService:             priceService,

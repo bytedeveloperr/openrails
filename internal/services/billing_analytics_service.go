@@ -114,7 +114,7 @@ func (s *BillingAnalyticsService) GetDailyMetrics(ctx context.Context, startDate
 func (s *BillingAnalyticsService) GetMetricsByProcessor(ctx context.Context) ([]ProcessorMetrics, error) {
 	var allMetrics []ProcessorMetrics
 
-	processors := []string{string(models.ProcessorMobius), string(models.ProcessorCCBill)}
+	processors := []string{string(models.ProcessorNMI), string(models.ProcessorCCBill)}
 
 	for _, processor := range processors {
 		metrics := ProcessorMetrics{Processor: processor}

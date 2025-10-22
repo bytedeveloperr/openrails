@@ -246,7 +246,7 @@ type GetBillingHistoryQueryParams struct {
 	PaginationParams
 	StartDate     *time.Time `form:"start_date" time_format:"2006-01-02"`
 	EndDate       *time.Time `form:"end_date" time_format:"2006-01-02"`
-	Processor     *string    `form:"processor" validate:"omitempty,oneof=ccbill mobius system"`
+	Processor     *string    `form:"processor" validate:"omitempty,oneof=ccbill nmi system"`
 	MinAmount     *float64   `form:"min_amount" validate:"omitempty,min=0"`
 	MaxAmount     *float64   `form:"max_amount" validate:"omitempty,min=0"`
 	IncludeStats  bool       `form:"include_stats" default:"false"`
@@ -276,7 +276,7 @@ type GetUserBillingHistoryQueryParams struct {
 	PaginationParams
 	StartDate     *time.Time `form:"start_date" time_format:"2006-01-02"`
 	EndDate       *time.Time `form:"end_date" time_format:"2006-01-02"`
-	Processor     *string    `form:"processor" validate:"omitempty,oneof=ccbill mobius system"`
+	Processor     *string    `form:"processor" validate:"omitempty,oneof=ccbill nmi system"`
 	MinAmount     *float64   `form:"min_amount" validate:"omitempty,min=0"`
 	MaxAmount     *float64   `form:"max_amount" validate:"omitempty,min=0"`
 	IncludeStats  bool       `form:"include_stats" default:"false"`

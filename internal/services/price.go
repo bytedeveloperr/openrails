@@ -29,8 +29,8 @@ func (s *PriceService) GetByProductID(ctx context.Context, productID uuid.UUID) 
 	return s.repo.GetByProductID(ctx, productID)
 }
 
-func (s *PriceService) GetByMobiusPlanID(ctx context.Context, mobiusPlanID string) (*models.Price, error) {
-	return s.repo.GetByMobiusPlanID(ctx, mobiusPlanID)
+func (s *PriceService) GetByNMIPlanID(ctx context.Context, nmiPlanID string) (*models.Price, error) {
+	return s.repo.GetByNMIPlanID(ctx, nmiPlanID)
 }
 
 func (s *PriceService) GetByCCBillPriceID(ctx context.Context, ccbillPriceID string) (*models.Price, error) {

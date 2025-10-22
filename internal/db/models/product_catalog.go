@@ -45,7 +45,7 @@ type Price struct {
 	BillingCycleDays *int `bun:"billing_cycle_days,nullzero" json:"billing_cycle_days"`
 
 	// Payment processor specific IDs
-	MobiusPlanID  *string `bun:"mobius_plan_id,nullzero" json:"mobius_plan_id"`
+	NMIPlanID     *string `bun:"nmi_plan_id,nullzero" json:"nmi_plan_id"`
 	CCBillPriceID *string `bun:"ccbill_price_id,nullzero" json:"ccbill_price_id"`
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`

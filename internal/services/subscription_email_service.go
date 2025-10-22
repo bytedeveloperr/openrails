@@ -271,7 +271,7 @@ func describePaymentMethod(subscription *models.Subscription) string {
 
 func processorDisplayName(processor models.Processor) string {
 	switch processor {
-	case models.ProcessorMobius, models.ProcessorCCBill:
+	case models.ProcessorNMI, models.ProcessorCCBill:
 		return "Credit Card"
 	case models.ProcessorPayPal:
 		return "PayPal"

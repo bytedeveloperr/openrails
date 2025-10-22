@@ -54,9 +54,9 @@ func (r *PriceRepo) GetActiveByProductID(ctx context.Context, productID uuid.UUI
 	return prices, nil
 }
 
-func (r *PriceRepo) GetByMobiusPlanID(ctx context.Context, mobiusPlanID string) (*models.Price, error) {
+func (r *PriceRepo) GetByNMIPlanID(ctx context.Context, nmiPlanID string) (*models.Price, error) {
 	price := new(models.Price)
-	if err := r.db.GetDB().NewSelect().Model(price).TableExpr(r.db.QualifiedTable("prices")).Where("mobius_plan_id = ?", mobiusPlanID).Where("is_active = ?", true).Scan(ctx); err != nil {
+	if err := r.db.GetDB().NewSelect().Model(price).TableExpr(r.db.QualifiedTable("prices")).Where("nmi_plan_id = ?", nmiPlanID).Where("is_active = ?", true).Scan(ctx); err != nil {
 		return nil, err
 	}
 	return price, nil

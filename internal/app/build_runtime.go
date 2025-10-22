@@ -16,7 +16,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
-	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
+	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
@@ -34,12 +34,13 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	ccbillClient := createCCBillClient(cfg)
 	ccbillRESTClient := createCCBillRESTClient(cfg)
 	ccbillDataLinkClient := createCCBillDataLinkClient(cfg)
-	mobiusClient, err := createMobiusClient(cfg)
+	nmiClient, err := createNMIClient(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create mobius client: %w", err)
+		return nil, fmt.Errorf("failed to create nmi client: %w", err)
 	}
 
-	serviceInstances := createServices(database, cfg, ccbillRESTClient, mobiusClient)
+	serviceInstances := createServices(database, cfg, ccbillRESTClient, nmiClient)
+	workerManager := workers.NewManager(database, nmiClient, ccbillDataLinkClient, serviceInstances.SubscriptionService)
 
 	var emailService *services.EmailService
 	var subscriptionEmailService *services.SubscriptionEmailService
@@ -73,7 +74,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		CCBillClient:     ccbillClient,
 		CCBillRESTClient: ccbillRESTClient,
 		CCBillDataLink:   ccbillDataLinkClient,
-		MobiusClient:     mobiusClient,
+		NMIClient:        nmiClient,
 
 		SubscriptionService:        serviceInstances.SubscriptionService,
 		UserService:                serviceInstances.UserService,
@@ -173,8 +174,8 @@ func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
 	return client
 }
 
-func createMobiusClient(cfg *config.Config) (*mobius.MobiusClient, error) {
-	return mobius.NewClient(cfg.Mobius, cfg.Env == config.EnvProd)
+func createNMIClient(cfg *config.Config) (*nmi.NMIClient, error) {
+	return nmi.NewClient(cfg.NMI, cfg.Env == config.EnvProd)
 }
 
 type servicesInstances struct {
@@ -201,7 +202,7 @@ type servicesInstances struct {
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 }
 
-func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, mobiusClient *mobius.MobiusClient) *servicesInstances {
+func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, nmiClient *nmi.NMIClient) *servicesInstances {
 	userService := services.NewUserService(database)
 	productService := services.NewProductService(database)
 	priceService := services.NewPriceService(database)
@@ -227,7 +228,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		productService,
 		notificationQueueService,
 		ccbillRESTClient,
-		mobiusClient,
+		nmiClient,
 	)
 
 	userSubscriptionService := services.NewUserSubscriptionService(
@@ -237,7 +238,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		purchaseService,
 		notificationQueueService,
 		entitlementService,
-		mobiusClient,
+		nmiClient,
 	)
 
 	publicSubscriptionService := services.NewPublicSubscriptionService(
