@@ -167,6 +167,14 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			return nil, fmt.Errorf("price %s is missing an NMI plan configuration", price.ID)
 		}
 
+		email := strings.TrimSpace(data.Email)
+		if user.Email != nil && strings.TrimSpace(*user.Email) != "" {
+			email = strings.TrimSpace(*user.Email)
+		}
+		if email == "" {
+			return nil, errors.New("email is required to create a subscription")
+		}
+
 		subscriptionID := uuid.New()
 		params := nmi.RecurringPaymentData{
 			CardUserData: nmi.CardUserData{
@@ -181,7 +189,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			PlanID:       strings.TrimSpace(*price.NMIPlanID),
 			Amount:       price.Amount,
 			Currency:     price.Currency,
-			Email:        *user.Email,
+			Email:        email,
 			PaymentToken: data.PaymentToken,
 			OrderID:      subscriptionID.String(),
 			PONumber:     subscriptionID.String(),
@@ -193,6 +201,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			return nil, err
 		}
 
+		emailCopy := email
 		subscription := &models.Subscription{
 			UserID:                  user.ID,
 			PriceID:                 priceID,
@@ -207,7 +216,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				pp := provider
 				return &pp
 			}(),
-			UserEmail: user.Email,
+			UserEmail: &emailCopy,
 		}
 
 		if err := s.Create(ctx, subscription); err != nil {

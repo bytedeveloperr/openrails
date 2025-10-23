@@ -133,6 +133,7 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intent
 		lifecycleParams := &CreateMembershipParams{
 			UserID:                  userID,
 			PriceID:                 price.ID,
+			UserEmail:               userEmail,
 			Processor:               models.ProcessorSolana,
 			ProcessorSubscriptionID: processorSubscriptionID,
 		}

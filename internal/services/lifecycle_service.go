@@ -155,6 +155,11 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 
 	var subscription *models.Subscription
 	if existingSub != nil {
+		if params.UserEmail != nil && strings.TrimSpace(*params.UserEmail) != "" {
+			emailc := strings.TrimSpace(*params.UserEmail)
+			existingSub.UserEmail = &emailc
+		}
+
 		existingSub.PriceID = price.ID
 		existingSub.Status = models.StatusActive
 		existingSub.Processor = params.Processor
@@ -195,6 +200,11 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 			CurrentPeriodStartsAt: &periodStartsAt,
 			CurrentPeriodEndsAt:   &periodEndsAt,
 			StartedAt:             periodStartsAt,
+		}
+
+		if params.UserEmail != nil && strings.TrimSpace(*params.UserEmail) != "" {
+			emailc := strings.TrimSpace(*params.UserEmail)
+			subscription.UserEmail = &emailc
 		}
 
 		if params.ProcessorProvider != "" {
@@ -241,7 +251,10 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 			if err == nil && finite != nil && finite.EndAt != nil {
 				start = *finite.EndAt
 			}
-			_, _ = entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID)
+
+			if _, err := entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID); err != nil {
+				return nil, nil, fmt.Errorf("failed to grant entitlement %s: %w", ent, err)
+			}
 		}
 	}
 

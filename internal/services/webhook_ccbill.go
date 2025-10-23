@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -185,11 +186,18 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 	}
 
 	// Use SubscriptionLifecycleService to create membership
+	var emailPtr *string
+	if strings.TrimSpace(email) != "" {
+		emailCopy := strings.TrimSpace(email)
+		emailPtr = &emailCopy
+	}
+
 	subscription, err := s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 		UserID:                  userID,
 		PriceID:                 price.ID,
 		Processor:               models.ProcessorCCBill,
 		ProcessorSubscriptionID: &ccBillSubID,
+		UserEmail:               emailPtr,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create membership: %w", err)
