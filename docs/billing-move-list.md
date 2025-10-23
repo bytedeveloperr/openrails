@@ -7,21 +7,21 @@ Guiding Principles
 - No shared tables: billing owns subscription/payment storage; backend owns entitlements/roles.
 - Frontend talks to billing for billing UX; backend uses an HTTP call for premium checks and other admin features.
 
-## 1) Processor Integrations (CCBill, Mobius)
+## 1) Processor Integrations (CCBill, NMI)
 - [x] Move CCBill integration
   - [x] `internal/integrations/ccbill/ccbill.go`
   - [x] `internal/integrations/ccbill/client.go`
   - [x] `internal/integrations/ccbill/datalink.go`
-- [x] Move Mobius integration
-  - [x] `internal/integrations/mobius/mobius.go`
+- [x] Move NMI integration
+  - [x] `internal/integrations/nmi/nmi.go`
 - [x] Move IP verification helpers
   - [x] `internal/utils/ipverification/ccbill.go`
 - [ ] Expose clean interfaces from billing (FlexForm URL, tokenization, DataLink/recon, webhook verification)
 
 ## 2) Webhook DTOs (processor payload types)
 - [ ] Extract processor DTOs from backend
-  - [ ] `internal/api/types/webhooks.go` (Mobius/CCBill payload structs only)
-- [x] Add DTOs to billing (`internal/services/types.go` has Mobius/CCBill types; `billing_event_service.go` has WebhookEventData)
+  - [ ] `internal/api/types/webhooks.go` (NMI/CCBill payload structs only)
+- [x] Add DTOs to billing (`internal/services/types.go` has NMI/CCBill types; `billing_event_service.go` has WebhookEventData)
 - [ ] Keep app-specific types (user/app metadata) in backend
 
 ## 3) Solana Payment Config / Token Map
@@ -49,7 +49,7 @@ Guiding Principles
   
 Notes: Implement in `internal/services/*` using `internal/db` directly; do not create a `repo` layer in billing.
 
-## 6) Vault Service (Mobius Vault)
+## 6) Vault Service (NMI Vault)
 - [x] Move `internal/services/vault/vault_service.go` to billing and wire to service/db access (no repos)
   - Implemented at `internal/services/vault_service.go` using `PaymentMethodService` and `SubscriptionService`.
 
@@ -59,7 +59,7 @@ Notes: Implement in `internal/services/*` using `internal/db` directly; do not c
   - [x] `internal/services/webhook/replay_test.go`
 - [x] Move test payloads
   - [x] `testdata/webhooks/ccbill/*`
-  - [x] `testdata/webhooks/mobius/*`
+  - [x] `testdata/webhooks/nmi/*`
 - [x] Place tooling under `internal/devtools/webhook/` (or keep under `internal/services/webhook/)` — kept under `internal/services/webhook/`
 
 ## 8) ClickHouse Billing Event Schema
@@ -74,7 +74,7 @@ Notes: Implement in `internal/services/*` using `internal/db` directly; do not c
 ## 9) Configuration (Move to Billing; Remove from Backend)
 - [x] Define billing-only configs in billing service
   - [x] CCBill: salt, form info, datalink credentials, webhook_secret, test_mode, base_flexform_url, success/decline URLs
-  - [x] Mobius: security_key, tokenization_key, webhook_secret, test_mode
+  - [x] NMI: security_key, tokenization_key, webhook_secret, test_mode
   - [x] Solana: rpc_endpoint, recipient_wallet, supported tokens
 - [x] Remove from backend example envs and example config any variables now owned by billing (processor secrets/settings removed)
 - [x] Backend keeps only `BILLING_SERVER_URL`; frontend keeps `VITE_BILLING_SERVER_URL`. The frontend will call billing directly via its public routes.
@@ -87,10 +87,10 @@ Notes: Implement in `internal/services/*` using `internal/db` directly; do not c
 - [ ] Back these endpoints with ClickHouse billing data
 
 ## 11) Backend Cleanup (After Migration Complete)
-- [ ] Remove `internal/integrations/{ccbill,mobius}` and `internal/utils/ipverification/ccbill.go`
+- [ ] Remove `internal/integrations/{ccbill,nmi}` and `internal/utils/ipverification/ccbill.go`
 - [ ] Remove billing models and any leftover repo-style code (sections 4–5)
 - [x] Remove webhook tooling and `testdata/webhooks` from backend
-- [ ] Remove CCBill/Mobius payment config from backend (example env/config cleaned; code removal pending)
+- [ ] Remove CCBill/NMI payment config from backend (example env/config cleaned; code removal pending)
 - [x] Remove billing tables from ClickHouse migrations in backend
 - [ ] Replace any remaining subscription/payment usage with billing HTTP client or role checks
 

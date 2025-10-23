@@ -18,7 +18,7 @@ purpose. Unless otherwise noted, responses are JSON encoded and errors follow th
   `admin.api_key`. These routes do **not** establish a user context; operations act directly on the
   supplied identifiers.
 - **Webhooks** are public; callers must supply the appropriate processor secrets
-  (e.g., IP allow-list for CCBill, HMAC signature for Mobius).
+  (e.g., IP allow-list for CCBill, HMAC signature for NMI).
 
 ## Rate Limiting
 
@@ -70,12 +70,12 @@ Admin routes are not rate limited by the application but should live behind netw
 
 ### POST /v1/subscriptions/process/:processor
 - **Auth:** bearer token
-- **Description:** Starts a subscription checkout for the requested processor (`mobius` or `ccbill`).
+- **Description:** Starts a subscription checkout for the requested processor (`nmi` or `ccbill`).
 - **Body:**
   ```json
   {
     "price_id": "uuid",
-    "processor": "mobius",
+    "processor": "nmi",
     "email": "user@example.com",
     "first_name": "Jane",
     "last_name": "Doe",
@@ -84,7 +84,7 @@ Admin routes are not rate limited by the application but should live behind netw
     "state": "...",
     "zip": "...",
     "country": "...",
-    "payment_token": "collectjs token (mobius)"
+    "payment_token": "collectjs token (nmi)"
   }
   ```
 - **Response:**
@@ -138,7 +138,7 @@ Admin routes are not rate limited by the application but should live behind netw
     "subscription": {
       "id": "dc8f2cee-b9bb-4a91-9e84-5bcc1a4fd0ba",
       "status": "active",
-      "processor": "mobius",
+      "processor": "nmi",
       "current_period_starts_at": "2025-01-01T12:00:00Z",
       "current_period_ends_at": "2025-02-01T12:00:00Z"
     },
@@ -158,7 +158,7 @@ Admin routes are not rate limited by the application but should live behind netw
       {
         "id": "dc8f2cee-b9bb-4a91-9e84-5bcc1a4fd0ba",
         "status": "cancelled",
-        "processor": "mobius",
+        "processor": "nmi",
         "current_period_starts_at": "2024-11-01T12:00:00Z",
         "current_period_ends_at": "2024-12-01T12:00:00Z"
       }
@@ -189,10 +189,10 @@ Admin routes are not rate limited by the application but should live behind netw
 
 ### POST /v1/subscriptions/webhook/:processor
 - **Auth:** none (processor security applies)
-- **Path:** `processor` = `ccbill` or `mobius`.
+- **Path:** `processor` = `ccbill` or `nmi`.
 - **Description:** Ingests processor webhook callbacks. Payload format depends on processor:
   - `ccbill`: `application/x-www-form-urlencoded` with IP allow-list checking.
-  - `mobius`: JSON body with HMAC signature (`X-Signature` or `X-Mobius-Signature`).
+  - `nmi`: JSON body with HMAC signature (`X-Signature`, `X-NMI-Signature`, or legacy `X-Mobius-Signature`).
 - **Response:** 200 on success, 403 if authentication fails, 400 for unrecognised processors.
 
 ## Payment Methods
@@ -206,7 +206,7 @@ Admin routes are not rate limited by the application but should live behind netw
     "data": [
       {
         "id": "6d073ea2-12ac-4a35-8d39-7affc3439c99",
-        "processor": "mobius",
+        "processor": "nmi",
         "vault_id": "cust-123",
         "last_four": "4242",
         "is_active": true
@@ -479,7 +479,7 @@ Admin handler also exposes `GET/HEAD /health` for internal monitoring.
 
 ### GET /v1/subscriptions/processor-metrics
 - **Auth:** `X-API-KEY`
-- **Description:** Splits metrics by processor (`ccbill`, `mobius`, `solana`, etc.).
+- **Description:** Splits metrics by processor (`ccbill`, `nmi`, `solana`, etc.).
 
 ### GET /v1/users/:user_id/entitlements
 - **Auth:** `X-API-KEY`
@@ -495,10 +495,10 @@ Admin handler also exposes `GET/HEAD /health` for internal monitoring.
 - **Behaviour:** Deduplicates, validates IP, pushes subscription/payment updates via
   `CCBillWebhookService`.
 
-### Mobius
-- **Endpoint:** `POST /v1/subscriptions/webhook/mobius`
-- **Security:** HMAC signature header `X-Signature` or `X-Mobius-Signature`; optional test mode bypass.
-- **Payload:** JSON event mirroring Mobius webhook schema (recurring subscription events).
+### NMI
+- **Endpoint:** `POST /v1/subscriptions/webhook/nmi`
+- **Security:** HMAC signature header `X-Signature` or `X-NMI-Signature`; optional test mode bypass.
+- **Payload:** JSON event mirroring NMI webhook schema (recurring subscription events).
 - **Behaviour:** Signature verification (unless test mode), lifecycle updates, ClickHouse logging.
 
 ---
