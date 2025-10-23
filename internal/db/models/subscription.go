@@ -37,7 +37,7 @@ type Subscription struct {
 	bun.BaseModel `bun:"table:subscriptions,alias:sub"`
 
 	ID      uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
-	UserID  uuid.UUID `bun:"user_id,notnull,type:uuid" json:"user_id"`
+	UserID  string    `bun:"user_id,notnull" json:"user_id"`
 	PriceID uuid.UUID `bun:"price_id,type:uuid,notnull" json:"price_id"` // Required for all subscriptions
 
 	Status                SubscriptionStatus `bun:"status,notnull,default:'pending'" json:"status"`
@@ -50,7 +50,8 @@ type Subscription struct {
 	Processor               Processor  `bun:"processor,notnull" json:"processor"` // Required for all subscriptions
 	ProcessorProvider       *string    `bun:"processor_provider,nullzero" json:"processor_provider"`
 	ProcessorSubscriptionID string     `bun:"processor_subscription_id,notnull" json:"processor_subscription_id"` // Set by payment processor
-	PaymentMethodID         *uuid.UUID `bun:"payment_method_id,type:uuid,nullzero" json:"payment_method_id"`      // Reference to stored payment method
+	UserEmail               *string    `bun:"user_email,nullzero" json:"user_email,omitempty"`
+	PaymentMethodID         *uuid.UUID `bun:"payment_method_id,type:uuid,nullzero" json:"payment_method_id"` // Reference to stored payment method
 
 	// Manual rebill attempt fields for NMI
 	LastRetryAt   *time.Time `bun:"last_retry_at,nullzero" json:"last_retry_at"`   // Date of last rebill attempt

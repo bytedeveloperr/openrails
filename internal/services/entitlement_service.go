@@ -82,13 +82,9 @@ func (s *EntitlementService) ListActiveEntitlements(ctx context.Context, userID 
 
 // GrantWindow creates a new entitlement window for a user
 func (s *EntitlementService) GrantWindow(ctx context.Context, userID, entitlement string, startAt time.Time, endAt *time.Time, sourceType models.EntitlementSourceType, sourceID *uuid.UUID) (*models.Entitlement, error) {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid user id: %w", err)
-	}
 	ent := &models.Entitlement{
 		ID:          uuid.New(),
-		UserID:      uid,
+		UserID:      userID,
 		Entitlement: entitlement,
 		StartAt:     startAt,
 		EndAt:       endAt,

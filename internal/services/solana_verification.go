@@ -17,7 +17,6 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/utils/solana"
-	"github.com/google/uuid"
 )
 
 const defaultChallengeTTL = 10 * time.Minute
@@ -84,12 +83,8 @@ func (s *SolanaVerificationService) GenerateChallenge(ctx context.Context, userI
 		now.Unix(),
 	)
 
-	uid, uerr := uuid.Parse(userID)
-	if uerr != nil {
-		return nil, fmt.Errorf("invalid user id: %w", uerr)
-	}
 	challenge := &models.SolanaWalletChallenge{
-		UserID:    uid,
+		UserID:    userID,
 		Address:   pubKey.String(),
 		Message:   message,
 		Nonce:     nonce,
@@ -137,7 +132,7 @@ func (s *SolanaVerificationService) VerifySignature(ctx context.Context, userID,
 	}
 
 	if time.Now().After(challenge.ExpiresAt) {
-		_ = s.challenges.Delete(ctx, challenge.UserID.String(), challenge.Address)
+		_ = s.challenges.Delete(ctx, challenge.UserID, challenge.Address)
 		return nil, fmt.Errorf("challenge expired")
 	}
 
@@ -166,7 +161,7 @@ func (s *SolanaVerificationService) VerifySignature(ctx context.Context, userID,
 		return nil, fmt.Errorf("failed to mark wallet verified: %w", err)
 	}
 
-	if err := s.challenges.Delete(ctx, challenge.UserID.String(), challenge.Address); err != nil {
+	if err := s.challenges.Delete(ctx, challenge.UserID, challenge.Address); err != nil {
 		log.WithError(err).Warn("Failed to delete Solana wallet challenge after verification")
 	}
 

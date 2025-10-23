@@ -17,14 +17,10 @@ type EntitlementRepo struct {
 func NewEntitlementRepo(d *db.DB) *EntitlementRepo { return &EntitlementRepo{db: d} }
 
 func (r *EntitlementRepo) IsEntitled(ctx context.Context, userID, entitlement string, at time.Time) (bool, error) {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return false, err
-	}
 	q := r.db.GetDB().NewSelect().
 		Model((*models.Entitlement)(nil)).
 		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ?", uid).
+		Where("user_id = ?", userID).
 		Where("entitlement = ?", entitlement).
 		Where("start_at <= ?", at).
 		Where("(end_at IS NULL OR end_at > ?)", at).
@@ -33,14 +29,10 @@ func (r *EntitlementRepo) IsEntitled(ctx context.Context, userID, entitlement st
 }
 
 func (r *EntitlementRepo) HasActiveIndefinite(ctx context.Context, userID, entitlement string, at time.Time) (bool, error) {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return false, err
-	}
 	q := r.db.GetDB().NewSelect().
 		Model((*models.Entitlement)(nil)).
 		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ?", uid).
+		Where("user_id = ?", userID).
 		Where("entitlement = ?", entitlement).
 		Where("revoked_at IS NULL AND end_at IS NULL").
 		Where("start_at <= ?", at)
@@ -49,14 +41,10 @@ func (r *EntitlementRepo) HasActiveIndefinite(ctx context.Context, userID, entit
 
 func (r *EntitlementRepo) GetLatestActive(ctx context.Context, userID, entitlement string) (*models.Entitlement, error) {
 	var ent models.Entitlement
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
-	err = r.db.GetDB().NewSelect().
+	err := r.db.GetDB().NewSelect().
 		Model(&ent).
 		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ? AND entitlement = ?", uid, entitlement).
+		Where("user_id = ? AND entitlement = ?", userID, entitlement).
 		Where("revoked_at IS NULL").
 		Order("start_at DESC").
 		Limit(1).
@@ -69,14 +57,10 @@ func (r *EntitlementRepo) GetLatestActive(ctx context.Context, userID, entitleme
 
 func (r *EntitlementRepo) GetLatestFiniteActive(ctx context.Context, userID, entitlement string, at time.Time) (*models.Entitlement, error) {
 	var ent models.Entitlement
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
-	err = r.db.GetDB().NewSelect().
+	err := r.db.GetDB().NewSelect().
 		Model(&ent).
 		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ? AND entitlement = ?", uid, entitlement).
+		Where("user_id = ? AND entitlement = ?", userID, entitlement).
 		Where("revoked_at IS NULL").
 		Where("end_at IS NOT NULL").
 		Where("start_at <= ?", at).
@@ -107,14 +91,10 @@ func (r *EntitlementRepo) Insert(ctx context.Context, entitlement *models.Entitl
 
 func (r *EntitlementRepo) ListActiveEntitlements(ctx context.Context, userID string, at time.Time) ([]string, error) {
 	var out []string
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
 	if err := r.db.GetDB().NewSelect().
 		TableExpr(r.db.QualifiedTable("entitlements")+" AS ent").
 		ColumnExpr("DISTINCT ent.entitlement").
-		Where("user_id = ?", uid).
+		Where("user_id = ?", userID).
 		Where("start_at <= ?", at).
 		Where("(end_at IS NULL OR end_at > ?)", at).
 		Where("revoked_at IS NULL").
@@ -126,14 +106,10 @@ func (r *EntitlementRepo) ListActiveEntitlements(ctx context.Context, userID str
 
 func (r *EntitlementRepo) ListActiveRecords(ctx context.Context, userID string, at time.Time) ([]models.Entitlement, error) {
 	ents := []models.Entitlement{}
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
 	if err := r.db.GetDB().NewSelect().
 		Model(&ents).
 		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ?", uid).
+		Where("user_id = ?", userID).
 		Where("revoked_at IS NULL").
 		Where("start_at <= ?", at).
 		Where("(end_at IS NULL OR end_at > ?)", at).
@@ -189,14 +165,10 @@ func (r *EntitlementRepo) ExistsBySource(ctx context.Context, sourceType models.
 
 func (r *EntitlementRepo) ListByUser(ctx context.Context, userID string) ([]models.Entitlement, error) {
 	ents := []models.Entitlement{}
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
 	if err := r.db.GetDB().NewSelect().
 		Model(&ents).
 		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ?", uid).
+		Where("user_id = ?", userID).
 		Order("start_at DESC").
 		Scan(ctx); err != nil {
 		return nil, err

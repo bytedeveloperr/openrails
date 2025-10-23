@@ -384,13 +384,9 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
 	}
 
 	// Create purchase record (no role-grant linkage)
-	uid, uerr := uuid.Parse(userID)
-	if uerr != nil {
-		return fmt.Errorf("invalid user id: %w", uerr)
-	}
 	purchase := &models.Payment{
 		ID:            uuid.New(),
-		UserID:        uid,
+		UserID:        userID,
 		PriceID:       priceID,
 		Processor:     models.ProcessorPayPal,
 		TransactionID: paypalTransactionID,
@@ -439,13 +435,9 @@ func (s *AdminSubscriptionService) GetAllNotifications(ctx context.Context, quer
 
 // SendManualNotification sends a manual notification (admin)
 func (s *AdminSubscriptionService) SendManualNotification(ctx context.Context, userID string, eventType models.NotificationEventType, message string) error {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return fmt.Errorf("invalid user id: %w", err)
-	}
 	notification := &models.NotificationQueue{
 		ID:        uuid.New(),
-		UserID:    uid,
+		UserID:    userID,
 		EventType: eventType,
 		Data: map[string]any{
 			"message": message,

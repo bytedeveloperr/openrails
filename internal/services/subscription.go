@@ -194,7 +194,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 		}
 
 		subscription := &models.Subscription{
-			UserID:                  uid,
+			UserID:                  user.ID,
 			PriceID:                 priceID,
 			ID:                      subscriptionID,
 			ProcessorSubscriptionID: resp.SubscriptionID,
@@ -251,13 +251,9 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 	// Entitlements are managed in lifecycle and user flows
 
 	// Add notification
-	uid, perr := uuid.Parse(userID)
-	if perr != nil {
-		return fmt.Errorf("invalid user id: %w", perr)
-	}
 	notification := &models.NotificationQueue{
 		ID:        uuid.New(),
-		UserID:    uid,
+		UserID:    userID,
 		EventType: models.NotificationPremiumEnded,
 		Data: map[string]any{
 			"reason": string(PremiumEndReasonUserCancel),

@@ -128,11 +128,6 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 		return nil, nil, errors.New("database handle is required")
 	}
 
-	uid, err := uuid.Parse(params.UserID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid user id: %w", err)
-	}
-
 	priceService := NewPriceService(dbb)
 	productService := NewProductService(dbb)
 	entitlementService := NewEntitlementService(dbb)
@@ -172,10 +167,6 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 			existingSub.ProcessorProvider = &provider
 		}
 
-		if params.UserEmail != nil {
-			existingSub.UserEmail = params.UserEmail
-		}
-
 		existingSub.CurrentPeriodStartsAt = &periodStartsAt
 		existingSub.CurrentPeriodEndsAt = &periodEndsAt
 		existingSub.StartedAt = periodStartsAt
@@ -191,7 +182,7 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 	} else {
 		subscription = &models.Subscription{
 			ID:        uuid.New(),
-			UserID:    uid,
+			UserID:    params.UserID,
 			PriceID:   price.ID,
 			Status:    models.StatusActive,
 			Processor: params.Processor,
@@ -204,7 +195,6 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 			CurrentPeriodStartsAt: &periodStartsAt,
 			CurrentPeriodEndsAt:   &periodEndsAt,
 			StartedAt:             periodStartsAt,
-			UserEmail:             params.UserEmail,
 		}
 
 		if params.ProcessorProvider != "" {
@@ -257,7 +247,7 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 
 	notification := &models.NotificationQueue{
 		ID:        uuid.New(),
-		UserID:    uid,
+		UserID:    params.UserID,
 		EventType: models.NotificationPremiumStarted,
 	}
 	if err := notificationService.Create(ctx, notification); err != nil {

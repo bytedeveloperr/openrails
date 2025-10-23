@@ -12,7 +12,7 @@ type SolanaPaymentIntent struct {
 	bun.BaseModel `bun:"table:solana_payment_intents,alias:spi"`
 
 	ID                     uuid.UUID  `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
-	UserID                 uuid.UUID  `bun:"user_id,notnull,type:uuid" json:"user_id"`
+	UserID                 string     `bun:"user_id,notnull" json:"user_id"`
 	PriceID                uuid.UUID  `bun:"price_id,notnull" json:"price_id"`
 	FlowType               string     `bun:"flow_type,notnull" json:"flow_type"`
 	Token                  string     `bun:"token,notnull" json:"token"`

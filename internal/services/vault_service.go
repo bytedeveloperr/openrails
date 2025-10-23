@@ -198,7 +198,7 @@ func (s *VaultService) UpdateVault(ctx context.Context, pm *models.PaymentMethod
 
 // DeleteVault deletes the vault remotely after ensuring no active subscriptions use it; deactivates locally
 func (s *VaultService) DeleteVault(ctx context.Context, pm *models.PaymentMethod) error {
-	subs, _, err := s.SubscriptionService.GetPaginatedByUserID(ctx, pm.UserID.String(), 1, 1000)
+	subs, _, err := s.SubscriptionService.GetPaginatedByUserID(ctx, pm.UserID, 1, 1000)
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{"vault_id": pm.VaultID, "user_id": pm.UserID}).Error("Failed to check subscriptions for vault")
 		return fmt.Errorf("failed to check vault usage: %w", err)
@@ -248,7 +248,7 @@ func (s *VaultService) ActivateVault(ctx context.Context, pm *models.PaymentMeth
 		return nil, errors.New("cannot activate inactive vault")
 	}
 
-	if err := s.PaymentMethodService.DeactivateByUserID(ctx, pm.UserID.String()); err != nil {
+	if err := s.PaymentMethodService.DeactivateByUserID(ctx, pm.UserID); err != nil {
 		log.WithError(err).WithField("user_id", pm.UserID).Error("Failed to deactivate other vaults")
 		return nil, fmt.Errorf("failed to deactivate other payment methods: %w", err)
 	}

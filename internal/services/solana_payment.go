@@ -100,10 +100,6 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intent
 	intentRef := intentID.String()
 	processorSubscriptionID := &intentRef
 
-	uid, parseErr := uuid.Parse(userID)
-	if parseErr != nil {
-		return nil, fmt.Errorf("invalid user id: %w", parseErr)
-	}
 	err := s.db.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		// Create transactional services
 		txDB := db.NewWithTx(tx)
@@ -151,7 +147,7 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intent
 		now := time.Now()
 		payment = &models.Payment{
 			ID:      uuid.New(),
-			UserID:  uid,
+			UserID:  userID,
 			PriceID: price.ID,
 			SubscriptionID: func() *uuid.UUID {
 				if subscription != nil {

@@ -6,7 +6,6 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/google/uuid"
 )
 
 type SolanaChallengeRepo struct {
@@ -29,15 +28,11 @@ func (r *SolanaChallengeRepo) Upsert(ctx context.Context, challenge *models.Sola
 }
 
 func (r *SolanaChallengeRepo) Get(ctx context.Context, userID, address string) (*models.SolanaWalletChallenge, error) {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
 	challenge := new(models.SolanaWalletChallenge)
 	if err := r.db.GetDB().NewSelect().
 		Model(challenge).
 		TableExpr(r.db.QualifiedTable("solana_wallet_challenges")).
-		Where("user_id = ? AND address = ?", uid, address).
+		Where("user_id = ? AND address = ?", userID, address).
 		Scan(ctx); err != nil {
 		return nil, err
 	}
@@ -45,14 +40,10 @@ func (r *SolanaChallengeRepo) Get(ctx context.Context, userID, address string) (
 }
 
 func (r *SolanaChallengeRepo) Delete(ctx context.Context, userID, address string) error {
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return err
-	}
-	_, err = r.db.GetDB().NewDelete().
+	_, err := r.db.GetDB().NewDelete().
 		Model((*models.SolanaWalletChallenge)(nil)).
 		TableExpr(r.db.QualifiedTable("solana_wallet_challenges")).
-		Where("user_id = ? AND address = ?", uid, address).
+		Where("user_id = ? AND address = ?", userID, address).
 		Exec(ctx)
 	return err
 }
