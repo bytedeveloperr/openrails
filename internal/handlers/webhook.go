@@ -193,6 +193,7 @@ func handleNMIWebhook(r *Request, provider string) {
 		NMIClient:                    client,
 		BillingEventService:          r.State.BillingEventService,
 		SubscriptionService:          r.State.SubscriptionService,
+		PaymentService:               r.State.PaymentService,
 		NotificationQueueService:     r.State.NotificationQueueService,
 		SubscriptionLifecycleService: r.State.SubscriptionLifecycleService,
 	}

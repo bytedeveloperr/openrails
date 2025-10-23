@@ -30,6 +30,7 @@ type NMIWebhookService struct {
 	NMIClient                    *nmi.NMIClient
 	BillingEventService          *BillingEventService
 	SubscriptionService          *SubscriptionService
+	PaymentService               *PaymentService
 	DeduplicationService         *DeduplicationService
 	NotificationQueueService     *NotificationQueueService
 	SubscriptionLifecycleService *SubscriptionLifecycleService
@@ -84,16 +85,56 @@ func transactionSubscriptionID(body *NMITransactionEventBody) string {
 	if body == nil {
 		return ""
 	}
-	if body.Subscription != nil && !body.Subscription.SubscriptionID.IsEmpty() {
-		return body.Subscription.SubscriptionID.Trimmed()
+
+	candidates := []string{}
+	if body.Subscription != nil {
+		candidates = append(candidates, body.Subscription.SubscriptionID.Trimmed())
 	}
 	if body.TransactionDetail != nil && body.TransactionDetail.Subscription != nil {
-		sub := body.TransactionDetail.Subscription.SubscriptionID.Trimmed()
-		if sub != "" {
-			return sub
+		candidates = append(candidates, body.TransactionDetail.Subscription.SubscriptionID.Trimmed())
+	}
+	candidates = append(candidates, body.OrderID.Trimmed())
+	if body.TransactionDetail != nil {
+		candidates = append(candidates, body.TransactionDetail.OrderID.Trimmed())
+	}
+	candidates = append(candidates, body.PONumber.Trimmed())
+	if body.TransactionDetail != nil {
+		candidates = append(candidates, body.TransactionDetail.PONumber.Trimmed())
+	}
+	candidates = append(candidates, body.CustomerID.Trimmed())
+	if body.TransactionDetail != nil {
+		candidates = append(candidates, body.TransactionDetail.CustomerID.Trimmed())
+	}
+
+	for _, candidate := range candidates {
+		if candidate != "" {
+			return candidate
 		}
 	}
+
 	return ""
+}
+
+func transactionActionSource(body *NMITransactionEventBody) string {
+	if body == nil {
+		return ""
+	}
+	if body.Action != nil && body.Action.Source != "" {
+		return strings.ToLower(strings.TrimSpace(body.Action.Source))
+	}
+	if body.TransactionDetail != nil && body.TransactionDetail.Action != nil && body.TransactionDetail.Action.Source != "" {
+		return strings.ToLower(strings.TrimSpace(body.TransactionDetail.Action.Source))
+	}
+	return ""
+}
+
+func isRecurringSource(source string) bool {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "recurring", "retry":
+		return true
+	default:
+		return false
+	}
 }
 
 func transactionPlanID(body *NMITransactionEventBody) string {
@@ -392,26 +433,23 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 
 	nmiSubID := transactionSubscriptionID(body)
 	if nmiSubID == "" {
-		if alt := body.OrderID.Trimmed(); alt != "" {
-			nmiSubID = alt
-		} else if body.TransactionDetail != nil {
-			nmiSubID = body.TransactionDetail.OrderID.Trimmed()
-		}
-	}
-	if nmiSubID == "" {
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription reference", map[string]interface{}{}, nil)
+	}
+
+	actionSource := transactionActionSource(body)
+	if !isRecurringSource(actionSource) {
+		log.WithContext(ctx).
+			WithFields(log.Fields{
+				"subscription_reference": nmiSubID,
+				"action_source":          actionSource,
+				"event_type":             s.Data.EventType,
+			}).Info("Ignoring NMI transaction success without recurring source")
+		return nil
 	}
 
 	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorNMI, provider, nmiSubID)
 	if err != nil {
 		return fmt.Errorf("failed to load subscription for transaction event: %w", err)
-	}
-
-	actionSource := ""
-	if body.Action != nil && body.Action.Source != "" {
-		actionSource = strings.ToLower(body.Action.Source)
-	} else if body.TransactionDetail != nil && body.TransactionDetail.Action != nil {
-		actionSource = strings.ToLower(body.TransactionDetail.Action.Source)
 	}
 
 	amount, amountErr := transactionAmount(body)
@@ -439,27 +477,90 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		}
 		processed = true
 	default:
-		if strings.EqualFold(actionSource, "recurring") || strings.EqualFold(actionSource, "retry") {
-			if err := s.SubscriptionLifecycleService.RenewMembership(ctx, &RenewMembershipParams{
-				Processor:               models.ProcessorNMI,
-				ProcessorSubscriptionID: nmiSubID,
-				ProcessorProvider:       provider,
-			}); err != nil {
-				return fmt.Errorf("failed to renew subscription: %w", err)
-			}
-			processed = true
-		} else {
-			log.WithContext(ctx).
-				WithFields(log.Fields{
-					"subscription_id":           subscription.ID,
-					"processor_subscription_id": nmiSubID,
-					"action_source":             actionSource,
-				}).Info("Ignoring non-recurring transaction success for already active subscription")
+		if err := s.SubscriptionLifecycleService.RenewMembership(ctx, &RenewMembershipParams{
+			Processor:               models.ProcessorNMI,
+			ProcessorSubscriptionID: nmiSubID,
+			ProcessorProvider:       provider,
+		}); err != nil {
+			return fmt.Errorf("failed to renew subscription: %w", err)
 		}
+		processed = true
 	}
 
 	if !processed {
 		return nil
+	}
+
+	// Persist payment record if available
+	if s.PaymentService != nil && txnID != "" {
+		existing, err := s.PaymentService.GetByTransactionID(ctx, models.ProcessorNMI, txnID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("failed to check existing payment: %w", err)
+		}
+		if err == nil && existing != nil {
+			log.WithContext(ctx).
+				WithFields(log.Fields{
+					"transaction_id":  txnID,
+					"subscription_id": subscription.ID,
+				}).Debug("NMI payment already recorded; skipping duplicate entry")
+		} else {
+			amountValue := amount
+			if amountErr != nil {
+				log.WithContext(ctx).
+					WithField("transaction_id", txnID).
+					WithError(amountErr).
+					Warn("Failed to parse NMI transaction amount; falling back to price amount")
+				if subscription.Price != nil && subscription.Price.Amount > 0 {
+					amountValue = subscription.Price.Amount
+				} else {
+					amountValue = 0
+				}
+			}
+
+			if amountValue > 0 {
+				currencyValue := currency
+				if strings.TrimSpace(currencyValue) == "" {
+					if subscription.Price != nil && strings.TrimSpace(subscription.Price.Currency) != "" {
+						currencyValue = subscription.Price.Currency
+					} else {
+						currencyValue = "USD"
+					}
+				}
+
+				var providerPtr *string
+				if provider != "" {
+					p := provider
+					providerPtr = &p
+				}
+
+				payment := &models.Payment{
+					ID:                uuid.New(),
+					UserID:            subscription.UserID,
+					PriceID:           subscription.PriceID,
+					SubscriptionID:    &subscription.ID,
+					Processor:         models.ProcessorNMI,
+					ProcessorProvider: providerPtr,
+					TransactionID:     txnID,
+					Amount:            amountValue,
+					Currency:          currencyValue,
+					PurchasedAt:       time.Now().UTC(),
+					CreatedAt:         time.Now().UTC(),
+				}
+
+				if err := s.PaymentService.Create(ctx, payment); err != nil {
+					log.WithContext(ctx).
+						WithError(err).
+						WithFields(log.Fields{
+							"transaction_id":  txnID,
+							"subscription_id": subscription.ID,
+						}).Error("Failed to record NMI payment entry")
+				}
+			} else {
+				log.WithContext(ctx).
+					WithField("transaction_id", txnID).
+					Warn("Skipping payment record for NMI transaction due to missing amount")
+			}
+		}
 	}
 
 	if s.BillingEventService != nil {
@@ -531,14 +632,18 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 
 	nmiSubID := transactionSubscriptionID(body)
 	if nmiSubID == "" {
-		if alt := body.OrderID.Trimmed(); alt != "" {
-			nmiSubID = alt
-		} else if body.TransactionDetail != nil {
-			nmiSubID = body.TransactionDetail.OrderID.Trimmed()
-		}
-	}
-	if nmiSubID == "" {
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription reference", map[string]interface{}{}, nil)
+	}
+
+	actionSource := transactionActionSource(body)
+	if !isRecurringSource(actionSource) {
+		log.WithContext(ctx).
+			WithFields(log.Fields{
+				"subscription_reference": nmiSubID,
+				"action_source":          actionSource,
+				"event_type":             s.Data.EventType,
+			}).Info("Ignoring NMI transaction failure without recurring source")
+		return nil
 	}
 
 	var (

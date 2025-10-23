@@ -78,6 +78,9 @@ type RecurringPaymentData struct {
 	Currency        string
 	PaymentToken    string
 	Amount          float64
+	OrderID         string
+	PONumber        string
+	CustomerID      string
 }
 
 type QueryFilter struct {
@@ -430,6 +433,16 @@ func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSub
 		"country":           {data.Country},
 	}
 
+	if trimmed := strings.TrimSpace(data.OrderID); trimmed != "" {
+		values.Set("orderid", trimmed)
+	}
+	if trimmed := strings.TrimSpace(data.PONumber); trimmed != "" {
+		values.Set("ponumber", trimmed)
+	}
+	if trimmed := strings.TrimSpace(data.CustomerID); trimmed != "" {
+		values.Set("customerid", trimmed)
+	}
+
 	if data.PaymentToken != "" {
 		values.Set("payment_token", data.PaymentToken)
 	}
@@ -442,8 +455,6 @@ func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSub
 		values.Set("test_mode", "enabled")
 	}
 
-	fmt.Println(values, c.IsProd)
-
 	response, err := c.sendDirectRequest(values)
 	if err != nil {
 		return nil, err
@@ -453,8 +464,6 @@ func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSub
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response: %s", response)
 	}
-
-	fmt.Println(output)
 
 	if output.Get("response") != "1" {
 		return nil, fmt.Errorf("failed to add subscription: %s", output.Get("responsetext"))
