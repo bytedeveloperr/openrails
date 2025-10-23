@@ -23,22 +23,21 @@ const EnvDev string = "dev"
 const ConfigContextKey string = "config"
 
 type Config struct {
-	Env          string             `koanf:"env,omitempty"`
-	Port         int16              `koanf:"port,omitempty"`
-	Host         string             `koanf:"host,omitempty"`
-	NMI          *NMIConfig         `koanf:"nmi,omitempty"`
-	LegacyMobius *NMIProviderConfig `koanf:"mobius,omitempty"` // Deprecated: fallback for legacy configs
-	CCBill       *CCBillConfig      `koanf:"ccbill,omitempty"`
-	Solana       *SolanaConfig      `koanf:"solana,omitempty"`
-	DB           *DBConfig          `koanf:"db,omitempty"`
-	Redis        *RedisConfig       `koanf:"redis,omitempty"`
-	JWT          *JWTConfig         `koanf:"jwt,omitempty"`
-	ClickHouse   *ClickHouseConfig  `koanf:"clickhouse,omitempty"`
-	Email        *email.Config      `koanf:"email,omitempty"`
-	CorsOrigins  []string           `koanf:"cors_origins,omitempty"`
-	RateLimits   *RateLimitConfig   `koanf:"rate_limits,omitempty"`
-	Admin        *AdminConfig       `koanf:"admin,omitempty"`
-	TLS          *TLSConfig         `koanf:"tls,omitempty"`
+	Env         string            `koanf:"env,omitempty"`
+	Port        int16             `koanf:"port,omitempty"`
+	Host        string            `koanf:"host,omitempty"`
+	NMI         *NMIConfig        `koanf:"nmi,omitempty"`
+	CCBill      *CCBillConfig     `koanf:"ccbill,omitempty"`
+	Solana      *SolanaConfig     `koanf:"solana,omitempty"`
+	DB          *DBConfig         `koanf:"db,omitempty"`
+	Redis       *RedisConfig      `koanf:"redis,omitempty"`
+	JWT         *JWTConfig        `koanf:"jwt,omitempty"`
+	ClickHouse  *ClickHouseConfig `koanf:"clickhouse,omitempty"`
+	Email       *email.Config     `koanf:"email,omitempty"`
+	CorsOrigins []string          `koanf:"cors_origins,omitempty"`
+	RateLimits  *RateLimitConfig  `koanf:"rate_limits,omitempty"`
+	Admin       *AdminConfig      `koanf:"admin,omitempty"`
+	TLS         *TLSConfig        `koanf:"tls,omitempty"`
 }
 
 type DBConfig struct {
@@ -624,14 +623,6 @@ func Load(configPath string) (*Config, error) {
 	if cfg.NMI.Providers == nil {
 		cfg.NMI.Providers = make(map[string]*NMIProviderConfig)
 	}
-	if cfg.LegacyMobius != nil {
-		log.Warn("config.mobius is deprecated; please migrate to config.nmi.providers")
-		if _, exists := cfg.NMI.Providers["mobius"]; !exists {
-			cfg.NMI.Providers["mobius"] = cfg.LegacyMobius
-		}
-		cfg.LegacyMobius = nil
-	}
-
 	if len(cfg.NMI.Providers) > 0 {
 		normalized := make(map[string]*NMIProviderConfig, len(cfg.NMI.Providers))
 		for name, provider := range cfg.NMI.Providers {
