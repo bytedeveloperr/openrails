@@ -151,11 +151,6 @@ func (s *SubscriptionEmailService) SendEntitlementExpired(ctx context.Context, u
 
 // getEmailData fetches subscription data for email notifications
 func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID string) (*SubscriptionEmailData, error) {
-	username, email, err := s.getUserEmail(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
 	// Get the user's active subscription or last known subscription as fallback
 	subscription, err := s.subscriptionService.GetActiveSubscription(ctx, userID)
 	if err != nil {
@@ -172,7 +167,26 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 		}
 	}
 
-	// Email address comes from the user directory; subscription no longer caches it.
+	var (
+		username string
+		email    string
+	)
+
+	if subscription.UserEmail != nil && strings.TrimSpace(*subscription.UserEmail) != "" {
+		email = strings.TrimSpace(*subscription.UserEmail)
+	}
+
+	if email == "" {
+		var err error
+		username, email, err = s.getUserEmail(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if email == "" {
+		return nil, errUserEmailUnavailable
+	}
 
 	// Get the price details
 	price, err := s.priceService.GetByID(ctx, subscription.PriceID)
@@ -271,7 +285,7 @@ func describePaymentMethod(subscription *models.Subscription) string {
 
 func processorDisplayName(processor models.Processor) string {
 	switch processor {
-	case models.ProcessorMobius, models.ProcessorCCBill:
+	case models.ProcessorNMI, models.ProcessorCCBill:
 		return "Credit Card"
 	case models.ProcessorPayPal:
 		return "PayPal"

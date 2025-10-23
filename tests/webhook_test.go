@@ -30,7 +30,7 @@ func TestWebhookEndpoints(t *testing.T) {
 		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError, http.StatusForbidden, http.StatusBadRequest, http.StatusTooManyRequests}, w.Code)
 	})
 
-	t.Run("MobiusWebhook", func(t *testing.T) {
+	t.Run("NMIWebhook", func(t *testing.T) {
 		webhookData := map[string]interface{}{
 			"event": "subscription.created",
 			"id":    "sub_123456",
@@ -38,7 +38,7 @@ func TestWebhookEndpoints(t *testing.T) {
 
 		body, _ := json.Marshal(webhookData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/webhook/mobius", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/webhook/nmi/mobius", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		server.Handler().ServeHTTP(w, req)

@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
+	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -28,7 +29,7 @@ type UserSubscriptionService struct {
 	PaymentService           *PaymentService
 	NotificationQueueService *NotificationQueueService
 	EntitlementService       *EntitlementService
-	MobiusClient             *mobius.MobiusClient
+	NMIClients               map[string]*nmi.NMIClient
 }
 
 // UserSubscriptionResponse represents a user's subscription with enriched data
@@ -140,7 +141,7 @@ func (s *UserSubscriptionService) MarkNotificationRead(ctx context.Context, user
 	}
 
 	// Verify the notification belongs to the user
-	if uid, err := uuid.Parse(userID); err != nil || notification.UserID != uid {
+	if notification.UserID != userID {
 		return ErrNotificationAccessDenied
 	}
 
@@ -155,7 +156,7 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 		return fmt.Errorf("%w: %w", ErrSubscriptionNotFound, err)
 	}
 
-	if subscription.Processor != models.ProcessorMobius {
+	if subscription.Processor != models.ProcessorNMI {
 		return fmt.Errorf("unable to cancel subscription for processor %s", subscription.Processor)
 	}
 
@@ -171,21 +172,30 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 	// 	}
 	// }
 
-	// Cancel subscription with Mobius
-	if s.MobiusClient != nil {
-		if err := s.MobiusClient.DeleteRecurringSubscription(*subscription.Price.MobiusPlanID); err != nil {
-			return fmt.Errorf("failed to cancel subscription with Mobius: %w", err)
+	// Cancel subscription with NMI
+	if s.NMIClients != nil {
+		provider := ""
+		if subscription.ProcessorProvider != nil {
+			provider = strings.ToLower(strings.TrimSpace(*subscription.ProcessorProvider))
+		}
+		if provider == "" && subscription.Price != nil && subscription.Price.NMIProvider != nil {
+			provider = strings.ToLower(strings.TrimSpace(*subscription.Price.NMIProvider))
+		}
+		if provider == "" {
+			provider = "mobius"
+		}
+
+		if client, ok := s.NMIClients[provider]; ok && subscription.Price != nil && subscription.Price.NMIPlanID != nil {
+			if err := client.DeleteRecurringSubscription(*subscription.Price.NMIPlanID); err != nil {
+				return fmt.Errorf("failed to cancel subscription with NMI provider '%s': %w", provider, err)
+			}
 		}
 	}
 
 	// Add notification
-	uid, perr := uuid.Parse(userID)
-	if perr != nil {
-		return fmt.Errorf("invalid user id: %w", perr)
-	}
 	notification := &models.NotificationQueue{
 		ID:        uuid.New(),
-		UserID:    uid,
+		UserID:    userID,
 		EventType: models.NotificationPremiumEnded,
 		Data:      map[string]any{"reason": string(PremiumEndReasonUserCancel)},
 	}
@@ -209,10 +219,10 @@ func NewUserSubscriptionService(
 	paymentService *PaymentService,
 	notificationQueueService *NotificationQueueService,
 	entitlementService *EntitlementService,
-	mobiusClient *mobius.MobiusClient,
+	nmiClients map[string]*nmi.NMIClient,
 ) *UserSubscriptionService {
 	return &UserSubscriptionService{
-		MobiusClient:             mobiusClient,
+		NMIClients:               nmiClients,
 		SubscriptionService:      subscriptionService,
 		ProductService:           productService,
 		PriceService:             priceService,

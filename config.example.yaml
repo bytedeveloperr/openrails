@@ -83,10 +83,20 @@ ccbill:
     - "64.38.240.8"
     - "64.38.241.8"
 
-# Mobius payment processor configuration
-mobius:
-  # Supply secrets via env: MOBIUS_SECURITY_KEY, MOBIUS_WEBHOOK_SECRET
+# NMI payment processor configuration
+nmi:
   test_mode: true
+  # direct_post_url: "https://secure.networkmerchants.com/api/transact.php" # optional global override
+  # query_url: "https://secure.nmi.com/api/query.php"                       # optional global override
+
+  providers:
+    mobius:
+      # Supply secrets via env or override here
+      security_key: ""
+      tokenization_key: ""
+      webhook_secret: ""
+      # direct_post_url: "https://secure.mobiusgateway.com/api/transact.php"
+      # query_url: "https://secure.mobiusgateway.com/api/query.php"
 
 # Solana blockchain configuration
 solana:

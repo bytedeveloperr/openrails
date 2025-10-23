@@ -136,8 +136,8 @@ func (rs *ReplayService) validateWebhookPayload(filePath string) (*ReplayResult,
 		return result, nil
 	}
 
-	// Extract event type for Mobius webhooks
-	if result.Processor == "mobius" {
+	// Extract event type for NMI webhooks
+	if result.Processor == "nmi" {
 		// Handle both single event and array of events
 		if payloadArray, ok := payload.([]interface{}); ok && len(payloadArray) > 0 {
 			if firstEvent, ok := payloadArray[0].(map[string]interface{}); ok {
@@ -181,8 +181,8 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 		return result, nil
 	}
 
-	// Extract event type for Mobius webhooks
-	if result.Processor == "mobius" {
+	// Extract event type for NMI webhooks
+	if result.Processor == "nmi" {
 		// Handle both single event and array of events
 		if payloadArray, ok := payload.([]interface{}); ok && len(payloadArray) > 0 {
 			if firstEvent, ok := payloadArray[0].(map[string]interface{}); ok {
@@ -202,7 +202,11 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 	}
 
 	// Build webhook URL
-	webhookURL, err := url.JoinPath(rs.TargetEndpoint, "api", "v1", "subscriptions", "webhook", result.Processor)
+	pathParts := []string{"api", "v1", "subscriptions", "webhook", result.Processor}
+	if result.Processor == "nmi" {
+		pathParts = append(pathParts, "mobius")
+	}
+	webhookURL, err := url.JoinPath(rs.TargetEndpoint, pathParts...)
 	if err != nil {
 		result.Error = fmt.Sprintf("Failed to build webhook URL: %v", err)
 		return result, nil
@@ -223,7 +227,7 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 		requestBody = strings.NewReader(formData.Encode())
 		contentType = "application/x-www-form-urlencoded"
 	} else {
-		// Mobius webhooks are JSON
+		// NMI webhooks are JSON
 		requestBody = bytes.NewReader(data)
 		contentType = "application/json"
 	}
@@ -239,7 +243,7 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 	req.Header.Set("User-Agent", "webhook-replay-tool/1.0")
 
 	// Add processor-specific headers
-	if result.Processor == "mobius" {
+	if result.Processor == "nmi" {
 		// Note: In a real implementation, you might want to generate valid signatures
 		// req.Header.Set("X-Signature", "test-signature")
 	}
@@ -391,18 +395,18 @@ func (rs *ReplayService) ReplayCCBillWebhooks(ctx context.Context, eventFilter s
 	return rs.processWebhookEvents(ctx, eventFiles, "ccbill")
 }
 
-// ReplayMobiusWebhooks replays Mobius webhook events
-func (rs *ReplayService) ReplayMobiusWebhooks(ctx context.Context, eventFilter string) (int, int, error) {
-	eventFiles, err := rs.loadWebhookEvents("mobius", eventFilter)
+// ReplayNMIWebhooks replays NMI webhook events
+func (rs *ReplayService) ReplayNMIWebhooks(ctx context.Context, eventFilter string) (int, int, error) {
+	eventFiles, err := rs.loadWebhookEvents("nmi", eventFilter)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to load Mobius webhook events: %w", err)
+		return 0, 0, fmt.Errorf("failed to load NMI webhook events: %w", err)
 	}
 
 	if rs.Verbose {
-		fmt.Printf("  Found %d Mobius event file(s)\n", len(eventFiles))
+		fmt.Printf("  Found %d NMI event file(s)\n", len(eventFiles))
 	}
 
-	return rs.processWebhookEvents(ctx, eventFiles, "mobius")
+	return rs.processWebhookEvents(ctx, eventFiles, "nmi")
 }
 
 // ReplayEvent replays a single webhook event to the target URL
@@ -422,10 +426,10 @@ func ReplayEvent(ctx context.Context, processor, eventFile, targetURL string) er
 	switch processor {
 	case "ccbill":
 		_, failures, err = rs.ReplayCCBillWebhooks(ctx, eventFile)
-	case "mobius":
-		_, failures, err = rs.ReplayMobiusWebhooks(ctx, eventFile)
+	case "nmi":
+		_, failures, err = rs.ReplayNMIWebhooks(ctx, eventFile)
 	default:
-		return fmt.Errorf("invalid processor '%s'. Must be: ccbill or mobius", processor)
+		return fmt.Errorf("invalid processor '%s'. Must be: ccbill or nmi", processor)
 	}
 
 	if err != nil {
@@ -459,10 +463,10 @@ func ValidateEvent(processor, eventFile string) error {
 	switch processor {
 	case "ccbill":
 		_, failures, err = rs.ReplayCCBillWebhooks(context.Background(), eventFile)
-	case "mobius":
-		_, failures, err = rs.ReplayMobiusWebhooks(context.Background(), eventFile)
+	case "nmi":
+		_, failures, err = rs.ReplayNMIWebhooks(context.Background(), eventFile)
 	default:
-		return fmt.Errorf("invalid processor '%s'. Must be: ccbill or mobius", processor)
+		return fmt.Errorf("invalid processor '%s'. Must be: ccbill or nmi", processor)
 	}
 
 	if err != nil {

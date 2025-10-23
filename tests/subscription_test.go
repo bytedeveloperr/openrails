@@ -56,7 +56,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 		subscribeData := handlers.SubscribeRequest{
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
 				SubscribeData: services.SubscribeData{
-					Processor: "mobius",
+					Processor: "nmi", Provider: "mobius",
 					PriceID:   uuid.New().String(),
 				},
 			},
@@ -64,7 +64,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 
 		body, _ := json.Marshal(subscribeData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/mobius", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		server.Handler().ServeHTTP(w, req)
@@ -77,7 +77,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 		subscribeData := handlers.SubscribeRequest{
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
 				SubscribeData: services.SubscribeData{
-					Processor: "mobius",
+					Processor: "nmi", Provider: "mobius",
 					PriceID:   uuid.New().String(),
 				},
 			},
@@ -85,7 +85,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 
 		body, _ := json.Marshal(subscribeData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/mobius", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -105,7 +105,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 		subscribeData := handlers.SubscribeRequest{
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
 				SubscribeData: services.SubscribeData{
-					Processor: "mobius",
+					Processor: "nmi", Provider: "mobius",
 					PriceID:   uuid.New().String(),
 				},
 			},
@@ -113,7 +113,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 
 		body, _ := json.Marshal(subscribeData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/mobius", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+rsToken)
 

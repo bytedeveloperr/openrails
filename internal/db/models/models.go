@@ -10,7 +10,7 @@ import (
 type Processor string
 
 const (
-	ProcessorMobius Processor = "mobius"
+	ProcessorNMI    Processor = "nmi"
 	ProcessorCCBill Processor = "ccbill"
 	ProcessorSolana Processor = "solana"
 	ProcessorPayPal Processor = "paypal"

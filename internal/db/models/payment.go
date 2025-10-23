@@ -13,14 +13,15 @@ type Payment struct {
 	bun.BaseModel `bun:"table:payments,alias:purch"`
 
 	ID      uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
-	UserID  uuid.UUID `bun:"user_id,notnull,type:uuid" json:"user_id"`
+	UserID  string    `bun:"user_id,notnull" json:"user_id"`
 	PriceID uuid.UUID `bun:"price_id,notnull" json:"price_id"`
 
 	// Optional linkage to the subscription that generated this payment
 	SubscriptionID *uuid.UUID `bun:"subscription_id,type:uuid,nullzero" json:"subscription_id,omitempty"`
 
-	Processor     Processor `bun:"processor,notnull" json:"processor"`
-	TransactionID string    `bun:"transaction_id,notnull" json:"transaction_id"`
+	Processor         Processor `bun:"processor,notnull" json:"processor"`
+	ProcessorProvider *string   `bun:"processor_provider,nullzero" json:"processor_provider"`
+	TransactionID     string    `bun:"transaction_id,notnull" json:"transaction_id"`
 
 	// Payment details
 	Amount   float64 `bun:"amount,notnull,type:numeric" json:"amount"`

@@ -46,9 +46,9 @@ func TestReplayService_GetWebhookFilesPath(t *testing.T) {
 	_, err = os.Stat(ccbillPath)
 	assert.NoError(t, err, "ccbill directory should exist")
 
-	mobiusPath := filepath.Join(webhookPath, "mobius")
-	_, err = os.Stat(mobiusPath)
-	assert.NoError(t, err, "mobius directory should exist")
+	nmiPath := filepath.Join(webhookPath, "nmi")
+	_, err = os.Stat(nmiPath)
+	assert.NoError(t, err, "nmi directory should exist")
 }
 
 // TestReplayService_LoadWebhookEvents tests loading webhook event files
@@ -70,8 +70,8 @@ func TestReplayService_LoadWebhookEvents(t *testing.T) {
 			minFiles:    1,
 		},
 		{
-			name:        "Load all Mobius events",
-			processor:   "mobius",
+			name:        "Load all NMI events",
+			processor:   "nmi",
 			eventFilter: "all",
 			expectError: false,
 			minFiles:    1,
@@ -84,8 +84,8 @@ func TestReplayService_LoadWebhookEvents(t *testing.T) {
 			minFiles:    1,
 		},
 		{
-			name:        "Load specific Mobius event",
-			processor:   "mobius",
+			name:        "Load specific NMI event",
+			processor:   "nmi",
 			eventFilter: "recurring_subscription_add.json",
 			expectError: false,
 			minFiles:    1,
@@ -142,17 +142,17 @@ func TestReplayService_ValidateWebhookPayload(t *testing.T) {
 	assert.Equal(t, "ccbill", result.Processor)
 	assert.Empty(t, result.Error)
 
-	// Test Mobius event validation
-	mobiusFiles, err := rs.loadWebhookEvents("mobius", "recurring_subscription_add.json")
+	// Test NMI event validation
+	nmiFiles, err := rs.loadWebhookEvents("nmi", "recurring_subscription_add.json")
 	require.NoError(t, err)
-	require.NotEmpty(t, mobiusFiles)
+	require.NotEmpty(t, nmiFiles)
 
-	mobiusResult, err := rs.validateWebhookPayload(mobiusFiles[0])
+	nmiResult, err := rs.validateWebhookPayload(nmiFiles[0])
 	require.NoError(t, err)
-	assert.True(t, mobiusResult.Success)
-	assert.Equal(t, "recurring_subscription_add.json", mobiusResult.EventFile)
-	assert.Equal(t, "mobius", mobiusResult.Processor)
-	assert.NotEmpty(t, mobiusResult.EventType, "Mobius events should have event_type extracted")
+	assert.True(t, nmiResult.Success)
+	assert.Equal(t, "recurring_subscription_add.json", nmiResult.EventFile)
+	assert.Equal(t, "nmi", nmiResult.Processor)
+	assert.NotEmpty(t, nmiResult.EventType, "NMI events should have event_type extracted")
 }
 
 // TestReplayService_DryRun tests dry run functionality
@@ -172,12 +172,12 @@ func TestReplayService_DryRun(t *testing.T) {
 	assert.Greater(t, totalEvents, 0, "Should have processed some events")
 	t.Logf("CCBill validation results: %d success, %d failures", successCount, failureCount)
 
-	// Test Mobius dry run
-	successCount, failureCount, err = rs.ReplayMobiusWebhooks(ctx, "all")
+	// Test NMI dry run
+	successCount, failureCount, err = rs.ReplayNMIWebhooks(ctx, "all")
 	assert.NoError(t, err)
 	totalEvents = successCount + failureCount
 	assert.Greater(t, totalEvents, 0, "Should have processed some events")
-	t.Logf("Mobius validation results: %d success, %d failures", successCount, failureCount)
+	t.Logf("NMI validation results: %d success, %d failures", successCount, failureCount)
 }
 
 // TestReplayService_WebhookReplay tests actual webhook replay functionality
@@ -237,28 +237,28 @@ func TestReplayService_WebhookReplay(t *testing.T) {
 	assert.Equal(t, "application/x-www-form-urlencoded", ccbillRequest.ContentType)
 	assert.NotEmpty(t, ccbillRequest.Body)
 
-	// Reset for Mobius test
+	// Reset for NMI test
 	receivedRequests = nil
 
-	// Test replaying a single Mobius event
-	successCount, failureCount, err = rs.ReplayMobiusWebhooks(ctx, "recurring_subscription_add.json")
+	// Test replaying a single NMI event
+	successCount, failureCount, err = rs.ReplayNMIWebhooks(ctx, "recurring_subscription_add.json")
 	assert.NoError(t, err)
-	assert.Equal(t, 1, successCount, "Should successfully replay one Mobius event")
+	assert.Equal(t, 1, successCount, "Should successfully replay one NMI event")
 	assert.Equal(t, 0, failureCount, "Should have no failures")
 
-	// Verify the Mobius request was received
-	assert.Len(t, receivedRequests, 1, "Should have received one Mobius webhook request")
+	// Verify the NMI request was received
+	assert.Len(t, receivedRequests, 1, "Should have received one NMI webhook request")
 
-	mobiusRequest := receivedRequests[0]
-	assert.Equal(t, "POST", mobiusRequest.Method)
-	assert.Contains(t, mobiusRequest.URL, "/v1/subscriptions/webhook/mobius")
-	assert.Equal(t, "application/json", mobiusRequest.ContentType)
-	assert.NotEmpty(t, mobiusRequest.Body)
+	nmiRequest := receivedRequests[0]
+	assert.Equal(t, "POST", nmiRequest.Method)
+	assert.Contains(t, nmiRequest.URL, "/v1/subscriptions/webhook/nmi")
+	assert.Equal(t, "application/json", nmiRequest.ContentType)
+	assert.NotEmpty(t, nmiRequest.Body)
 
 	// Verify it's valid JSON
-	var mobiusPayload interface{}
-	err = json.Unmarshal([]byte(mobiusRequest.Body), &mobiusPayload)
-	assert.NoError(t, err, "Mobius webhook body should be valid JSON")
+	var nmiPayload interface{}
+	err = json.Unmarshal([]byte(nmiRequest.Body), &nmiPayload)
+	assert.NoError(t, err, "NMI webhook body should be valid JSON")
 }
 
 // TestReplayService_ConcurrentReplay tests concurrent webhook replay
@@ -357,14 +357,14 @@ func TestHelperFunctions(t *testing.T) {
 	err := ValidateEvent("ccbill", "newsalesuccess.json")
 	assert.NoError(t, err, "Should validate CCBill event successfully")
 
-	err = ValidateEvent("mobius", "recurring_subscription_add.json")
-	assert.NoError(t, err, "Should validate Mobius event successfully")
+	err = ValidateEvent("nmi", "recurring_subscription_add.json")
+	assert.NoError(t, err, "Should validate NMI event successfully")
 
 	err = ValidateAllEvents("ccbill")
 	assert.NoError(t, err, "Should validate all CCBill events successfully")
 
-	err = ValidateAllEvents("mobius")
-	assert.NoError(t, err, "Should validate all Mobius events successfully")
+	err = ValidateAllEvents("nmi")
+	assert.NoError(t, err, "Should validate all NMI events successfully")
 
 	err = ValidateEvent("invalid", "test.json")
 	assert.Error(t, err, "Should fail with invalid processor")
@@ -384,8 +384,8 @@ func TestHelperFunctions(t *testing.T) {
 	err = ReplayEvent(ctx, "ccbill", "newsalesuccess.json", server.URL)
 	assert.NoError(t, err, "Should replay CCBill event successfully")
 
-	err = ReplayEvent(ctx, "mobius", "recurring_subscription_add.json", server.URL)
-	assert.NoError(t, err, "Should replay Mobius event successfully")
+	err = ReplayEvent(ctx, "nmi", "recurring_subscription_add.json", server.URL)
+	assert.NoError(t, err, "Should replay NMI event successfully")
 
 	err = ReplayAllEvents(ctx, "ccbill", server.URL)
 	assert.NoError(t, err, "Should replay all CCBill events successfully")

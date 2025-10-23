@@ -14,6 +14,7 @@ import (
 	"github.com/knadh/koanf/providers/env"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
+	log "github.com/sirupsen/logrus"
 )
 
 const EnvProd string = "prod"
@@ -25,7 +26,7 @@ type Config struct {
 	Env         string            `koanf:"env,omitempty"`
 	Port        int16             `koanf:"port,omitempty"`
 	Host        string            `koanf:"host,omitempty"`
-	Mobius      *MobiusConfig     `koanf:"mobius,omitempty"`
+	NMI         *NMIConfig        `koanf:"nmi,omitempty"`
 	CCBill      *CCBillConfig     `koanf:"ccbill,omitempty"`
 	Solana      *SolanaConfig     `koanf:"solana,omitempty"`
 	DB          *DBConfig         `koanf:"db,omitempty"`
@@ -45,11 +46,80 @@ type DBConfig struct {
 	Dialect string `koanf:"dialect"`
 }
 
-type MobiusConfig struct {
+type NMIConfig struct {
+	SecurityKey     string                        `koanf:"security_key"`
+	TokenizationKey string                        `koanf:"tokenization_key"`
+	WebhookSecret   string                        `koanf:"webhook_secret"`
+	TestMode        bool                          `koanf:"test_mode"`
+	DirectPostURL   string                        `koanf:"direct_post_url"`
+	QueryURL        string                        `koanf:"query_url"`
+	Providers       map[string]*NMIProviderConfig `koanf:"providers"`
+}
+
+type NMIProviderConfig struct {
 	SecurityKey     string `koanf:"security_key"`
 	TokenizationKey string `koanf:"tokenization_key"`
 	WebhookSecret   string `koanf:"webhook_secret"`
-	TestMode        bool   `koanf:"test_mode"`
+	TestMode        *bool  `koanf:"test_mode"`
+	DirectPostURL   string `koanf:"direct_post_url"`
+	QueryURL        string `koanf:"query_url"`
+}
+
+type NMIProviderSettings struct {
+	Name            string
+	SecurityKey     string
+	TokenizationKey string
+	WebhookSecret   string
+	TestMode        bool
+	DirectPostURL   string
+	QueryURL        string
+}
+
+func (cfg *NMIConfig) ProviderSettings(name string) (*NMIProviderSettings, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("nmi configuration is missing")
+	}
+
+	providerKey := strings.TrimSpace(strings.ToLower(name))
+	if providerKey == "" {
+		providerKey = "mobius"
+	}
+
+	provider, ok := cfg.Providers[providerKey]
+	if !ok || provider == nil {
+		return nil, fmt.Errorf("nmi provider '%s' is not configured", providerKey)
+	}
+
+	settings := &NMIProviderSettings{
+		Name:            providerKey,
+		SecurityKey:     firstNonEmpty(provider.SecurityKey, cfg.SecurityKey),
+		TokenizationKey: firstNonEmpty(provider.TokenizationKey, cfg.TokenizationKey),
+		WebhookSecret:   firstNonEmpty(provider.WebhookSecret, cfg.WebhookSecret),
+		DirectPostURL:   firstNonEmpty(provider.DirectPostURL, cfg.DirectPostURL),
+		QueryURL:        firstNonEmpty(provider.QueryURL, cfg.QueryURL),
+		TestMode:        cfg.TestMode,
+	}
+	if provider.TestMode != nil {
+		settings.TestMode = *provider.TestMode
+	}
+
+	if settings.SecurityKey == "" {
+		return nil, fmt.Errorf("nmi provider '%s' security key is required", providerKey)
+	}
+	if settings.WebhookSecret == "" {
+		log.Warnf("nmi provider '%s' webhook secret is not configured; signature validation will be disabled", providerKey)
+	}
+
+	return settings, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 type CCBillConfig struct {
@@ -171,8 +241,8 @@ func Validate(cfg *Config) error {
 	isDev := cfg.Env == "development" || cfg.Env == "dev" || cfg.Env == ""
 
 	if !isDev {
-		if err := validateMobius(cfg.Mobius); err != nil {
-			return fmt.Errorf("mobius config validation failed: %w", err)
+		if err := validateNMI(cfg.NMI); err != nil {
+			return fmt.Errorf("nmi config validation failed: %w", err)
 		}
 
 		// Validate CCBill configuration
@@ -189,21 +259,48 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
-// validateMobius validates Mobius-specific configuration
-func validateMobius(cfg *MobiusConfig) error {
+// validateNMI validates NMI-specific configuration
+func validateNMI(cfg *NMIConfig) error {
 	if cfg == nil {
-		return fmt.Errorf("mobius configuration is required")
+		return fmt.Errorf("nmi configuration is required")
 	}
 
-	if cfg.SecurityKey == "" {
-		return fmt.Errorf("mobius security key is required in production")
+	if cfg.DirectPostURL != "" {
+		if _, err := url.Parse(cfg.DirectPostURL); err != nil {
+			return fmt.Errorf("invalid nmi direct_post_url: %w", err)
+		}
 	}
 
-	// TokenizationKey is not required by the billing service; frontend integrates
-	// with Mobius Collect.js directly. Keep optional for backward compatibility.
+	if cfg.QueryURL != "" {
+		if _, err := url.Parse(cfg.QueryURL); err != nil {
+			return fmt.Errorf("invalid nmi query_url: %w", err)
+		}
+	}
 
-	if cfg.WebhookSecret == "" {
-		return fmt.Errorf("mobius webhook secret is recommended for security")
+	if len(cfg.Providers) == 0 {
+		return fmt.Errorf("at least one nmi provider must be configured")
+	}
+
+	for name, provider := range cfg.Providers {
+		if provider == nil {
+			return fmt.Errorf("nmi provider '%s' configuration is missing", name)
+		}
+		if provider.SecurityKey == "" && cfg.SecurityKey == "" {
+			return fmt.Errorf("nmi provider '%s' security key is required", name)
+		}
+		if provider.WebhookSecret == "" && cfg.WebhookSecret == "" {
+			return fmt.Errorf("nmi provider '%s' webhook secret is recommended for security", name)
+		}
+		if provider.DirectPostURL != "" {
+			if _, err := url.Parse(provider.DirectPostURL); err != nil {
+				return fmt.Errorf("invalid nmi provider '%s' direct_post_url: %w", name, err)
+			}
+		}
+		if provider.QueryURL != "" {
+			if _, err := url.Parse(provider.QueryURL); err != nil {
+				return fmt.Errorf("invalid nmi provider '%s' query_url: %w", name, err)
+			}
+		}
 	}
 
 	return nil
@@ -435,11 +532,19 @@ func Load(configPath string) (*Config, error) {
 		"CCBILL_SUCCESS_URL":          "ccbill.success_url",
 		"CCBILL_DECLINE_URL":          "ccbill.decline_url",
 
-		// Mobius
-		"MOBIUS_SECURITY_KEY":     "mobius.security_key",
-		"MOBIUS_TOKENIZATION_KEY": "mobius.tokenization_key",
-		"MOBIUS_WEBHOOK_SECRET":   "mobius.webhook_secret",
-		"MOBIUS_TEST_MODE":        "mobius.test_mode",
+		// NMI
+		"NMI_SECURITY_KEY":        "nmi.security_key",
+		"NMI_TOKENIZATION_KEY":    "nmi.tokenization_key",
+		"NMI_WEBHOOK_SECRET":      "nmi.webhook_secret",
+		"NMI_TEST_MODE":           "nmi.test_mode",
+		"NMI_DIRECT_POST_URL":     "nmi.direct_post_url",
+		"NMI_QUERY_URL":           "nmi.query_url",
+		"MOBIUS_SECURITY_KEY":     "nmi.security_key",
+		"MOBIUS_TOKENIZATION_KEY": "nmi.tokenization_key",
+		"MOBIUS_WEBHOOK_SECRET":   "nmi.webhook_secret",
+		"MOBIUS_TEST_MODE":        "nmi.test_mode",
+		"MOBIUS_DIRECT_POST_URL":  "nmi.direct_post_url",
+		"MOBIUS_QUERY_URL":        "nmi.query_url",
 
 		// Email configuration
 		"EMAIL_PROVIDER":        "email.provider",
@@ -510,6 +615,30 @@ func Load(configPath string) (*Config, error) {
 	}
 	if len(cfg.Solana.SupportedTokens) == 0 {
 		cfg.Solana.SupportedTokens = TokensForNetwork(cfg.Solana.Network)
+	}
+
+	if cfg.NMI == nil {
+		cfg.NMI = &NMIConfig{}
+	}
+	if cfg.NMI.Providers == nil {
+		cfg.NMI.Providers = make(map[string]*NMIProviderConfig)
+	}
+	if len(cfg.NMI.Providers) > 0 {
+		normalized := make(map[string]*NMIProviderConfig, len(cfg.NMI.Providers))
+		for name, provider := range cfg.NMI.Providers {
+			key := strings.TrimSpace(strings.ToLower(name))
+			if key == "" {
+				log.Warnf("ignoring NMI provider with empty name (original key: %q)", name)
+				continue
+			}
+
+			if existing, exists := normalized[key]; exists && existing != nil {
+				log.Warnf("duplicate NMI provider configuration detected for key '%s'; overriding previous value", key)
+			}
+
+			normalized[key] = provider
+		}
+		cfg.NMI.Providers = normalized
 	}
 
 	// Validate the loaded configuration

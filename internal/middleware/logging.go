@@ -240,8 +240,8 @@ func getBillingOperation(c *gin.Context) string {
 
 // extractProcessor extracts processor name from URL path
 func extractProcessor(path string) string {
-	if contains(path, "/mobius") || contains(path, "processor=mobius") {
-		return "mobius"
+	if contains(path, "/nmi") || contains(path, "processor=nmi") {
+		return "nmi"
 	}
 	if contains(path, "/ccbill") || contains(path, "processor=ccbill") {
 		return "ccbill"

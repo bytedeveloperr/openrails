@@ -37,22 +37,22 @@ func TestPaymentMethodEndpoints(t *testing.T) {
 	}
 }
 
-// TestMobiusPaymentMethodFunctionality tests the Mobius-only payment method functionality
-func TestMobiusPaymentMethodFunctionality(t *testing.T) {
-	// This test validates that payment methods only support Mobius processor
+// TestNMIPaymentMethodFunctionality tests the NMI-only payment method functionality
+func TestNMIPaymentMethodFunctionality(t *testing.T) {
+	// This test validates that payment methods only support NMI processor
 
-	t.Run("OnlySupportsMobius", func(t *testing.T) {
-		// This is a compile-time and logic test to ensure only Mobius is supported
-		// Payment methods should only work with Mobius card vaults
+	t.Run("OnlySupportsNMI", func(t *testing.T) {
+		// This is a compile-time and logic test to ensure only NMI is supported
+		// Payment methods should only work with NMI card vaults
 
 		// These would be used in a real integration test with database
 		// service := services.NewPaymentMethodService(db)
 
-		// Test that only Mobius methods exist (compile-time check)
-		// paymentMethods, err := service.GetActiveMobius(ctx)
-		// paymentMethods, err := service.GetMobiusByUserID(ctx, "user123")
+		// Test that only NMI methods exist (compile-time check)
+		// paymentMethods, err := service.GetActiveNMI(ctx)
+		// paymentMethods, err := service.GetNMIByUserID(ctx, "user123")
 
-		// If we get here, the Mobius-only methods exist with correct signatures
-		assert.True(t, true, "Mobius payment method functionality is properly defined")
+		// If we get here, the NMI-only methods exist with correct signatures
+		assert.True(t, true, "NMI payment method functionality is properly defined")
 	})
 }

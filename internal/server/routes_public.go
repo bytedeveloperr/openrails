@@ -35,6 +35,7 @@ func (s *Server) registerPublicRoutes() {
 
 	webhooks := api.Group("/subscriptions/webhook")
 	webhooks.POST("/:processor", s.wrap(handlers.Webhook))
+	webhooks.POST("/:processor/:provider", s.wrap(handlers.Webhook))
 
 	pms := api.Group("/payment-methods")
 	pms.Use(middleware.AuthRequired(s.authVerifier))

@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -89,12 +90,8 @@ func (r *SubscriptionRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.S
 
 func (r *SubscriptionRepo) GetLatestByUserID(ctx context.Context, userID string) (*models.Subscription, error) {
 	sub := new(models.Subscription)
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
-	err = r.selectWithDetails(sub).
-		Where("user_id = ?", uid).
+	err := r.selectWithDetails(sub).
+		Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Limit(1).
 		Scan(ctx)
@@ -106,12 +103,8 @@ func (r *SubscriptionRepo) GetLatestByUserID(ctx context.Context, userID string)
 
 func (r *SubscriptionRepo) GetByUserIDAndPriceID(ctx context.Context, userID string, priceID uuid.UUID) (*models.Subscription, error) {
 	sub := new(models.Subscription)
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
-	err = r.selectWithDetails(sub).
-		Where("user_id = ?", uid).
+	err := r.selectWithDetails(sub).
+		Where("user_id = ?", userID).
 		Where("price_id = ?", priceID).
 		Scan(ctx)
 	if err != nil {
@@ -122,12 +115,8 @@ func (r *SubscriptionRepo) GetByUserIDAndPriceID(ctx context.Context, userID str
 
 func (r *SubscriptionRepo) GetActiveSubscription(ctx context.Context, userID string) (*models.Subscription, error) {
 	sub := new(models.Subscription)
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
-	err = r.selectWithDetails(sub).
-		Where("user_id = ?", uid).
+	err := r.selectWithDetails(sub).
+		Where("user_id = ?", userID).
 		Where("status = ?", models.StatusActive).
 		Where("(current_period_ends_at IS NULL OR current_period_ends_at > NOW())").
 		Order("created_at DESC").
@@ -139,12 +128,26 @@ func (r *SubscriptionRepo) GetActiveSubscription(ctx context.Context, userID str
 	return sub, nil
 }
 
-func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, processor, processorSubscriptionID string) (*models.Subscription, error) {
+func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, processor, provider, processorSubscriptionID string) (*models.Subscription, error) {
 	sub := new(models.Subscription)
-	err := r.selectWithDetails(sub).
+	query := r.selectWithDetails(sub).
 		Where("processor = ?", processor).
-		Where("processor_subscription_id = ?", processorSubscriptionID).
-		Scan(ctx)
+		Where("processor_subscription_id = ?", processorSubscriptionID)
+
+	if strings.EqualFold(processor, string(models.ProcessorNMI)) {
+		provider = strings.TrimSpace(strings.ToLower(provider))
+		if provider == "" {
+			provider = "mobius"
+		}
+
+		if provider == "mobius" {
+			query = query.Where("(processor_provider = ? OR processor_provider IS NULL OR processor_provider = '')", provider)
+		} else {
+			query = query.Where("processor_provider = ?", provider)
+		}
+	}
+
+	err := query.Scan(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -153,12 +156,8 @@ func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, pro
 
 func (r *SubscriptionRepo) GetActiveSubscriptionsByUserID(ctx context.Context, userID string) ([]models.Subscription, error) {
 	subs := []models.Subscription{}
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
 	query := r.selectWithDetails(&subs).
-		Where("user_id = ?", uid).
+		Where("user_id = ?", userID).
 		Where("status = ?", models.StatusActive).
 		Order("created_at DESC")
 
@@ -170,12 +169,8 @@ func (r *SubscriptionRepo) GetActiveSubscriptionsByUserID(ctx context.Context, u
 
 func (r *SubscriptionRepo) GetSubscriptionsByProcessorAndUserID(ctx context.Context, userID string, processor models.Processor) ([]models.Subscription, error) {
 	subs := []models.Subscription{}
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, err
-	}
 	query := r.selectWithDetails(&subs).
-		Where("user_id = ?", uid).
+		Where("user_id = ?", userID).
 		Where("processor = ?", processor).
 		Order("created_at DESC")
 
@@ -199,11 +194,7 @@ func (r *SubscriptionRepo) GetActiveSubscriptionsByProcessor(ctx context.Context
 
 func (r *SubscriptionRepo) GetPaginatedByUserID(ctx context.Context, userID string, page, pageSize int) ([]models.Subscription, int, error) {
 	offset := (page - 1) * pageSize
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, 0, err
-	}
-	countQuery := r.db.GetDB().NewSelect().Model((*models.Subscription)(nil)).Where("user_id = ?", uid)
+	countQuery := r.db.GetDB().NewSelect().Model((*models.Subscription)(nil)).Where("user_id = ?", userID)
 	total, err := countQuery.Count(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -211,7 +202,7 @@ func (r *SubscriptionRepo) GetPaginatedByUserID(ctx context.Context, userID stri
 
 	subs := []models.Subscription{}
 	dataQuery := r.selectWithDetails(&subs).
-		Where("user_id = ?", uid).
+		Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Limit(pageSize).
 		Offset(offset)
@@ -225,11 +216,7 @@ func (r *SubscriptionRepo) GetPaginatedByUserID(ctx context.Context, userID stri
 
 func (r *SubscriptionRepo) GetSubscriptionsWithDetailsForUser(ctx context.Context, userID string, page, pageSize int) ([]models.Subscription, int, error) {
 	offset := (page - 1) * pageSize
-	uid, err := uuid.Parse(userID)
-	if err != nil {
-		return nil, 0, err
-	}
-	countQuery := r.db.GetDB().NewSelect().Model((*models.Subscription)(nil)).Where("user_id = ?", uid)
+	countQuery := r.db.GetDB().NewSelect().Model((*models.Subscription)(nil)).Where("user_id = ?", userID)
 	total, err := countQuery.Count(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -237,7 +224,7 @@ func (r *SubscriptionRepo) GetSubscriptionsWithDetailsForUser(ctx context.Contex
 
 	subs := []models.Subscription{}
 	dataQuery := r.selectWithDetails(&subs).
-		Where("user_id = ?", uid).
+		Where("user_id = ?", userID).
 		Order("created_at DESC").
 		Limit(pageSize).
 		Offset(offset)
@@ -280,9 +267,7 @@ func (r *SubscriptionRepo) GetSubscribers(ctx context.Context, params query.Quer
 
 func applySubscriptionFilters(q *bun.SelectQuery, filters SubscriptionFilters) *bun.SelectQuery {
 	if filters.UserID != "" {
-		if uid, err := uuid.Parse(filters.UserID); err == nil {
-			q = q.Where("user_id = ?", uid)
-		}
+		q = q.Where("user_id = ?", filters.UserID)
 	}
 	if filters.Status != "" {
 		q = q.Where("status = ?", filters.Status)

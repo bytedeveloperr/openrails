@@ -52,20 +52,13 @@ func SubmitPayment(r *Request) {
 	ctx, cancel := context.WithTimeout(r.Request.Context(), 30*time.Second)
 	defer cancel()
 
-	userUUID, err := uuid.Parse(user.ID)
-	if err != nil {
-		log.WithError(err).Error("Invalid user ID format")
-		r.ErrorJSON(http.StatusInternalServerError, "Invalid user ID")
-		return
-	}
-
 	intent, err := r.State.SolanaPaymentIntentService.GetByID(ctx, intentID)
 	if err != nil {
 		log.WithError(err).Error("Failed to load payment intent")
 		r.ErrorJSON(http.StatusBadRequest, "Invalid payment intent")
 		return
 	}
-	if intent.UserID != userUUID {
+	if intent.UserID != user.ID {
 		log.WithFields(log.Fields{"intent_id": intent.ID, "user_id": user.ID}).Warn("Intent does not belong to user")
 		r.ErrorJSON(http.StatusForbidden, "Payment intent does not belong to you")
 		return
@@ -199,9 +192,10 @@ func SubmitPayment(r *Request) {
 		}
 	}
 
+	userIDCopy := user.ID
 	solanaTransaction := &models.SolanaTransaction{
 		ID:          uuid.New(),
-		UserID:      &userUUID,
+		UserID:      &userIDCopy,
 		Signature:   &signature,
 		Status:      "confirmed",
 		Amount:      pay.Amount,

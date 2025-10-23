@@ -1,4 +1,4 @@
-package mobius
+package nmi
 
 import (
 	"crypto/hmac"
@@ -19,14 +19,17 @@ import (
 )
 
 const (
-	DirectPostAPIURL = "https://secure.networkmerchants.com/api/transact.php"
-	QueryAPIURL      = "https://secure.mobiusgateway.com/api/query.php"
+	DefaultDirectPostURL = "https://secure.networkmerchants.com/api/transact.php"
+	DefaultQueryAPIURL   = "https://secure.nmi.com/api/query.php"
 )
 
-type MobiusClient struct {
-	config        *config.MobiusConfig
+type NMIClient struct {
+	providerName  string
+	config        *config.NMIProviderSettings
 	SecurityKey   string
 	WebhookSecret string
+	DirectPostURL string
+	QueryURL      string
 	IsProd        bool
 }
 
@@ -75,6 +78,9 @@ type RecurringPaymentData struct {
 	Currency        string
 	PaymentToken    string
 	Amount          float64
+	OrderID         string
+	PONumber        string
+	CustomerID      string
 }
 
 type QueryFilter struct {
@@ -109,69 +115,117 @@ type ManualRebillResponse struct {
 	ErrorMessage  string
 }
 
-func NewClient(cfg *config.MobiusConfig, isProd bool) (*MobiusClient, error) {
-	// Priority: Environment variable first, then config file, then empty
-	webhookSecret := os.Getenv("MOBIUS_WEBHOOK_SECRET")
-	if webhookSecret == "" && cfg != nil {
-		webhookSecret = cfg.WebhookSecret
+func resolveWebhookSecret(provider string, cfg *config.NMIProviderSettings) string {
+	upperProvider := strings.ToUpper(provider)
+	secrets := []string{
+		strings.TrimSpace(os.Getenv(fmt.Sprintf("NMI_%s_WEBHOOK_SECRET", upperProvider))),
 	}
-
-	// Log warning if webhook secret is missing
-	if webhookSecret == "" {
-		log.Warn("Mobius webhook secret not configured (neither MOBIUS_WEBHOOK_SECRET env var nor config.mobius.webhook_secret) - webhook signature verification will be disabled")
+	if strings.EqualFold(provider, "mobius") {
+		secrets = append(secrets, strings.TrimSpace(os.Getenv("MOBIUS_WEBHOOK_SECRET")))
 	}
-
-	if cfg == nil {
-		if isProd {
-			return nil, errors.New("mobius config is required in production mode")
+	secrets = append(secrets,
+		strings.TrimSpace(os.Getenv("NMI_WEBHOOK_SECRET")),
+	)
+	for _, candidate := range secrets {
+		if candidate != "" {
+			return candidate
 		}
-		// In development mode, return a client with empty config that will fail gracefully when used
-		log.Warn("Mobius configuration not provided - Mobius payment processing will be disabled")
-		emptyConfig := &config.MobiusConfig{TestMode: true} // Default to test mode when no config
-		return &MobiusClient{
-			config:        emptyConfig,
-			SecurityKey:   "",
-			WebhookSecret: webhookSecret,
-			IsProd:        false,
-		}, nil
+	}
+	if cfg != nil {
+		return strings.TrimSpace(cfg.WebhookSecret)
+	}
+	return ""
+}
+
+func resolveEndpoint(defaultURL string, cfgValue string, envKeys ...string) string {
+	for _, key := range envKeys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	if value := strings.TrimSpace(cfgValue); value != "" {
+		return value
+	}
+	return defaultURL
+}
+
+func NewClient(provider string, cfg *config.NMIProviderSettings, isProd bool) (*NMIClient, error) {
+	if cfg == nil {
+		return nil, errors.New("nmi provider configuration is required")
 	}
 
-	if isProd && cfg.SecurityKey == "" {
-		return nil, errors.New("mobius security key is required in production mode")
+	webhookSecret := resolveWebhookSecret(provider, cfg)
+	if webhookSecret == "" {
+		log.WithField("provider", provider).Warn("NMI webhook secret not configured - webhook signature verification will be disabled")
 	}
 
-	// Log warning if security key is missing in development
-	if !isProd && cfg.SecurityKey == "" {
-		log.Warn("Mobius security_key not configured - Mobius API calls will be disabled")
+	securityKey := strings.TrimSpace(firstNonEmpty(
+		os.Getenv(fmt.Sprintf("NMI_%s_SECURITY_KEY", strings.ToUpper(provider))),
+		cfg.SecurityKey,
+	))
+	if strings.EqualFold(provider, "mobius") && securityKey == "" {
+		securityKey = strings.TrimSpace(os.Getenv("MOBIUS_SECURITY_KEY"))
+	}
+	if securityKey == "" && cfg.SecurityKey != "" {
+		securityKey = strings.TrimSpace(cfg.SecurityKey)
 	}
 
-	return &MobiusClient{
+	if isProd && securityKey == "" {
+		return nil, fmt.Errorf("nmi provider '%s' security key is required in production mode", provider)
+	}
+
+	if !isProd && securityKey == "" {
+		log.WithField("provider", provider).Warn("NMI security_key not configured - NMI API calls will be disabled")
+	}
+
+	directPostURL := resolveEndpoint(
+		firstNonEmpty(cfg.DirectPostURL, DefaultDirectPostURL),
+		cfg.DirectPostURL,
+		fmt.Sprintf("NMI_%s_DIRECT_POST_URL", strings.ToUpper(provider)),
+	)
+	if strings.EqualFold(provider, "mobius") {
+		directPostURL = resolveEndpoint(directPostURL, cfg.DirectPostURL, "MOBIUS_DIRECT_POST_URL")
+	}
+
+	queryURL := resolveEndpoint(
+		firstNonEmpty(cfg.QueryURL, DefaultQueryAPIURL),
+		cfg.QueryURL,
+		fmt.Sprintf("NMI_%s_QUERY_URL", strings.ToUpper(provider)),
+	)
+	if strings.EqualFold(provider, "mobius") {
+		queryURL = resolveEndpoint(queryURL, cfg.QueryURL, "MOBIUS_QUERY_URL")
+	}
+
+	return &NMIClient{
+		providerName:  provider,
 		config:        cfg,
-		SecurityKey:   cfg.SecurityKey,
+		SecurityKey:   securityKey,
 		WebhookSecret: webhookSecret,
+		DirectPostURL: directPostURL,
+		QueryURL:      queryURL,
 		IsProd:        isProd,
 	}, nil
 }
 
-// Config returns the Mobius configuration
-func (c *MobiusClient) Config() *config.MobiusConfig {
+// Config returns the NMI configuration
+func (c *NMIClient) Config() *config.NMIProviderSettings {
 	return c.config
 }
 
 // isConfigured returns true if the client has valid configuration
-func (c *MobiusClient) isConfigured() bool {
+func (c *NMIClient) isConfigured() bool {
 	return c.SecurityKey != ""
 }
 
 // checkConfiguration returns an error if the client is not configured properly
-func (c *MobiusClient) checkConfiguration() error {
+func (c *NMIClient) checkConfiguration() error {
 	if !c.isConfigured() {
-		return errors.New("mobius payment processing is not configured - this feature is disabled in development mode")
+		return fmt.Errorf("nmi provider '%s' payment processing is not configured - this feature is disabled in development mode", c.providerName)
 	}
 	return nil
 }
 
-func (c *MobiusClient) CreateCustomerVault(data CreateCustomerVaultData) (*CreateCustomerVaultResponse, error) {
+func (c *NMIClient) CreateCustomerVault(data CreateCustomerVaultData) (*CreateCustomerVaultResponse, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return nil, err
 	}
@@ -258,7 +312,7 @@ func (c *MobiusClient) CreateCustomerVault(data CreateCustomerVaultData) (*Creat
 	return &CreateCustomerVaultResponse{CustomerVaultID: vaultID}, nil
 }
 
-func (c *MobiusClient) UpdateCustomerVault(data UpdateCustomerVaultData) error {
+func (c *NMIClient) UpdateCustomerVault(data UpdateCustomerVaultData) error {
 	if err := c.checkConfiguration(); err != nil {
 		return err
 	}
@@ -314,7 +368,7 @@ func (c *MobiusClient) UpdateCustomerVault(data UpdateCustomerVaultData) error {
 	return nil
 }
 
-func (c *MobiusClient) DeleteCustomerVault(data DeleteCustomerVaultData) error {
+func (c *NMIClient) DeleteCustomerVault(data DeleteCustomerVaultData) error {
 	if err := c.checkConfiguration(); err != nil {
 		return err
 	}
@@ -345,7 +399,7 @@ func (c *MobiusClient) DeleteCustomerVault(data DeleteCustomerVaultData) error {
 	return nil
 }
 
-func (c *MobiusClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSubscriptionResponse, error) {
+func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSubscriptionResponse, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return nil, err
 	}
@@ -379,6 +433,16 @@ func (c *MobiusClient) AddRecurringSubscription(data RecurringPaymentData) (*Add
 		"country":           {data.Country},
 	}
 
+	if trimmed := strings.TrimSpace(data.OrderID); trimmed != "" {
+		values.Set("orderid", trimmed)
+	}
+	if trimmed := strings.TrimSpace(data.PONumber); trimmed != "" {
+		values.Set("ponumber", trimmed)
+	}
+	if trimmed := strings.TrimSpace(data.CustomerID); trimmed != "" {
+		values.Set("customerid", trimmed)
+	}
+
 	if data.PaymentToken != "" {
 		values.Set("payment_token", data.PaymentToken)
 	}
@@ -391,8 +455,6 @@ func (c *MobiusClient) AddRecurringSubscription(data RecurringPaymentData) (*Add
 		values.Set("test_mode", "enabled")
 	}
 
-	fmt.Println(values, c.IsProd)
-
 	response, err := c.sendDirectRequest(values)
 	if err != nil {
 		return nil, err
@@ -402,8 +464,6 @@ func (c *MobiusClient) AddRecurringSubscription(data RecurringPaymentData) (*Add
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse response: %s", response)
 	}
-
-	fmt.Println(output)
 
 	if output.Get("response") != "1" {
 		return nil, fmt.Errorf("failed to add subscription: %s", output.Get("responsetext"))
@@ -417,7 +477,7 @@ func (c *MobiusClient) AddRecurringSubscription(data RecurringPaymentData) (*Add
 	}, nil
 }
 
-func (c *MobiusClient) UpdateRecurringSubscription(subscriptionID, planAmount string, planPayments int) (string, error) {
+func (c *NMIClient) UpdateRecurringSubscription(subscriptionID, planAmount string, planPayments int) (string, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return "", err
 	}
@@ -450,7 +510,7 @@ func (c *MobiusClient) UpdateRecurringSubscription(subscriptionID, planAmount st
 	return response, nil
 }
 
-func (c *MobiusClient) DeleteRecurringSubscription(subscriptionID string) error {
+func (c *NMIClient) DeleteRecurringSubscription(subscriptionID string) error {
 	if err := c.checkConfiguration(); err != nil {
 		return err
 	}
@@ -481,7 +541,7 @@ func (c *MobiusClient) DeleteRecurringSubscription(subscriptionID string) error 
 	return nil
 }
 
-func (c *MobiusClient) AttemptManualRebill(params ManualRebillParams) (*ManualRebillResponse, error) {
+func (c *NMIClient) AttemptManualRebill(params ManualRebillParams) (*ManualRebillResponse, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return &ManualRebillResponse{
 			Success:      false,
@@ -546,7 +606,7 @@ func (c *MobiusClient) AttemptManualRebill(params ManualRebillParams) (*ManualRe
 	}, nil
 }
 
-func (c *MobiusClient) GetTransactionDetails(transactionID string) (string, error) {
+func (c *NMIClient) GetTransactionDetails(transactionID string) (string, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return "", err
 	}
@@ -573,7 +633,7 @@ func (c *MobiusClient) GetTransactionDetails(transactionID string) (string, erro
 	return response, nil
 }
 
-func (c *MobiusClient) GetCustomerVaultData(customerVaultID string) (string, error) {
+func (c *NMIClient) GetCustomerVaultData(customerVaultID string) (string, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return "", err
 	}
@@ -599,7 +659,7 @@ func (c *MobiusClient) GetCustomerVaultData(customerVaultID string) (string, err
 	return response, nil
 }
 
-func (c *MobiusClient) GetSubscriptionData(subscriptionID string) (string, error) {
+func (c *NMIClient) GetSubscriptionData(subscriptionID string) (string, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return "", err
 	}
@@ -625,7 +685,7 @@ func (c *MobiusClient) GetSubscriptionData(subscriptionID string) (string, error
 	return response, nil
 }
 
-func (c *MobiusClient) GetRecurringPlanData() (string, error) {
+func (c *NMIClient) GetRecurringPlanData() (string, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return "", err
 	}
@@ -647,7 +707,7 @@ func (c *MobiusClient) GetRecurringPlanData() (string, error) {
 	return response, nil
 }
 
-func (c *MobiusClient) SearchTransactions(filter QueryFilter) (string, error) {
+func (c *NMIClient) SearchTransactions(filter QueryFilter) (string, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return "", err
 	}
@@ -687,8 +747,8 @@ func (c *MobiusClient) SearchTransactions(filter QueryFilter) (string, error) {
 
 	return response, nil
 }
-func (c *MobiusClient) sendDirectRequest(data url.Values) (_ string, err error) {
-	resp, err := http.PostForm(DirectPostAPIURL, data)
+func (c *NMIClient) sendDirectRequest(data url.Values) (_ string, err error) {
+	resp, err := http.PostForm(c.DirectPostURL, data)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
@@ -711,8 +771,8 @@ func (c *MobiusClient) sendDirectRequest(data url.Values) (_ string, err error) 
 	return string(body), nil
 }
 
-func (c *MobiusClient) sendQueryRequest(data url.Values) (_ string, err error) {
-	resp, err := http.PostForm(QueryAPIURL, data)
+func (c *NMIClient) sendQueryRequest(data url.Values) (_ string, err error) {
+	resp, err := http.PostForm(c.QueryURL, data)
 	if err != nil {
 		return "", fmt.Errorf("failed to send query request: %w", err)
 	}
@@ -735,7 +795,7 @@ func (c *MobiusClient) sendQueryRequest(data url.Values) (_ string, err error) {
 	return string(body), nil
 }
 
-func (c *MobiusClient) VerifyWebhookSignature(body []byte, signature string) error {
+func (c *NMIClient) VerifyWebhookSignature(body []byte, signature string) error {
 	if c.WebhookSecret == "" {
 		return errors.New("webhook secret not configured")
 	}
@@ -753,6 +813,15 @@ func (c *MobiusClient) VerifyWebhookSignature(body []byte, signature string) err
 	return nil
 }
 
-func (c *MobiusClient) GetWebhookSecret() string {
+func (c *NMIClient) GetWebhookSecret() string {
 	return c.WebhookSecret
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

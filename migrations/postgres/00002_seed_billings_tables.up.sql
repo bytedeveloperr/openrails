@@ -63,29 +63,29 @@ BEGIN
     SELECT id INTO enterprise_id FROM products WHERE slug = 'enterprise_membership';
 
     -- Basic tier pricing
-    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
-    (basic_id, 'Basic Monthly', 9.99, 'USD', 30, 'ccbill_basic_monthly', 'mobius_basic_monthly', true),
-    (basic_id, 'Basic Annual', 99.99, 'USD', 365, 'ccbill_basic_annual', 'mobius_basic_annual', true)
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
+    (basic_id, 'Basic Monthly', 9.99, 'USD', 30, 'ccbill_basic_monthly', 'nmi_basic_monthly', 'mobius', true),
+    (basic_id, 'Basic Annual', 99.99, 'USD', 365, 'ccbill_basic_annual', 'nmi_basic_annual', 'mobius', true)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 
     -- Premium tier pricing
-    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
-    (premium_id, 'Premium Monthly', 19.99, 'USD', 30, 'ccbill_premium_monthly', 'mobius_premium_monthly', true),
-    (premium_id, 'Premium Annual', 199.99, 'USD', 365, 'ccbill_premium_annual', 'mobius_premium_annual', true),
-    (premium_id, 'Premium Lifetime', 499.99, 'USD', NULL, 'ccbill_premium_lifetime', 'mobius_premium_lifetime', true)
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
+    (premium_id, 'Premium Monthly', 19.99, 'USD', 30, 'ccbill_premium_monthly', 'nmi_premium_monthly', 'mobius', true),
+    (premium_id, 'Premium Annual', 199.99, 'USD', 365, 'ccbill_premium_annual', 'nmi_premium_annual', 'mobius', true),
+    (premium_id, 'Premium Lifetime', 499.99, 'USD', NULL, 'ccbill_premium_lifetime', 'nmi_premium_lifetime', 'mobius', true)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 
     -- Creator tier pricing
-    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
-    (creator_id, 'Creator Monthly', 39.99, 'USD', 30, 'ccbill_creator_monthly', 'mobius_creator_monthly', true),
-    (creator_id, 'Creator Annual', 399.99, 'USD', 365, 'ccbill_creator_annual', 'mobius_creator_annual', true),
-    (creator_id, 'Creator Lifetime', 999.99, 'USD', NULL, 'ccbill_creator_lifetime', 'mobius_creator_lifetime', true)
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
+    (creator_id, 'Creator Monthly', 39.99, 'USD', 30, 'ccbill_creator_monthly', 'nmi_creator_monthly', 'mobius', true),
+    (creator_id, 'Creator Annual', 399.99, 'USD', 365, 'ccbill_creator_annual', 'nmi_creator_annual', 'mobius', true),
+    (creator_id, 'Creator Lifetime', 999.99, 'USD', NULL, 'ccbill_creator_lifetime', 'nmi_creator_lifetime', 'mobius', true)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 
     -- Enterprise tier pricing
-    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
-    (enterprise_id, 'Enterprise Monthly', 99.99, 'USD', 30, 'ccbill_enterprise_monthly', 'mobius_enterprise_monthly', true),
-    (enterprise_id, 'Enterprise Annual', 999.99, 'USD', 365, 'ccbill_enterprise_annual', 'mobius_enterprise_annual', true)
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
+    (enterprise_id, 'Enterprise Monthly', 99.99, 'USD', 30, 'ccbill_enterprise_monthly', 'nmi_enterprise_monthly', 'mobius', true),
+    (enterprise_id, 'Enterprise Annual', 999.99, 'USD', 365, 'ccbill_enterprise_annual', 'nmi_enterprise_annual', 'mobius', true)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 
     -- ============================================================================
@@ -93,12 +93,12 @@ BEGIN
     -- ============================================================================
 
     -- Special promotional pricing (disabled by default, can be activated for campaigns)
-    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
-    (premium_id, 'Premium Monthly - Black Friday', 9.99, 'USD', 30, 'ccbill_premium_bf', 'mobius_premium_bf', false),
-    (premium_id, 'Premium Monthly - New Year', 14.99, 'USD', 30, 'ccbill_premium_ny', 'mobius_premium_ny', false),
-    (premium_id, 'Premium Trial - 7 Days', 0.99, 'USD', 7, 'ccbill_premium_trial', 'mobius_premium_trial', false),
-    (basic_id, 'Basic Trial - 14 Days', 0.99, 'USD', 14, 'ccbill_basic_trial', 'mobius_basic_trial', false),
-    (creator_id, 'Creator Trial - 30 Days', 9.99, 'USD', 30, 'ccbill_creator_trial', 'mobius_creator_trial', false)
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
+    (premium_id, 'Premium Monthly - Black Friday', 9.99, 'USD', 30, 'ccbill_premium_bf', 'nmi_premium_bf', 'mobius', false),
+    (premium_id, 'Premium Monthly - New Year', 14.99, 'USD', 30, 'ccbill_premium_ny', 'nmi_premium_ny', 'mobius', false),
+    (premium_id, 'Premium Trial - 7 Days', 0.99, 'USD', 7, 'ccbill_premium_trial', 'nmi_premium_trial', 'mobius', false),
+    (basic_id, 'Basic Trial - 14 Days', 0.99, 'USD', 14, 'ccbill_basic_trial', 'nmi_basic_trial', 'mobius', false),
+    (creator_id, 'Creator Trial - 30 Days', 9.99, 'USD', 30, 'ccbill_creator_trial', 'nmi_creator_trial', 'mobius', false)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 
     -- ============================================================================
@@ -106,15 +106,15 @@ BEGIN
     -- ============================================================================
 
     -- EUR pricing (disabled by default, enable when ready)
-    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
-    (premium_id, 'Premium Monthly - EUR', 18.99, 'EUR', 30, 'ccbill_premium_monthly_eur', 'mobius_premium_monthly_eur', false),
-    (premium_id, 'Premium Annual - EUR', 189.99, 'EUR', 365, 'ccbill_premium_annual_eur', 'mobius_premium_annual_eur', false)
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
+    (premium_id, 'Premium Monthly - EUR', 18.99, 'EUR', 30, 'ccbill_premium_monthly_eur', 'nmi_premium_monthly_eur', 'mobius', false),
+    (premium_id, 'Premium Annual - EUR', 189.99, 'EUR', 365, 'ccbill_premium_annual_eur', 'nmi_premium_annual_eur', 'mobius', false)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 
     -- GBP pricing (disabled by default)
-    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, mobius_plan_id, is_active) VALUES
-    (premium_id, 'Premium Monthly - GBP', 16.99, 'GBP', 30, 'ccbill_premium_monthly_gbp', 'mobius_premium_monthly_gbp', false),
-    (premium_id, 'Premium Annual - GBP', 169.99, 'GBP', 365, 'ccbill_premium_annual_gbp', 'mobius_premium_annual_gbp', false)
+    INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
+    (premium_id, 'Premium Monthly - GBP', 16.99, 'GBP', 30, 'ccbill_premium_monthly_gbp', 'nmi_premium_monthly_gbp', 'mobius', false),
+    (premium_id, 'Premium Annual - GBP', 169.99, 'GBP', 365, 'ccbill_premium_annual_gbp', 'nmi_premium_annual_gbp', 'mobius', false)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 
 END$$;
@@ -124,3 +124,5 @@ COMMENT ON TABLE products IS 'Product catalog - modify these via your applicatio
 COMMENT ON TABLE prices IS 'Pricing tiers with processor integration - modify these via your application for new campaigns';
 COMMENT ON COLUMN prices.is_active IS 'Set to false to disable pricing tier without deleting (useful for campaigns)';
 COMMENT ON COLUMN prices.ccbill_price_id IS 'CCBill FlexForm price identifier - update when creating new CCBill products';
+COMMENT ON COLUMN prices.nmi_plan_id IS 'NMI plan identifier - update when creating new NMI plans';
+COMMENT ON COLUMN prices.nmi_provider IS 'NMI provider slug (e.g., mobius) for multi-tenant gateways';

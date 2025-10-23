@@ -1,7 +1,12 @@
 package services
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -14,47 +19,161 @@ func IsExpired(s *models.Subscription) bool {
 	return s.CurrentPeriodEndsAt != nil && s.CurrentPeriodEndsAt.Before(time.Now())
 }
 
-// -------------------------------- Mobius Webhook Types --------------------------------
+// -------------------------------- Utility Types --------------------------------
 
-type MobiusWebhookEvent struct {
-	EventID   string                 `json:"event_id" validate:"required"`
-	EventType MobiusWebhookEventType `json:"event_type" validate:"required"`
-	EventBody MobiusEventBody        `json:"event_body" validate:"required"`
+// Stringish handles inconsistent NMI payload encoding where identifiers might be
+// transmitted as strings or bare numbers.
+type Stringish string
+
+// UnmarshalJSON normalises string/number/null payloads into Stringish
+func (s *Stringish) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 {
+		return nil
+	}
+	if string(data) == "null" {
+		*s = ""
+		return nil
+	}
+	if data[0] == '"' {
+		var str string
+		if err := json.Unmarshal(data, &str); err != nil {
+			return err
+		}
+		*s = Stringish(str)
+		return nil
+	}
+	var raw any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	switch v := raw.(type) {
+	case float64:
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			*s = ""
+			return nil
+		}
+		if math.Trunc(v) == v {
+			*s = Stringish(strconv.FormatInt(int64(v), 10))
+		} else {
+			*s = Stringish(strconv.FormatFloat(v, 'f', -1, 64))
+		}
+	case bool:
+		*s = Stringish(strconv.FormatBool(v))
+	default:
+		*s = Stringish(fmt.Sprint(v))
+	}
+	return nil
 }
 
-type MobiusEventBody struct {
-	SubscriptionID    string                `json:"subscription_id" validate:"required"`
-	AttemptedPayments int                   `json:"attempted_payments"`
-	CompletedPayments int                   `json:"completed_payments"`
-	BillingAddress    *MobiusBillingAddress `json:"billing_address"`
-	Card              *MobiusCard           `json:"card"`
-	Features          *MobiusFeatures       `json:"features"`
-	Merchant          *MobiusMerchant       `json:"merchant"`
-	NextChargeDate    string                `json:"next_charge_date"`
-	OrderDescription  string                `json:"order_description"`
-	OrderID           string                `json:"order_id"`
-	Plan              MobiusPlan            `json:"plan"`
-	PONumber          string                `json:"ponumber"`
-	ProcessorID       string                `json:"processor_id"`
-	RemainingPayments string                `json:"remaining_payments"`
-	Shipping          string                `json:"shipping"`
-	SubscriptionType  string                `json:"subscription_type"`
-	Tax               string                `json:"tax"`
-	Website           string                `json:"website"`
-
-	// ACU-specific fields for payment method updates
-	VaultID       string             `json:"vault_id"`       // Vault ID for ACU events
-	PaymentMethod *MobiusPaymentInfo `json:"payment_method"` // Updated payment method info for ACU
+// String returns the raw string value.
+func (s Stringish) String() string {
+	return string(s)
 }
 
-// MobiusPaymentInfo represents updated payment method information from ACU
-type MobiusPaymentInfo struct {
-	LastFour   string `json:"last_four"`   // Last 4 digits of updated card
-	CardType   string `json:"card_type"`   // Updated card type
-	ExpiryDate string `json:"expiry_date"` // Updated expiry in MM/YY format
+// Trimmed returns the value without surrounding whitespace.
+func (s Stringish) Trimmed() string {
+	return strings.TrimSpace(string(s))
 }
 
-type MobiusBillingAddress struct {
+// IsEmpty reports whether the value is blank after trimming.
+func (s Stringish) IsEmpty() bool {
+	return strings.TrimSpace(string(s)) == ""
+}
+
+// Float64 parses the value as a float64 when present.
+func (s Stringish) Float64() (float64, error) {
+	trimmed := strings.TrimSpace(string(s))
+	if trimmed == "" {
+		return 0, errors.New("value is empty")
+	}
+	return strconv.ParseFloat(trimmed, 64)
+}
+
+// -------------------------------- NMI Webhook Types --------------------------------
+
+type NMIWebhookEvent struct {
+	EventID   string              `json:"event_id" validate:"required"`
+	EventType NMIWebhookEventType `json:"event_type" validate:"required"`
+	EventBody json.RawMessage     `json:"event_body" validate:"required"`
+}
+
+type NMIRecurringEventBody struct {
+	SubscriptionID    Stringish          `json:"subscription_id"`
+	AttemptedPayments int                `json:"attempted_payments"`
+	CompletedPayments int                `json:"completed_payments"`
+	BillingAddress    *NMIBillingAddress `json:"billing_address"`
+	Card              *NMICard           `json:"card"`
+	Features          *NMIFeatures       `json:"features"`
+	Merchant          *NMIMerchant       `json:"merchant"`
+	NextChargeDate    Stringish          `json:"next_charge_date"`
+	OrderDescription  Stringish          `json:"order_description"`
+	OrderID           Stringish          `json:"order_id"`
+	Plan              *NMIPlan           `json:"plan"`
+	PONumber          Stringish          `json:"ponumber"`
+	ProcessorID       Stringish          `json:"processor_id"`
+	RemainingPayments Stringish          `json:"remaining_payments"`
+	Shipping          Stringish          `json:"shipping"`
+	SubscriptionType  Stringish          `json:"subscription_type"`
+	Tax               Stringish          `json:"tax"`
+	Website           Stringish          `json:"website"`
+}
+
+type NMITransactionEventBody struct {
+	TransactionID     Stringish             `json:"transaction_id"`
+	Amount            Stringish             `json:"amount"`
+	Currency          Stringish             `json:"currency"`
+	OrderID           Stringish             `json:"order_id"`
+	PONumber          Stringish             `json:"ponumber"`
+	ProcessorID       Stringish             `json:"processor_id"`
+	CustomerID        Stringish             `json:"customerid"`
+	CustomerVaultID   Stringish             `json:"customer_vault_id"`
+	Subscription      *NMISubscriptionRef   `json:"subscription"`
+	Action            *NMIAction            `json:"action"`
+	TransactionDetail *NMITransactionDetail `json:"transaction"`
+	BillingAddress    *NMIBillingAddress    `json:"billing_address"`
+	Card              *NMICard              `json:"card"`
+}
+
+type NMITransactionDetail struct {
+	TransactionID   Stringish           `json:"transaction_id"`
+	Amount          Stringish           `json:"amount"`
+	Currency        Stringish           `json:"currency"`
+	OrderID         Stringish           `json:"order_id"`
+	PONumber        Stringish           `json:"ponumber"`
+	CustomerID      Stringish           `json:"customerid"`
+	CustomerVaultID Stringish           `json:"customer_vault_id"`
+	Subscription    *NMISubscriptionRef `json:"subscription"`
+	Action          *NMIAction          `json:"action"`
+}
+
+type NMIACUEventBody struct {
+	VaultID       Stringish           `json:"vault_id"`
+	CustomerID    Stringish           `json:"customer_id"`
+	Subscription  *NMISubscriptionRef `json:"subscription"`
+	PaymentMethod *NMIPaymentInfo     `json:"payment_method"`
+}
+
+type NMISubscriptionRef struct {
+	SubscriptionID Stringish `json:"subscription_id"`
+	PlanID         Stringish `json:"plan_id"`
+}
+
+type NMIAction struct {
+	Source       string    `json:"source"`
+	Response     Stringish `json:"response"`
+	ResponseCode Stringish `json:"response_code"`
+	ResponseText string    `json:"response_text"`
+	Type         string    `json:"type"`
+}
+
+// NMIPaymentInfo represents updated payment method information from ACU
+type NMIPaymentInfo struct {
+	LastFour   Stringish `json:"last_four"`
+	CardType   Stringish `json:"card_type"`
+	ExpiryDate Stringish `json:"expiry_date"`
+}
+
+type NMIBillingAddress struct {
 	Address1   string `json:"address_1"`
 	Address2   string `json:"address_2"`
 	CellPhone  string `json:"cell_phone"`
@@ -70,7 +189,7 @@ type MobiusBillingAddress struct {
 	State      string `json:"state"`
 }
 
-type MobiusCard struct {
+type NMICard struct {
 	AVSResponse          string `json:"avs_response"`
 	CardAvailableBalance string `json:"card_available_balance"`
 	CardBalance          string `json:"card_balance"`
@@ -89,22 +208,22 @@ type MobiusCard struct {
 	XID                  string `json:"xid"`
 }
 
-type MobiusMerchant struct {
-	ID   string `json:"id" validate:"required"`
-	Name string `json:"name" validate:"required"`
+type NMIMerchant struct {
+	ID   Stringish `json:"id"`
+	Name string    `json:"name"`
 }
 
-type MobiusPlan struct {
-	Name           string `json:"name"`
-	Amount         string `json:"amount"`
-	Payments       string `json:"payments"`
-	DayOfMonth     *int   `json:"day_of_month"`
-	DayFrequency   *int   `json:"day_frequency"`
-	MonthFrequency *int   `json:"month_frequency"`
-	ID             string `json:"id" validate:"required"`
+type NMIPlan struct {
+	Name           string    `json:"name"`
+	Amount         Stringish `json:"amount"`
+	Payments       Stringish `json:"payments"`
+	DayOfMonth     *int      `json:"day_of_month"`
+	DayFrequency   *int      `json:"day_frequency"`
+	MonthFrequency *int      `json:"month_frequency"`
+	ID             Stringish `json:"id"`
 }
 
-type MobiusFeatures struct {
+type NMIFeatures struct {
 	IsTestMode bool `json:"is_test_mode"`
 }
 

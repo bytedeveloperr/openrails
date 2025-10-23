@@ -16,7 +16,7 @@ type BillingEvent struct {
 
 	// Event classification
 	EventType string `bun:",notnull" json:"event_type"` // subscription_created, payment_processed, etc.
-	Processor string `bun:",notnull" json:"processor"`  // mobius, ccbill, solana
+	Processor string `bun:",notnull" json:"processor"`  // nmi, ccbill, solana
 	Status    string `bun:",notnull" json:"status"`     // success, failed, pending
 
 	// Reference IDs
@@ -53,7 +53,7 @@ type ProcessorSubscription struct {
 	SubscriptionID uuid.UUID `bun:",type:uuid,notnull" json:"subscription_id"`
 
 	// Processor details
-	Processor           string  `bun:",notnull" json:"processor"`                 // mobius, ccbill
+	Processor           string  `bun:",notnull" json:"processor"`                 // nmi, ccbill
 	ProcessorSubID      string  `bun:",notnull" json:"processor_subscription_id"` // Processor's subscription ID
 	ProcessorCustomerID *string `bun:"" json:"processor_customer_id,omitempty"`   // Customer/vault ID
 
@@ -148,7 +148,7 @@ type WebhookEvent struct {
 
 	// Reference to related entities
 	SubscriptionID *uuid.UUID `bun:",type:uuid" json:"subscription_id,omitempty"`
-	UserID         *uuid.UUID `bun:"" json:"user_id,omitempty"`
+	UserID         *string    `bun:"" json:"user_id,omitempty"`
 
 	// Retry tracking
 	ProcessingAttempts int        `bun:",default:0" json:"processing_attempts"`
@@ -164,8 +164,8 @@ type WebhookEvent struct {
 type SolanaTransaction struct {
 	bun.BaseModel `bun:",table:solana_transactions"`
 
-	ID     uuid.UUID  `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
-	UserID *uuid.UUID `bun:"" json:"user_id,omitempty"`
+	ID     uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
+	UserID *string   `bun:"" json:"user_id,omitempty"`
 
 	// Transaction details
 	Signature *string `bun:"" json:"signature,omitempty"` // Solana transaction signature
@@ -214,7 +214,7 @@ type BillingMetric struct {
 
 	// Metric identification
 	MetricType string    `bun:",notnull" json:"metric_type"` // revenue, subscriptions, failures, etc.
-	Processor  *string   `bun:"" json:"processor,omitempty"` // mobius, ccbill, solana, or null for aggregated
+	Processor  *string   `bun:"" json:"processor,omitempty"` // nmi, ccbill, solana, or null for aggregated
 	Period     string    `bun:",notnull" json:"period"`      // hour, day, week, month
 	PeriodDate time.Time `bun:",nullzero,notnull" json:"period_date"`
 

@@ -12,7 +12,7 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
-	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
+	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
@@ -24,7 +24,7 @@ type Runtime struct {
 	CCBillClient     *ccbill.CCBillClient
 	CCBillRESTClient *ccbill.RESTClient
 	CCBillDataLink   *ccbill.DataLinkClient
-	MobiusClient     *mobius.MobiusClient
+	NMIClients       map[string]*nmi.NMIClient
 	RiverClient      *river.Client[pgx.Tx]
 
 	UserService              *services.UserService

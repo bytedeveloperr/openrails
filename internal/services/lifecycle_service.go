@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -24,6 +25,39 @@ type SubscriptionLifecycleService struct {
 	EntitlementService       *EntitlementService
 	NotificationQueueService *NotificationQueueService
 	notificationService      *NotificationService
+}
+
+type CreateMembershipParams struct {
+	UserID                  string
+	PriceID                 uuid.UUID
+	Processor               models.Processor
+	ProcessorSubscriptionID *string
+	UserEmail               *string
+	ProcessorProvider       string
+}
+
+type RenewMembershipParams struct {
+	Processor               models.Processor
+	ProcessorSubscriptionID string
+	ProcessorProvider       string
+}
+
+type CancelMembershipParams struct {
+	SubscriptionID          *uuid.UUID
+	Processor               *models.Processor
+	ProcessorSubscriptionID *string
+	CancelType              models.CancelType
+	CancelFeedback          *string
+	ImmediateCancellation   bool
+	ProcessorProvider       string
+}
+
+type FailMembershipParams struct {
+	Processor               models.Processor
+	ProcessorSubscriptionID string
+	ProcessorProvider       string
+	FailureReason           *string
+	FailureCode             *string
 }
 
 // NewSubscriptionLifecycleService creates a new instance of SubscriptionLifecycleService
@@ -94,11 +128,6 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 		return nil, nil, errors.New("database handle is required")
 	}
 
-	uid, err := uuid.Parse(params.UserID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid user id: %w", err)
-	}
-
 	priceService := NewPriceService(dbb)
 	productService := NewProductService(dbb)
 	entitlementService := NewEntitlementService(dbb)
@@ -126,11 +155,21 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 
 	var subscription *models.Subscription
 	if existingSub != nil {
+		if params.UserEmail != nil && strings.TrimSpace(*params.UserEmail) != "" {
+			emailc := strings.TrimSpace(*params.UserEmail)
+			existingSub.UserEmail = &emailc
+		}
+
 		existingSub.PriceID = price.ID
 		existingSub.Status = models.StatusActive
 		existingSub.Processor = params.Processor
 		if params.ProcessorSubscriptionID != nil {
 			existingSub.ProcessorSubscriptionID = *params.ProcessorSubscriptionID
+		}
+
+		if params.ProcessorProvider != "" {
+			provider := params.ProcessorProvider
+			existingSub.ProcessorProvider = &provider
 		}
 
 		existingSub.CurrentPeriodStartsAt = &periodStartsAt
@@ -148,7 +187,7 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 	} else {
 		subscription = &models.Subscription{
 			ID:        uuid.New(),
-			UserID:    uid,
+			UserID:    params.UserID,
 			PriceID:   price.ID,
 			Status:    models.StatusActive,
 			Processor: params.Processor,
@@ -161,6 +200,16 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 			CurrentPeriodStartsAt: &periodStartsAt,
 			CurrentPeriodEndsAt:   &periodEndsAt,
 			StartedAt:             periodStartsAt,
+		}
+
+		if params.UserEmail != nil && strings.TrimSpace(*params.UserEmail) != "" {
+			emailc := strings.TrimSpace(*params.UserEmail)
+			subscription.UserEmail = &emailc
+		}
+
+		if params.ProcessorProvider != "" {
+			provider := params.ProcessorProvider
+			subscription.ProcessorProvider = &provider
 		}
 
 		if err := subService.Create(ctx, subscription); err != nil {
@@ -202,13 +251,16 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 			if err == nil && finite != nil && finite.EndAt != nil {
 				start = *finite.EndAt
 			}
-			_, _ = entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID)
+
+			if _, err := entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID); err != nil {
+				return nil, nil, fmt.Errorf("failed to grant entitlement %s: %w", ent, err)
+			}
 		}
 	}
 
 	notification := &models.NotificationQueue{
 		ID:        uuid.New(),
-		UserID:    uid,
+		UserID:    params.UserID,
 		EventType: models.NotificationPremiumStarted,
 	}
 	if err := notificationService.Create(ctx, notification); err != nil {
@@ -232,9 +284,22 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
 
 		// Find subscription
-		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), params.ProcessorSubscriptionID)
+		provider := ""
+		if params.Processor == models.ProcessorNMI {
+			provider = strings.TrimSpace(strings.ToLower(params.ProcessorProvider))
+			if provider == "" {
+				provider = "mobius"
+			}
+		}
+
+		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), provider, params.ProcessorSubscriptionID)
 		if err != nil {
 			return fmt.Errorf("subscription not found: %w", err)
+		}
+
+		if provider != "" {
+			providerCopy := provider
+			subscription.ProcessorProvider = &providerCopy
 		}
 
 		// Get price for billing period calculation
@@ -307,6 +372,14 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
 		entSvc := NewEntitlementService(db)
 
+		provider := ""
+		if params.Processor != nil && *params.Processor == models.ProcessorNMI {
+			provider = strings.TrimSpace(strings.ToLower(params.ProcessorProvider))
+			if provider == "" {
+				provider = "mobius"
+			}
+		}
+
 		// Find subscription
 		var subscription *models.Subscription
 		var err error
@@ -314,13 +387,18 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		if params.SubscriptionID != nil {
 			subscription, err = subService.GetByID(ctx, *params.SubscriptionID)
 		} else if params.ProcessorSubscriptionID != nil && params.Processor != nil {
-			subscription, err = subService.GetByProcessorSubscriptionID(ctx, string(*params.Processor), *params.ProcessorSubscriptionID)
+			subscription, err = subService.GetByProcessorSubscriptionID(ctx, string(*params.Processor), provider, *params.ProcessorSubscriptionID)
 		} else {
 			return fmt.Errorf("either subscription_id or processor details must be provided")
 		}
 
 		if err != nil {
 			return fmt.Errorf("subscription not found: %w", err)
+		}
+
+		if provider != "" {
+			providerCopy := provider
+			subscription.ProcessorProvider = &providerCopy
 		}
 
 		// Update subscription status
@@ -465,12 +543,25 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
 		entSvc := NewEntitlementService(db)
 
-		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), params.ProcessorSubscriptionID)
+		provider := ""
+		if params.Processor == models.ProcessorNMI {
+			provider = strings.TrimSpace(strings.ToLower(params.ProcessorProvider))
+			if provider == "" {
+				provider = "mobius"
+			}
+		}
+
+		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), provider, params.ProcessorSubscriptionID)
 		if err != nil {
 			return fmt.Errorf("subscription not found: %w", err)
 		}
 
-		// Update subscription status: failed payment -> past_due (enter dunning)
+		if provider != "" {
+			providerCopy := provider
+			subscription.ProcessorProvider = &providerCopy
+		}
+
+		// Update subscription status - Wave 18: failed payment = past_due (still trying to recover)
 		subscription.Status = models.StatusPastDue
 
 		// Dunning policy (Mobius): try every 3 days, up to 5 failures total
@@ -541,34 +632,4 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 	return nil
 }
 
-// deprecated grantRole removed; entitlements managed by subscription lifecycle
-
 // Parameter structs for lifecycle operations
-
-type CreateMembershipParams struct {
-	UserID                  string
-	PriceID                 uuid.UUID
-	Processor               models.Processor
-	ProcessorSubscriptionID *string
-}
-
-type RenewMembershipParams struct {
-	Processor               models.Processor
-	ProcessorSubscriptionID string
-}
-
-type CancelMembershipParams struct {
-	SubscriptionID          *uuid.UUID
-	Processor               *models.Processor
-	ProcessorSubscriptionID *string
-	CancelType              models.CancelType
-	CancelFeedback          *string
-	ImmediateCancellation   bool
-}
-
-type FailMembershipParams struct {
-	Processor               models.Processor
-	ProcessorSubscriptionID string
-	FailureReason           *string
-	FailureCode             *string
-}
