@@ -16,10 +16,10 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 		return nil, fmt.Errorf("river client is nil")
 	}
 	workers := river.NewWorkers()
-	if err := river.AddWorkerSafely(workers, &riverjobs.DunningAttemptWorker{DB: r.DB, Mobius: r.MobiusClient}); err != nil {
+	if err := river.AddWorkerSafely(workers, &riverjobs.DunningAttemptWorker{DB: r.DB, NMIClients: r.NMIClients}); err != nil {
 		return nil, fmt.Errorf("add dunning attempt worker: %w", err)
 	}
-	if err := river.AddWorkerSafely(workers, &riverjobs.DunningSweepWorker{DB: r.DB, Mobius: r.MobiusClient}); err != nil {
+	if err := river.AddWorkerSafely(workers, &riverjobs.DunningSweepWorker{DB: r.DB, NMIClients: r.NMIClients}); err != nil {
 		return nil, fmt.Errorf("add dunning sweep worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.IdempotencyCleanupWorker{DB: r.DB}); err != nil {

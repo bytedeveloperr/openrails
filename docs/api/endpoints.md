@@ -76,6 +76,7 @@ Admin routes are not rate limited by the application but should live behind netw
   {
     "price_id": "uuid",
     "processor": "nmi",
+    "provider": "mobius",
     "email": "user@example.com",
     "first_name": "Jane",
     "last_name": "Doe",
@@ -87,6 +88,7 @@ Admin routes are not rate limited by the application but should live behind netw
     "payment_token": "collectjs token (nmi)"
   }
   ```
+- **Notes:** `provider` is optional and selects the configured NMI account when multiple providers exist. When omitted, the price configuration or the default provider (`mobius`) is used.
 - **Response:**
   ```json
   {
@@ -189,11 +191,13 @@ Admin routes are not rate limited by the application but should live behind netw
 
 ### POST /v1/subscriptions/webhook/:processor
 - **Auth:** none (processor security applies)
-- **Path:** `processor` = `ccbill` or `nmi`.
+- **Path:**
+  - `POST /v1/subscriptions/webhook/:processor` where `processor` = `ccbill` or `nmi`.
+  - `POST /v1/subscriptions/webhook/:processor/:provider` when addressing a specific NMI provider (e.g., `mobius`). A matching `provider` query string value is also accepted.
 - **Description:** Ingests processor webhook callbacks. Payload format depends on processor:
   - `ccbill`: `application/x-www-form-urlencoded` with IP allow-list checking.
   - `nmi`: JSON body with HMAC signature (`X-Signature`, `X-NMI-Signature`, or legacy `X-Mobius-Signature`).
-- **Response:** 200 on success, 403 if authentication fails, 400 for unrecognised processors.
+- **Response:** 200 on success, 401 for missing/invalid NMI signatures, 403 if a CCBill request fails IP validation, 400 for unrecognised processors or providers.
 
 ## Payment Methods
 

@@ -41,7 +41,6 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	}
 
 	serviceInstances := createServices(database, cfg, ccbillRESTClient, nmiClients)
-	workerManager := workers.NewManager(database, nmiClients, ccbillDataLinkClient, serviceInstances.SubscriptionService)
 
 	var emailService *services.EmailService
 	var subscriptionEmailService *services.SubscriptionEmailService

@@ -3,11 +3,12 @@ package riverjobs
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/integrations/mobius"
+	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/google/uuid"
 	"github.com/riverqueue/river"
@@ -27,11 +28,13 @@ type DunningAttemptArgs struct {
 
 func (DunningAttemptArgs) Kind() string { return KindDunningAttempt }
 
-// DunningAttemptWorker performs a dunning attempt against Mobius for a single subscription.
+const defaultNMIProvider = "mobius"
+
+// DunningAttemptWorker performs a dunning attempt against an NMI provider (e.g. Mobius) for a single subscription.
 type DunningAttemptWorker struct {
 	river.WorkerDefaults[DunningAttemptArgs]
-	DB     *db.DB
-	Mobius *mobius.MobiusClient
+	DB         *db.DB
+	NMIClients map[string]*nmi.NMIClient
 }
 
 func (DunningAttemptWorker) Kind() string { return KindDunningAttempt }
@@ -40,9 +43,8 @@ func (w *DunningAttemptWorker) Work(ctx context.Context, job *river.Job[DunningA
 	if w.DB == nil {
 		return fmt.Errorf("db is required")
 	}
-	if w.Mobius == nil {
-		// Nothing to do if Mobius is not configured; consider this a no-op
-		log.WithContext(ctx).Warn("Mobius client not configured; skipping dunning attempt")
+	if w.NMIClients == nil {
+		log.WithContext(ctx).Warn("NMI clients not configured; skipping dunning attempt")
 		return nil
 	}
 
@@ -64,12 +66,31 @@ func (w *DunningAttemptWorker) Work(ctx context.Context, job *river.Job[DunningA
 	lifecycle := services.NewSubscriptionLifecycleService(w.DB, productSvc, priceSvc, entitlementSvc, notifQueueSvc)
 	paymentSvc := services.NewPaymentService(w.DB)
 
+	if sub.Processor != models.ProcessorNMI {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id": sub.ID,
+			"processor":       sub.Processor,
+		}).Warn("Skipping dunning attempt for non-NMI subscription")
+		return nil
+	}
+
+	provider := resolveSubscriptionProvider(&sub)
+	client := w.NMIClients[provider]
+	if client == nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id": sub.ID,
+			"provider":        provider,
+		}).Warn("NMI client not configured for provider; skipping dunning attempt")
+		return nil
+	}
+
 	// Validate payment method
 	pm := sub.PaymentMethod
 	if pm == nil || !pm.IsActive || pm.VaultID == "" || pm.BillingID == nil || *pm.BillingID == "" {
 		reason := "payment method unavailable for rebill"
 		if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorMobius,
+			Processor:               models.ProcessorNMI,
+			ProcessorProvider:       provider,
 			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
 			FailureReason:           &reason,
 		}); err != nil {
@@ -78,8 +99,8 @@ func (w *DunningAttemptWorker) Work(ctx context.Context, job *river.Job[DunningA
 		return nil
 	}
 
-	// Attempt manual rebill via Mobius
-	rebillResp, err := w.Mobius.AttemptManualRebill(mobius.ManualRebillParams{
+	// Attempt manual rebill via configured NMI provider
+	rebillResp, err := client.AttemptManualRebill(nmi.ManualRebillParams{
 		VaultID:        pm.VaultID,
 		BillingID:      *pm.BillingID,
 		SubscriptionID: sub.ProcessorSubscriptionID,
@@ -87,7 +108,8 @@ func (w *DunningAttemptWorker) Work(ctx context.Context, job *river.Job[DunningA
 	if err != nil {
 		msg := fmt.Sprintf("manual rebill request failed: %v", err)
 		if err2 := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorMobius,
+			Processor:               models.ProcessorNMI,
+			ProcessorProvider:       provider,
 			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
 			FailureReason:           &msg,
 		}); err2 != nil {
@@ -102,7 +124,8 @@ func (w *DunningAttemptWorker) Work(ctx context.Context, job *river.Job[DunningA
 			reason = rebillResp.ErrorMessage
 		}
 		if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorMobius,
+			Processor:               models.ProcessorNMI,
+			ProcessorProvider:       provider,
 			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
 			FailureReason:           &reason,
 		}); err != nil {
@@ -113,7 +136,8 @@ func (w *DunningAttemptWorker) Work(ctx context.Context, job *river.Job[DunningA
 
 	// Success: renew membership window and create a payment record
 	if err := lifecycle.RenewMembership(ctx, &services.RenewMembershipParams{
-		Processor:               models.ProcessorMobius,
+		Processor:               models.ProcessorNMI,
+		ProcessorProvider:       provider,
 		ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
 	}); err != nil {
 		log.WithContext(ctx).WithError(err).WithField("subscription_id", sub.ID).Error("renew membership after successful rebill")
@@ -136,12 +160,16 @@ func (w *DunningAttemptWorker) Work(ctx context.Context, job *river.Job[DunningA
 		UserID:         sub.UserID,
 		PriceID:        sub.PriceID,
 		SubscriptionID: &sub.ID,
-		Processor:      models.ProcessorMobius,
+		Processor:      models.ProcessorNMI,
 		TransactionID:  rebillResp.TransactionID,
 		Amount:         amount,
 		Currency:       currency,
 		PurchasedAt:    time.Now(),
 		CreatedAt:      time.Now(),
+	}
+	if provider != "" {
+		providerCopy := provider
+		pay.ProcessorProvider = &providerCopy
 	}
 	if err := paymentSvc.Create(ctx, pay); err != nil {
 		log.WithContext(ctx).WithError(err).WithField("subscription_id", sub.ID).Warn("create payment record for rebill")
@@ -154,11 +182,11 @@ type DunningSweepArgs struct{}
 
 func (DunningSweepArgs) Kind() string { return KindDunningScan }
 
-// DunningSweepWorker scans for due past_due Mobius subscriptions and processes attempts inline.
+// DunningSweepWorker scans for due past_due NMI subscriptions and processes attempts inline.
 type DunningSweepWorker struct {
 	river.WorkerDefaults[DunningSweepArgs]
-	DB     *db.DB
-	Mobius *mobius.MobiusClient
+	DB         *db.DB
+	NMIClients map[string]*nmi.NMIClient
 }
 
 func (DunningSweepWorker) Kind() string { return KindDunningScan }
@@ -171,7 +199,7 @@ func (w *DunningSweepWorker) Work(ctx context.Context, job *river.Job[DunningSwe
 	due := []models.Subscription{}
 	if err := w.DB.GetDB().NewSelect().
 		Model(&due).
-		Where("processor = ?", models.ProcessorMobius).
+		Where("processor = ?", models.ProcessorNMI).
 		Where("status = ?", models.StatusPastDue).
 		Where("next_retry_at IS NOT NULL AND next_retry_at <= NOW()").
 		Column("id").
@@ -186,8 +214,8 @@ func (w *DunningSweepWorker) Work(ctx context.Context, job *river.Job[DunningSwe
 	count := 0
 	for _, sub := range due {
 		// Reuse attempt logic from DunningAttemptWorker by calling it directly
-		// Simplify by creating a temporary worker bound to current DB/Mobius
-		tmp := DunningAttemptWorker{DB: w.DB, Mobius: w.Mobius}
+		// Simplify by creating a temporary worker bound to current DB/NMI clients
+		tmp := DunningAttemptWorker{DB: w.DB, NMIClients: w.NMIClients}
 		if err := tmp.Work(ctx, &river.Job[DunningAttemptArgs]{Args: DunningAttemptArgs{SubscriptionID: sub.ID}}); err != nil {
 			log.WithContext(ctx).WithError(err).WithField("subscription_id", sub.ID).Warn("dunning attempt failed")
 			continue
@@ -196,4 +224,40 @@ func (w *DunningSweepWorker) Work(ctx context.Context, job *river.Job[DunningSwe
 	}
 	log.WithContext(ctx).WithField("count", count).Info("DunningSweep: processed attempts")
 	return nil
+}
+
+func resolveSubscriptionProvider(sub *models.Subscription) string {
+	if sub == nil {
+		return defaultNMIProvider
+	}
+
+	if p := normalizeProvider(sub.ProcessorProvider); p != "" {
+		return p
+	}
+	if sub.PaymentMethod != nil {
+		if p := normalizeProvider(sub.PaymentMethod.Provider); p != "" {
+			return p
+		}
+	}
+	if sub.Price != nil {
+		if p := normalizeProvider(sub.Price.NMIProvider); p != "" {
+			return p
+		}
+	}
+	return defaultNMIProvider
+}
+
+func normalizeProvider(value interface{}) string {
+	switch v := value.(type) {
+	case *string:
+		if v == nil {
+			return ""
+		}
+		return normalizeProvider(*v)
+	case string:
+		trimmed := strings.TrimSpace(strings.ToLower(v))
+		return trimmed
+	default:
+		return ""
+	}
 }
