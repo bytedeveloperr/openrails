@@ -1,3 +1,5 @@
+SET search_path TO billing;
+
 -- bun:up
 -- Set timeouts to prevent hanging migrations
 SET lock_timeout = '10s';

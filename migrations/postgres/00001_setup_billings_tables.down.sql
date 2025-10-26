@@ -1,3 +1,5 @@
+SET search_path TO billing;
+
 -- bun:down
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';
