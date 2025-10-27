@@ -56,7 +56,6 @@ ccbill:
   form_name: "your-form-name"
   language: "English"
   currency_code: "840" # USD
-  allowed_types: "0000000000000000000000000000000000000000000000000000000000000000"
   subscription_type_id: "0001"
   
   # Test mode

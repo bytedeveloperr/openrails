@@ -12,6 +12,7 @@ import (
 	"github.com/riverqueue/river"
 	riverpgxv5 "github.com/riverqueue/river/riverdriver/riverpgxv5"
 	log "github.com/sirupsen/logrus"
+	"github.com/uptrace/bun"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -19,6 +20,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/internal/validation"
 )
 
 func buildRuntime(cfg *config.Config) (*Runtime, error) {
@@ -121,6 +123,24 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Validate that all migrations have been applied before starting the application
+	// This ensures the app won't start with a missing or outdated schema
+	bunDB, ok := database.GetDB().(*bun.DB)
+	if !ok {
+		return nil, fmt.Errorf("failed to get *bun.DB from database")
+	}
+
+	schema := cfg.DB.Schema
+	if schema == "" {
+		schema = "billing"
+	}
+
+	if err := validation.ValidateMigrations(context.Background(), bunDB, schema); err != nil {
+		log.WithError(err).Fatal("Migration validation failed - cannot start application")
+		return nil, fmt.Errorf("migration validation failed: %w", err)
+	}
+
 	return database, nil
 }
 

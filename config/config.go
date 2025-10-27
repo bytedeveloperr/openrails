@@ -128,7 +128,6 @@ type CCBillConfig struct {
 	FormID             string `koanf:"form_id"`
 	FormName           string `koanf:"form_name"`
 	CurrencyCode       string `koanf:"currency_code"`
-	AllowedTypes       string `koanf:"allowed_types"`
 	ClientSubAcc       string `koanf:"client_sub_acc"`
 	ClientAccNum       string `koanf:"client_acc_num"`
 	SubscriptionTypeId string `koanf:"subscription_type_id"`
@@ -523,7 +522,6 @@ func Load(configPath string) (*Config, error) {
 		"CCBILL_FORM_NAME":            "ccbill.form_name",
 		"CCBILL_LANGUAGE":             "ccbill.language",
 		"CCBILL_CURRENCY_CODE":        "ccbill.currency_code",
-		"CCBILL_ALLOWED_TYPES":        "ccbill.allowed_types",
 		"CCBILL_SUBSCRIPTION_TYPE_ID": "ccbill.subscription_type_id",
 		"CCBILL_TEST_MODE":            "ccbill.test_mode",
 		"CCBILL_WEBHOOK_SECRET":       "ccbill.webhook_secret",
