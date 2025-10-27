@@ -57,7 +57,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
 				SubscribeData: services.SubscribeData{
 					Processor: "nmi", Provider: "mobius",
-					PriceID:   uuid.New().String(),
+					PriceID: uuid.New().String(),
 				},
 			},
 		}
@@ -78,7 +78,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
 				SubscribeData: services.SubscribeData{
 					Processor: "nmi", Provider: "mobius",
-					PriceID:   uuid.New().String(),
+					PriceID: uuid.New().String(),
 				},
 			},
 		}
@@ -106,7 +106,7 @@ func TestSubscribeEndpoint(t *testing.T) {
 			SubscribeBodyParams: handlers.SubscribeBodyParams{
 				SubscribeData: services.SubscribeData{
 					Processor: "nmi", Provider: "mobius",
-					PriceID:   uuid.New().String(),
+					PriceID: uuid.New().String(),
 				},
 			},
 		}
@@ -184,7 +184,7 @@ func TestGetSubscriptionEndpoints(t *testing.T) {
 		{"GetActiveSubscription", "/api/v1/subscriptions/active"},
 		{"GetSubscriptionHistory", "/api/v1/subscriptions/history"},
 		{"GetUserPayments", "/api/v1/subscriptions/purchases"},
-		{"GetMyBillingStatus", "/api/v1/me/billing-status"},
+		{"GetMyBillingStatus", "/api/v1/me/status"},
 	}
 
 	for _, endpoint := range endpoints {

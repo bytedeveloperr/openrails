@@ -418,7 +418,7 @@ Admin routes are not rate limited by the application but should live behind netw
 
 ## Billing Status
 
-### GET /v1/me/billing-status
+### GET /v1/me/status
 - **Auth:** bearer token
 - **Description:** Summarises premium status, subscription record, next renewal date, and active entitlements.
 - **Response:**
