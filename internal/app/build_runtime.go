@@ -87,6 +87,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		PaymentMethodService:       serviceInstances.PaymentMethodService,
 		PaymentService:             serviceInstances.PurchaseService,
 		EntitlementService:         serviceInstances.EntitlementService,
+		VaultService:               serviceInstances.VaultService,
 		SolanaWalletService:        serviceInstances.SolanaWalletService,
 		SolanaPaymentService:       serviceInstances.SolanaPaymentService,
 		SolanaPaymentIntentService: serviceInstances.SolanaPaymentIntentService,
@@ -234,6 +235,7 @@ type servicesInstances struct {
 	PaymentMethodService       *services.PaymentMethodService
 	PurchaseService            *services.PaymentService
 	EntitlementService         *services.EntitlementService
+	VaultService               *services.VaultService
 	SolanaWalletService        *services.SolanaWalletService
 	SolanaPaymentService       *services.SolanaPaymentService
 	SolanaPaymentIntentService *services.SolanaPaymentIntentService
@@ -277,6 +279,8 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		nmiClients,
 	)
 
+	vaultService := services.NewVaultService(paymentMethodService, subscriptionService, nmiClients, database)
+
 	userSubscriptionService := services.NewUserSubscriptionService(
 		subscriptionService,
 		productService,
@@ -310,6 +314,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		PaymentMethodService:         paymentMethodService,
 		PurchaseService:              purchaseService,
 		EntitlementService:           entitlementService,
+		VaultService:                 vaultService,
 		SolanaWalletService:          solanaWalletService,
 		SolanaPaymentService:         solanaPaymentService,
 		SolanaPaymentIntentService:   solanaPaymentIntentService,

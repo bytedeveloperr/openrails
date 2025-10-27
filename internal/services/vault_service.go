@@ -23,8 +23,6 @@ type VaultService struct {
 
 type CreateVaultRequest struct {
 	PaymentToken string
-	CCNumber     string
-	CCExp        string
 	Provider     string
 	FirstName    string
 	LastName     string
@@ -40,20 +38,19 @@ type CreateVaultRequest struct {
 }
 
 type UpdateVaultRequest struct {
-	CCNumber  *string
-	CCExp     *string
-	Provider  *string
-	FirstName *string
-	LastName  *string
-	Address1  *string
-	City      *string
-	State     *string
-	Zip       *string
-	Country   *string
-	Phone     *string
-	Email     *string
-	Company   *string
-	Address2  *string
+	PaymentToken *string
+	Provider     *string
+	FirstName    *string
+	LastName     *string
+	Address1     *string
+	City         *string
+	State        *string
+	Zip          *string
+	Country      *string
+	Phone        *string
+	Email        *string
+	Company      *string
+	Address2     *string
 }
 
 func NewVaultService(pm *PaymentMethodService, sub *SubscriptionService, nmiClients map[string]*nmi.NMIClient, dbx *db.DB) *VaultService {
@@ -79,8 +76,6 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 
 	vaultData := nmi.CreateCustomerVaultData{
 		PaymentToken: req.PaymentToken,
-		CCNumber:     req.CCNumber,
-		CCExp:        req.CCExp,
 		FirstName:    req.FirstName,
 		LastName:     req.LastName,
 		Address1:     req.Address1,
@@ -140,12 +135,14 @@ func (s *VaultService) UpdateVault(ctx context.Context, pm *models.PaymentMethod
 	}
 
 	upd := nmi.UpdateCustomerVaultData{CustomerVaultID: pm.VaultID}
-	if req.CCNumber != nil {
-		upd.CCNumber = *req.CCNumber
+
+	if req.PaymentToken != nil {
+		trimmed := strings.TrimSpace(*req.PaymentToken)
+		if trimmed != "" {
+			upd.PaymentToken = trimmed
+		}
 	}
-	if req.CCExp != nil {
-		upd.CCExp = *req.CCExp
-	}
+
 	if req.FirstName != nil {
 		upd.FirstName = *req.FirstName
 	}
@@ -187,6 +184,8 @@ func (s *VaultService) UpdateVault(ctx context.Context, pm *models.PaymentMethod
 
 	providerCopy := provider
 	pm.Provider = &providerCopy
+	pm.IsActive = true
+	pm.FailureReason = nil
 	pm.UpdatedAt = time.Now()
 	if err := s.PaymentMethodService.Update(ctx, pm); err != nil {
 		log.WithError(err).WithField("vault_id", pm.VaultID).Error("Failed to update local vault record")

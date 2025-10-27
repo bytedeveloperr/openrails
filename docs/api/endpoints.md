@@ -223,6 +223,35 @@ Admin routes are not rate limited by the application but should live behind netw
   }
   ```
 
+### PUT /v1/payment-methods/:id
+- **Auth:** bearer token
+- **Path:** `id` = payment method UUID.
+- **Body:**
+  ```json
+  {
+    "payment_token": "collect-js-token",
+    "first_name": "Jane",
+    "last_name": "Doe",
+    "address1": "123 Main St",
+    "city": "New York",
+    "state": "NY",
+    "zip": "10001",
+    "country": "US",
+    "provider": "mobius"
+  }
+  ```
+- **Description:** Replaces the stored NMI vault details using a tokenized Collect.js payload. The payment token is required; all other fields are optional and update the vault metadata when provided.
+- **Response:**
+  ```json
+  {
+    "id": "6d073ea2-12ac-4a35-8d39-7affc3439c99",
+    "processor": "nmi",
+    "vault_id": "cust-123",
+    "is_active": true,
+    "updated_at": "2025-01-12T10:00:00Z"
+  }
+  ```
+
 ### DELETE /v1/payment-methods/:id
 - **Auth:** bearer token
 - **Path:** `id` = payment method UUID.

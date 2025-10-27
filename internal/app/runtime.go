@@ -35,6 +35,7 @@ type Runtime struct {
 	NotificationService      *services.NotificationService
 	PaymentMethodService     *services.PaymentMethodService
 	PaymentService           *services.PaymentService
+	VaultService             *services.VaultService
 
 	UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService

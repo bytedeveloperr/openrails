@@ -1,16 +1,165 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
 // ListPaymentMethods returns the user's payment methods (optionally including inactive)
+func CreatePaymentMethod(r *Request) {
+	if r.State == nil || r.State.VaultService == nil {
+		r.ErrorJSON(http.StatusServiceUnavailable, "payment vault unavailable")
+		return
+	}
+
+	user := r.GetUser()
+	if user == nil {
+		r.ErrorJSON(http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	req := new(CreatePaymentMethodRequest)
+	if !r.BindJSON(req) {
+		return
+	}
+
+	if strings.TrimSpace(req.PaymentToken) == "" {
+		r.ErrorJSON(http.StatusBadRequest, "payment_token is required")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	createReq := &services.CreateVaultRequest{
+		PaymentToken: req.PaymentToken,
+		FirstName:    req.FirstName,
+		LastName:     req.LastName,
+		Address1:     req.Address1,
+		City:         req.City,
+		State:        req.State,
+		Zip:          req.Zip,
+		Country:      req.Country,
+		Phone:        req.Phone,
+		Company:      req.Company,
+		Address2:     req.Address2,
+		Provider:     req.Provider,
+	}
+
+	if req.Email != "" {
+		createReq.Email = req.Email
+	} else if user.Email != nil {
+		createReq.Email = strings.TrimSpace(*user.Email)
+	}
+
+	pm, err := r.State.VaultService.CreateVault(ctx, user, createReq)
+	if err != nil {
+		log.WithError(err).WithField("user_id", user.ID).Error("Failed to create payment method")
+		r.ErrorJSON(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	r.SuccessJSON(pm)
+}
+
+// UpdatePaymentMethod replaces the stored payment method using a tokenized payload
+func UpdatePaymentMethod(r *Request) {
+	if r.State == nil || r.State.VaultService == nil {
+		r.ErrorJSON(http.StatusServiceUnavailable, "payment vault unavailable")
+		return
+	}
+
+	req := new(UpdatePaymentMethodRequest)
+	if !r.BindURI(req.Path()) {
+		return
+	}
+	if !r.BindJSON(req.Body()) {
+		return
+	}
+
+	user := r.GetUser()
+	if user == nil {
+		r.ErrorJSON(http.StatusUnauthorized, "Authentication required")
+		return
+	}
+
+	methodID, err := uuid.Parse(req.ID)
+	if err != nil {
+		r.ErrorJSON(http.StatusBadRequest, "Invalid payment method ID format")
+		return
+	}
+
+	trimmedToken := strings.TrimSpace(req.PaymentToken)
+	if trimmedToken == "" {
+		r.ErrorJSON(http.StatusBadRequest, "payment_token is required")
+		return
+	}
+
+	pm, err := r.State.PaymentMethodService.ValidatePaymentMethodOperation(r.Request.Context(), methodID, user.ID)
+	if err != nil {
+		switch {
+		case errors.Is(err, services.ErrPaymentMethodNotFound):
+			r.ErrorJSON(http.StatusNotFound, "Payment method not found")
+			return
+		case errors.Is(err, services.ErrPaymentMethodAccessDenied):
+			r.ErrorJSON(http.StatusForbidden, "Access denied - you don't own this payment method")
+			return
+		default:
+			log.WithError(err).WithFields(log.Fields{
+				"payment_method_id": methodID,
+				"user_id":           user.ID,
+			}).Error("Failed to validate payment method ownership")
+			r.ErrorJSON(http.StatusInternalServerError, "Failed to validate payment method")
+			return
+		}
+	}
+
+	if pm.Processor != models.ProcessorNMI {
+		r.ErrorJSON(http.StatusBadRequest, "Only NMI payment methods can be updated")
+		return
+	}
+
+	updateReq := &services.UpdateVaultRequest{
+		PaymentToken: &trimmedToken,
+		Provider:     req.Provider,
+		FirstName:    req.FirstName,
+		LastName:     req.LastName,
+		Address1:     req.Address1,
+		City:         req.City,
+		State:        req.State,
+		Zip:          req.Zip,
+		Country:      req.Country,
+		Phone:        req.Phone,
+		Email:        req.Email,
+		Company:      req.Company,
+		Address2:     req.Address2,
+	}
+
+	ctx, cancel := context.WithTimeout(r.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	updated, err := r.State.VaultService.UpdateVault(ctx, pm, updateReq)
+	if err != nil {
+		log.WithError(err).WithFields(log.Fields{
+			"payment_method_id": methodID,
+			"user_id":           user.ID,
+		}).Error("Failed to update payment method")
+		r.ErrorJSON(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	r.SuccessJSON(updated)
+}
+
 func ListPaymentMethods(r *Request) {
 	req := new(ListPaymentMethodsRequest)
 	if !r.BindQuery(req) {

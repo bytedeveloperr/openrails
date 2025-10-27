@@ -240,6 +240,56 @@ func (r *ActivatePaymentMethodRequest) Path() any {
 	return &r.ActivatePaymentMethodPathParams
 }
 
+type CreatePaymentMethodRequest struct {
+	PaymentToken string `json:"payment_token" binding:"required"`
+	FirstName    string `json:"first_name" binding:"required"`
+	LastName     string `json:"last_name" binding:"required"`
+	Address1     string `json:"address1" binding:"required"`
+	City         string `json:"city" binding:"required"`
+	State        string `json:"state" binding:"omitempty"`
+	Zip          string `json:"zip" binding:"required"`
+	Country      string `json:"country" binding:"required"`
+	Phone        string `json:"phone" binding:"omitempty"`
+	Email        string `json:"email" binding:"omitempty,email"`
+	Company      string `json:"company" binding:"omitempty"`
+	Address2     string `json:"address2" binding:"omitempty"`
+	Provider     string `json:"provider" binding:"omitempty"`
+}
+
+type UpdatePaymentMethodPathParams struct {
+	ID string `uri:"id" binding:"required,uuid"`
+}
+
+type UpdatePaymentMethodBodyParams struct {
+	PaymentToken string  `json:"payment_token" binding:"required"`
+	FirstName    *string `json:"first_name"`
+	LastName     *string `json:"last_name"`
+	Address1     *string `json:"address1"`
+	City         *string `json:"city"`
+	State        *string `json:"state"`
+	Zip          *string `json:"zip"`
+	Country      *string `json:"country"`
+	Phone        *string `json:"phone"`
+	Email        *string `json:"email" binding:"omitempty,email"`
+	Company      *string `json:"company"`
+	Address2     *string `json:"address2"`
+	Provider     *string `json:"provider"`
+}
+
+type UpdatePaymentMethodRequest struct {
+	BaseRequest
+	UpdatePaymentMethodPathParams
+	UpdatePaymentMethodBodyParams
+}
+
+func (r *UpdatePaymentMethodRequest) Path() any {
+	return &r.UpdatePaymentMethodPathParams
+}
+
+func (r *UpdatePaymentMethodRequest) Body() any {
+	return &r.UpdatePaymentMethodBodyParams
+}
+
 // -------------------------------- GetBillingHistory Request --------------------------------
 
 type GetBillingHistoryQueryParams struct {

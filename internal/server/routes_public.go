@@ -39,7 +39,9 @@ func (s *Server) registerPublicRoutes() {
 
 	pms := api.Group("/payment-methods")
 	pms.Use(middleware.AuthRequired(s.authVerifier))
+	pms.POST("", s.wrap(handlers.CreatePaymentMethod))
 	pms.GET("", s.wrap(handlers.ListPaymentMethods))
+	pms.PUT(":id", s.wrap(handlers.UpdatePaymentMethod))
 	pms.DELETE(":id", s.wrap(handlers.DeletePaymentMethod))
 	pms.PUT(":id/activate", s.wrap(handlers.ActivatePaymentMethod))
 

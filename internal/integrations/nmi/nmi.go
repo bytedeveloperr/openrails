@@ -36,8 +36,6 @@ type NMIClient struct {
 type CreateCustomerVaultData struct {
 	// Prefer using PaymentToken from Collect.js. If provided, cc fields are ignored.
 	PaymentToken string
-	CCNumber     string
-	CCExp        string
 	FirstName    string
 	LastName     string
 	Address1     string
@@ -235,16 +233,7 @@ func (c *NMIClient) CreateCustomerVault(data CreateCustomerVaultData) (*CreateCu
 		"security_key":   {c.SecurityKey},
 	}
 
-	// Prefer tokenized flow when available
-	if strings.TrimSpace(data.PaymentToken) != "" {
-		values.Set("payment_token", strings.TrimSpace(data.PaymentToken))
-	} else {
-		if data.CCNumber == "" || data.CCExp == "" {
-			return nil, errors.New("either payment_token or (ccnumber+ccexp) is required")
-		}
-		values.Set("ccnumber", data.CCNumber)
-		values.Set("ccexp", data.CCExp)
-	}
+	values.Set("payment_token", strings.TrimSpace(data.PaymentToken))
 
 	if data.FirstName != "" {
 		values.Set("first_name", data.FirstName)
@@ -327,12 +316,10 @@ func (c *NMIClient) UpdateCustomerVault(data UpdateCustomerVaultData) error {
 		"customer_vault_id": {data.CustomerVaultID},
 	}
 
-	if data.CCNumber != "" {
-		values.Set("ccnumber", data.CCNumber)
+	if strings.TrimSpace(data.PaymentToken) != "" {
+		values.Set("payment_token", strings.TrimSpace(data.PaymentToken))
 	}
-	if data.CCExp != "" {
-		values.Set("ccexp", data.CCExp)
-	}
+
 	if data.FirstName != "" {
 		values.Set("first_name", data.FirstName)
 	}
@@ -350,6 +337,21 @@ func (c *NMIClient) UpdateCustomerVault(data UpdateCustomerVaultData) error {
 	}
 	if data.Zip != "" {
 		values.Set("zip", data.Zip)
+	}
+	if data.Country != "" {
+		values.Set("country", data.Country)
+	}
+	if data.Phone != "" {
+		values.Set("phone", data.Phone)
+	}
+	if data.Email != "" {
+		values.Set("email", data.Email)
+	}
+	if data.Company != "" {
+		values.Set("company", data.Company)
+	}
+	if data.Address2 != "" {
+		values.Set("address2", data.Address2)
 	}
 
 	if !c.IsProd {

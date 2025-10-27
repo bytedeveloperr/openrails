@@ -19,6 +19,7 @@ func TestPaymentMethodEndpoints(t *testing.T) {
 		path   string
 	}{
 		{"GET", "/v1/payment-methods"},
+		{"PUT", "/v1/payment-methods/123"},
 		{"DELETE", "/v1/payment-methods/123"},
 		{"PUT", "/v1/payment-methods/123/activate"},
 	}
