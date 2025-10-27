@@ -97,8 +97,6 @@ services:
     networks:
       - local-doujins
 
-  
-
   # Bootstrap DB: create roles/schema/extensions using superuser
   db-bootstrap:
     image: postgres:17-bookworm
@@ -115,7 +113,7 @@ services:
       "-h", "postgres",
       "-U", "admin",
       "-d", "doujins_db",
-      "-f", "/bootstrap/00000_baseline_roles.sql"
+      "-f", "/bootstrap/000_baseline_roles.sql"
     ]
     restart: "no"
     networks:
