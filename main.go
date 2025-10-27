@@ -55,6 +55,20 @@ func main() {
 		Short: "Start the billing service background workers",
 	}
 
+	migrateCmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Apply pending database migrations",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
+			ctx := cmd.Context()
+			if err := migrate.Run(ctx, cfg); err != nil {
+				return fmt.Errorf("migrations failed: %w", err)
+			}
+			log.Info("Database migrations complete")
+			return nil
+		},
+	}
+
 	rootCmd.AddCommand(serverCmd, workerCmd, migrateCmd)
 	if err := rootCmd.Execute(); err != nil {
 		log.WithError(err).Fatal("Failed to execute command")
@@ -198,18 +212,4 @@ func runWorker(cmd *cobra.Command, args []string) error {
 
 	log.Info("Billing service workers shutdown complete")
 	return nil
-}
-
-var migrateCmd = &cobra.Command{
-	Use:   "migrate",
-	Short: "Apply pending database migrations",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
-		ctx := cmd.Context()
-		if err := migrate.Run(ctx, cfg); err != nil {
-			return fmt.Errorf("migrations failed: %w", err)
-		}
-		log.Info("Database migrations complete")
-		return nil
-	},
 }
