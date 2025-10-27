@@ -22,8 +22,8 @@ func ValidateMigrations(ctx context.Context, db *bun.DB, schema string) error {
 
 	// Create migrator with the same configuration used for actual migrations
 	migrator := migrate.NewMigrator(db, postgresmigrations.Migrations,
-		migrate.WithTableName(schema+".migrations"),
-		migrate.WithLocksTableName(schema+".migration_locks"),
+		migrate.WithTableName(schema+".bun_migrations"),
+		migrate.WithLocksTableName(schema+".bun_migration_locks"),
 	)
 
 	// Use Bun's built-in MigrationsWithStatus to get migration status

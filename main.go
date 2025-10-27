@@ -57,6 +57,11 @@ func main() {
 
 	migrateCmd := &cobra.Command{
 		Use:   "migrate",
+		Short: "Database migration commands",
+	}
+
+	migrateUpCmd := &cobra.Command{
+		Use:   "up",
 		Short: "Apply pending database migrations",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
@@ -69,6 +74,7 @@ func main() {
 		},
 	}
 
+	migrateCmd.AddCommand(migrateUpCmd)
 	rootCmd.AddCommand(serverCmd, workerCmd, migrateCmd)
 	if err := rootCmd.Execute(); err != nil {
 		log.WithError(err).Fatal("Failed to execute command")

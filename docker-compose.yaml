@@ -138,8 +138,16 @@ services:
       clickhouse:
         condition: service_healthy
     environment:
+      # Database connection (using billing_app service role after bootstrap)
+      DATABASE_URL: "postgres://billing_app:${BILLING_DB_PASSWORD:-billing_password}@postgres:5432/doujins_db?sslmode=disable"
+      DB_SCHEMA: "billing"
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
-    command: ["migrate"]
+      # ClickHouse connection for migrations
+      CLICKHOUSE_URL: "http://clickhouse:8123"
+      CLICKHOUSE_DB: "analytics"
+      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
+    command: ["migrate", "up"]
     restart: "no"
     networks:
       - local-doujins
@@ -169,7 +177,17 @@ services:
     expose:
       - "8060"       # Private API (internal-only)
     environment:
+      # Database connection (using billing_app service role)
+      DATABASE_URL: "postgres://billing_app:${BILLING_DB_PASSWORD:-billing_password}@postgres:5432/doujins_db?sslmode=disable"
+      DB_SCHEMA: "billing"
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
+      # Redis connection
+      REDIS_URL: "redis://garnet:6379/0"
+      # ClickHouse connection for analytics
+      CLICKHOUSE_URL: "http://clickhouse:8123"
+      CLICKHOUSE_DB: "analytics"
+      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
     command: ["server"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:2053/health/live"]

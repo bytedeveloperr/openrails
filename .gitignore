@@ -58,9 +58,9 @@ config.docker.yaml
 *.local.yaml
 
 # Environment files
-*.env*
 .env
-.env.docker
+.env.*
+!.env.example
 
 # Logs
 *.log

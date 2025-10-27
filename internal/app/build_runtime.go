@@ -335,12 +335,20 @@ func buildRiverClient(cfg *config.Config, workers *river.Workers) (*river.Client
 	if err != nil {
 		return nil, fmt.Errorf("failed creating pgx pool for River: %w", err)
 	}
+
+	// Get schema for River tables (same as billing schema)
+	schema := cfg.DB.Schema
+	if schema == "" {
+		schema = "billing"
+	}
+
 	drv := riverpgxv5.New(pool)
 	client, err := river.NewClient[pgx.Tx](drv, &river.Config{
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: 10},
 			"billing":          {MaxWorkers: 20},
 		},
+		Schema:  schema, // Use billing schema for River tables
 		Workers: workers,
 	})
 	if err != nil {
