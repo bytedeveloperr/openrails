@@ -66,7 +66,7 @@ RUN addgroup -g 1001 -S billing && \
     adduser -S -D -H -u 1001 -s /sbin/nologin -G billing billing
 
 # Copy binary and migrations from builder stage
-COPY --from=builder /app/bin/billing ./bin/billing
+COPY --from=builder /app/bin/billing ./billing-server
 COPY --from=builder /app/migrations ./migrations/
 
 # Configuration files must be mounted at runtime; none are baked into the image.
@@ -85,5 +85,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:2053/health || exit 1
 
 # Default entrypoint runs the CLI; override CMD to choose server vs worker.
-ENTRYPOINT ["./bin/billing"]
+ENTRYPOINT ["./billing-server"]
 CMD ["server"]
