@@ -30,12 +30,14 @@ func NewDB(cfg *config.DBConfig) (_ *DB, err error) {
 	url := cfg.URL
 	dialect := cfg.Dialect
 
-	switch dialect {
-	case "postgres":
-		connParams := map[string]any{}
-		if cfg.Schema != "" {
-			connParams["search_path"] = cfg.Schema
-		}
+    switch dialect {
+    case "postgres":
+        connParams := map[string]any{}
+        if cfg.Schema != "" {
+            // Ensure extensions installed in public (e.g., citext, pgcrypto) resolve
+            // Do not override role-level defaults without adding public.
+            connParams["search_path"] = fmt.Sprintf("%s,public", cfg.Schema)
+        }
 
 		sqldb := sql.OpenDB(pgdriver.NewConnector(
 			pgdriver.WithDSN(url),

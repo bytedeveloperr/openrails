@@ -160,7 +160,6 @@ func TestCCBillWebhookReplay(t *testing.T) {
 			// Create request
 			w := httptest.NewRecorder()
 			req, err := http.NewRequest("POST",
-			req, err := http.NewRequest("POST",
 				fmt.Sprintf("/v1/subscriptions/webhook/ccbill?eventType=%s", et.eventType),
 				strings.NewReader(formData))
 			require.NoError(t, err)

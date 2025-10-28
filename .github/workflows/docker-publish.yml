@@ -4,7 +4,8 @@ on:
   push:
     branches: [ master ]
     tags:
-      - 'v[0-9]+.[0-9]+'  # Two-digit semver: v0.1, v1.5, etc.
+      - 'v*'
+  workflow_dispatch:
 
 env:
   IMAGE: docker.io/doujins/billing
@@ -38,14 +39,11 @@ jobs:
       - name: Determine Docker tags
         id: meta
         run: |
-          # Default to commit hash
-          TAG="${GITHUB_SHA::7}"
-
-          # If this is a tag push, use the tag name instead
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
             TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="${GITHUB_SHA::7}"
           fi
-
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Using tag: $TAG"
 
@@ -94,14 +92,11 @@ jobs:
       - name: Determine Docker tags
         id: meta
         run: |
-          # Default to commit hash
-          TAG="${GITHUB_SHA::7}"
-
-          # If this is a tag push, use the tag name instead
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
             TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="${GITHUB_SHA::7}"
           fi
-
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Using tag: $TAG"
 
@@ -136,14 +131,11 @@ jobs:
       - name: Determine Docker tags
         id: meta
         run: |
-          # Default to commit hash
-          TAG="${GITHUB_SHA::7}"
-
-          # If this is a tag push, use the tag name instead
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
             TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="${GITHUB_SHA::7}"
           fi
-
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "Using tag: $TAG"
 
