@@ -86,4 +86,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 # Default entrypoint runs the CLI; override CMD to choose server vs worker.
 ENTRYPOINT ["./billing-server"]
-CMD ["server"]
+CMD ["run-server"]
