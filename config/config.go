@@ -508,10 +508,10 @@ func Load(configPath string) (*Config, error) {
 		"ENVIRONMENT": "env",
 
 		// JWT / OIDC
-		"JWT_SECRET":         "jwt.secret", // for HS256
-		"JWT_ISSUER":         "jwt.issuer",
-		"JWT_AUDIENCE":       "jwt.audience",
-		"JWT_PUBLIC_KEY_PEM": "jwt.public_key_pem", // optional for RS256 if not using JWKS
+		"JWT_SECRET":       "jwt.secret", // for HS256
+		"AUTH_ISSUER":      "jwt.issuer",
+		"AUTH_AUDIENCE":    "jwt.audience",
+		"AUTH_PUBLIC_KEY_PEM": "jwt.public_key_pem", // optional for RS256 if not using JWKS
 
 		// CCBill
 		"CCBILL_CLIENT_ACCOUNT":       "ccbill.client_acc_num",

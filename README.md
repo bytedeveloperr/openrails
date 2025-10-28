@@ -34,7 +34,7 @@
 
 #### Overriding configuration (optional)
 - Config file: place `config.yaml` in repo root or `./config/config.yaml`.
-- Env vars: common overrides include `DB_URL`, `REDIS_URL`, `CLICKHOUSE_URL`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `JWT_ISSUER`.
+- Env vars: common overrides include `DB_URL`, `REDIS_URL`, `CLICKHOUSE_URL`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `AUTH_ISSUER`, `AUTH_AUDIENCE`.
 - If not provided, the service uses the defaults above.
 
 Developer tasks
@@ -60,17 +60,22 @@ Admin access
 - Override via env `BILLING_INTERNAL_API_KEY` or config `admin.api_key`.
 - mTLS (optional): set `tls.private.enabled: true` and provide `tls.private.cert_file`, `tls.private.key_file`. To require client certs, also set `tls.private.client_ca_file` and `tls.private.require_client_cert: true`.
 
-JWT verification
-- Public endpoints use JWTs issued by your IdP. The middleware validates signature and claims, extracting `sub` (user ID), `email`, optional `preferred_username`/`username`/`name`, and `roles` if present.
-- Supported signing:
-  - HS256/384/512 with `JWT_SECRET`.
-  - RS256 via either:
-    - `JWT_PUBLIC_KEY_PEM`, or
-    - OIDC discovery from `JWT_ISSUER` and JWKS lookup (AuthKit publishes `http://localhost:2052/.well-known/jwks.json` in dev).
-- Required claims:
-  - `iss` must equal the configured issuer (`jwt.issuer`).
-  - `aud` must contain the configured audience (`jwt.audience`).
-  - `exp` must be valid.
+JWT verification (Verifier Only)
+- Billing acts as a **JWT verifier**, not an issuer. It verifies tokens issued by doujins or hentai0.
+- The middleware validates signature and claims, extracting `sub` (user ID), `email`, optional `preferred_username`/`username`/`name`, and `roles` if present.
+- Configuration requirements:
+  - `AUTH_ISSUER`: The URL of the token issuer (e.g., `http://localhost:2052` for doujins)
+  - `AUTH_AUDIENCE`: The expected audience claim in JWTs (e.g., `doujins-app`)
+  - `AUTH_PUBLIC_KEY_PEM` (optional): Pinned RSA public key. If not provided, billing will automatically fetch keys from `{AUTH_ISSUER}/.well-known/jwks.json`
+- Signature verification:
+  - RS256 only (RSA signatures)
+  - Public keys fetched via JWKS discovery (supports automatic key rotation)
+  - Keys are cached and refreshed automatically
+- Required JWT claims:
+  - `iss` must equal the configured issuer
+  - `aud` must contain the configured audience
+  - `exp` must be valid (not expired)
+  - `sub` must be present (user ID)
 
 - Postgres
   - Shared container: provided by `doujins-backend` compose (service name `postgres`).

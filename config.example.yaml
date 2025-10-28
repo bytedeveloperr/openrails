@@ -24,14 +24,18 @@ redis:
   host: "garnet:6379"
   # db: 0
 
-# JWT configuration for authentication (non-secrets only)
+# JWT configuration for authentication (Verifier Only)
+# Billing acts as a JWT verifier, not an issuer. It verifies tokens from doujins/hentai0.
 jwt:
-  # OIDC issuer (base URL). For local dev with AuthKit, use http://localhost:2052
+  # Issuer URL (where tokens are issued from, e.g., doujins or hentai0)
+  # Billing will fetch public keys from {issuer}/.well-known/jwks.json
   issuer: "http://localhost:2052"
-  # Audience / client ID to expect in JWTs
-  audience: "your-client-id"
-  # If using HS256, set JWT_SECRET in env to your IdP client secret.
-  # If using RS256, either set JWT_PUBLIC_KEY_PEM or leave it empty and the server will use OIDC discovery + JWKS from the issuer.
+
+  # Audience - the expected "aud" claim in incoming JWTs
+  audience: "doujins-app"
+
+  # Optional: Pinned public key PEM (only needed if not using JWKS discovery)
+  # Leave empty to automatically fetch keys via JWKS from the issuer
   # public_key_pem: |
   #   -----BEGIN PUBLIC KEY-----
   #   MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt...
