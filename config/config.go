@@ -382,7 +382,7 @@ func GetDefaultBillingConfig() *Config {
 		Port: 2053,
 		DB: &DBConfig{
 			// Defaults align with docker-compose: Postgres service is `postgres` on the compose network.
-			// Developers running the binary on the host can override via DATABASE_URL.
+			// Developers running the binary on the host can override via DB_URL.
 			URL:     "postgres://billing_app:billing_password@postgres:5432/doujins_db?sslmode=disable",
 			Schema:  "billing",
 			Dialect: "postgres",
@@ -502,10 +502,10 @@ func Load(configPath string) (*Config, error) {
 
 	// Load common environment variables without prefix
 	envMappings := map[string]string{
-		"DATABASE_URL": "db.url",
-		"REDIS_URL":    "redis.host",
-		"ENV":          "env",
-		"ENVIRONMENT":  "env",
+		"DB_URL":      "db.url",
+		"REDIS_URL":   "redis.host",
+		"ENV":         "env",
+		"ENVIRONMENT": "env",
 
 		// JWT / OIDC
 		"JWT_SECRET":         "jwt.secret", // for HS256

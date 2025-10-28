@@ -5,26 +5,59 @@ import (
     "fmt"
     "time"
 
-	authkitmigrations "github.com/doujins-org/authkit/migrations/postgres"
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db"
-	postgresmigrations "github.com/doujins-org/doujins-billing/migrations/postgres"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/riverqueue/river/rivermigrate"
-	riverpgxv5 "github.com/riverqueue/river/riverdriver/riverpgxv5"
-	log "github.com/sirupsen/logrus"
-	"github.com/uptrace/bun"
-	"github.com/uptrace/bun/migrate"
+    authkitmigrations "github.com/doujins-org/authkit/migrations/postgres"
+    "github.com/doujins-org/doujins-billing/config"
+    "github.com/doujins-org/doujins-billing/internal/db"
+    postgresmigrations "github.com/doujins-org/doujins-billing/migrations/postgres"
+    "github.com/jackc/pgx/v5/pgxpool"
+    "github.com/riverqueue/river/rivermigrate"
+    riverpgxv5 "github.com/riverqueue/river/riverdriver/riverpgxv5"
+    log "github.com/sirupsen/logrus"
+    "github.com/uptrace/bun"
+    "github.com/uptrace/bun/migrate"
 )
 
-// Run applies all migrations in the correct order:
-// 1. Authkit (profiles schema) - via Bun
-// 2. River (billing schema) - via rivermigrate
-// 3. Billing (billing schema) - via Bun
-// 4. ClickHouse - via per-file tracking
+// RunAuthKit applies only AuthKit migrations to the profiles schema.
+// Run this once before running Run() on all services.
+func RunAuthKit(ctx context.Context, cfg *config.Config) error {
+	if cfg == nil || cfg.DB == nil {
+		return fmt.Errorf("missing database config")
+	}
+
+	database, err := db.NewDB(cfg.DB)
+	if err != nil {
+		return fmt.Errorf("open db: %w", err)
+	}
+	defer func() { _ = database.Close() }()
+
+	bunDB, ok := database.GetDB().(*bun.DB)
+	if !ok {
+		return fmt.Errorf("unexpected db type for bun migrator")
+	}
+
+	// AuthKit migration tracking lives in the profiles schema itself
+	authkitOpts := []migrate.MigratorOption{
+		migrate.WithTableName("profiles.bun_migrations"),
+		migrate.WithLocksTableName("profiles.bun_migration_locks"),
+		migrate.WithMarkAppliedOnSuccess(true),
+	}
+
+	log.Info("Running Authkit migrations (profiles schema)...")
+	if err := runAuthkitMigrations(ctx, bunDB, authkitOpts); err != nil {
+		return fmt.Errorf("authkit migrations failed: %w", err)
+	}
+
+	log.Info("✓ AuthKit migrations completed successfully")
+	return nil
+}
+
+// Run applies service-specific migrations in the correct order:
+// 1. River (billing schema) - via rivermigrate
+// 2. Billing (billing schema) - via Bun
+// 3. ClickHouse - via per-file tracking
 //
-// Authkit and Billing migrations share the same Bun migration tracking tables
-// in the billing schema (billing.bun_migrations, billing.bun_migration_locks).
+// NOTE: AuthKit migrations must be run first using RunAuthKit() or 'migrate authkit' command.
+// Billing migrations use their own tracking tables in billing schema.
 // River uses its own migration table (billing.river_migration).
 func Run(ctx context.Context, cfg *config.Config) error {
 	if cfg == nil || cfg.DB == nil {
@@ -47,16 +80,6 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		schema = "billing"
 	}
 
-	// AuthKit migration tracking lives in the profiles schema itself
-	// This prevents race conditions when multiple services (doujins, billing, hentai0)
-	// try to run AuthKit migrations simultaneously - they all see the same state.
-	// The profiles schema is created by bootstrap migrations.
-	authkitOpts := []migrate.MigratorOption{
-		migrate.WithTableName("profiles.bun_migrations"),
-		migrate.WithLocksTableName("profiles.bun_migration_locks"),
-		migrate.WithMarkAppliedOnSuccess(true),
-	}
-
 	// Billing migration tracking in billing schema
 	billingOpts := []migrate.MigratorOption{
 		migrate.WithTableName(schema + ".bun_migrations"),
@@ -64,31 +87,26 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		migrate.WithMarkAppliedOnSuccess(true),
 	}
 
-    // ---------- 1. Authkit Migrations (profiles schema) ----------
-    log.Info("Running Authkit migrations (profiles schema)...")
-    if err := runAuthkitMigrations(ctx, bunDB, authkitOpts); err != nil {
-        return fmt.Errorf("authkit migrations failed: %w", err)
-    }
-
-	// ---------- 2. River Migrations (billing schema) ----------
+	// ---------- 1. River Migrations (billing schema) ----------
 	log.Info("Running River migrations (billing schema)...")
 	if err := runRiverMigrations(ctx, cfg, schema); err != nil {
 		return fmt.Errorf("river migrations failed: %w", err)
 	}
 
-	// ---------- 3. Billing Migrations (billing schema) ----------
+	// ---------- 2. Billing Migrations (billing schema) ----------
 	log.Info("Running Billing migrations (billing schema)...")
 	if err := runBillingMigrations(ctx, bunDB, billingOpts); err != nil {
 		return fmt.Errorf("billing migrations failed: %w", err)
 	}
 
-	// ---------- 4. ClickHouse Migrations ----------
+	// ---------- 3. ClickHouse Migrations ----------
 	log.Info("Running ClickHouse migrations...")
 	if err := applyClickHouseMigrations(ctx, cfg); err != nil {
 		return fmt.Errorf("clickhouse migrations failed: %w", err)
 	}
 
 	log.Info("All migrations applied successfully (River + Billing + ClickHouse)")
+	log.Info("Database migrations complete")
 	return nil
 }
 

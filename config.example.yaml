@@ -10,7 +10,7 @@ cors_origins:
   - "https://your-frontend-domain.com"
 
 # Database configuration (non-secrets only)
-# Provide DATABASE_URL via environment (.env) instead of here
+# Provide DB_URL via environment (.env) instead of here
 # Service role passwords come from env: DOUJINS_DB_PASSWORD, BILLING_DB_PASSWORD
 db:
   # Schema the app uses (compose defaults DB_SCHEMA=billing)

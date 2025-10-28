@@ -63,8 +63,8 @@ github.com/docker/go-connections v0.5.0 h1:USnMq7hx7gwdVZq1L49hLXaFtUdTADjXGp+uj
 github.com/docker/go-connections v0.5.0/go.mod h1:ov60Kzw0kKElRwhNs9UlUHAE/F9Fe6GLaXnqyDdmEXc=
 github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4=
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
-github.com/doujins-org/authkit v0.1.2 h1:U6iEJHl8i9RQ/wY1EBXjPO4E8p4ss3YJB8fvpJsPVKE=
-github.com/doujins-org/authkit v0.1.2/go.mod h1:/4e/MB4tiYXycLY/cPW7d9SeBAkMuchZ6nmnuMPekZg=
+github.com/doujins-org/authkit v0.2.3 h1:q+LZqYGkjB+J+QJu1UbroXt1qJrq9i5E/n64wWgR2qE=
+github.com/doujins-org/authkit v0.2.3/go.mod h1:/4e/MB4tiYXycLY/cPW7d9SeBAkMuchZ6nmnuMPekZg=
 github.com/doujins-org/doujins-email v0.1.0 h1:oobyEvu9KsxlsqZxOQZeVQ80FKBbr1maRMBwHzXEhKY=
 github.com/doujins-org/doujins-email v0.1.0/go.mod h1:Hx/TuUmTUDxp81brtXmb5myf1KLDjXzl/zL9KuFr8fw=
 github.com/doujins-org/solana-go v1.13.0 h1:+XgMeTL0/C3Q311WxmBdxjVzf8+F5yG+qC9xwcTr+Sc=

@@ -9,7 +9,7 @@ SET statement_timeout = '300s';
 DROP TABLE IF EXISTS subscription_events CASCADE;
 
 -- Install required extensions
-CREATE EXTENSION IF NOT EXISTS pg_trgm;
+-- Extensions are created by bootstrap; skip here.
 
 -- ============================================================================
 -- SECTION 1: CORE SUBSCRIPTION TABLES
@@ -20,9 +20,11 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM pg_type WHERE typname = 'subscription_status'
+        SELECT 1 FROM pg_type t
+        JOIN pg_namespace n ON t.typnamespace = n.oid
+        WHERE t.typname = 'subscription_status' AND n.nspname = 'billing'
     ) THEN
-        CREATE TYPE subscription_status AS ENUM ('pending', 'active', 'expired', 'cancelled', 'failed', 'past_due');
+        CREATE TYPE billing.subscription_status AS ENUM ('pending', 'active', 'expired', 'cancelled', 'failed', 'past_due');
     END IF;
 END$$;
 
@@ -262,11 +264,11 @@ END$$;
 CREATE INDEX IF NOT EXISTS idx_subscriptions_payment_method_id ON subscriptions(payment_method_id);
 
 -- 4.2: Create processor and purchase status enums
-DROP TYPE IF EXISTS processor_type CASCADE;
-CREATE TYPE processor_type AS ENUM ('paypal', 'solana', 'stripe', 'crypto', 'nmi', 'ccbill');
+DROP TYPE IF EXISTS billing.processor_type CASCADE;
+CREATE TYPE billing.processor_type AS ENUM ('paypal', 'solana', 'nmi', 'ccbill');
 
-DROP TYPE IF EXISTS purchase_status CASCADE;
-CREATE TYPE purchase_status AS ENUM ('pending', 'completed', 'failed', 'refunded');
+DROP TYPE IF EXISTS billing.purchase_status CASCADE;
+CREATE TYPE billing.purchase_status AS ENUM ('pending', 'completed', 'failed', 'refunded');
 
 -- 4.3: Create payments table (formerly purchases)
 CREATE TABLE IF NOT EXISTS payments (
@@ -463,4 +465,3 @@ COMMENT ON TABLE products IS 'Product definitions that can be purchased or subsc
 COMMENT ON TABLE prices IS 'Pricing tiers for products with processor-specific identifiers';
 COMMENT ON TABLE payments IS 'Records of all payment transactions (formerly purchases table)';
 COMMENT ON TABLE notification_queue IS 'Queue for user notifications related to billing and subscriptions';
-
