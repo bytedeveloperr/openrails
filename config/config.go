@@ -211,24 +211,8 @@ type RedisConfig struct {
 // AuthConfig holds JWT verification configuration for billing service.
 // Billing is a JWT verifier (not issuer) - it validates tokens issued by doujins/hentai0.
 type AuthConfig struct {
-	Issuer   string `koanf:"issuer"`   // Expected token issuer (e.g., "https://doujins.com")
-	Audience string `koanf:"audience"` // Expected audience claim (e.g., "billing-app")
-	BaseURL  string `koanf:"base_url"` // Base URL for JWKS endpoint (defaults to issuer if empty)
-	// Optional RSA public key PEM for verifying RS256 JWTs. If empty,
-	// the service fetches JWKS from "{base_url}/.well-known/jwks.json" or "{issuer}/.well-known/jwks.json".
-	PublicKeyPEM         string `koanf:"public_key_pem"`
-	SkipExpiryValidation bool   `koanf:"skip_expiry_validation"`
-}
-
-// GetJWKSURL returns the JWKS URL for fetching public keys.
-// Uses base_url if provided, otherwise falls back to issuer.
-func (a *AuthConfig) GetJWKSURL() string {
-	base := strings.TrimSpace(a.BaseURL)
-	if base == "" {
-		base = strings.TrimSpace(a.Issuer)
-	}
-	base = strings.TrimRight(base, "/")
-	return base + "/.well-known/jwks.json"
+	Issuers  []string `koanf:"issuers"`  // List of expected token issuers (e.g., ["https://doujins.com", "https://hentai0.com"])
+	Audience string   `koanf:"audience"` // Expected audience claim (e.g., "billing-app")
 }
 
 type SolanaConfig struct {
@@ -463,9 +447,8 @@ func GetDefaultBillingConfig() *Config {
 			DB:       0,
 		},
 		Auth: &AuthConfig{
-			Issuer:   "http://api:2052",
+			Issuers:  []string{"http://localhost:2052", "http://localhost:4000"}, // Accept tokens from both doujins and hentai0
 			Audience: "billing-app",
-			BaseURL:  "http://api:2052",
 		},
 		// Match docker-compose ClickHouse (service: clickhouse)
 		ClickHouse: &ClickHouseConfig{
@@ -578,10 +561,8 @@ func Load(configPath string) (*Config, error) {
 		"ENVIRONMENT": "env",
 
 		// Auth / JWT verification
-		"AUTH_ISSUER":         "auth.issuer",
-		"AUTH_AUDIENCE":       "auth.audience",
-		"AUTH_BASE_URL":       "auth.base_url",
-		"AUTH_PUBLIC_KEY_PEM": "auth.public_key_pem", // optional for RS256 if not using JWKS
+		"AUTH_AUDIENCE": "auth.audience",
+		// AUTH_ISSUERS is handled via BILLING_ prefix or vault injection (array type)
 
 		// CCBill
 		"CCBILL_CLIENT_ACCOUNT":       "ccbill.client_acc_num",

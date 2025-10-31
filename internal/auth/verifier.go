@@ -46,37 +46,49 @@ type verifier struct {
 }
 
 // NewVerifier builds an authkit-backed verifier using billing auth config.
+// Supports multiple issuers to accept tokens from both doujins and hentai0.
 func NewVerifier(cfg *config.AuthConfig) (Verifier, error) {
 	if cfg == nil {
 		return nil, errors.New("auth config is required")
 	}
 
-	issuer := strings.TrimSpace(cfg.Issuer)
-	if issuer == "" {
-		return nil, errors.New("auth issuer is required")
+	if len(cfg.Issuers) == 0 {
+		return nil, errors.New("at least one auth issuer is required")
 	}
-	issuer = strings.TrimRight(issuer, "/")
 
-	jwksURL := cfg.GetJWKSURL()
+	// Build IssuerAccept config for each issuer
+	issuerAccepts := make([]core.IssuerAccept, 0, len(cfg.Issuers))
+	for _, issuer := range cfg.Issuers {
+		// Normalize issuer URL
+		issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
+		if issuer == "" {
+			continue
+		}
 
-	issCfg := core.IssuerAccept{
-		Issuer:  issuer,
-		JWKSURL: jwksURL,
+		// Each issuer uses its own URL as the JWKS base per OIDC spec
+		jwksURL := issuer + "/.well-known/jwks.json"
+
+		issCfg := core.IssuerAccept{
+			Issuer:  issuer,
+			JWKSURL: jwksURL,
+		}
+
+		// All issuers should use the same audience (billing-app)
+		if cfg.Audience != "" {
+			issCfg.Audiences = []string{cfg.Audience}
+		}
+
+		issuerAccepts = append(issuerAccepts, issCfg)
 	}
-	if cfg.Audience != "" {
-		issCfg.Audiences = []string{cfg.Audience}
-	}
-	if cfg.PublicKeyPEM != "" {
-		issCfg.PinnedRSAPEM = cfg.PublicKeyPEM
+
+	if len(issuerAccepts) == 0 {
+		return nil, errors.New("no valid issuers configured")
 	}
 
 	accept := core.AcceptConfig{
-		Issuers:    []core.IssuerAccept{issCfg},
+		Issuers:    issuerAccepts,
 		Algorithms: []string{"RS256"},
 		Skew:       60 * time.Second,
-	}
-	if cfg.SkipExpiryValidation {
-		accept.Skew = 24 * time.Hour * 365 // effectively disable expiry in dev mode
 	}
 
 	impl := authgin.NewVerifier(accept)

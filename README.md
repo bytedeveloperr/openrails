@@ -61,20 +61,20 @@ Admin access
 - mTLS (optional): set `tls.private.enabled: true` and provide `tls.private.cert_file`, `tls.private.key_file`. To require client certs, also set `tls.private.client_ca_file` and `tls.private.require_client_cert: true`.
 
 JWT verification (Verifier Only)
-- Billing acts as a **JWT verifier**, not an issuer. It verifies tokens issued by doujins or hentai0.
+- Billing acts as a **JWT verifier**, not an issuer. It verifies tokens issued by doujins and/or hentai0.
 - The middleware validates signature and claims, extracting `sub` (user ID), `email`, optional `preferred_username`/`username`/`name`, and `roles` if present.
 - Configuration requirements:
-  - `AUTH_ISSUER`: The URL of the token issuer (e.g., `http://localhost:2052` for doujins)
-  - `AUTH_AUDIENCE`: The expected audience claim in JWTs (e.g., `doujins-app`)
-  - `AUTH_PUBLIC_KEY_PEM` (optional): Pinned RSA public key. If not provided, billing will automatically fetch keys from `{AUTH_ISSUER}/.well-known/jwks.json`
+  - `BILLING_AUTH_ISSUERS`: JSON array of token issuer URLs (e.g., `["http://localhost:2052", "http://localhost:4000"]` for local dev, or `["https://doujins.com", "https://hentai0.com"]` for production)
+  - `AUTH_AUDIENCE`: The expected audience claim in JWTs (must be `billing-app`)
+  - Public keys are automatically fetched from each `{issuer}/.well-known/jwks.json` per OIDC spec
 - Signature verification:
   - RS256 only (RSA signatures)
-  - Public keys fetched via JWKS discovery (supports automatic key rotation)
-  - Keys are cached and refreshed automatically
+  - Public keys fetched via JWKS discovery from each configured issuer (supports automatic key rotation)
+  - Keys are cached for 15 minutes and refreshed automatically
 - Required JWT claims:
-  - `iss` must equal the configured issuer
-  - `aud` must contain the configured audience
-  - `exp` must be valid (not expired)
+  - `iss` must equal one of the configured issuers
+  - `aud` must contain the configured audience (`billing-app`)
+  - `exp` must be valid (not expired, with 60-second clock skew tolerance)
   - `sub` must be present (user ID)
 
 - Postgres

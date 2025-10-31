@@ -24,23 +24,21 @@ redis:
   host: "garnet:6379"
   # db: 0
 
-# JWT configuration for authentication (Verifier Only)
+# Auth/JWT configuration for authentication (Verifier Only)
 # Billing acts as a JWT verifier, not an issuer. It verifies tokens from doujins/hentai0.
-jwt:
-  # Issuer URL (where tokens are issued from, e.g., doujins or hentai0)
-  # Billing will fetch public keys from {issuer}/.well-known/jwks.json
-  issuer: "http://localhost:2052"
+auth:
+  # Issuers - array of token issuer URLs
+  # Billing will fetch public keys from each {issuer}/.well-known/jwks.json per OIDC spec
+  issuers:
+    - "http://localhost:2052"  # doujins
+    - "http://localhost:4000"  # hentai0
+  # Production example:
+  # issuers:
+  #   - "https://doujins.com"
+  #   - "https://hentai0.com"
 
-  # Audience - the expected "aud" claim in incoming JWTs
-  audience: "doujins-app"
-
-  # Optional: Pinned public key PEM (only needed if not using JWKS discovery)
-  # Leave empty to automatically fetch keys via JWKS from the issuer
-  # public_key_pem: |
-  #   -----BEGIN PUBLIC KEY-----
-  #   MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAt...
-  #   -----END PUBLIC KEY-----
-  public_key_pem: ""
+  # Audience - the expected "aud" claim in incoming JWTs (must be "billing-app")
+  audience: "billing-app"
 
 # Admin API key for private routes (header: X-API-KEY)
 # Admin/private API key
