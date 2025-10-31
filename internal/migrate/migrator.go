@@ -1,20 +1,20 @@
 package migrate
 
 import (
-    "context"
-    "fmt"
-    "time"
+	"context"
+	"fmt"
+	"time"
 
-    authkitmigrations "github.com/doujins-org/authkit/migrations/postgres"
-    "github.com/doujins-org/doujins-billing/config"
-    "github.com/doujins-org/doujins-billing/internal/db"
-    postgresmigrations "github.com/doujins-org/doujins-billing/migrations/postgres"
-    "github.com/jackc/pgx/v5/pgxpool"
-    "github.com/riverqueue/river/rivermigrate"
-    riverpgxv5 "github.com/riverqueue/river/riverdriver/riverpgxv5"
-    log "github.com/sirupsen/logrus"
-    "github.com/uptrace/bun"
-    "github.com/uptrace/bun/migrate"
+	authkitmigrations "github.com/doujins-org/authkit/migrations/postgres"
+	"github.com/doujins-org/doujins-billing/config"
+	"github.com/doujins-org/doujins-billing/internal/db"
+	postgresmigrations "github.com/doujins-org/doujins-billing/migrations/postgres"
+	"github.com/jackc/pgx/v5/pgxpool"
+	riverpgxv5 "github.com/riverqueue/river/riverdriver/riverpgxv5"
+	"github.com/riverqueue/river/rivermigrate"
+	log "github.com/sirupsen/logrus"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/migrate"
 )
 
 // RunAuthKit applies only AuthKit migrations to the profiles schema.
@@ -113,18 +113,18 @@ func Run(ctx context.Context, cfg *config.Config) error {
 // runAuthkitMigrations runs Authkit's built-in migrations to the profiles schema.
 // Uses Bun migration tracking tables in profiles schema to avoid race conditions.
 func runAuthkitMigrations(ctx context.Context, bunDB *bun.DB, bunOpts []migrate.MigratorOption) error {
-    m := migrate.NewMigrator(bunDB, authkitmigrations.Migrations, bunOpts...)
-    if err := m.Init(ctx); err != nil {
-        log.WithError(err).Warn("authkit migrations: init returned error; continuing")
-    }
-    if err := acquireLockWithWait(ctx, m, "authkit"); err != nil {
-        return fmt.Errorf("authkit migrations: lock wait: %w", err)
-    }
-    defer func() {
-        if unlockErr := m.Unlock(ctx); unlockErr != nil {
-            log.WithError(unlockErr).Warn("authkit migrations: unlock failed")
-        }
-    }()
+	m := migrate.NewMigrator(bunDB, authkitmigrations.Migrations, bunOpts...)
+	if err := m.Init(ctx); err != nil {
+		log.WithError(err).Warn("authkit migrations: init returned error; continuing")
+	}
+	if err := acquireLockWithWait(ctx, m, "authkit"); err != nil {
+		return fmt.Errorf("authkit migrations: lock wait: %w", err)
+	}
+	defer func() {
+		if unlockErr := m.Unlock(ctx); unlockErr != nil {
+			log.WithError(unlockErr).Warn("authkit migrations: unlock failed")
+		}
+	}()
 	group, err := m.Migrate(ctx)
 	if err != nil {
 		return fmt.Errorf("authkit migrations: apply: %w", err)
@@ -143,18 +143,18 @@ func runAuthkitMigrations(ctx context.Context, bunDB *bun.DB, bunOpts []migrate.
 // runBillingMigrations runs the billing service's own migrations.
 // Uses shared Bun migration tracking tables in billing schema.
 func runBillingMigrations(ctx context.Context, bunDB *bun.DB, bunOpts []migrate.MigratorOption) error {
-    m := migrate.NewMigrator(bunDB, postgresmigrations.Migrations, bunOpts...)
-    if err := m.Init(ctx); err != nil {
-        log.WithError(err).Warn("billing migrations: init returned error; continuing")
-    }
-    if err := acquireLockWithWait(ctx, m, "billing"); err != nil {
-        return fmt.Errorf("billing migrations: lock wait: %w", err)
-    }
-    defer func() {
-        if unlockErr := m.Unlock(ctx); unlockErr != nil {
-            log.WithError(unlockErr).Warn("billing migrations: unlock failed")
-        }
-    }()
+	m := migrate.NewMigrator(bunDB, postgresmigrations.Migrations, bunOpts...)
+	if err := m.Init(ctx); err != nil {
+		log.WithError(err).Warn("billing migrations: init returned error; continuing")
+	}
+	if err := acquireLockWithWait(ctx, m, "billing"); err != nil {
+		return fmt.Errorf("billing migrations: lock wait: %w", err)
+	}
+	defer func() {
+		if unlockErr := m.Unlock(ctx); unlockErr != nil {
+			log.WithError(unlockErr).Warn("billing migrations: unlock failed")
+		}
+	}()
 	group, err := m.Migrate(ctx)
 	if err != nil {
 		return fmt.Errorf("billing migrations: apply: %w", err)
@@ -173,37 +173,38 @@ func runBillingMigrations(ctx context.Context, bunDB *bun.DB, bunOpts []migrate.
 // acquireLockWithWait repeatedly attempts to acquire the Bun migration lock,
 // waiting with exponential backoff so concurrent services serialize safely.
 func acquireLockWithWait(ctx context.Context, m *migrate.Migrator, label string) error {
-    // Max ~2 minutes with capped backoff
-    const maxAttempts = 20
-    backoff := 300 * time.Millisecond
-    for attempt := 1; attempt <= maxAttempts; attempt++ {
-        if err := m.Lock(ctx); err != nil {
-            // If context cancelled or deadline exceeded, abort early
-            select {
-            case <-ctx.Done():
-                return ctx.Err()
-            default:
-            }
-            // Log and wait, then retry
-            log.WithFields(log.Fields{"attempt": attempt, "label": label}).Info("Migration lock busy; waiting...")
-            time.Sleep(backoff)
-            // Exponential backoff capped at 5s
-            backoff *= 2
-            if backoff > 5*time.Second {
-                backoff = 5 * time.Second
-            }
-            continue
-        }
-        return nil // acquired
-    }
-    return fmt.Errorf("timed out waiting for %s migration lock", label)
+	// Max ~2 minutes with capped backoff
+	const maxAttempts = 20
+	backoff := 300 * time.Millisecond
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := m.Lock(ctx); err != nil {
+			// If context cancelled or deadline exceeded, abort early
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+			// Log and wait, then retry
+			log.WithFields(log.Fields{"attempt": attempt, "label": label}).Info("Migration lock busy; waiting...")
+			time.Sleep(backoff)
+			// Exponential backoff capped at 5s
+			backoff *= 2
+			if backoff > 5*time.Second {
+				backoff = 5 * time.Second
+			}
+			continue
+		}
+		return nil // acquired
+	}
+	return fmt.Errorf("timed out waiting for %s migration lock", label)
 }
 
 // runRiverMigrations runs River's built-in migrations to the billing schema.
 // River uses its own migration table (billing.river_migration).
 func runRiverMigrations(ctx context.Context, cfg *config.Config, schema string) error {
 	// Create pgx pool for River migrator
-	pool, err := pgxpool.New(ctx, cfg.DB.URL)
+	dbURL := cfg.DB.GetConnectionString()
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		return fmt.Errorf("create pgx pool: %w", err)
 	}

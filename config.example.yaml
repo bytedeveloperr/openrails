@@ -142,7 +142,8 @@ solana:
 # ClickHouse analytics database
 clickhouse:
   # Matches docker-compose ClickHouse (service name: clickhouse)
-  server_url: "http://clickhouse:8123"
+  http_addr: "http://clickhouse:8123"
+  client_addr: "clickhouse:9000"
   database: "analytics"
   # Provide CLICKHOUSE_USERNAME and CLICKHOUSE_PASSWORD via env
 

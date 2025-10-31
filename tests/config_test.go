@@ -36,10 +36,10 @@ func NewTestConfig() *TestConfig {
 			Password: "",
 			DB:       0,
 		},
-		JWT: &config.JWTConfig{
-			Secret:   "test-secret-key-for-testing-only",
+		Auth: &config.AuthConfig{
 			Issuer:   "doujins-test",
-			Audience: "doujins-test-app",
+			Audience: "billing-app",
+			BaseURL:  "doujins-test",
 		},
 	}
 
@@ -67,9 +67,9 @@ func (tc *TestConfig) Clone() *TestConfig {
 		clonedConfig.Redis = &redisConfig
 	}
 
-	if tc.Config.JWT != nil {
-		jwtConfig := *tc.Config.JWT
-		clonedConfig.JWT = &jwtConfig
+	if tc.Config.Auth != nil {
+		authConfig := *tc.Config.Auth
+		clonedConfig.Auth = &authConfig
 	}
 
 	return &TestConfig{
@@ -112,7 +112,7 @@ func TestBasicConfig(t *testing.T) {
 		config := NewTestConfig()
 		require.NotNil(t, config, "Should create test config")
 		assert.Equal(t, "test", config.Env, "Should be test environment")
-		assert.NotEmpty(t, config.JWT.Secret, "Should have JWT secret")
+		assert.NotEmpty(t, config.Auth.Issuer, "Should have auth issuer")
 		assert.Equal(t, "billing", config.DB.Schema, "Should have correct schema")
 	})
 

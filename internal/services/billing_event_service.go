@@ -29,9 +29,9 @@ type BillingEventService struct {
 
 // NewBillingEventService creates a new billing event service
 func NewBillingEventService(cfg *config.ClickHouseConfig) (*BillingEventService, error) {
-	// Feature gate: presence of URL indicates intent to use CH
-	if cfg == nil || cfg.ServerURL == "" {
-		log.Warn("ClickHouse URL not configured - billing events will not be logged")
+	// Feature gate: presence of HTTPAddr indicates intent to use CH
+	if cfg == nil || cfg.HTTPAddr == "" {
+		log.Warn("ClickHouse HTTPAddr not configured - billing events will not be logged")
 		sp, _ := spool.New(defaultSpoolDir())
 		bes := &BillingEventService{spool: sp}
 		bes.startBackgroundFlush()
@@ -56,8 +56,8 @@ func NewBillingEventService(cfg *config.ClickHouseConfig) (*BillingEventService,
 
 // ensureConn lazily (re)establishes the ClickHouse connection
 func (s *BillingEventService) ensureConn(ctx context.Context) error {
-	if s.config == nil || s.config.ServerURL == "" {
-		return fmt.Errorf("ClickHouse URL not configured")
+	if s.config == nil || s.config.HTTPAddr == "" {
+		return fmt.Errorf("ClickHouse HTTPAddr not configured")
 	}
 	if s.clickhouseConn != nil {
 		// Quick ping; if it fails, reopen
@@ -896,14 +896,14 @@ func (s *BillingEventService) insertChargebackBatch(ctx context.Context, rows []
 
 // initClickHouseConnection creates a connection to ClickHouse
 func initClickHouseConnection(cfg *config.ClickHouseConfig) (driver.Conn, error) {
-	if cfg.ServerURL == "" {
-		return nil, fmt.Errorf("ClickHouse server URL not configured")
+	if cfg.HTTPAddr == "" {
+		return nil, fmt.Errorf("ClickHouse HTTPAddr not configured")
 	}
-	// Derive native protocol address from ServerURL.
+	// Derive native protocol address from HTTPAddr.
 	// If an HTTP URL is provided (http://host:8123), translate to native (host:9000).
 	var serverAddr string
-	if strings.HasPrefix(cfg.ServerURL, "http://") || strings.HasPrefix(cfg.ServerURL, "https://") {
-		if u, err := url.Parse(cfg.ServerURL); err == nil {
+	if strings.HasPrefix(cfg.HTTPAddr, "http://") || strings.HasPrefix(cfg.HTTPAddr, "https://") {
+		if u, err := url.Parse(cfg.HTTPAddr); err == nil {
 			host := u.Hostname()
 			port := u.Port()
 			if port == "" || port == "8123" {
@@ -914,7 +914,7 @@ func initClickHouseConnection(cfg *config.ClickHouseConfig) (driver.Conn, error)
 	}
 	if serverAddr == "" {
 		// No scheme provided; assume native address
-		addr := cfg.ServerURL
+		addr := cfg.HTTPAddr
 		if strings.Contains(addr, ":") {
 			serverAddr = addr
 		} else {

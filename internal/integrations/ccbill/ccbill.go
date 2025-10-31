@@ -104,7 +104,6 @@ func (c *CCBillClient) GenerateFlexFormURL(params *GenerateFlexFormURLParams) (*
 	}, nil
 }
 
-
 func (c *CCBillClient) generateCCBillSignature(query url.Values) string {
 	hash := sha256.Sum256([]byte(c.createSignatureInput(query)))
 	return hex.EncodeToString(hash[:])

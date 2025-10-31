@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	email "github.com/doujins-org/doujins-email"
 	"github.com/joho/godotenv"
 	"github.com/knadh/koanf/parsers/yaml"
 	"github.com/knadh/koanf/providers/env"
@@ -31,19 +30,69 @@ type Config struct {
 	Solana      *SolanaConfig     `koanf:"solana,omitempty"`
 	DB          *DBConfig         `koanf:"db,omitempty"`
 	Redis       *RedisConfig      `koanf:"redis,omitempty"`
-	JWT         *JWTConfig        `koanf:"jwt,omitempty"`
+	Auth        *AuthConfig       `koanf:"auth,omitempty"`
 	ClickHouse  *ClickHouseConfig `koanf:"clickhouse,omitempty"`
-	Email       *email.Config     `koanf:"email,omitempty"`
+	SendGrid    *SendGridConfig   `koanf:"sendgrid,omitempty"`
 	CorsOrigins []string          `koanf:"cors_origins,omitempty"`
 	RateLimits  *RateLimitConfig  `koanf:"rate_limits,omitempty"`
 	Admin       *AdminConfig      `koanf:"admin,omitempty"`
 	TLS         *TLSConfig        `koanf:"tls,omitempty"`
 }
 
+// DBConfig holds database configuration.
+// Supports both legacy connection string (URL) and atomic parameters.
+// If URL is provided, it takes precedence. Otherwise, connection string
+// is built from individual parameters (Host, Port, Username, etc.).
 type DBConfig struct {
-	URL     string `koanf:"url"`
-	Schema  string `koanf:"schema"`
+	// Legacy: Full connection string (optional)
+	URL string `koanf:"url"`
+
+	// Atomic parameters (preferred for template-based configuration)
+	Host     string `koanf:"host"`
+	Port     string `koanf:"port"`
+	Database string `koanf:"database"`
+	Username string `koanf:"username"`
+	Password string `koanf:"password"`
+	Schema   string `koanf:"schema"`
+	SSLMode  string `koanf:"sslmode"`
+
 	Dialect string `koanf:"dialect"`
+}
+
+// GetConnectionString returns the database connection string.
+// If URL is set, returns it directly. Otherwise, builds the connection
+// string from atomic parameters.
+func (c *DBConfig) GetConnectionString() string {
+	// If legacy URL is provided, use it
+	if c.URL != "" {
+		return c.URL
+	}
+
+	// Build connection string from atomic parameters
+	// Format: postgresql://username:password@host:port/database?sslmode=...&search_path=...
+	connStr := fmt.Sprintf(
+		"postgresql://%s:%s@%s:%s/%s",
+		c.Username,
+		c.Password,
+		c.Host,
+		c.Port,
+		c.Database,
+	)
+
+	// Add query parameters
+	params := []string{}
+	if c.SSLMode != "" {
+		params = append(params, fmt.Sprintf("sslmode=%s", c.SSLMode))
+	}
+	if c.Schema != "" {
+		params = append(params, fmt.Sprintf("search_path=%s", c.Schema))
+	}
+
+	if len(params) > 0 {
+		connStr += "?" + strings.Join(params, "&")
+	}
+
+	return connStr
 }
 
 type NMIConfig struct {
@@ -159,15 +208,27 @@ type RedisConfig struct {
 	DB       int    `koanf:"db"`
 }
 
-type JWTConfig struct {
-	Secret   string `koanf:"secret"`
-	Issuer   string `koanf:"issuer"`
-	Audience string `koanf:"audience"`
-	JWKSURL  string `koanf:"jwks_url"`
-	// Optional RSA public key PEM for verifying RS256 JWTs. If empty and a JWKS URL
-	// is not provided, the service defaults to "{issuer}/.well-known/jwks.json".
+// AuthConfig holds JWT verification configuration for billing service.
+// Billing is a JWT verifier (not issuer) - it validates tokens issued by doujins/hentai0.
+type AuthConfig struct {
+	Issuer   string `koanf:"issuer"`   // Expected token issuer (e.g., "https://doujins.com")
+	Audience string `koanf:"audience"` // Expected audience claim (e.g., "billing-app")
+	BaseURL  string `koanf:"base_url"` // Base URL for JWKS endpoint (defaults to issuer if empty)
+	// Optional RSA public key PEM for verifying RS256 JWTs. If empty,
+	// the service fetches JWKS from "{base_url}/.well-known/jwks.json" or "{issuer}/.well-known/jwks.json".
 	PublicKeyPEM         string `koanf:"public_key_pem"`
 	SkipExpiryValidation bool   `koanf:"skip_expiry_validation"`
+}
+
+// GetJWKSURL returns the JWKS URL for fetching public keys.
+// Uses base_url if provided, otherwise falls back to issuer.
+func (a *AuthConfig) GetJWKSURL() string {
+	base := strings.TrimSpace(a.BaseURL)
+	if base == "" {
+		base = strings.TrimSpace(a.Issuer)
+	}
+	base = strings.TrimRight(base, "/")
+	return base + "/.well-known/jwks.json"
 }
 
 type SolanaConfig struct {
@@ -201,11 +262,19 @@ type RateLimitConfig struct {
 	DefaultLimit   *RateLimit `koanf:"default_limit,omitempty"`   // Default for other endpoints
 }
 
+// SendGridConfig holds SendGrid email configuration
+type SendGridConfig struct {
+	APIKey    string `koanf:"api_key"`
+	FromEmail string `koanf:"from_email"`
+	FromName  string `koanf:"from_name"`
+}
+
 type ClickHouseConfig struct {
-	ServerURL string `koanf:"server_url"` // HTTP URL for ClickHouse server (e.g., http://localhost:8123)
-	Database  string `koanf:"database"`   // ClickHouse database name (e.g., analytics)
-	Username  string `koanf:"username"`   // Optional username for authentication
-	Password  string `koanf:"password"`   // Optional password for authentication
+	HTTPAddr   string `koanf:"http_addr"`   // Full HTTP address, e.g., http://clickhouse:8123
+	ClientAddr string `koanf:"client_addr"` // Native client address, e.g., clickhouse:9000
+	Database   string `koanf:"database"`    // ClickHouse database name (e.g., analytics)
+	Username   string `koanf:"username"`    // Optional username for authentication
+	Password   string `koanf:"password"`    // Optional password for authentication
 }
 
 // AdminConfig controls private admin access
@@ -367,8 +436,8 @@ func validateDatabase(cfg *DBConfig) error {
 		return fmt.Errorf("database configuration is required")
 	}
 
-	if cfg.URL == "" {
-		return fmt.Errorf("database URL is required")
+	if cfg.GetConnectionString() == "" {
+		return fmt.Errorf("database configuration is required (DB_URL or DB_HOST/DB_PORT/etc.)")
 	}
 
 	return nil
@@ -393,17 +462,18 @@ func GetDefaultBillingConfig() *Config {
 			Password: "",
 			DB:       0,
 		},
-		JWT: &JWTConfig{
-			Secret:   "", // RS256 by default; no shared secret
+		Auth: &AuthConfig{
 			Issuer:   "http://api:2052",
-			Audience: "doujins-app",
+			Audience: "billing-app",
+			BaseURL:  "http://api:2052",
 		},
 		// Match docker-compose ClickHouse (service: clickhouse)
 		ClickHouse: &ClickHouseConfig{
-			ServerURL: "http://clickhouse:8123",
-			Database:  "analytics",
-			Username:  "analytics_user",
-			Password:  "analytics_password",
+			HTTPAddr:   "http://clickhouse:8123",
+			ClientAddr: "clickhouse:9000",
+			Database:   "analytics",
+			Username:   "analytics_user",
+			Password:   "analytics_password",
 		},
 		Admin: &AdminConfig{
 			// Default internal admin API key for development. Override via env BILLING_INTERNAL_API_KEY in prod.
@@ -507,11 +577,11 @@ func Load(configPath string) (*Config, error) {
 		"ENV":         "env",
 		"ENVIRONMENT": "env",
 
-		// JWT / OIDC
-		"JWT_SECRET":       "jwt.secret", // for HS256
-		"AUTH_ISSUER":      "jwt.issuer",
-		"AUTH_AUDIENCE":    "jwt.audience",
-		"AUTH_PUBLIC_KEY_PEM": "jwt.public_key_pem", // optional for RS256 if not using JWKS
+		// Auth / JWT verification
+		"AUTH_ISSUER":         "auth.issuer",
+		"AUTH_AUDIENCE":       "auth.audience",
+		"AUTH_BASE_URL":       "auth.base_url",
+		"AUTH_PUBLIC_KEY_PEM": "auth.public_key_pem", // optional for RS256 if not using JWKS
 
 		// CCBill
 		"CCBILL_CLIENT_ACCOUNT":       "ccbill.client_acc_num",
@@ -544,23 +614,17 @@ func Load(configPath string) (*Config, error) {
 		"MOBIUS_DIRECT_POST_URL":  "nmi.direct_post_url",
 		"MOBIUS_QUERY_URL":        "nmi.query_url",
 
-		// Email configuration
-		"EMAIL_PROVIDER":        "email.provider",
-		"EMAIL_FROM_ADDRESS":    "email.from_address",
-		"EMAIL_FROM":            "email.from_address",
-		"EMAIL_FROM_NAME":       "email.from_name",
-		"EMAIL_DISABLED":        "email.disabled",
-		"SENDGRID_API_KEY":      "email.sendgrid.api_key",
-		"SENDGRID_API_HOST":     "email.sendgrid.api_host",
-		"SENDGRID_SANDBOX_MODE": "email.sendgrid.sandbox_mode",
-		"SENDGRID_FROM_EMAIL":   "email.from_address",
-		"SENDGRID_FROM_NAME":    "email.from_name",
+		// SendGrid email configuration
+		"SENDGRID_API_KEY":    "sendgrid.api_key",
+		"SENDGRID_FROM_EMAIL": "sendgrid.from_email",
+		"SENDGRID_FROM_NAME":  "sendgrid.from_name",
 
 		// ClickHouse
-		"CLICKHOUSE_URL":      "clickhouse.server_url",
-		"CLICKHOUSE_DATABASE": "clickhouse.database",
-		"CLICKHOUSE_USERNAME": "clickhouse.username",
-		"CLICKHOUSE_PASSWORD": "clickhouse.password",
+		"CLICKHOUSE_HTTP_ADDR":   "clickhouse.http_addr",
+		"CLICKHOUSE_CLIENT_ADDR": "clickhouse.client_addr",
+		"CLICKHOUSE_DATABASE":    "clickhouse.database",
+		"CLICKHOUSE_USERNAME":    "clickhouse.username",
+		"CLICKHOUSE_PASSWORD":    "clickhouse.password",
 
 		// Schema override (compose now uses DB_SCHEMA; keep APP_SCHEMA as legacy)
 		"DB_SCHEMA":  "db.schema",

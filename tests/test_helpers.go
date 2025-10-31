@@ -20,7 +20,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/server"
 )
 
-const testJWTSecret = "TEST_JWT_SECRET"
+const testAuthIssuer = "TEST_JWT_SECRET"
 
 var (
 	testRSAOnce      sync.Once
@@ -56,12 +56,13 @@ func createTestServer(t *testing.T) (*server.Server, *app.App) {
 	}
 
 	// Inject deterministic auth settings so tests do not rely on external configuration
-	if cfg.JWT == nil {
-		cfg.JWT = &config.JWTConfig{}
+	if cfg.Auth == nil {
+		cfg.Auth = &config.AuthConfig{}
 	}
 	ensureTestRSAKeys()
-	cfg.JWT.Secret = testJWTSecret
-	cfg.JWT.PublicKeyPEM = testRSAPublicPEM
+	cfg.Auth.Issuer = testAuthIssuer
+	cfg.Auth.Audience = "billing-app"
+	cfg.Auth.PublicKeyPEM = testRSAPublicPEM
 
 	application, err := app.Bootstrap(cfg)
 	if err != nil {
@@ -95,11 +96,11 @@ func createTestHS256JWT(s *server.Server) string {
 		"email": email,
 		"exp":   time.Now().Add(time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
-		"iss":   cfg.JWT.Issuer,
-		"aud":   cfg.JWT.Audience,
+		"iss":   cfg.Auth.Issuer,
+		"aud":   cfg.Auth.Audience,
 	})
 
-	tokenString, err := token.SignedString([]byte(cfg.JWT.Secret))
+	tokenString, err := token.SignedString([]byte(cfg.Auth.Issuer))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to sign JWT token: %v", err))
 	}
@@ -113,7 +114,7 @@ func createTestHS256JWT(s *server.Server) string {
 		expValue = int64(exp)
 	}
 	fmt.Printf("DEBUG: Created HS256 JWT with claims: sub=%s, email=%s, iss=%s, aud=%s, exp=%d, secret_len=%d\n",
-		claims["sub"], claims["email"], claims["iss"], claims["aud"], expValue, len(cfg.JWT.Secret))
+		claims["sub"], claims["email"], claims["iss"], claims["aud"], expValue, len(cfg.Auth.Issuer))
 
 	return tokenString
 }
@@ -128,8 +129,8 @@ func createTestRS256JWT(s *server.Server) string {
 		"email": "rs256@billing.example.com",
 		"exp":   time.Now().Add(time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
-		"iss":   cfg.JWT.Issuer,
-		"aud":   cfg.JWT.Audience,
+		"iss":   cfg.Auth.Issuer,
+		"aud":   cfg.Auth.Audience,
 	})
 
 	signed, err := token.SignedString(testRSAPrivate)

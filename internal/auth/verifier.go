@@ -45,22 +45,19 @@ type verifier struct {
 	impl   *authgin.Verifier
 }
 
-// NewVerifier builds an authkit-backed verifier using billing JWT config.
-func NewVerifier(cfg *config.JWTConfig) (Verifier, error) {
+// NewVerifier builds an authkit-backed verifier using billing auth config.
+func NewVerifier(cfg *config.AuthConfig) (Verifier, error) {
 	if cfg == nil {
-		return nil, errors.New("jwt config is required")
+		return nil, errors.New("auth config is required")
 	}
 
 	issuer := strings.TrimSpace(cfg.Issuer)
 	if issuer == "" {
-		return nil, errors.New("jwt issuer is required")
+		return nil, errors.New("auth issuer is required")
 	}
 	issuer = strings.TrimRight(issuer, "/")
 
-	jwksURL := strings.TrimSpace(cfg.JWKSURL)
-	if jwksURL == "" {
-		jwksURL = issuer + "/.well-known/jwks.json"
-	}
+	jwksURL := cfg.GetJWKSURL()
 
 	issCfg := core.IssuerAccept{
 		Issuer:  issuer,

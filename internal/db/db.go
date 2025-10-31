@@ -21,23 +21,23 @@ type DB struct {
 }
 
 func NewDB(cfg *config.DBConfig) (_ *DB, err error) {
-	if cfg.URL == "" {
-		return nil, fmt.Errorf("missing database url")
+	url := cfg.GetConnectionString()
+	if url == "" {
+		return nil, fmt.Errorf("missing database configuration (DB_URL or DB_HOST/DB_PORT/etc.)")
 	}
 
 	var db *bun.DB
 
-	url := cfg.URL
 	dialect := cfg.Dialect
 
-    switch dialect {
-    case "postgres":
-        connParams := map[string]any{}
-        if cfg.Schema != "" {
-            // Ensure extensions installed in public (e.g., citext, pgcrypto) resolve
-            // Do not override role-level defaults without adding public.
-            connParams["search_path"] = fmt.Sprintf("%s,public", cfg.Schema)
-        }
+	switch dialect {
+	case "postgres":
+		connParams := map[string]any{}
+		if cfg.Schema != "" {
+			// Ensure extensions installed in public (e.g., citext, pgcrypto) resolve
+			// Do not override role-level defaults without adding public.
+			connParams["search_path"] = fmt.Sprintf("%s,public", cfg.Schema)
+		}
 
 		sqldb := sql.OpenDB(pgdriver.NewConnector(
 			pgdriver.WithDSN(url),

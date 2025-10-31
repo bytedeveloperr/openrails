@@ -20,21 +20,17 @@ import (
 func loadCCBillWebhookData(t *testing.T, eventType string) string {
 	t.Helper()
 
-
 	// Map event type to file name
 	fileName := strings.ToLower(eventType) + ".json"
 	filePath := filepath.Join("../testdata/webhooks/ccbill", fileName)
 
-
 	data, err := os.ReadFile(filePath)
 	require.NoError(t, err, "Failed to read CCBill webhook test data for %s", eventType)
-
 
 	// Parse JSON to convert to form data
 	var jsonData map[string]interface{}
 	err = json.Unmarshal(data, &jsonData)
 	require.NoError(t, err, "Failed to parse CCBill webhook JSON for %s", eventType)
-
 
 	// Convert to URL-encoded form data
 	return jsonToFormData(jsonData)
@@ -70,7 +66,6 @@ func jsonToFormData(data map[string]interface{}) string {
 func loadNMIWebhookData(t *testing.T, eventType string) []byte {
 	t.Helper()
 
-
 	// Map event type to file name
 	var fileName string
 	switch eventType {
@@ -105,7 +100,6 @@ func loadNMIWebhookData(t *testing.T, eventType string) []byte {
 func TestCCBillWebhookReplay(t *testing.T) {
 	server := setupTestServer(t)
 
-
 	// Test all CCBill event types
 	eventTypes := []struct {
 		name       string
@@ -131,7 +125,6 @@ func TestCCBillWebhookReplay(t *testing.T) {
 		{"Void", "Void", "void"},
 	}
 
-
 	for _, et := range eventTypes {
 		t.Run(et.name, func(t *testing.T) {
 			// Check if file exists first
@@ -141,21 +134,17 @@ func TestCCBillWebhookReplay(t *testing.T) {
 				return
 			}
 
-
 			// Load test data
 			data, err := os.ReadFile(filePath)
 			require.NoError(t, err, "Failed to read test data")
-
 
 			// Parse JSON to convert to form data
 			var jsonData map[string]interface{}
 			err = json.Unmarshal(data, &jsonData)
 			require.NoError(t, err, "Failed to parse JSON")
 
-
 			// Convert to form data
 			formData := jsonToFormData(jsonData)
-
 
 			// Create request
 			w := httptest.NewRecorder()
@@ -164,27 +153,20 @@ func TestCCBillWebhookReplay(t *testing.T) {
 				strings.NewReader(formData))
 			require.NoError(t, err)
 
-
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
 
 			// Send request
 			server.Handler().ServeHTTP(w, req)
-
 
 			// Check response
 			// We expect either OK, rate limited, or internal error (due to missing services in test)
 			assert.Contains(t, []int{
 				http.StatusOK,
 				http.StatusInternalServerError,
-				http.StatusOK,
-				http.StatusInternalServerError,
 				http.StatusTooManyRequests,
 				http.StatusForbidden, // IP verification might fail in test
 			}, w.Code,
-			}, w.Code,
 				"Unexpected status code for CCBill %s webhook: %d", et.name, w.Code)
-
 
 			// Log response for debugging
 			if w.Code != http.StatusOK && w.Code != http.StatusTooManyRequests {
@@ -208,7 +190,6 @@ func TestNMIWebhookReplay(t *testing.T) {
 		{"SubscriptionDelete", "recurring.subscription.delete"},
 	}
 
-
 	for _, et := range eventTypes {
 		t.Run(et.name, func(t *testing.T) {
 			// Load test data
@@ -221,13 +202,10 @@ func TestNMIWebhookReplay(t *testing.T) {
 				bytes.NewBuffer(webhookData))
 			require.NoError(t, err)
 
-
 			req.Header.Set("Content-Type", "application/json")
-
 
 			// Send request
 			server.Handler().ServeHTTP(w, req)
-
 
 			// Check response
 			// We expect either OK, rate limited, unauthorized (signature), or internal error
@@ -253,20 +231,15 @@ func TestNMIWebhookReplay(t *testing.T) {
 func TestWebhookWithInvalidProcessor(t *testing.T) {
 	server := setupTestServer(t)
 
-
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/invalid",
 	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/invalid",
 		strings.NewReader("test=data"))
 	require.NoError(t, err)
 
-
 	server.Handler().ServeHTTP(w, req)
-
 
 	// Should return bad request or rate limited
 	assert.Contains(t, []int{
-		http.StatusBadRequest,
 		http.StatusBadRequest,
 		http.StatusTooManyRequests,
 	}, w.Code)
@@ -276,18 +249,14 @@ func TestWebhookWithInvalidProcessor(t *testing.T) {
 func TestCCBillWebhookWithMissingEventType(t *testing.T) {
 	server := setupTestServer(t)
 
-
 	w := httptest.NewRecorder()
 	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/ccbill",
 		strings.NewReader("subscriptionId=123456"))
 	require.NoError(t, err)
 
-
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-
 	server.Handler().ServeHTTP(w, req)
-
 
 	// Should still process but with empty eventType
 	assert.Contains(t, []int{
@@ -302,18 +271,14 @@ func TestCCBillWebhookWithMissingEventType(t *testing.T) {
 func TestNMIWebhookWithMalformedJSON(t *testing.T) {
 	server := setupTestServer(t)
 
-
 	w := httptest.NewRecorder()
 	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/nmi/mobius",
 		strings.NewReader("{invalid json"))
 	require.NoError(t, err)
 
-
 	req.Header.Set("Content-Type", "application/json")
 
-
 	server.Handler().ServeHTTP(w, req)
-
 
 	// Should return bad request or rate limited
 	assert.Contains(t, []int{
@@ -327,7 +292,6 @@ func TestNMIWebhookWithMalformedJSON(t *testing.T) {
 func TestWebhookReplayWithLargePayload(t *testing.T) {
 	server := setupTestServer(t)
 
-
 	// Create a large payload (simulate a webhook with many fields)
 	largeData := make(map[string]interface{})
 	for i := 0; i < 100; i++ {
@@ -336,23 +300,17 @@ func TestWebhookReplayWithLargePayload(t *testing.T) {
 	largeData["eventType"] = "TestEvent"
 	largeData["subscriptionId"] = "123456789"
 
-
 	formData := jsonToFormData(largeData)
 
-
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST",
 	req, err := http.NewRequest("POST",
 		"/v1/subscriptions/webhook/ccbill?eventType=TestEvent",
 		strings.NewReader(formData))
 	require.NoError(t, err)
 
-
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-
 	server.Handler().ServeHTTP(w, req)
-
 
 	// Should handle large payload without crashing
 	assert.Contains(t, []int{
@@ -367,22 +325,17 @@ func TestWebhookReplayWithLargePayload(t *testing.T) {
 func TestWebhookContentTypeValidation(t *testing.T) {
 	server := setupTestServer(t)
 
-
 	t.Run("CCBill_WrongContentType", func(t *testing.T) {
 		// CCBill expects form data, send JSON instead
 		w := httptest.NewRecorder()
-		req, err := http.NewRequest("POST",
 		req, err := http.NewRequest("POST",
 			"/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
 			strings.NewReader(`{"test": "data"}`))
 		require.NoError(t, err)
 
-
 		req.Header.Set("Content-Type", "application/json") // Wrong content type
 
-
 		server.Handler().ServeHTTP(w, req)
-
 
 		// Should still attempt to process (handler reads raw body)
 		assert.Contains(t, []int{
@@ -401,12 +354,9 @@ func TestWebhookContentTypeValidation(t *testing.T) {
 			strings.NewReader("test=data&foo=bar"))
 		require.NoError(t, err)
 
-
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded") // Wrong content type
 
-
 		server.Handler().ServeHTTP(w, req)
-
 
 		// Should fail JSON parsing
 		assert.Contains(t, []int{
@@ -421,18 +371,14 @@ func TestWebhookContentTypeValidation(t *testing.T) {
 func TestWebhookReplayEmptyBody(t *testing.T) {
 	server := setupTestServer(t)
 
-
 	t.Run("CCBill_EmptyBody", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, err := http.NewRequest("POST",
 		req, err := http.NewRequest("POST",
 			"/v1/subscriptions/webhook/ccbill?eventType=Test",
 			nil)
 		require.NoError(t, err)
 
-
 		server.Handler().ServeHTTP(w, req)
-
 
 		assert.Contains(t, []int{
 			http.StatusInternalServerError,
@@ -448,9 +394,7 @@ func TestWebhookReplayEmptyBody(t *testing.T) {
 			nil)
 		require.NoError(t, err)
 
-
 		server.Handler().ServeHTTP(w, req)
-
 
 		assert.Contains(t, []int{
 			http.StatusBadRequest,

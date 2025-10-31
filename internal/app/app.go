@@ -33,7 +33,7 @@ func Bootstrap(cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
-	verifier, err := auth.NewVerifier(cfg.JWT)
+	verifier, err := auth.NewVerifier(cfg.Auth)
 	if err != nil {
 		return nil, fmt.Errorf("build auth verifier: %w", err)
 	}

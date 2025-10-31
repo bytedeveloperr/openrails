@@ -53,14 +53,14 @@ func splitCHStatements(sql string) []string {
 }
 
 func applyClickHouseMigrations(ctx context.Context, cfg *config.Config) error {
-	if cfg == nil || cfg.ClickHouse == nil || cfg.ClickHouse.ServerURL == "" {
+	if cfg == nil || cfg.ClickHouse == nil || cfg.ClickHouse.HTTPAddr == "" {
 		log.Info("ClickHouse not configured; skipping CH migrations")
 		return nil
 	}
-	// Parse server URL to decide protocol and address
-	u, err := url.Parse(cfg.ClickHouse.ServerURL)
+	// Parse HTTPAddr to decide protocol and address
+	u, err := url.Parse(cfg.ClickHouse.HTTPAddr)
 	if err != nil {
-		return fmt.Errorf("invalid clickhouse server_url: %w", err)
+		return fmt.Errorf("invalid clickhouse http_addr: %w", err)
 	}
 	protocol := ch.Native
 	addr := u.Host
@@ -72,7 +72,7 @@ func applyClickHouseMigrations(ctx context.Context, cfg *config.Config) error {
 		addr = u.Host
 	} else if addr == "" {
 		// Fallback for bare host:port style strings
-		addr = cfg.ClickHouse.ServerURL
+		addr = cfg.ClickHouse.HTTPAddr
 	}
 
 	// Connect to default DB first to ensure target DB exists

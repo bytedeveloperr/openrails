@@ -182,7 +182,7 @@ func (suite *TestContainerSuite) initializeDatabaseConnections() {
 			Username:  "test_user",
 			Password:  "test_password",
 		},
-		JWT: &config.JWTConfig{
+		JWT: &config.AuthConfig{
 			Secret:   "test-secret-key-for-testing-only",
 			Issuer:   "doujins-test",
 			Audience: "doujins-test-app",

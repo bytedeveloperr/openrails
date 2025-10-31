@@ -43,12 +43,12 @@ func main() {
 	rootCmd.PersistentFlags().
 		StringP("config", "c", "config.yaml", "Path to config file")
 
-    serverCmd := &cobra.Command{
-        Use:     "run-server",
-        Aliases: []string{"server"},
-        RunE:    runServer,
-        Short:   "Start the billing service server",
-    }
+	serverCmd := &cobra.Command{
+		Use:     "run-server",
+		Aliases: []string{"server"},
+		RunE:    runServer,
+		Short:   "Start the billing service server",
+	}
 
 	workerCmd := &cobra.Command{
 		Use:   "worker",

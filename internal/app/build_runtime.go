@@ -21,6 +21,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/internal/validation"
+	email "github.com/doujins-org/doujins-email"
 )
 
 func buildRuntime(cfg *config.Config) (*Runtime, error) {
@@ -46,8 +47,17 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 
 	var emailService *services.EmailService
 	var subscriptionEmailService *services.SubscriptionEmailService
-	if cfg.Email != nil {
-		if es, err := services.NewEmailService(cfg.Email); err != nil {
+	if cfg.SendGrid != nil {
+		// Convert SendGridConfig to email.Config
+		emailCfg := &email.Config{
+			Provider:    "sendgrid",
+			FromName:    cfg.SendGrid.FromName,
+			FromAddress: cfg.SendGrid.FromEmail,
+			SendGrid: &email.SendGridConfig{
+				APIKey: cfg.SendGrid.APIKey,
+			},
+		}
+		if es, err := services.NewEmailService(emailCfg); err != nil {
 			log.WithError(err).Warn("EmailService init failed; email disabled")
 		} else {
 			emailService = es
@@ -326,12 +336,16 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 }
 
 func buildRiverClient(cfg *config.Config, workers *river.Workers) (*river.Client[pgx.Tx], error) {
-	if cfg.DB == nil || cfg.DB.URL == "" {
+	if cfg.DB == nil {
 		return nil, fmt.Errorf("missing database configuration for River")
+	}
+	dbURL := cfg.DB.GetConnectionString()
+	if dbURL == "" {
+		return nil, fmt.Errorf("missing database configuration for River (DB_URL or DB_HOST/DB_PORT/etc.)")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	pool, err := pgxpool.New(ctx, cfg.DB.URL)
+	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed creating pgx pool for River: %w", err)
 	}
