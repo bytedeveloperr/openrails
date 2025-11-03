@@ -4,6 +4,10 @@
 # Environment: prod, dev, development, production
 env: "development"
 
+# Server configuration
+# host: "0.0.0.0"  # Host to bind to (default: 0.0.0.0)
+# port: 2053       # Public HTTP/HTTPS port (default: 2053)
+
 # CORS origins for frontend access
 cors_origins:
   - "http://localhost:3000"
@@ -42,7 +46,7 @@ auth:
 
 # Admin API key for private routes (header: X-API-KEY)
 # Admin/private API key
-# Default is "change-me-in-dev"; override via env BILLING_INTERNAL_API_KEY for non-dev.
+# Default is "change-me-in-dev"; override via env BILLING_API_KEY for non-dev.
 admin:
   api_key: "change-me-in-dev"
 
@@ -154,6 +158,16 @@ email:
   retry_delay: 750ms
   sendgrid:
     # Provide SENDGRID_API_KEY via env
+
+# TLS configuration (optional private mTLS listener)
+# tls:
+#   private:
+#     enabled: false              # Enable private mTLS listener
+#     addr: ":8060"               # Private listener address (default: :8060)
+#     cert_file: "/path/to/cert"  # Server certificate
+#     key_file: "/path/to/key"    # Server private key
+#     client_ca_file: ""          # Client CA for mTLS (optional)
+#     require_client_cert: false  # Require client cert for mTLS
 
 # Rate limiting configuration
 rate_limits:

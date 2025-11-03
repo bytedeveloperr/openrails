@@ -459,7 +459,7 @@ func GetDefaultBillingConfig() *Config {
 			Password:   "analytics_password",
 		},
 		Admin: &AdminConfig{
-			// Default internal admin API key for development. Override via env BILLING_INTERNAL_API_KEY in prod.
+			// Default internal admin API key for development. Override via env BILLING_API_KEY in prod.
 			APIKey: "change-me-in-dev",
 		},
 		TLS: &TLSConfig{
@@ -617,8 +617,8 @@ func Load(configPath string) (*Config, error) {
 		"SOLANA_RECIPIENT_WALLET":   "solana.recipient_wallet",
 		"SOLANA_DESTINATION_WALLET": "solana.destination_wallet",
 
-		// Admin API key
-		"BILLING_INTERNAL_API_KEY": "admin.api_key",
+		// Billing API key (for server-to-server communication)
+		"BILLING_API_KEY": "admin.api_key",
 	}
 
 	for envVar, configKey := range envMappings {

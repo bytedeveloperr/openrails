@@ -60,9 +60,9 @@ func createTestServer(t *testing.T) (*server.Server, *app.App) {
 		cfg.Auth = &config.AuthConfig{}
 	}
 	ensureTestRSAKeys()
-	cfg.Auth.Issuer = testAuthIssuer
+	cfg.Auth.Issuers[0] = testAuthIssuer
 	cfg.Auth.Audience = "billing-app"
-	cfg.Auth.PublicKeyPEM = testRSAPublicPEM
+	// removed = testRSAPublicPEM
 
 	application, err := app.Bootstrap(cfg)
 	if err != nil {
@@ -96,11 +96,11 @@ func createTestHS256JWT(s *server.Server) string {
 		"email": email,
 		"exp":   time.Now().Add(time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
-		"iss":   cfg.Auth.Issuer,
+		"iss":   cfg.Auth.Issuers[0],
 		"aud":   cfg.Auth.Audience,
 	})
 
-	tokenString, err := token.SignedString([]byte(cfg.Auth.Issuer))
+	tokenString, err := token.SignedString([]byte(cfg.Auth.Issuers[0]))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to sign JWT token: %v", err))
 	}
@@ -114,7 +114,7 @@ func createTestHS256JWT(s *server.Server) string {
 		expValue = int64(exp)
 	}
 	fmt.Printf("DEBUG: Created HS256 JWT with claims: sub=%s, email=%s, iss=%s, aud=%s, exp=%d, secret_len=%d\n",
-		claims["sub"], claims["email"], claims["iss"], claims["aud"], expValue, len(cfg.Auth.Issuer))
+		claims["sub"], claims["email"], claims["iss"], claims["aud"], expValue, len(cfg.Auth.Issuers[0]))
 
 	return tokenString
 }
@@ -129,7 +129,7 @@ func createTestRS256JWT(s *server.Server) string {
 		"email": "rs256@billing.example.com",
 		"exp":   time.Now().Add(time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
-		"iss":   cfg.Auth.Issuer,
+		"iss":   cfg.Auth.Issuers[0],
 		"aud":   cfg.Auth.Audience,
 	})
 

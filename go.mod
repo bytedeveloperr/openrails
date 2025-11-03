@@ -4,7 +4,7 @@ go 1.24.2
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.1
-	github.com/doujins-org/authkit v0.4.3
+	github.com/doujins-org/authkit v0.4.4
 	github.com/doujins-org/doujins-email v0.1.0
 	github.com/doujins-org/solana-go v1.13.0
 	github.com/gin-contrib/cors v1.7.6
@@ -187,4 +187,4 @@ require (
 	mellium.im/sasl v0.3.2 // indirect
 )
 
-// replace github.com/doujins-org/authkit => /Users/abdulrahmanyusuf/Documents/Doujins/authkit
+// replace github.com/doujins-org/authkit => ../authkit

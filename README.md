@@ -57,7 +57,7 @@ Networking
 Admin access
 - Shared secret: admin routes are protected by header `X-API-KEY: <token>`.
 - Default (dev): `change-me-in-dev`.
-- Override via env `BILLING_INTERNAL_API_KEY` or config `admin.api_key`.
+- Override via env `BILLING_API_KEY` or config `admin.api_key`.
 - mTLS (optional): set `tls.private.enabled: true` and provide `tls.private.cert_file`, `tls.private.key_file`. To require client certs, also set `tls.private.client_ca_file` and `tls.private.require_client_cert: true`.
 
 JWT verification (Verifier Only)
