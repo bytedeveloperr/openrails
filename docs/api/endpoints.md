@@ -39,9 +39,22 @@ Admin routes are not rate limited by the application but should live behind netw
   ```json
   [
     {
-      "id": "64ba7b37-3d1d-4e38-9de0-1f209d148c51",
-      "name": "Premium",
-      "description": "Unlimited access",
+      "id": "d6b3d03b-bcaa-4c9d-9b4d-6e8f6d0b0e25",
+      "name": "Basic Membership",
+      "description": "Essential access to the standard catalog and community features.",
+      "prices": [
+        {
+          "id": "59aa6fd2-4350-4d7c-9a9c-7f08d5149cb5",
+          "amount": 4.99,
+          "currency": "USD",
+          "billing_cycle_days": 30
+        }
+      ]
+    },
+    {
+      "id": "76c8cdf4-821a-4f12-baff-8c58cbe69d03",
+      "name": "Premium Membership",
+      "description": "Everything in Basic plus premium catalog access and enhanced perks.",
       "prices": [
         {
           "id": "3a58fb2f-0bec-4f0f-98a4-6aa45723b67d",
