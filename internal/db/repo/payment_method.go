@@ -23,7 +23,7 @@ var (
 )
 
 func (r *PaymentMethodRepo) Create(ctx context.Context, m *models.PaymentMethod) error {
-	res, err := r.db.GetDB().NewInsert().Model(m).TableExpr(r.db.QualifiedTable("payment_methods")).Exec(ctx)
+	res, err := r.db.GetDB().NewInsert().Model(m).Exec(ctx)
 	if err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func (r *PaymentMethodRepo) Create(ctx context.Context, m *models.PaymentMethod)
 
 func (r *PaymentMethodRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
-	err := r.db.GetDB().NewSelect().Model(pm).TableExpr(r.db.QualifiedTable("payment_methods")).Where("id = ?", id).Scan(ctx)
+	err := r.db.GetDB().NewSelect().Model(pm).Where("pm.id = ?", id).Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("payment method %s: %w", id, ErrPaymentMethodNotFound)
@@ -53,7 +53,7 @@ func (r *PaymentMethodRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.
 }
 
 func (r *PaymentMethodRepo) Delete(ctx context.Context, id uuid.UUID) error {
-	res, err := r.db.GetDB().NewDelete().Model((*models.PaymentMethod)(nil)).TableExpr(r.db.QualifiedTable("payment_methods")).Where("id = ?", id).Exec(ctx)
+	res, err := r.db.GetDB().NewDelete().Model((*models.PaymentMethod)(nil)).Where("pm.id = ?", id).Exec(ctx)
 	if err != nil {
 		return err
 	}
@@ -73,9 +73,8 @@ func (r *PaymentMethodRepo) Delete(ctx context.Context, id uuid.UUID) error {
 func (r *PaymentMethodRepo) GetByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	err := r.db.GetDB().NewSelect().Model(&methods).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
+		Where("pm.user_id = ?", userID).
+		OrderExpr("pm.created_at DESC").
 		Scan(ctx)
 	if err != nil {
 		return nil, err
@@ -86,10 +85,9 @@ func (r *PaymentMethodRepo) GetByUserID(ctx context.Context, userID string) ([]*
 func (r *PaymentMethodRepo) GetActiveByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	err := r.db.GetDB().NewSelect().Model(&methods).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID).
-		Where("is_active = ?", true).
-		Order("created_at DESC").
+		Where("pm.user_id = ?", userID).
+		Where("pm.is_active = ?", true).
+		OrderExpr("pm.created_at DESC").
 		Scan(ctx)
 	if err != nil {
 		return nil, err
@@ -99,10 +97,9 @@ func (r *PaymentMethodRepo) GetActiveByUserID(ctx context.Context, userID string
 
 func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, includeInactive bool, limit, offset int) ([]*models.PaymentMethod, int64, error) {
 	countQuery := r.db.GetDB().NewSelect().Model((*models.PaymentMethod)(nil)).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID)
+		Where("pm.user_id = ?", userID)
 	if !includeInactive {
-		countQuery.Where("is_active = ?", true)
+		countQuery.Where("pm.is_active = ?", true)
 	}
 
 	total, err := countQuery.Count(ctx)
@@ -112,11 +109,10 @@ func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, inc
 
 	methods := []*models.PaymentMethod{}
 	dataQuery := r.db.GetDB().NewSelect().Model(&methods).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID).
-		Order("created_at DESC")
+		Where("pm.user_id = ?", userID).
+		OrderExpr("pm.created_at DESC")
 	if !includeInactive {
-		dataQuery.Where("is_active = ?", true)
+		dataQuery.Where("pm.is_active = ?", true)
 	}
 	if limit > 0 {
 		dataQuery.Limit(limit)
@@ -140,14 +136,13 @@ func (r *PaymentMethodRepo) GetByVaultID(ctx context.Context, provider, vaultID 
 	}
 
 	query := r.db.GetDB().NewSelect().Model(pm).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", models.ProcessorNMI).
-		Where("vault_id = ?", vaultID)
+		Where("pm.processor = ?", models.ProcessorNMI).
+		Where("pm.vault_id = ?", vaultID)
 
 	if provider == "mobius" {
-		query = query.Where("(processor_provider = ? OR processor_provider IS NULL OR processor_provider = '')", provider)
+		query = query.Where("(pm.processor_provider = ? OR pm.processor_provider IS NULL OR pm.processor_provider = '')", provider)
 	} else {
-		query = query.Where("processor_provider = ?", provider)
+		query = query.Where("pm.processor_provider = ?", provider)
 	}
 
 	err := query.Scan(ctx)
@@ -168,14 +163,13 @@ func (r *PaymentMethodRepo) GetByBillingID(ctx context.Context, provider, billin
 	}
 
 	query := r.db.GetDB().NewSelect().Model(pm).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", models.ProcessorNMI).
-		Where("billing_id = ?", billingID)
+		Where("pm.processor = ?", models.ProcessorNMI).
+		Where("pm.billing_id = ?", billingID)
 
 	if provider == "mobius" {
-		query = query.Where("(processor_provider = ? OR processor_provider IS NULL OR processor_provider = '')", provider)
+		query = query.Where("(pm.processor_provider = ? OR pm.processor_provider IS NULL OR pm.processor_provider = '')", provider)
 	} else {
-		query = query.Where("processor_provider = ?", provider)
+		query = query.Where("pm.processor_provider = ?", provider)
 	}
 
 	err := query.Scan(ctx)
@@ -196,14 +190,13 @@ func (r *PaymentMethodRepo) GetByInitialTransactionID(ctx context.Context, provi
 	}
 
 	query := r.db.GetDB().NewSelect().Model(pm).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", models.ProcessorNMI).
-		Where("initial_transaction_id = ?", initialTransactionID)
+		Where("pm.processor = ?", models.ProcessorNMI).
+		Where("pm.initial_transaction_id = ?", initialTransactionID)
 
 	if provider == "mobius" {
-		query = query.Where("(processor_provider = ? OR processor_provider IS NULL OR processor_provider = '')", provider)
+		query = query.Where("(pm.processor_provider = ? OR pm.processor_provider IS NULL OR pm.processor_provider = '')", provider)
 	} else {
-		query = query.Where("processor_provider = ?", provider)
+		query = query.Where("pm.processor_provider = ?", provider)
 	}
 
 	err := query.Scan(ctx)
@@ -217,7 +210,7 @@ func (r *PaymentMethodRepo) GetByInitialTransactionID(ctx context.Context, provi
 }
 
 func (r *PaymentMethodRepo) Update(ctx context.Context, method *models.PaymentMethod) error {
-	res, err := r.db.GetDB().NewUpdate().Model(method).TableExpr(r.db.QualifiedTable("payment_methods")).WherePK().Exec(ctx)
+	res, err := r.db.GetDB().NewUpdate().Model(method).WherePK().Exec(ctx)
 	if err != nil {
 		return err
 	}
@@ -237,9 +230,8 @@ func (r *PaymentMethodRepo) Update(ctx context.Context, method *models.PaymentMe
 func (r *PaymentMethodRepo) DeactivateByUserID(ctx context.Context, userID string) error {
 	res, err := r.db.GetDB().NewUpdate().
 		Model((*models.PaymentMethod)(nil)).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
 		Set("is_active = ?", false).
-		Where("user_id = ?", userID).
+		Where("pm.user_id = ?", userID).
 		Exec(ctx)
 	if err != nil {
 		return err
@@ -256,9 +248,8 @@ func (r *PaymentMethodRepo) DeactivateByUserID(ctx context.Context, userID strin
 func (r *PaymentMethodRepo) ActivateByID(ctx context.Context, id uuid.UUID) error {
 	res, err := r.db.GetDB().NewUpdate().
 		Model((*models.PaymentMethod)(nil)).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
 		Set("is_active = ?", true).
-		Where("id = ?", id).
+		Where("pm.id = ?", id).
 		Exec(ctx)
 	if err != nil {
 		return err
@@ -279,9 +270,8 @@ func (r *PaymentMethodRepo) ActivateByID(ctx context.Context, id uuid.UUID) erro
 func (r *PaymentMethodRepo) GetAllNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	err := r.db.GetDB().NewSelect().Model(&methods).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", models.ProcessorNMI).
-		Order("created_at DESC").
+		Where("pm.processor = ?", models.ProcessorNMI).
+		OrderExpr("pm.created_at DESC").
 		Scan(ctx)
 	if err != nil {
 		return nil, err
@@ -292,10 +282,9 @@ func (r *PaymentMethodRepo) GetAllNMI(ctx context.Context) ([]*models.PaymentMet
 func (r *PaymentMethodRepo) GetActiveNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	err := r.db.GetDB().NewSelect().Model(&methods).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", models.ProcessorNMI).
-		Where("is_active = ?", true).
-		Order("created_at DESC").
+		Where("pm.processor = ?", models.ProcessorNMI).
+		Where("pm.is_active = ?", true).
+		OrderExpr("pm.created_at DESC").
 		Scan(ctx)
 	if err != nil {
 		return nil, err
@@ -306,10 +295,9 @@ func (r *PaymentMethodRepo) GetActiveNMI(ctx context.Context) ([]*models.Payment
 func (r *PaymentMethodRepo) GetNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	if err := r.db.GetDB().NewSelect().Model(&methods).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID).
-		Where("processor = ?", models.ProcessorNMI).
-		Order("created_at DESC").
+		Where("pm.user_id = ?", userID).
+		Where("pm.processor = ?", models.ProcessorNMI).
+		OrderExpr("pm.created_at DESC").
 		Scan(ctx); err != nil {
 		return nil, err
 	}
@@ -319,11 +307,10 @@ func (r *PaymentMethodRepo) GetNMIByUserID(ctx context.Context, userID string) (
 func (r *PaymentMethodRepo) GetActiveNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	if err := r.db.GetDB().NewSelect().Model(&methods).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("user_id = ?", userID).
-		Where("processor = ?", models.ProcessorNMI).
-		Where("is_active = ?", true).
-		Order("created_at DESC").
+		Where("pm.user_id = ?", userID).
+		Where("pm.processor = ?", models.ProcessorNMI).
+		Where("pm.is_active = ?", true).
+		OrderExpr("pm.created_at DESC").
 		Scan(ctx); err != nil {
 		return nil, err
 	}
@@ -333,9 +320,8 @@ func (r *PaymentMethodRepo) GetActiveNMIByUserID(ctx context.Context, userID str
 func (r *PaymentMethodRepo) ExistsForUser(ctx context.Context, id uuid.UUID, userID string) (bool, error) {
 	count, err := r.db.GetDB().NewSelect().
 		Model((*models.PaymentMethod)(nil)).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("id = ?", id).
-		Where("user_id = ?", userID).
+		Where("pm.id = ?", id).
+		Where("pm.user_id = ?", userID).
 		Count(ctx)
 	if err != nil {
 		return false, err
@@ -350,9 +336,8 @@ func (r *PaymentMethodRepo) WithTx(txdb *db.DB) *PaymentMethodRepo {
 func (r *PaymentMethodRepo) GetByProcessor(ctx context.Context, processor models.Processor) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	err := r.db.GetDB().NewSelect().Model(&methods).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", processor).
-		Order("created_at DESC").
+		Where("pm.processor = ?", processor).
+		OrderExpr("pm.created_at DESC").
 		Scan(ctx)
 	if err != nil {
 		return nil, err
@@ -363,10 +348,9 @@ func (r *PaymentMethodRepo) GetByProcessor(ctx context.Context, processor models
 func (r *PaymentMethodRepo) GetActiveByProcessor(ctx context.Context, processor models.Processor) ([]*models.PaymentMethod, error) {
 	methods := []*models.PaymentMethod{}
 	err := r.db.GetDB().NewSelect().Model(&methods).
-		TableExpr(r.db.QualifiedTable("payment_methods")).
-		Where("processor = ?", processor).
-		Where("is_active = ?", true).
-		Order("created_at DESC").
+		Where("pm.processor = ?", processor).
+		Where("pm.is_active = ?", true).
+		OrderExpr("pm.created_at DESC").
 		Scan(ctx)
 	if err != nil {
 		return nil, err

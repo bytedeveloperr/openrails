@@ -9,7 +9,7 @@ import (
 
 // BillingEvent tracks all billing-related events for analytics and auditing
 type BillingEvent struct {
-	bun.BaseModel `bun:"table:billing_events"`
+	bun.BaseModel `bun:"table:billing.billing_events,alias:bev"`
 
 	ID     uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
 	UserID *string   `bun:"" json:"user_id,omitempty"`
@@ -47,7 +47,7 @@ type BillingEvent struct {
 
 // ProcessorSubscription tracks processor-specific subscription details
 type ProcessorSubscription struct {
-	bun.BaseModel `bun:"table:processor_subscriptions"`
+	bun.BaseModel `bun:"table:billing.processor_subscriptions,alias:psub"`
 
 	ID             uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
 	SubscriptionID uuid.UUID `bun:",type:uuid,notnull" json:"subscription_id"`
@@ -87,7 +87,7 @@ type ProcessorSubscription struct {
 
 // PaymentAttempt tracks individual payment attempts (for retry logic)
 type PaymentAttempt struct {
-	bun.BaseModel `bun:"table:payment_attempts"`
+	bun.BaseModel `bun:"table:billing.payment_attempts,alias:pat"`
 
 	ID                      uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
 	ProcessorSubscriptionID uuid.UUID `bun:",type:uuid,notnull" json:"processor_subscription_id"`
@@ -120,7 +120,7 @@ type PaymentAttempt struct {
 
 // WebhookEvent tracks incoming webhook events for deduplication and debugging
 type WebhookEvent struct {
-	bun.BaseModel `bun:"table:webhook_events"`
+	bun.BaseModel `bun:"table:billing.webhook_events,alias:wh"`
 
 	ID uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
 
@@ -162,7 +162,7 @@ type WebhookEvent struct {
 
 // SolanaTransaction tracks Solana payment transactions
 type SolanaTransaction struct {
-	bun.BaseModel `bun:",table:solana_transactions"`
+	bun.BaseModel `bun:"table:billing.solana_transactions,alias:stx"`
 
 	ID     uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
 	UserID *string   `bun:"" json:"user_id,omitempty"`
@@ -208,7 +208,7 @@ type SolanaTransaction struct {
 
 // BillingMetric stores aggregated billing metrics for analytics
 type BillingMetric struct {
-	bun.BaseModel `bun:"table:billing_metrics"`
+	bun.BaseModel `bun:"table:billing.billing_metrics,alias:metric"`
 
 	ID uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
 

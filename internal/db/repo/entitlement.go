@@ -19,23 +19,21 @@ func NewEntitlementRepo(d *db.DB) *EntitlementRepo { return &EntitlementRepo{db:
 func (r *EntitlementRepo) IsEntitled(ctx context.Context, userID, entitlement string, at time.Time) (bool, error) {
 	q := r.db.GetDB().NewSelect().
 		Model((*models.Entitlement)(nil)).
-		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ?", userID).
-		Where("entitlement = ?", entitlement).
-		Where("start_at <= ?", at).
-		Where("(end_at IS NULL OR end_at > ?)", at).
-		Where("revoked_at IS NULL")
+		Where("ent.user_id = ?", userID).
+		Where("ent.entitlement = ?", entitlement).
+		Where("ent.start_at <= ?", at).
+		Where("(ent.end_at IS NULL OR ent.end_at > ?)", at).
+		Where("ent.revoked_at IS NULL")
 	return q.Exists(ctx)
 }
 
 func (r *EntitlementRepo) HasActiveIndefinite(ctx context.Context, userID, entitlement string, at time.Time) (bool, error) {
 	q := r.db.GetDB().NewSelect().
 		Model((*models.Entitlement)(nil)).
-		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ?", userID).
-		Where("entitlement = ?", entitlement).
-		Where("revoked_at IS NULL AND end_at IS NULL").
-		Where("start_at <= ?", at)
+		Where("ent.user_id = ?", userID).
+		Where("ent.entitlement = ?", entitlement).
+		Where("ent.revoked_at IS NULL AND ent.end_at IS NULL").
+		Where("ent.start_at <= ?", at)
 	return q.Exists(ctx)
 }
 
@@ -43,10 +41,9 @@ func (r *EntitlementRepo) GetLatestActive(ctx context.Context, userID, entitleme
 	var ent models.Entitlement
 	err := r.db.GetDB().NewSelect().
 		Model(&ent).
-		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ? AND entitlement = ?", userID, entitlement).
-		Where("revoked_at IS NULL").
-		Order("start_at DESC").
+		Where("ent.user_id = ? AND ent.entitlement = ?", userID, entitlement).
+		Where("ent.revoked_at IS NULL").
+		OrderExpr("ent.start_at DESC").
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
@@ -59,13 +56,12 @@ func (r *EntitlementRepo) GetLatestFiniteActive(ctx context.Context, userID, ent
 	var ent models.Entitlement
 	err := r.db.GetDB().NewSelect().
 		Model(&ent).
-		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ? AND entitlement = ?", userID, entitlement).
-		Where("revoked_at IS NULL").
-		Where("end_at IS NOT NULL").
-		Where("start_at <= ?", at).
-		Where("end_at > ?", at).
-		Order("end_at DESC").
+		Where("ent.user_id = ? AND ent.entitlement = ?", userID, entitlement).
+		Where("ent.revoked_at IS NULL").
+		Where("ent.end_at IS NOT NULL").
+		Where("ent.start_at <= ?", at).
+		Where("ent.end_at > ?", at).
+		OrderExpr("ent.end_at DESC").
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
@@ -75,7 +71,7 @@ func (r *EntitlementRepo) GetLatestFiniteActive(ctx context.Context, userID, ent
 }
 
 func (r *EntitlementRepo) Insert(ctx context.Context, entitlement *models.Entitlement) error {
-	res, err := r.db.GetDB().NewInsert().Model(entitlement).TableExpr(r.db.QualifiedTable("entitlements")).Exec(ctx)
+	res, err := r.db.GetDB().NewInsert().Model(entitlement).Exec(ctx)
 	if err != nil {
 		return err
 	}
@@ -92,12 +88,12 @@ func (r *EntitlementRepo) Insert(ctx context.Context, entitlement *models.Entitl
 func (r *EntitlementRepo) ListActiveEntitlements(ctx context.Context, userID string, at time.Time) ([]string, error) {
 	var out []string
 	if err := r.db.GetDB().NewSelect().
-		TableExpr(r.db.QualifiedTable("entitlements")+" AS ent").
+		Model((*models.Entitlement)(nil)).
 		ColumnExpr("DISTINCT ent.entitlement").
-		Where("user_id = ?", userID).
-		Where("start_at <= ?", at).
-		Where("(end_at IS NULL OR end_at > ?)", at).
-		Where("revoked_at IS NULL").
+		Where("ent.user_id = ?", userID).
+		Where("ent.start_at <= ?", at).
+		Where("(ent.end_at IS NULL OR ent.end_at > ?)", at).
+		Where("ent.revoked_at IS NULL").
 		Scan(ctx, &out); err != nil {
 		return nil, err
 	}
@@ -108,12 +104,11 @@ func (r *EntitlementRepo) ListActiveRecords(ctx context.Context, userID string, 
 	ents := []models.Entitlement{}
 	if err := r.db.GetDB().NewSelect().
 		Model(&ents).
-		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ?", userID).
-		Where("revoked_at IS NULL").
-		Where("start_at <= ?", at).
-		Where("(end_at IS NULL OR end_at > ?)", at).
-		Order("start_at ASC").
+		Where("ent.user_id = ?", userID).
+		Where("ent.revoked_at IS NULL").
+		Where("ent.start_at <= ?", at).
+		Where("(ent.end_at IS NULL OR ent.end_at > ?)", at).
+		OrderExpr("ent.start_at ASC").
 		Scan(ctx); err != nil {
 		return nil, err
 	}
@@ -124,14 +119,13 @@ func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscript
 	now := time.Now()
 	_, err := r.db.GetDB().NewUpdate().
 		Model((*models.Entitlement)(nil)).
-		TableExpr(r.db.QualifiedTable("entitlements")).
 		Set("end_at = ?", endAt).
 		Set("revoked_at = ?", now).
 		Set("revoke_reason = ?", reason).
 		Set("updated_at = ?", now).
-		Where("source_type = ?", models.EntitlementSourceSubscription).
-		Where("source_id = ?", subscriptionID).
-		Where("end_at IS NULL").
+		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
+		Where("ent.source_id = ?", subscriptionID).
+		Where("ent.end_at IS NULL").
 		Exec(ctx)
 	return err
 }
@@ -140,14 +134,13 @@ func (r *EntitlementRepo) EndActiveByPayment(ctx context.Context, paymentID uuid
 	now := time.Now()
 	_, err := r.db.GetDB().NewUpdate().
 		Model((*models.Entitlement)(nil)).
-		TableExpr(r.db.QualifiedTable("entitlements")).
 		Set("end_at = ?", endAt).
 		Set("revoked_at = ?", now).
 		Set("revoke_reason = ?", reason).
 		Set("updated_at = ?", now).
-		Where("source_type = ?", models.EntitlementSourceOneOff).
-		Where("source_id = ?", paymentID).
-		Where("end_at IS NULL").
+		Where("ent.source_type = ?", models.EntitlementSourceOneOff).
+		Where("ent.source_id = ?", paymentID).
+		Where("ent.end_at IS NULL").
 		Exec(ctx)
 	return err
 }
@@ -155,11 +148,10 @@ func (r *EntitlementRepo) EndActiveByPayment(ctx context.Context, paymentID uuid
 func (r *EntitlementRepo) ExistsBySource(ctx context.Context, sourceType models.EntitlementSourceType, sourceID uuid.UUID, entitlement string) (bool, error) {
 	return r.db.GetDB().NewSelect().
 		Model((*models.Entitlement)(nil)).
-		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("source_type = ?", sourceType).
-		Where("source_id = ?", sourceID).
-		Where("entitlement = ?", entitlement).
-		Where("revoked_at IS NULL").
+		Where("ent.source_type = ?", sourceType).
+		Where("ent.source_id = ?", sourceID).
+		Where("ent.entitlement = ?", entitlement).
+		Where("ent.revoked_at IS NULL").
 		Exists(ctx)
 }
 
@@ -167,9 +159,8 @@ func (r *EntitlementRepo) ListByUser(ctx context.Context, userID string) ([]mode
 	ents := []models.Entitlement{}
 	if err := r.db.GetDB().NewSelect().
 		Model(&ents).
-		TableExpr(r.db.QualifiedTable("entitlements")).
-		Where("user_id = ?", userID).
-		Order("start_at DESC").
+		Where("ent.user_id = ?", userID).
+		OrderExpr("ent.start_at DESC").
 		Scan(ctx); err != nil {
 		return nil, err
 	}

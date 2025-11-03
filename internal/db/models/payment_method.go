@@ -10,7 +10,7 @@ import (
 // PaymentMethod represents a stored payment method across multiple processors
 // This replaces processor-specific payment method tables
 type PaymentMethod struct {
-	bun.BaseModel `bun:"table:payment_methods,alias:pm"`
+	bun.BaseModel `bun:"table:billing.payment_methods,alias:pm"`
 
 	ID        uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
 	UserID    string    `bun:"user_id,notnull" json:"user_id"`

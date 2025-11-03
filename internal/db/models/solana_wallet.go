@@ -10,7 +10,7 @@ import (
 // SolanaWallet represents a user's Solana wallet address
 // UserID uses OIDC subject (string), not UUID
 type SolanaWallet struct {
-	bun.BaseModel `bun:"table:solana_wallets,alias:sw"`
+	bun.BaseModel `bun:"table:billing.solana_wallets,alias:sw"`
 
 	ID         uuid.UUID  `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
 	UserID     string     `bun:"user_id,notnull" json:"user_id"`

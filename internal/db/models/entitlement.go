@@ -27,7 +27,7 @@ const (
 // Entitlement models a temporal access window to a named entitlement (e.g., "premium")
 // SCD2-style: [StartAt, EndAt) with optional soft delete and revoke markers.
 type Entitlement struct {
-	bun.BaseModel `bun:"table:entitlements,alias:ent"`
+	bun.BaseModel `bun:"table:billing.entitlements,alias:ent"`
 
 	ID          uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
 	UserID      string    `bun:"user_id,notnull" json:"user_id"`

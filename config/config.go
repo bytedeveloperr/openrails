@@ -447,8 +447,8 @@ func GetDefaultBillingConfig() *Config {
 			DB:       0,
 		},
 		Auth: &AuthConfig{
-			Issuers:  []string{"http://localhost:2052", "http://localhost:4000"}, // Accept tokens from both doujins and hentai0
-			Audience: "billing-app",
+			Issuers:  []string{"http://doujins:2052", "http://doujins:4000"}, // Accept tokens from both doujins and hentai0
+			Audience: "doujins-app",
 		},
 		// Match docker-compose ClickHouse (service: clickhouse)
 		ClickHouse: &ClickHouseConfig{

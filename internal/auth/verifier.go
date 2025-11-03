@@ -1,10 +1,8 @@
 package auth
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -37,12 +35,7 @@ func (c Claims) EmailPtr() *string {
 
 // Verifier validates bearer tokens against configured issuers/JWKS.
 type Verifier interface {
-	Verify(ctx context.Context, token string) (*Claims, error)
-}
-
-type verifier struct {
-	accept core.AcceptConfig
-	impl   *authgin.Verifier
+	Verify(token string) (jwt.MapClaims, error)
 }
 
 // NewVerifier builds an authkit-backed verifier using billing auth config.
@@ -59,21 +52,12 @@ func NewVerifier(cfg *config.AuthConfig) (Verifier, error) {
 	// Build IssuerAccept config for each issuer
 	issuerAccepts := make([]core.IssuerAccept, 0, len(cfg.Issuers))
 	for _, issuer := range cfg.Issuers {
-		// Normalize issuer URL
 		issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
 		if issuer == "" {
 			continue
 		}
 
-		// Each issuer uses its own URL as the JWKS base per OIDC spec
-		jwksURL := issuer + "/.well-known/jwks.json"
-
-		issCfg := core.IssuerAccept{
-			Issuer:  issuer,
-			JWKSURL: jwksURL,
-		}
-
-		// All issuers should use the same audience (billing-app)
+		issCfg := core.IssuerAccept{Issuer: issuer}
 		if cfg.Audience != "" {
 			issCfg.Audiences = []string{cfg.Audience}
 		}
@@ -91,26 +75,7 @@ func NewVerifier(cfg *config.AuthConfig) (Verifier, error) {
 		Skew:       60 * time.Second,
 	}
 
-	impl := authgin.NewVerifier(accept)
-	return &verifier{accept: accept, impl: impl}, nil
-}
-
-func (v *verifier) Verify(_ context.Context, token string) (*Claims, error) {
-	if strings.TrimSpace(token) == "" {
-		return nil, errors.New("missing_token")
-	}
-
-	rawClaims, err := v.impl.Verify(token)
-	if err != nil {
-		return nil, err
-	}
-
-	claims := BuildClaimsFromMap(rawClaims)
-	if claims == nil {
-		return nil, fmt.Errorf("empty_claims")
-	}
-
-	return claims, nil
+	return authgin.NewVerifier(accept), nil
 }
 
 // BuildClaimsFromMap converts a raw JWT map into structured claims.

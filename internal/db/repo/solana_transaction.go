@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 )
 
 type SolanaTransactionRepo struct {
@@ -14,11 +15,11 @@ func NewSolanaTransactionRepo(d *db.DB) *SolanaTransactionRepo { return &SolanaT
 
 func (r *SolanaTransactionRepo) MarkConfirmedByUserAndAmount(ctx context.Context, userID string, amount float64, signature string) error {
 	_, err := r.db.GetDB().NewUpdate().
-		TableExpr(r.db.QualifiedTable("solana_transactions")).
+		Model((*models.SolanaTransaction)(nil)).
 		Set("status = ?", "confirmed").
 		Set("signature = ?", signature).
-		Where("user_id = ?", userID).
-		Where("amount = ?", amount).
+		Where("stx.user_id = ?", userID).
+		Where("stx.amount = ?", amount).
 		Exec(ctx)
 
 	return err

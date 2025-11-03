@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-playground/validator/v10"
+	"github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/internal/app"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
@@ -31,10 +32,12 @@ func NewRequest(ctx *gin.Context, runtime *app.Runtime) *Request {
 }
 
 func (r *Request) AbortJSON(code int, message string) {
+	logrus.Error(message)
 	r.GinCtx.AbortWithStatusJSON(code, message)
 }
 
 func (r *Request) ErrorJSON(code int, msg string) {
+	logrus.Error(msg)
 	r.GinCtx.JSON(code, message.Message(msg))
 }
 

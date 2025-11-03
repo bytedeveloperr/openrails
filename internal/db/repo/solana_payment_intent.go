@@ -19,15 +19,14 @@ func NewSolanaPaymentIntentRepo(d *db.DB) *SolanaPaymentIntentRepo {
 }
 
 func (r *SolanaPaymentIntentRepo) Insert(ctx context.Context, intent *models.SolanaPaymentIntent) error {
-	_, err := r.db.GetDB().NewInsert().Model(intent).TableExpr(r.db.QualifiedTable("solana_payment_intents")).Exec(ctx)
+	_, err := r.db.GetDB().NewInsert().Model(intent).Exec(ctx)
 	return err
 }
 
 func (r *SolanaPaymentIntentRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.SolanaPaymentIntent, error) {
 	intent := new(models.SolanaPaymentIntent)
 	if err := r.db.GetDB().NewSelect().Model(intent).
-		TableExpr(r.db.QualifiedTable("solana_payment_intents")).
-		Where("id = ?", id).
+		Where("spi.id = ?", id).
 		Scan(ctx); err != nil {
 		return nil, err
 	}
@@ -37,8 +36,7 @@ func (r *SolanaPaymentIntentRepo) GetByID(ctx context.Context, id uuid.UUID) (*m
 func (r *SolanaPaymentIntentRepo) GetByReference(ctx context.Context, reference string) (*models.SolanaPaymentIntent, error) {
 	intent := new(models.SolanaPaymentIntent)
 	if err := r.db.GetDB().NewSelect().Model(intent).
-		TableExpr(r.db.QualifiedTable("solana_payment_intents")).
-		Where("reference = ?", reference).
+		Where("spi.reference = ?", reference).
 		Scan(ctx); err != nil {
 		return nil, err
 	}
@@ -47,8 +45,7 @@ func (r *SolanaPaymentIntentRepo) GetByReference(ctx context.Context, reference 
 
 func (r *SolanaPaymentIntentRepo) update(ctx context.Context, intentID uuid.UUID, set map[string]any, conditions ...func(*bun.UpdateQuery) *bun.UpdateQuery) (int64, error) {
 	query := r.db.GetDB().NewUpdate().Model((*models.SolanaPaymentIntent)(nil)).
-		TableExpr(r.db.QualifiedTable("solana_payment_intents")).
-		Where("id = ?", intentID)
+		Where("spi.id = ?", intentID)
 
 	for column, value := range set {
 		query = query.Set(column+" = ?", value)

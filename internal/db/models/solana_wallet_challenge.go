@@ -10,7 +10,7 @@ import (
 // SolanaWalletChallenge stores the latest verification challenge for a wallet
 // Challenges are per user+address and expire after a short TTL.
 type SolanaWalletChallenge struct {
-	bun.BaseModel `bun:"table:solana_wallet_challenges,alias:swc"`
+	bun.BaseModel `bun:"table:billing.solana_wallet_challenges,alias:swc"`
 
 	ID        uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
 	UserID    string    `bun:"user_id,notnull" json:"user_id"`

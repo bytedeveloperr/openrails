@@ -19,8 +19,7 @@ func (r *SolanaWalletRepo) GetByUserAndAddress(ctx context.Context, userID, addr
 	wallet := new(models.SolanaWallet)
 	err := r.db.GetDB().NewSelect().
 		Model(wallet).
-		TableExpr(r.db.QualifiedTable("solana_wallets")).
-		Where("user_id = ? AND address = ?", userID, address).
+		Where("sw.user_id = ? AND sw.address = ?", userID, address).
 		Scan(ctx)
 	if err != nil {
 		return nil, err
@@ -29,7 +28,7 @@ func (r *SolanaWalletRepo) GetByUserAndAddress(ctx context.Context, userID, addr
 }
 
 func (r *SolanaWalletRepo) Insert(ctx context.Context, wallet *models.SolanaWallet) error {
-	res, err := r.db.GetDB().NewInsert().Model(wallet).TableExpr(r.db.QualifiedTable("solana_wallets")).Exec(ctx)
+	res, err := r.db.GetDB().NewInsert().Model(wallet).Exec(ctx)
 	if err != nil {
 		return err
 	}
@@ -44,9 +43,8 @@ func (r *SolanaWalletRepo) Insert(ctx context.Context, wallet *models.SolanaWall
 func (r *SolanaWalletRepo) ListByUser(ctx context.Context, userID string) ([]*models.SolanaWallet, error) {
 	wallets := []*models.SolanaWallet{}
 	if err := r.db.GetDB().NewSelect().Model(&wallets).
-		TableExpr(r.db.QualifiedTable("solana_wallets")).
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
+		Where("sw.user_id = ?", userID).
+		OrderExpr("sw.created_at DESC").
 		Scan(ctx); err != nil {
 		return nil, err
 	}
@@ -56,11 +54,10 @@ func (r *SolanaWalletRepo) ListByUser(ctx context.Context, userID string) ([]*mo
 func (r *SolanaWalletRepo) MarkVerified(ctx context.Context, userID, address string, verifiedAt time.Time) (int64, error) {
 	res, err := r.db.GetDB().NewUpdate().
 		Model((*models.SolanaWallet)(nil)).
-		TableExpr(r.db.QualifiedTable("solana_wallets")).
 		Set("is_verified = ?", true).
 		Set("verified_at = ?", &verifiedAt).
 		Set("updated_at = ?", verifiedAt).
-		Where("user_id = ? AND address = ?", userID, address).
+		Where("sw.user_id = ? AND sw.address = ?", userID, address).
 		Exec(ctx)
 	if err != nil {
 		return 0, err
@@ -71,8 +68,7 @@ func (r *SolanaWalletRepo) MarkVerified(ctx context.Context, userID, address str
 func (r *SolanaWalletRepo) Delete(ctx context.Context, userID, address string) (int64, error) {
 	res, err := r.db.GetDB().NewDelete().
 		Model((*models.SolanaWallet)(nil)).
-		TableExpr(r.db.QualifiedTable("solana_wallets")).
-		Where("user_id = ? AND address = ?", userID, address).
+		Where("sw.user_id = ? AND sw.address = ?", userID, address).
 		Exec(ctx)
 	if err != nil {
 		return 0, err
@@ -84,9 +80,8 @@ func (r *SolanaWalletRepo) GetLatest(ctx context.Context, userID, address string
 	wallet := new(models.SolanaWallet)
 	err := r.db.GetDB().NewSelect().
 		Model(wallet).
-		TableExpr(r.db.QualifiedTable("solana_wallets")).
-		Where("user_id = ? AND address = ?", userID, address).
-		Order("updated_at DESC").
+		Where("sw.user_id = ? AND sw.address = ?", userID, address).
+		OrderExpr("sw.updated_at DESC").
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
@@ -99,10 +94,9 @@ func (r *SolanaWalletRepo) GetPrimary(ctx context.Context, userID string) (*mode
 	wallet := new(models.SolanaWallet)
 	err := r.db.GetDB().NewSelect().
 		Model(wallet).
-		TableExpr(r.db.QualifiedTable("solana_wallets")).
-		Where("user_id = ?", userID).
-		OrderExpr("is_verified DESC").
-		Order("updated_at DESC").
+		Where("sw.user_id = ?", userID).
+		OrderExpr("sw.is_verified DESC").
+		OrderExpr("sw.updated_at DESC").
 		Limit(1).
 		Scan(ctx)
 	if err != nil {

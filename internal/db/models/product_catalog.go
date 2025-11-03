@@ -10,7 +10,7 @@ import (
 // Product represents a product offering (e.g., Premium Membership)
 // This represents our product catalog concept
 type Product struct {
-	bun.BaseModel `bun:"table:products,alias:prod"`
+	bun.BaseModel `bun:"table:billing.products,alias:prod"`
 
 	ID          uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
 	Slug        string    `bun:"slug,notnull,unique" json:"slug"`
@@ -31,7 +31,7 @@ type Product struct {
 // Price represents a specific pricing option for a product
 // This represents pricing options similar to Stripe's pricing model
 type Price struct {
-	bun.BaseModel `bun:"table:prices,alias:price"`
+	bun.BaseModel `bun:"table:billing.prices,alias:price"`
 
 	ID          uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
 	ProductID   uuid.UUID `bun:"product_id,notnull" json:"product_id"`

@@ -17,10 +17,10 @@ func NewBillingAnalyticsRepo(d *db.DB) *BillingAnalyticsRepo { return &BillingAn
 func (r *BillingAnalyticsRepo) CountActiveUsersWithoutAutoRenew(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
 		ColumnExpr("COUNT(*)").
-		TableExpr(r.db.QualifiedTable("subscriptions")).
-		Where("status = ?", models.StatusActive).
-		Where("cancelled_at IS NOT NULL").
+		Where("sub.status = ?", models.StatusActive).
+		Where("sub.cancelled_at IS NOT NULL").
 		Scan(ctx, &count)
 	return count, err
 }
@@ -28,10 +28,10 @@ func (r *BillingAnalyticsRepo) CountActiveUsersWithoutAutoRenew(ctx context.Cont
 func (r *BillingAnalyticsRepo) CountActiveUsersWithAutoRenew(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
 		ColumnExpr("COUNT(*)").
-		TableExpr(r.db.QualifiedTable("subscriptions")).
-		Where("status = ?", models.StatusActive).
-		Where("processor IN (?)", []string{string(models.ProcessorCCBill), string(models.ProcessorNMI)}).
+		Where("sub.status = ?", models.StatusActive).
+		Where("sub.processor IN (?)", []string{string(models.ProcessorCCBill), string(models.ProcessorNMI)}).
 		Scan(ctx, &count)
 	return count, err
 }
@@ -39,9 +39,9 @@ func (r *BillingAnalyticsRepo) CountActiveUsersWithAutoRenew(ctx context.Context
 func (r *BillingAnalyticsRepo) CountActiveUsersWithFailingRebill(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.db.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
 		ColumnExpr("COUNT(*)").
-		TableExpr(r.db.QualifiedTable("subscriptions")).
-		Where("status = ?", models.StatusPastDue).
+		Where("sub.status = ?", models.StatusPastDue).
 		Scan(ctx, &count)
 	return count, err
 }
@@ -49,10 +49,10 @@ func (r *BillingAnalyticsRepo) CountActiveUsersWithFailingRebill(ctx context.Con
 func (r *BillingAnalyticsRepo) CountDailySignups(ctx context.Context, startOfDay, endOfDay time.Time) (int64, error) {
 	var count int64
 	err := r.db.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
 		ColumnExpr("COUNT(*)").
-		TableExpr(r.db.QualifiedTable("subscriptions")).
-		Where("created_at >= ?", startOfDay).
-		Where("created_at < ?", endOfDay).
+		Where("sub.created_at >= ?", startOfDay).
+		Where("sub.created_at < ?", endOfDay).
 		Scan(ctx, &count)
 	return count, err
 }
@@ -60,11 +60,11 @@ func (r *BillingAnalyticsRepo) CountDailySignups(ctx context.Context, startOfDay
 func (r *BillingAnalyticsRepo) CountDailyExplicitCancellations(ctx context.Context, startOfDay, endOfDay time.Time) (int64, error) {
 	var count int64
 	err := r.db.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
 		ColumnExpr("COUNT(*)").
-		TableExpr(r.db.QualifiedTable("subscriptions")).
-		Where("cancelled_at >= ?", startOfDay).
-		Where("cancelled_at < ?", endOfDay).
-		Where("cancel_type IN (?)", []string{"user", "admin", "merchant"}).
+		Where("sub.cancelled_at >= ?", startOfDay).
+		Where("sub.cancelled_at < ?", endOfDay).
+		Where("sub.cancel_type IN (?)", []string{"user", "admin", "merchant"}).
 		Scan(ctx, &count)
 	return count, err
 }
@@ -72,11 +72,11 @@ func (r *BillingAnalyticsRepo) CountDailyExplicitCancellations(ctx context.Conte
 func (r *BillingAnalyticsRepo) CountDailyFailedRebillCancellations(ctx context.Context, startOfDay, endOfDay time.Time) (int64, error) {
 	var count int64
 	err := r.db.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
 		ColumnExpr("COUNT(*)").
-		TableExpr(r.db.QualifiedTable("subscriptions")).
-		Where("cancelled_at >= ?", startOfDay).
-		Where("cancelled_at < ?", endOfDay).
-		Where("cancel_type IN (?)", []string{"expired", "failed_payment"}).
+		Where("sub.cancelled_at >= ?", startOfDay).
+		Where("sub.cancelled_at < ?", endOfDay).
+		Where("sub.cancel_type IN (?)", []string{"expired", "failed_payment"}).
 		Scan(ctx, &count)
 	return count, err
 }
@@ -84,11 +84,11 @@ func (r *BillingAnalyticsRepo) CountDailyFailedRebillCancellations(ctx context.C
 func (r *BillingAnalyticsRepo) CountActiveUsersWithoutAutoRenewByProcessor(ctx context.Context, processor string) (int64, error) {
 	var count int64
 	err := r.db.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
 		ColumnExpr("COUNT(*)").
-		TableExpr(r.db.QualifiedTable("subscriptions")).
-		Where("status = ?", models.StatusActive).
-		Where("cancelled_at IS NOT NULL").
-		Where("processor = ?", processor).
+		Where("sub.status = ?", models.StatusActive).
+		Where("sub.cancelled_at IS NOT NULL").
+		Where("sub.processor = ?", processor).
 		Scan(ctx, &count)
 	return count, err
 }
@@ -96,10 +96,10 @@ func (r *BillingAnalyticsRepo) CountActiveUsersWithoutAutoRenewByProcessor(ctx c
 func (r *BillingAnalyticsRepo) CountActiveUsersWithAutoRenewByProcessor(ctx context.Context, processor string) (int64, error) {
 	var count int64
 	err := r.db.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
 		ColumnExpr("COUNT(*)").
-		TableExpr(r.db.QualifiedTable("subscriptions")).
-		Where("status = ?", models.StatusActive).
-		Where("processor = ?", processor).
+		Where("sub.status = ?", models.StatusActive).
+		Where("sub.processor = ?", processor).
 		Scan(ctx, &count)
 	return count, err
 }
@@ -107,10 +107,10 @@ func (r *BillingAnalyticsRepo) CountActiveUsersWithAutoRenewByProcessor(ctx cont
 func (r *BillingAnalyticsRepo) CountActiveUsersWithFailingRebillByProcessor(ctx context.Context, processor string) (int64, error) {
 	var count int64
 	err := r.db.GetDB().NewSelect().
+		Model((*models.Subscription)(nil)).
 		ColumnExpr("COUNT(*)").
-		TableExpr(r.db.QualifiedTable("subscriptions")).
-		Where("status = ?", models.StatusPastDue).
-		Where("processor = ?", processor).
+		Where("sub.status = ?", models.StatusPastDue).
+		Where("sub.processor = ?", processor).
 		Scan(ctx, &count)
 	return count, err
 }

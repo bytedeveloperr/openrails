@@ -9,7 +9,7 @@ import (
 
 // SolanaPaymentIntent persists metadata for both direct and Solana Pay flows.
 type SolanaPaymentIntent struct {
-	bun.BaseModel `bun:"table:solana_payment_intents,alias:spi"`
+	bun.BaseModel `bun:"table:billing.solana_payment_intents,alias:spi"`
 
 	ID                     uuid.UUID  `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
 	UserID                 string     `bun:"user_id,notnull" json:"user_id"`

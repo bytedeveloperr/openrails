@@ -9,7 +9,7 @@ import (
 
 // IdempotencyRequest stores a record of processed operations to ensure idempotency
 type IdempotencyRequest struct {
-	bun.BaseModel `bun:"table:idempotency_requests,alias:idem"`
+	bun.BaseModel `bun:"table:billing.idempotency_requests,alias:idem"`
 
 	ID         uuid.UUID `bun:"id,pk,type:uuid,default:gen_random_uuid()" json:"id"`
 	Operation  string    `bun:"operation,notnull" json:"operation"`

@@ -10,7 +10,7 @@ import (
 // Payment represents a payment event (both one-time and subscription payments)
 // This is an immutable event log of all payments received
 type Payment struct {
-	bun.BaseModel `bun:"table:payments,alias:purch"`
+	bun.BaseModel `bun:"table:billing.payments,alias:purch"`
 
 	ID      uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
 	UserID  string    `bun:"user_id,notnull" json:"user_id"`

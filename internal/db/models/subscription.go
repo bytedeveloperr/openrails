@@ -34,7 +34,7 @@ const (
 )
 
 type Subscription struct {
-	bun.BaseModel `bun:"table:subscriptions,alias:sub"`
+	bun.BaseModel `bun:"table:billing.subscriptions,alias:sub"`
 
 	ID      uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
 	UserID  string    `bun:"user_id,notnull" json:"user_id"`

@@ -16,7 +16,6 @@ func NewSolanaChallengeRepo(d *db.DB) *SolanaChallengeRepo { return &SolanaChall
 
 func (r *SolanaChallengeRepo) Upsert(ctx context.Context, challenge *models.SolanaWalletChallenge) error {
 	_, err := r.db.GetDB().NewInsert().Model(challenge).
-		TableExpr(r.db.QualifiedTable("solana_wallet_challenges")).
 		Column("user_id", "address", "message", "nonce", "expires_at", "updated_at").
 		On("CONFLICT (user_id, address) DO UPDATE").
 		Set("message = EXCLUDED.message").
@@ -31,8 +30,7 @@ func (r *SolanaChallengeRepo) Get(ctx context.Context, userID, address string) (
 	challenge := new(models.SolanaWalletChallenge)
 	if err := r.db.GetDB().NewSelect().
 		Model(challenge).
-		TableExpr(r.db.QualifiedTable("solana_wallet_challenges")).
-		Where("user_id = ? AND address = ?", userID, address).
+		Where("swc.user_id = ? AND swc.address = ?", userID, address).
 		Scan(ctx); err != nil {
 		return nil, err
 	}
@@ -42,8 +40,7 @@ func (r *SolanaChallengeRepo) Get(ctx context.Context, userID, address string) (
 func (r *SolanaChallengeRepo) Delete(ctx context.Context, userID, address string) error {
 	_, err := r.db.GetDB().NewDelete().
 		Model((*models.SolanaWalletChallenge)(nil)).
-		TableExpr(r.db.QualifiedTable("solana_wallet_challenges")).
-		Where("user_id = ? AND address = ?", userID, address).
+		Where("swc.user_id = ? AND swc.address = ?", userID, address).
 		Exec(ctx)
 	return err
 }
@@ -51,8 +48,7 @@ func (r *SolanaChallengeRepo) Delete(ctx context.Context, userID, address string
 func (r *SolanaChallengeRepo) DeleteExpired(ctx context.Context, cutoff time.Time) error {
 	_, err := r.db.GetDB().NewDelete().
 		Model((*models.SolanaWalletChallenge)(nil)).
-		TableExpr(r.db.QualifiedTable("solana_wallet_challenges")).
-		Where("expires_at < ?", cutoff).
+		Where("swc.expires_at < ?", cutoff).
 		Exec(ctx)
 	return err
 }

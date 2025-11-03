@@ -36,7 +36,7 @@ const (
 // NotificationQueue stores in-app notification attempts
 // Used for rebill failures and other user notifications
 type NotificationQueue struct {
-	bun.BaseModel `bun:"table:notification_queue,alias:nq"`
+	bun.BaseModel `bun:"table:billing.notification_queue,alias:nq"`
 
 	ID        uuid.UUID             `bun:"id,pk,type:uuid" json:"id"`
 	UserID    string                `bun:"user_id,notnull" json:"user_id"`

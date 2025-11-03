@@ -55,14 +55,15 @@ func AuthRequired(verifier auth.Verifier) gin.HandlerFunc {
 			c.Abort()
 			return
 		}
-		claims, err := verifier.Verify(c.Request.Context(), token)
+		claims, err := verifier.Verify(token)
 		if err != nil {
 			log.WithError(err).Warn("jwt verification failed")
 			c.JSON(http.StatusUnauthorized, message.Message(auth.FormatVerifierError(err)))
 			c.Abort()
 			return
 		}
-		uc := buildUserContext(claims)
+
+		uc := buildUserContext(auth.BuildClaimsFromMap(claims))
 		attachUserContext(c, uc)
 		c.Next()
 	}
@@ -81,13 +82,14 @@ func OptionalAuth(verifier auth.Verifier) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		claims, err := verifier.Verify(c.Request.Context(), token)
+		claims, err := verifier.Verify(token)
 		if err != nil {
 			log.WithError(err).Debug("optional jwt verification failed")
 			c.Next()
 			return
 		}
-		uc := buildUserContext(claims)
+
+		uc := buildUserContext(auth.BuildClaimsFromMap(claims))
 		attachUserContext(c, uc)
 		c.Next()
 	}
@@ -102,6 +104,7 @@ func AdminRequired() gin.HandlerFunc {
 			c.Abort()
 			return
 		}
+
 		if !ctx.HasRole("admin") {
 			log.WithField(UserIDContextKey, ctx.User.ID).Warn("admin access denied")
 			c.JSON(http.StatusForbidden, message.Message("admin privileges required"))
