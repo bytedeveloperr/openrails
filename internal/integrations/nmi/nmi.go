@@ -441,7 +441,7 @@ func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSub
 	if trimmed := strings.TrimSpace(data.PONumber); trimmed != "" {
 		values.Set("ponumber", trimmed)
 	}
-	if trimmed := strings.TrimSpace(data.CustomerID); trimmed != "" {
+	if trimmed := strings.TrimSpace(data.CustomerID); trimmed != "" && strings.TrimSpace(data.CustomerVaultID) == "" {
 		values.Set("customerid", trimmed)
 	}
 

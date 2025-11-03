@@ -54,12 +54,12 @@ BEGIN
 
     -- Basic tier pricing
     INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
-    (basic_id, 'Basic Monthly', 4.99, 'USD', 30, 'ccbill_basic_monthly', 'nmi_basic_monthly', 'mobius', true)
+    (basic_id, 'Basic Monthly', 4.99, 'USD', 30, '75383d6a-41d4-4bd0-ac12-6c8c37fde5e5', 'basic_monthly', 'mobius', true)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 
     -- Premium tier pricing
     INSERT INTO prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
-    (premium_id, 'Premium Monthly', 9.99, 'USD', 30, 'ccbill_premium_monthly', 'nmi_premium_monthly', 'mobius', true)
+    (premium_id, 'Premium Monthly', 9.99, 'USD', 30, '75383d6a-41d4-4bd0-ac12-6c8c37fde5e5', 'premium_monthly', 'mobius', true)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 
 END$$;

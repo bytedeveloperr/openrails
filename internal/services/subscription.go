@@ -19,18 +19,19 @@ import (
 )
 
 type SubscribeData struct {
-	Email        string `json:"email"`
-	FirstName    string `json:"first_name"`
-	LastName     string `json:"last_name"`
-	Address1     string `json:"address1"`
-	City         string `json:"city"`
-	State        string `json:"state"`
-	Zip          string `json:"zip"`
-	Country      string `json:"country"`
-	PriceID      string `json:"price_id"`
-	Processor    string `json:"processor"`
-	Provider     string `json:"provider,omitempty"`
-	PaymentToken string `json:"payment_token"`
+	Email           string `json:"email"`
+	FirstName       string `json:"first_name"`
+	LastName        string `json:"last_name"`
+	Address1        string `json:"address1"`
+	City            string `json:"city"`
+	State           string `json:"state"`
+	Zip             string `json:"zip"`
+	Country         string `json:"country"`
+	PriceID         string `json:"price_id"`
+	Processor       string `json:"processor"`
+	Provider        string `json:"provider,omitempty"`
+	PaymentToken    string `json:"payment_token,omitempty"`
+	PaymentMethodID string `json:"payment_method_id,omitempty"`
 }
 
 type GetSubscriptionsFilters struct {
@@ -47,6 +48,8 @@ type SubscriptionService struct {
 	NotificationQueueService *NotificationQueueService
 	CCBillRESTClient         *ccbill.RESTClient
 	NMIClients               map[string]*nmi.NMIClient
+	PaymentMethodService     *PaymentMethodService
+	VaultService             *VaultService
 }
 
 func (s *SubscriptionService) nmiClientForProvider(provider string) (*nmi.NMIClient, error) {
@@ -168,14 +171,42 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 		}
 
 		email := strings.TrimSpace(data.Email)
-		if user.Email != nil && strings.TrimSpace(*user.Email) != "" {
-			email = strings.TrimSpace(*user.Email)
-		}
-		if email == "" {
-			return nil, errors.New("email is required to create a subscription")
-		}
 
 		subscriptionID := uuid.New()
+
+		var customerVaultID string
+		var createdPaymentMethod *models.PaymentMethod
+		paymentMethodID := strings.TrimSpace(data.PaymentMethodID)
+		if paymentMethodID != "" {
+			if s.PaymentMethodService == nil {
+				return nil, errors.New("payment method service unavailable")
+			}
+
+			pmID, err := uuid.Parse(paymentMethodID)
+			if err != nil {
+				return nil, fmt.Errorf("invalid payment method ID: %w", err)
+			}
+
+			paymentMethod, err := s.PaymentMethodService.ValidatePaymentMethodOperation(ctx, pmID, user.ID)
+			if err != nil {
+				return nil, fmt.Errorf("unable to use saved payment method: %w", err)
+			}
+
+			if paymentMethod.Processor != models.ProcessorNMI {
+				return nil, errors.New("saved payment method is not compatible with NMI subscriptions")
+			}
+
+			customerVaultID = paymentMethod.VaultID
+			if paymentMethod.Provider != nil {
+				provider = strings.TrimSpace(strings.ToLower(*paymentMethod.Provider))
+			}
+		}
+
+		trimmedToken := strings.TrimSpace(data.PaymentToken)
+		if trimmedToken == "" && customerVaultID == "" {
+			return nil, errors.New("payment token or payment method ID is required")
+		}
+
 		params := nmi.RecurringPaymentData{
 			CardUserData: nmi.CardUserData{
 				FirstName: data.FirstName,
@@ -186,22 +217,94 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				Zip:       data.Zip,
 				Country:   data.Country,
 			},
-			PlanID:       strings.TrimSpace(*price.NMIPlanID),
-			Amount:       price.Amount,
-			Currency:     price.Currency,
-			Email:        email,
-			PaymentToken: data.PaymentToken,
-			OrderID:      subscriptionID.String(),
-			PONumber:     subscriptionID.String(),
-			CustomerID:   user.ID,
+			PlanID:     strings.TrimSpace(*price.NMIPlanID),
+			Amount:     price.Amount,
+			Currency:   price.Currency,
+			Email:      email,
+			OrderID:    subscriptionID.String(),
+			PONumber:   subscriptionID.String(),
+			CustomerID: user.ID,
+		}
+
+		if strings.TrimSpace(params.FirstName) == "" {
+			params.FirstName = user.Username
+		}
+		if strings.TrimSpace(params.LastName) == "" {
+			params.LastName = "Member"
+		}
+		if strings.TrimSpace(params.Address1) == "" {
+			params.Address1 = "N/A"
+		}
+		if strings.TrimSpace(params.City) == "" {
+			params.City = "N/A"
+		}
+		if strings.TrimSpace(params.State) == "" {
+			params.State = "N/A"
+		}
+		if strings.TrimSpace(params.Zip) == "" {
+			params.Zip = "00000"
+		}
+		if strings.TrimSpace(params.Country) == "" {
+			params.Country = "US"
+		}
+
+		if trimmedToken != "" && customerVaultID == "" {
+			if s.VaultService == nil {
+				return nil, errors.New("vault service unavailable")
+			}
+
+			vaultReq := &CreateVaultRequest{
+				PaymentToken: trimmedToken,
+				Provider:     provider,
+				FirstName:    params.FirstName,
+				LastName:     params.LastName,
+				Address1:     params.Address1,
+				City:         params.City,
+				State:        params.State,
+				Zip:          params.Zip,
+				Country:      params.Country,
+				Email:        email,
+			}
+
+			pm, err := s.VaultService.CreateVault(ctx, user, vaultReq)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create payment method: %w", err)
+			}
+
+			customerVaultID = strings.TrimSpace(pm.VaultID)
+			if customerVaultID == "" {
+				return nil, errors.New("failed to create payment method vault: empty customer vault ID")
+			}
+			createdPaymentMethod = pm
+			if pm.Provider != nil {
+				provider = strings.TrimSpace(strings.ToLower(*pm.Provider))
+			}
+		}
+
+		if customerVaultID != "" {
+			params.CustomerVaultID = customerVaultID
+		} else if trimmedToken != "" {
+			params.PaymentToken = trimmedToken
 		}
 
 		resp, err := client.AddRecurringSubscription(params)
 		if err != nil {
+			if createdPaymentMethod != nil && s.VaultService != nil {
+				cleanupErr := s.VaultService.DeleteVault(ctx, createdPaymentMethod)
+				if cleanupErr != nil {
+					log.WithError(cleanupErr).WithFields(log.Fields{
+						"vault_id": customerVaultID,
+						"user_id":  user.ID,
+					}).Warn("failed to cleanup payment method after subscription error")
+				}
+			}
 			return nil, err
 		}
 
-		emailCopy := email
+		var emailCopy *string
+		if email != "" {
+			emailCopy = &email
+		}
 		subscription := &models.Subscription{
 			UserID:                  user.ID,
 			PriceID:                 priceID,
@@ -216,7 +319,13 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				pp := provider
 				return &pp
 			}(),
-			UserEmail: &emailCopy,
+			UserEmail: emailCopy,
+		}
+		if strings.TrimSpace(data.PaymentMethodID) != "" {
+			pmUUID, _ := uuid.Parse(strings.TrimSpace(data.PaymentMethodID))
+			subscription.PaymentMethodID = &pmUUID
+		} else if createdPaymentMethod != nil {
+			subscription.PaymentMethodID = &createdPaymentMethod.ID
 		}
 
 		if err := s.Create(ctx, subscription); err != nil {
@@ -305,6 +414,7 @@ func NewSubscriptionService(
 	notificationQueueService *NotificationQueueService,
 	ccbillRESTClient *ccbill.RESTClient,
 	nmiClients map[string]*nmi.NMIClient,
+	paymentMethodService *PaymentMethodService,
 ) *SubscriptionService {
 	return &SubscriptionService{
 		subscriptionRepo:         repo.NewSubscriptionRepo(db),
@@ -313,6 +423,7 @@ func NewSubscriptionService(
 		NotificationQueueService: notificationQueueService,
 		CCBillRESTClient:         ccbillRESTClient,
 		NMIClients:               nmiClients,
+		PaymentMethodService:     paymentMethodService,
 	}
 }
 

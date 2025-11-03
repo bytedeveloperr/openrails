@@ -354,7 +354,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
 		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
 
 		// Find subscription by processor subscription ID
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", originalSubscriptionID)
@@ -573,7 +573,7 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
 		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", pSubscriptionID)
@@ -661,7 +661,7 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
 		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", pSubscriptionID)
@@ -750,7 +750,7 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
 		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
 
 		// Note: We could validate that the email matches the subscription's user email here
 		// but for now we'll rely on the subscription lookup
@@ -882,7 +882,7 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
 		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
 		entSvc := NewEntitlementService(txdb)
 
 		// Find subscription by processor subscription ID
@@ -1034,7 +1034,7 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
 		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, s.CCBillClient, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
 
 		// Try to find subscription by processor subscription ID
 		// Note: For voids, the subscription might not exist yet since the transaction was voided
@@ -1178,7 +1178,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
 		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, s.CCBillClient, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
 		entSvc := NewEntitlementService(db)
 
 		// Find subscription by processor subscription ID

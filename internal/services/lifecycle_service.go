@@ -132,7 +132,7 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 	productService := NewProductService(dbb)
 	entitlementService := NewEntitlementService(dbb)
 	notificationService := NewNotificationQueueService(dbb)
-	subService := NewSubscriptionService(dbb, priceService, productService, notificationService, nil, nil)
+	subService := NewSubscriptionService(dbb, priceService, productService, notificationService, nil, nil, nil)
 
 	price, err := priceService.GetByID(ctx, params.PriceID)
 	if err != nil {
@@ -281,7 +281,7 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
 		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
 
 		// Find subscription
 		provider := ""
@@ -369,7 +369,7 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
 		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
 
 		provider := ""
@@ -482,7 +482,7 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
 		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
 
 		subscription, err := subService.GetByID(ctx, subscriptionID)
@@ -540,7 +540,7 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
 		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
 
 		provider := ""

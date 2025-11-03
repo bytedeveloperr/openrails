@@ -98,10 +98,14 @@ Admin routes are not rate limited by the application but should live behind netw
     "state": "...",
     "zip": "...",
     "country": "...",
-    "payment_token": "collectjs token (nmi)"
+    "payment_token": "collectjs token (nmi)",
+    "payment_method_id": "existing saved method"
   }
   ```
-- **Notes:** `provider` is optional and selects the configured NMI account when multiple providers exist. When omitted, the price configuration or the default provider (`mobius`) is used.
+- **Notes:**
+  - `provider` is optional and selects the configured NMI account when multiple providers exist. When omitted, the price configuration or the default provider (`mobius`) is used.
+  - `email` is optional; when omitted we do not persist an email on the subscription and notification emails are skipped.
+  - For **NMI** checkouts supply either `payment_token` (from Collect.js) **or** `payment_method_id`. When a token is provided the service now reuses the shared vault flow (`POST /v1/payment-methods`) to create & persist a payment method before charging with its customer vault ID. The new method becomes immediately available for future purchases.
 - **Response:**
   ```json
   {

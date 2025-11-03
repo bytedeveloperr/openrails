@@ -287,9 +287,11 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		notificationQueueService,
 		ccbillRESTClient,
 		nmiClients,
+		paymentMethodService,
 	)
 
 	vaultService := services.NewVaultService(paymentMethodService, subscriptionService, nmiClients, database)
+	subscriptionService.VaultService = vaultService
 
 	userSubscriptionService := services.NewUserSubscriptionService(
 		subscriptionService,

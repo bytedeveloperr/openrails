@@ -91,8 +91,8 @@ func (r *SubscriptionRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.S
 func (r *SubscriptionRepo) GetLatestByUserID(ctx context.Context, userID string) (*models.Subscription, error) {
 	sub := new(models.Subscription)
 	err := r.selectWithDetails(sub).
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
+		Where("sub.user_id = ?", userID).
+		Order("sub.created_at DESC").
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
@@ -104,8 +104,8 @@ func (r *SubscriptionRepo) GetLatestByUserID(ctx context.Context, userID string)
 func (r *SubscriptionRepo) GetByUserIDAndPriceID(ctx context.Context, userID string, priceID uuid.UUID) (*models.Subscription, error) {
 	sub := new(models.Subscription)
 	err := r.selectWithDetails(sub).
-		Where("user_id = ?", userID).
-		Where("price_id = ?", priceID).
+		Where("sub.user_id = ?", userID).
+		Where("sub.price_id = ?", priceID).
 		Scan(ctx)
 	if err != nil {
 		return nil, err
@@ -116,10 +116,10 @@ func (r *SubscriptionRepo) GetByUserIDAndPriceID(ctx context.Context, userID str
 func (r *SubscriptionRepo) GetActiveSubscription(ctx context.Context, userID string) (*models.Subscription, error) {
 	sub := new(models.Subscription)
 	err := r.selectWithDetails(sub).
-		Where("user_id = ?", userID).
-		Where("status = ?", models.StatusActive).
-		Where("(current_period_ends_at IS NULL OR current_period_ends_at > NOW())").
-		Order("created_at DESC").
+		Where("sub.user_id = ?", userID).
+		Where("sub.status = ?", models.StatusActive).
+		Where("(sub.current_period_ends_at IS NULL OR sub.current_period_ends_at > NOW())").
+		Order("sub.created_at DESC").
 		Limit(1).
 		Scan(ctx)
 	if err != nil {
@@ -131,8 +131,8 @@ func (r *SubscriptionRepo) GetActiveSubscription(ctx context.Context, userID str
 func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, processor, provider, processorSubscriptionID string) (*models.Subscription, error) {
 	sub := new(models.Subscription)
 	query := r.selectWithDetails(sub).
-		Where("processor = ?", processor).
-		Where("processor_subscription_id = ?", processorSubscriptionID)
+		Where("sub.processor = ?", processor).
+		Where("sub.processor_subscription_id = ?", processorSubscriptionID)
 
 	if strings.EqualFold(processor, string(models.ProcessorNMI)) {
 		provider = strings.TrimSpace(strings.ToLower(provider))
@@ -141,9 +141,9 @@ func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, pro
 		}
 
 		if provider == "mobius" {
-			query = query.Where("(processor_provider = ? OR processor_provider IS NULL OR processor_provider = '')", provider)
+			query = query.Where("(sub.processor_provider = ? OR sub.processor_provider IS NULL OR sub.processor_provider = '')", provider)
 		} else {
-			query = query.Where("processor_provider = ?", provider)
+			query = query.Where("sub.processor_provider = ?", provider)
 		}
 	}
 
@@ -157,9 +157,9 @@ func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, pro
 func (r *SubscriptionRepo) GetActiveSubscriptionsByUserID(ctx context.Context, userID string) ([]models.Subscription, error) {
 	subs := []models.Subscription{}
 	query := r.selectWithDetails(&subs).
-		Where("user_id = ?", userID).
-		Where("status = ?", models.StatusActive).
-		Order("created_at DESC")
+		Where("sub.user_id = ?", userID).
+		Where("sub.status = ?", models.StatusActive).
+		Order("sub.created_at DESC")
 
 	if err := query.Scan(ctx); err != nil {
 		return nil, err
@@ -170,9 +170,9 @@ func (r *SubscriptionRepo) GetActiveSubscriptionsByUserID(ctx context.Context, u
 func (r *SubscriptionRepo) GetSubscriptionsByProcessorAndUserID(ctx context.Context, userID string, processor models.Processor) ([]models.Subscription, error) {
 	subs := []models.Subscription{}
 	query := r.selectWithDetails(&subs).
-		Where("user_id = ?", userID).
-		Where("processor = ?", processor).
-		Order("created_at DESC")
+		Where("sub.user_id = ?", userID).
+		Where("sub.processor = ?", processor).
+		Order("sub.created_at DESC")
 
 	if err := query.Scan(ctx); err != nil {
 		return nil, err
@@ -183,8 +183,8 @@ func (r *SubscriptionRepo) GetSubscriptionsByProcessorAndUserID(ctx context.Cont
 func (r *SubscriptionRepo) GetActiveSubscriptionsByProcessor(ctx context.Context, processor string) ([]*models.Subscription, error) {
 	subs := []*models.Subscription{}
 	query := r.selectWithDetails(&subs).
-		Where("processor = ?", processor).
-		Where("status = ?", models.StatusActive)
+		Where("sub.processor = ?", processor).
+		Where("sub.status = ?", models.StatusActive)
 
 	if err := query.Scan(ctx); err != nil {
 		return nil, err
@@ -194,7 +194,7 @@ func (r *SubscriptionRepo) GetActiveSubscriptionsByProcessor(ctx context.Context
 
 func (r *SubscriptionRepo) GetPaginatedByUserID(ctx context.Context, userID string, page, pageSize int) ([]models.Subscription, int, error) {
 	offset := (page - 1) * pageSize
-	countQuery := r.db.GetDB().NewSelect().Model((*models.Subscription)(nil)).Where("user_id = ?", userID)
+	countQuery := r.db.GetDB().NewSelect().Model((*models.Subscription)(nil)).Where("sub.user_id = ?", userID)
 	total, err := countQuery.Count(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -202,8 +202,8 @@ func (r *SubscriptionRepo) GetPaginatedByUserID(ctx context.Context, userID stri
 
 	subs := []models.Subscription{}
 	dataQuery := r.selectWithDetails(&subs).
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
+		Where("sub.user_id = ?", userID).
+		Order("sub.created_at DESC").
 		Limit(pageSize).
 		Offset(offset)
 
@@ -216,7 +216,7 @@ func (r *SubscriptionRepo) GetPaginatedByUserID(ctx context.Context, userID stri
 
 func (r *SubscriptionRepo) GetSubscriptionsWithDetailsForUser(ctx context.Context, userID string, page, pageSize int) ([]models.Subscription, int, error) {
 	offset := (page - 1) * pageSize
-	countQuery := r.db.GetDB().NewSelect().Model((*models.Subscription)(nil)).Where("user_id = ?", userID)
+	countQuery := r.db.GetDB().NewSelect().Model((*models.Subscription)(nil)).Where("sub.user_id = ?", userID)
 	total, err := countQuery.Count(ctx)
 	if err != nil {
 		return nil, 0, err
@@ -267,16 +267,16 @@ func (r *SubscriptionRepo) GetSubscribers(ctx context.Context, params query.Quer
 
 func applySubscriptionFilters(q *bun.SelectQuery, filters SubscriptionFilters) *bun.SelectQuery {
 	if filters.UserID != "" {
-		q = q.Where("user_id = ?", filters.UserID)
+		q = q.Where("sub.user_id = ?", filters.UserID)
 	}
 	if filters.Status != "" {
-		q = q.Where("status = ?", filters.Status)
+		q = q.Where("sub.status = ?", filters.Status)
 	}
 	if filters.PriceID != uuid.Nil {
-		q = q.Where("price_id = ?", filters.PriceID)
+		q = q.Where("sub.price_id = ?", filters.PriceID)
 	}
 	if filters.Processor != "" {
-		q = q.Where("processor = ?", filters.Processor)
+		q = q.Where("sub.processor = ?", filters.Processor)
 	}
 	return q
 }

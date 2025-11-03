@@ -34,11 +34,12 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     price_id UUID, -- References prices table (created later)
     status subscription_status NOT NULL DEFAULT 'pending',
-    
+
     -- Processor information
     processor TEXT NOT NULL DEFAULT 'ccbill',
     processor_provider TEXT,
     processor_subscription_id TEXT NOT NULL DEFAULT '',
+    user_email TEXT,
     payment_method_id UUID, -- References payment_methods table (created later)
     
     -- Billing period tracking
@@ -57,14 +58,8 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     cancel_type TEXT, -- 'user', 'admin', 'failed_payment', 'expired'
     cancel_feedback TEXT,
     
-    -- Financial information
-    currency TEXT NOT NULL DEFAULT 'USD',
-    amount DECIMAL(10,2) NOT NULL DEFAULT 0,
-    billing_cycle INTEGER NOT NULL DEFAULT 30,
-    
     -- Metadata
     gateway_response JSONB,
-    public_id INTEGER,
     
     -- Timestamps
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
@@ -227,8 +222,6 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     card_type VARCHAR(50), -- 'Visa', 'MasterCard', etc.
     expiry_date VARCHAR(5), -- 'MM/YY' format
     failure_reason TEXT, -- Reason if inactive
-    wallet_address TEXT, -- Base58 wallet address for crypto (e.g., Solana)
-    
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
@@ -241,12 +234,9 @@ CREATE INDEX IF NOT EXISTS idx_payment_methods_processor ON payment_methods(proc
 CREATE INDEX IF NOT EXISTS idx_payment_methods_vault_id ON payment_methods(vault_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_processor_vault_id ON payment_methods(processor, coalesce(processor_provider, ''), vault_id);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_is_active ON payment_methods(is_active) WHERE is_active = true;
-CREATE INDEX IF NOT EXISTS idx_payment_methods_wallet_address ON payment_methods(wallet_address) WHERE wallet_address IS NOT NULL;
-
 COMMENT ON TABLE payment_methods IS 'Generalized payment method table supporting multiple processors.';
 COMMENT ON COLUMN payment_methods.processor IS 'Payment processor type: nmi, ccbill, stripe, etc.';
 COMMENT ON COLUMN payment_methods.vault_id IS 'Primary payment method identifier in the processor system';
-COMMENT ON COLUMN payment_methods.wallet_address IS 'Solana wallet address for crypto payment methods (Base58 encoded)';
 
 -- Add payment_method_id reference to subscriptions table
 DO $$
