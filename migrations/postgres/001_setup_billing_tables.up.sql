@@ -4,16 +4,12 @@ SET search_path = billing, public;
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';
 
--- Backward-compat cleanup: subscription_events moved to ClickHouse only
-DROP TABLE IF EXISTS subscription_events CASCADE;
-
 -- Install required extensions
 -- Extensions are created by bootstrap; skip here.
 
 -- ============================================================================
 -- SECTION 1: CORE SUBSCRIPTION TABLES
 -- ============================================================================
-
 
 -- 1.2: Create subscription status enum (idempotent without requiring owner privileges)
 DO $$
@@ -64,26 +60,6 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
-
--- Ensure newer columns exist when migrating older schemas
-ALTER TABLE subscriptions
-    ADD COLUMN IF NOT EXISTS processor TEXT;
-
-ALTER TABLE subscriptions
-    ADD COLUMN IF NOT EXISTS processor_provider TEXT;
-ALTER TABLE subscriptions
-    ALTER COLUMN processor SET DEFAULT 'ccbill';
-UPDATE subscriptions SET processor = 'ccbill' WHERE processor IS NULL;
-ALTER TABLE subscriptions
-    ALTER COLUMN processor SET NOT NULL;
-
-ALTER TABLE subscriptions
-    ADD COLUMN IF NOT EXISTS processor_subscription_id TEXT;
-ALTER TABLE subscriptions
-    ALTER COLUMN processor_subscription_id SET DEFAULT '';
-UPDATE subscriptions SET processor_subscription_id = '' WHERE processor_subscription_id IS NULL;
-ALTER TABLE subscriptions
-    ALTER COLUMN processor_subscription_id SET NOT NULL;
 
 -- Create indexes for subscriptions
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON subscriptions(user_id);
@@ -225,9 +201,6 @@ CREATE TABLE IF NOT EXISTS payment_methods (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
-ALTER TABLE payment_methods
-    ADD COLUMN IF NOT EXISTS processor_provider VARCHAR(50);
-
 CREATE INDEX IF NOT EXISTS idx_payment_methods_user_id ON payment_methods(user_id);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_processor ON payment_methods(processor);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_vault_id ON payment_methods(vault_id);
@@ -275,18 +248,9 @@ CREATE TABLE IF NOT EXISTS payments (
     refunded_payment_id UUID,
     purchased_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    UNIQUE(processor, transaction_id)
+    UNIQUE(processor, transaction_id),
+    CONSTRAINT fk_payments_refunded_payment FOREIGN KEY (refunded_payment_id) REFERENCES payments(id)
 );
-
-ALTER TABLE payments
-    ADD COLUMN IF NOT EXISTS processor_provider TEXT;
-
-ALTER TABLE payments
-    ADD COLUMN IF NOT EXISTS refunded_payment_id UUID;
-
-ALTER TABLE payments
-    ADD CONSTRAINT IF NOT EXISTS fk_payments_refunded_payment
-        FOREIGN KEY (refunded_payment_id) REFERENCES payments(id);
 
 CREATE INDEX IF NOT EXISTS idx_payments_refunded_payment_id ON payments(refunded_payment_id);
 
