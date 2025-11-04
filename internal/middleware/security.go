@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"context"
-	"fmt"
 	"net"
 	"net/http"
 	"strings"
@@ -10,11 +8,8 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	redis "github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
-	"golang.org/x/time/rate"
 
-	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/pkg/message"
 )
 
@@ -56,171 +51,6 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 	corsConfig.MaxAge = 12 * time.Hour
 
 	return cors.New(corsConfig)
-}
-
-// RateLimitStore holds rate limiters for different IPs
-type RateLimitStore struct {
-	limiters map[string]*rate.Limiter
-	config   *config.RateLimitConfig
-}
-
-// NewRateLimitStore creates a new rate limit store
-func NewRateLimitStore(config *config.RateLimitConfig) *RateLimitStore {
-	return &RateLimitStore{
-		limiters: make(map[string]*rate.Limiter),
-		config:   config,
-	}
-}
-
-// RateLimit middleware implements rate limiting per IP address
-func RateLimit(rateLimiterConfig *config.RateLimitConfig, rdb *redis.Client) gin.HandlerFunc {
-	// store := NewRateLimitStore(rateLimiterConfig)
-
-	return func(c *gin.Context) {
-		// 	// Get client IP
-		// 	clientIP := getClientIP(c)
-
-		// 	// Get appropriate rate limit based on endpoint
-		// 	var limit *config.RateLimit
-
-		// 	path := c.Request.URL.Path
-		// 	switch {
-		// 	case strings.Contains(path, "/subscriptions/") && c.Request.Method == http.MethodPost:
-		// 		// Very strict for subscription creation
-		// 		limit = &config.RateLimit{
-		// 			RequestsPerMinute: 10,
-		// 			BurstSize:         3,
-		// 		}
-		// 	case strings.Contains(path, "/webhook/"):
-		// 		// Higher limit for webhooks
-		// 		limit = &config.RateLimit{
-		// 			RequestsPerMinute: 100,
-		// 			BurstSize:         20,
-		// 		}
-		// 	case strings.Contains(path, "/payment-methods/"):
-		// 		// Moderate limit for payment methods
-		// 		limit = &config.RateLimit{
-		// 			RequestsPerMinute: 20,
-		// 			BurstSize:         5,
-		// 		}
-		// 	default:
-		// 		// Use default limit
-		// 		if rateLimiterConfig != nil && rateLimiterConfig.DefaultLimit != nil {
-		// 			limit = rateLimiterConfig.DefaultLimit
-		// 		} else {
-		// 			limit = &config.RateLimit{
-		// 				RequestsPerMinute: 60,
-		// 				BurstSize:         10,
-		// 			}
-		// 		}
-		// 	}
-
-		// Prefer Redis token bucket if available; fallback to in-memory limiter
-		// allowed := true
-		// remaining := 1
-		// if rdb != nil {
-		// 	ok, rem, err := redisAllow(c.Request.Context(), rdb, clientIP, path, limit)
-		// 	if err != nil {
-		// 		log.WithError(err).Warn("Rate limit redis error; falling back to in-memory")
-		// 	} else {
-		// 		allowed = ok
-		// 		remaining = rem
-		// 	}
-		// }
-		// if rdb == nil || remaining == 1 {
-		// 	limiter := store.getLimiterForRate(clientIP, limit)
-		// 	if !limiter.Allow() {
-		// 		allowed = false
-		// 		remaining = 0
-		// 	}
-		// }
-
-		// if !allowed {
-		// 	log.WithFields(log.Fields{
-		// 		"client_ip": clientIP,
-		// 		"path":      path,
-		// 		"method":    c.Request.Method,
-		// 	}).Warn("Rate limit exceeded")
-
-		// 	c.Header("X-RateLimit-Remaining", "0")
-		// 	c.Header("Retry-After", "60")
-		// 	c.JSON(http.StatusTooManyRequests, message.Message("Rate limit exceeded"))
-		// 	c.Abort()
-		// 	return
-		// }
-
-		// // Add rate limit headers
-		// c.Header("X-RateLimit-Remaining", fmt.Sprintf("%d", remaining))
-
-		c.Next()
-	}
-}
-
-// redisAllow implements a per-IP, per-path fixed-window counter in Redis (1-minute window).
-// Returns (allowed, remainingTokens, err). No Lua scripts used.
-func redisAllow(ctx context.Context, rdb *redis.Client, ip, path string, limit *config.RateLimit) (bool, int, error) {
-	if limit == nil {
-		return true, 1, nil
-	}
-	threshold := limit.RequestsPerMinute
-	if threshold <= 0 {
-		threshold = 60
-	}
-	if limit.BurstSize > 0 {
-		threshold = limit.BurstSize
-	}
-	bucket := pathBucket(path)
-	window := time.Now().Unix() / 60 // minute window
-	key := fmt.Sprintf("rl:%s:%s:%d", ip, bucket, window)
-	cnt, err := rdb.Incr(ctx, key).Result()
-	if err != nil {
-		return false, 0, err
-	}
-	if cnt == 1 {
-		_ = rdb.Expire(ctx, key, time.Minute)
-	}
-	allowed := cnt <= int64(threshold)
-	remaining := threshold - int(cnt)
-	if remaining < 0 {
-		remaining = 0
-	}
-	return allowed, remaining, nil
-}
-
-func pathBucket(path string) string {
-	switch {
-	case strings.Contains(path, "/subscriptions/"):
-		return "subscriptions"
-	case strings.Contains(path, "/webhook/"):
-		return "webhook"
-	case strings.Contains(path, "/payment-methods/"):
-		return "payment-methods"
-	default:
-		return "default"
-	}
-}
-
-// getLimiter gets or creates a rate limiter for an IP
-func (s *RateLimitStore) getLimiter(ip string, config *config.RateLimitConfig) *rate.Limiter {
-	limiter, exists := s.limiters[ip]
-	if !exists {
-		// Create new rate limiter with default values
-		// This is a simplified version - in production you'd use config values
-		limiter = rate.NewLimiter(rate.Limit(1), 60) // 1 req/sec, burst of 60
-		s.limiters[ip] = limiter
-	}
-	return limiter
-}
-
-func (s *RateLimitStore) getLimiterForRate(ip string, rateCfg *config.RateLimit) *rate.Limiter {
-	limiter, exists := s.limiters[ip]
-	if !exists {
-		// Convert requests per minute to requests per second
-		rps := float64(rateCfg.RequestsPerMinute) / 60.0
-		limiter = rate.NewLimiter(rate.Limit(rps), rateCfg.BurstSize)
-		s.limiters[ip] = limiter
-	}
-	return limiter
 }
 
 // InternalIPWhitelist restricts access to internal networks only (not used by default)
