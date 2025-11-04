@@ -1,6 +1,5 @@
-SET search_path TO billing;
-
--- bun:up
+-- Explicitly set schema to ensure all objects are created in the correct place
+SET search_path = billing, public;
 -- Set timeouts to prevent hanging migrations
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';

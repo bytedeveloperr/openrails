@@ -43,7 +43,7 @@ func RunAuthKit(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("authkit: load migrations: %w", err)
 	}
 
-	m := migratekit.NewPostgres(sqlDB, "authkit", migratekit.DefaultLockID())
+	m := migratekit.NewPostgres(sqlDB, "authkit")
 	// ApplyMigrations now calls Setup() automatically within the lock
 	if err := m.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("authkit: apply migrations: %w", err)
@@ -99,7 +99,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("billing: load migrations: %w", err)
 	}
 
-	m := migratekit.NewPostgres(sqlDB, "billing", migratekit.DefaultLockID())
+	m := migratekit.NewPostgres(sqlDB, "billing")
 	// ApplyMigrations now calls Setup() automatically within the lock
 	if err := m.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("billing: apply migrations: %w", err)

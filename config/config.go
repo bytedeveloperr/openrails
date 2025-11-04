@@ -84,7 +84,7 @@ func (c *DBConfig) GetConnectionString() string {
 		params = append(params, fmt.Sprintf("sslmode=%s", c.SSLMode))
 	}
 	if c.Schema != "" {
-		params = append(params, fmt.Sprintf("search_path=%s", c.Schema))
+		params = append(params, fmt.Sprintf("search_path=%s,public", c.Schema))
 	}
 
 	if len(params) > 0 {

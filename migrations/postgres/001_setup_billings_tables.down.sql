@@ -1,9 +1,8 @@
-SET search_path TO billing;
-
--- bun:down
+-- Explicitly set schema to ensure all objects are created in the correct place
+SET search_path = billing, public;
+-- Set timeouts to prevent hanging migrations
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';
-SET search_path = billing, public;
 
 -- Drop in reverse dependency order
 DROP TABLE IF EXISTS solana_wallet_challenges CASCADE;
