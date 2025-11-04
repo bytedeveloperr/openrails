@@ -61,23 +61,9 @@ func main() {
 		Short: "Database migration commands",
 	}
 
-	migrateAuthKitCmd := &cobra.Command{
-		Use:   "authkit",
-		Short: "Apply AuthKit migrations only (profiles schema)",
-		Long:  "Runs AuthKit migrations. Run this once before running 'migrate up' on all services.",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
-			ctx := cmd.Context()
-			if err := migrate.RunAuthKit(ctx, cfg); err != nil {
-				return fmt.Errorf("authkit migrations failed: %w", err)
-			}
-			return nil
-		},
-	}
-
 	migrateUpCmd := &cobra.Command{
 		Use:   "up",
-		Short: "Apply pending database migrations (River + Billing). Run 'migrate authkit' first.",
+		Short: "Apply all database migrations (AuthKit → River → Billing → ClickHouse)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
 			ctx := cmd.Context()
@@ -88,7 +74,7 @@ func main() {
 		},
 	}
 
-	migrateCmd.AddCommand(migrateAuthKitCmd, migrateUpCmd)
+	migrateCmd.AddCommand(migrateUpCmd)
 	rootCmd.AddCommand(serverCmd, workerCmd, migrateCmd)
 	if err := rootCmd.Execute(); err != nil {
 		log.WithError(err).Fatal("Failed to execute command")

@@ -14,14 +14,17 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 
+	authkitPostgres "github.com/doujins-org/authkit/migrations/postgres"
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/internal/validation"
+	clickhousemigrations "github.com/doujins-org/doujins-billing/migrations/clickhouse"
+	postgresmigrations "github.com/doujins-org/doujins-billing/migrations/postgres"
 	email "github.com/doujins-org/doujins-email"
+	"github.com/doujins-org/migratekit"
 )
 
 func buildRuntime(cfg *config.Config) (*Runtime, error) {
@@ -135,21 +138,34 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 		return nil, err
 	}
 
-	// Validate that all migrations have been applied before starting the application
-	// This ensures the app won't start with a missing or outdated schema
-	bunDB, ok := database.GetDB().(*bun.DB)
-	if !ok {
-		return nil, fmt.Errorf("failed to get *bun.DB from database")
+	// Validate that all migrations have been applied before starting
+	bunDB := database.GetDB().(*bun.DB)
+	sqlDB := bunDB.DB
+
+	if err := migratekit.ValidatePostgresMigrations(context.Background(), sqlDB,
+		migratekit.MigrationSource{App: "authkit", FS: authkitPostgres.FS},
+		migratekit.MigrationSource{App: "billing", FS: postgresmigrations.FS},
+	); err != nil {
+		log.WithError(err).Fatal("Postgres migrations validation failed")
+		return nil, err
 	}
 
-	schema := cfg.DB.Schema
-	if schema == "" {
-		schema = "billing"
-	}
-
-	if err := validation.ValidateMigrations(context.Background(), bunDB, schema); err != nil {
-		log.WithError(err).Fatal("Migration validation failed - cannot start application")
-		return nil, fmt.Errorf("migration validation failed: %w", err)
+	// Validate ClickHouse migrations if ClickHouse is configured
+	if cfg.ClickHouse != nil {
+		if err := migratekit.ValidateClickHouseMigrations(
+			context.Background(),
+			&migratekit.ClickHouseConfig{
+				ServerURL: cfg.ClickHouse.HTTPAddr,
+				Database:  cfg.ClickHouse.Database,
+				Username:  cfg.ClickHouse.Username,
+				Password:  cfg.ClickHouse.Password,
+				App:       "billing",
+			},
+			clickhousemigrations.FS,
+		); err != nil {
+			log.WithError(err).Fatal("ClickHouse migrations validation failed")
+			return nil, err
+		}
 	}
 
 	return database, nil

@@ -26,7 +26,7 @@ ALTER ROLE doujins_app  WITH LOGIN PASSWORD :'DOUJINS_PW';
 ALTER ROLE billing_app  WITH LOGIN PASSWORD :'BILLING_PW';
 ALTER ROLE hentai0_app  WITH LOGIN PASSWORD :'HENTAI0_PW';
 
--- Harden public schema
+-- Harden public schema (but allow service roles to create tables for migratekit)
 ALTER SCHEMA public OWNER TO admin;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 
@@ -55,51 +55,9 @@ CREATE SCHEMA IF NOT EXISTS profiles AUTHORIZATION authkit_owner;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
 
--- Create Bun migration tracking tables for service schemas
--- These tables track which migrations have been applied and prevent race conditions
--- NOTE: profiles schema tracking tables are created by AuthKit migrations themselves
-DO $$
-DECLARE
-    schema_name TEXT;
-BEGIN
-    FOREACH schema_name IN ARRAY ARRAY['doujins', 'billing', 'hentai0']
-    LOOP
-        EXECUTE format('
-            CREATE TABLE IF NOT EXISTS %I.bun_migrations (
-                id BIGSERIAL PRIMARY KEY,
-                name VARCHAR(255) NOT NULL UNIQUE,
-                group_id BIGINT NOT NULL,
-                migrated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS %I.bun_migration_locks (
-                id BIGSERIAL PRIMARY KEY,
-                table_name VARCHAR(255) NOT NULL
-            );
-        ', schema_name, schema_name);
-    END LOOP;
-END $$;
-
--- Grant permissions on each service schema's migration tracking tables
-DO $$
-DECLARE
-    service RECORD;
-BEGIN
-    FOR service IN
-        SELECT unnest(ARRAY['doujins', 'billing', 'hentai0']) as schema_name,
-               unnest(ARRAY['doujins_app', 'billing_app', 'hentai0_app']) as role_name
-    LOOP
-        EXECUTE format('
-            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.bun_migrations TO %I;
-            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.bun_migration_locks TO %I;
-            GRANT USAGE, SELECT ON SEQUENCE %I.bun_migrations_id_seq TO %I;
-            GRANT USAGE, SELECT ON SEQUENCE %I.bun_migration_locks_id_seq TO %I;
-        ', service.schema_name, service.role_name,
-           service.schema_name, service.role_name,
-           service.schema_name, service.role_name,
-           service.schema_name, service.role_name);
-    END LOOP;
-END $$;
+-- Grant CREATE on public schema to service roles so migratekit can create its tables
+-- migratekit will create public.migrations and public.migration_locks on first run
+GRANT CREATE ON SCHEMA public TO doujins_app, billing_app, hentai0_app, authkit_owner;
 
 -- Grant permissions on profiles schema so services can run AuthKit migrations safely
 -- AuthKit migrations will create their own tracking tables (profiles.bun_migrations, etc.)
