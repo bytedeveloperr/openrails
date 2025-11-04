@@ -44,9 +44,7 @@ func RunAuthKit(ctx context.Context, cfg *config.Config) error {
 	}
 
 	m := migratekit.NewPostgres(sqlDB, "authkit", migratekit.DefaultLockID())
-	if err := m.Setup(ctx); err != nil {
-		return fmt.Errorf("authkit: setup: %w", err)
-	}
+	// ApplyMigrations now calls Setup() automatically within the lock
 	if err := m.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("authkit: apply migrations: %w", err)
 	}
@@ -102,9 +100,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	}
 
 	m := migratekit.NewPostgres(sqlDB, "billing", migratekit.DefaultLockID())
-	if err := m.Setup(ctx); err != nil {
-		return fmt.Errorf("billing: setup: %w", err)
-	}
+	// ApplyMigrations now calls Setup() automatically within the lock
 	if err := m.ApplyMigrations(ctx, migrations); err != nil {
 		return fmt.Errorf("billing: apply migrations: %w", err)
 	}
@@ -175,9 +171,7 @@ func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) 
 		Password:  cfg.Password,
 		App:       "billing",
 	})
-	if err := m.Setup(ctx); err != nil {
-		return fmt.Errorf("clickhouse: setup: %w", err)
-	}
+	// ApplyMigrations now calls Setup() automatically within the lock
 	if err := m.ApplyMigrations(ctx, chMigrations); err != nil {
 		return fmt.Errorf("clickhouse: apply migrations: %w", err)
 	}

@@ -139,7 +139,7 @@ services:
         condition: service_healthy
     environment:
       # Database connection (using billing_app service role after bootstrap)
-      DATABASE_URL: "postgres://billing_app:${BILLING_DB_PASSWORD:-billing_password}@postgres:5432/doujins_db?sslmode=disable"
+      DATABASE_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
       DB_SCHEMA: "billing"
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
       # ClickHouse connection for migrations
@@ -178,7 +178,7 @@ services:
       - "8060"       # Private API (internal-only)
     environment:
       # Database connection (using billing_app service role)
-      DATABASE_URL: "postgres://billing_app:${BILLING_DB_PASSWORD:-billing_password}@postgres:5432/doujins_db?sslmode=disable"
+      DATABASE_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
       DB_SCHEMA: "billing"
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
       # Redis connection
