@@ -67,8 +67,8 @@ github.com/doujins-org/authkit v0.4.6 h1:FA+0UCPiIJVBNs4nIFgdj2sxPeAkYbqs0wqaP8b
 github.com/doujins-org/authkit v0.4.6/go.mod h1:S5iP8qJSqscG0/Jegl9d08PjaKddlq3snCgv+afZ1n8=
 github.com/doujins-org/doujins-email v0.1.0 h1:oobyEvu9KsxlsqZxOQZeVQ80FKBbr1maRMBwHzXEhKY=
 github.com/doujins-org/doujins-email v0.1.0/go.mod h1:Hx/TuUmTUDxp81brtXmb5myf1KLDjXzl/zL9KuFr8fw=
-github.com/doujins-org/migratekit v0.3.2 h1:XDW2f+m0M8lyutlLYK91lZnYXGCmLz0HcfKEj++YJII=
-github.com/doujins-org/migratekit v0.3.2/go.mod h1:94Do/EPNIuRmaOF4x9aZNTfmmGXNLrqJ3/bkrNcKypU=
+github.com/doujins-org/migratekit v0.3.3 h1:iTE56edlJ8kR9cXNjHh68IZ6KDeMSCsUDGY9I+G/0Qw=
+github.com/doujins-org/migratekit v0.3.3/go.mod h1:94Do/EPNIuRmaOF4x9aZNTfmmGXNLrqJ3/bkrNcKypU=
 github.com/doujins-org/solana-go v1.13.0 h1:+XgMeTL0/C3Q311WxmBdxjVzf8+F5yG+qC9xwcTr+Sc=
 github.com/doujins-org/solana-go v1.13.0/go.mod h1:CFzbOQhmKammRzM/8biL4w/bOjb9g1jpLGASJpkEBtE=
 github.com/ebitengine/purego v0.8.4 h1:CF7LEKg5FFOsASUj0+QwaXf8Ht6TlFxg09+S9wz0omw=

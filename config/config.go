@@ -203,7 +203,7 @@ type CCBillConfig struct {
 }
 
 type RedisConfig struct {
-	Addr     string `koanf:"host"`
+	Addr     string `koanf:"addr"`
 	Password string `koanf:"password"`
 	DB       int    `koanf:"db"`
 }
@@ -556,7 +556,9 @@ func Load(configPath string) (*Config, error) {
 	// Load common environment variables without prefix
 	envMappings := map[string]string{
 		"DB_URL":      "db.url",
-		"REDIS_URL":   "redis.host",
+		"REDIS_ADDR":     "redis.addr",
+		"REDIS_PASSWORD": "redis.password",
+		"REDIS_DB":       "redis.db",
 		"ENV":         "env",
 		"ENVIRONMENT": "env",
 
@@ -624,24 +626,6 @@ func Load(configPath string) (*Config, error) {
 	for envVar, configKey := range envMappings {
 		if val := os.Getenv(envVar); val != "" {
 			k.Set(configKey, val)
-		}
-	}
-
-	// Parse Redis URL if provided
-	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
-		if parsedURL, err := url.Parse(redisURL); err == nil {
-			k.Set("redis.host", parsedURL.Host)
-			if parsedURL.User != nil {
-				if password, ok := parsedURL.User.Password(); ok {
-					k.Set("redis.password", password)
-				}
-			}
-			// Extract database number from path
-			if len(parsedURL.Path) > 1 {
-				if db := strings.TrimPrefix(parsedURL.Path, "/"); db != "" {
-					k.Set("redis.db", db)
-				}
-			}
 		}
 	}
 
