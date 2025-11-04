@@ -1,16 +1,70 @@
 package services
 
 import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/google/uuid"
 )
 
-type IdempotencyService struct{}
+type IdempotencyService struct {
+	repo *repo.IdempotencyRepo
+}
 
 func NewIdempotencyService(db *db.DB) *IdempotencyService {
-	return &IdempotencyService{}
+	return &IdempotencyService{repo: repo.NewIdempotencyRepo(db)}
+}
+
+func (g *IdempotencyService) Begin(ctx context.Context, operation, key string, userID *string) (*models.IdempotencyRequest, bool, error) {
+	operation = strings.TrimSpace(operation)
+	key = strings.TrimSpace(key)
+	if operation == "" || key == "" {
+		return nil, false, errors.New("idempotency operation and key are required")
+	}
+	req, err := g.repo.GetByOperationAndKey(ctx, operation, key)
+	if err == nil {
+		return req, true, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, false, err
+	}
+
+	req = &models.IdempotencyRequest{
+		Operation: operation,
+		Key:       key,
+		Status:    "pending",
+		UserID:    userID,
+	}
+	if err := g.repo.Create(ctx, req); err != nil {
+		if errors.Is(err, repo.ErrIdempotencyConflict) {
+			existing, getErr := g.repo.GetByOperationAndKey(ctx, operation, key)
+			if getErr != nil {
+				return nil, false, getErr
+			}
+			return existing, true, nil
+		}
+		return nil, false, err
+	}
+	return req, false, nil
+}
+
+func (g *IdempotencyService) Complete(ctx context.Context, id uuid.UUID, result json.RawMessage) error {
+	return g.repo.UpdateStatus(ctx, id, "success", result)
+}
+
+func (g *IdempotencyService) Fail(ctx context.Context, id uuid.UUID, failure error) error {
+	var payload []byte
+	if failure != nil {
+		payload, _ = json.Marshal(map[string]string{"error": failure.Error()})
+	}
+	return g.repo.UpdateStatus(ctx, id, "failed", payload)
 }
 
 // GenerateForChargeSuccess generates key for successful charge

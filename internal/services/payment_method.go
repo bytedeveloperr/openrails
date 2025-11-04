@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -22,6 +23,7 @@ func NewPaymentMethodService(db *db.DB) *PaymentMethodService {
 var (
 	ErrPaymentMethodNotFound     = errors.New("payment method not found")
 	ErrPaymentMethodAccessDenied = errors.New("payment method access denied")
+	ErrPaymentMethodInactive     = errors.New("payment method is inactive")
 )
 
 func (s *PaymentMethodService) Create(ctx context.Context, method *models.PaymentMethod) error {
@@ -214,6 +216,13 @@ func (s *PaymentMethodService) ValidatePaymentMethodOperation(ctx context.Contex
 			return nil, ErrPaymentMethodAccessDenied
 		}
 		return nil, err
+	}
+
+	if !paymentMethod.IsActive {
+		if paymentMethod.FailureReason != nil && strings.TrimSpace(*paymentMethod.FailureReason) != "" {
+			return nil, fmt.Errorf("%w: %s", ErrPaymentMethodInactive, strings.TrimSpace(*paymentMethod.FailureReason))
+		}
+		return nil, ErrPaymentMethodInactive
 	}
 
 	return paymentMethod, nil

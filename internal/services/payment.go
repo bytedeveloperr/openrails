@@ -3,6 +3,8 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -15,6 +17,8 @@ import (
 type PaymentService struct {
 	repo *repo.PaymentRepo
 }
+
+const refundEpsilon = 0.0001
 
 type GetPaymentsFilters = repo.PaymentFilters
 
@@ -51,7 +55,7 @@ func (s *PaymentService) Update(ctx context.Context, payment *models.Payment) er
 }
 
 func (s *PaymentService) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Delete(ctx, id)
+	return errors.New("payments cannot be deleted")
 }
 
 // Refund records a refund as a negative payment entry linked by transaction ID
@@ -64,18 +68,38 @@ func (s *PaymentService) Refund(ctx context.Context, originalPaymentID uuid.UUID
 	if amount <= 0 {
 		return nil, errors.New("refund amount must be > 0")
 	}
+	if strings.TrimSpace(refundTransactionID) == "" {
+		return nil, errors.New("refund transaction id is required")
+	}
+
+	refundedTotal, err := s.repo.GetRefundTotalByPaymentID(ctx, originalPaymentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate refunded total: %w", err)
+	}
+	if amount > orig.Amount {
+		return nil, errors.New("refund amount cannot exceed original payment amount")
+	}
+	if refundedTotal > 0 {
+		if amount+refundedTotal-orig.Amount > refundEpsilon {
+			return nil, fmt.Errorf("refund total would exceed original payment (refunded %.2f of %.2f)", refundedTotal, orig.Amount)
+		}
+	}
 
 	refund := &models.Payment{
 		ID:             uuid.New(),
 		UserID:         orig.UserID,
 		PriceID:        orig.PriceID,
 		SubscriptionID: orig.SubscriptionID,
-		Processor:      orig.Processor,
-		TransactionID:  refundTransactionID,
-		Amount:         -amount,
-		Currency:       orig.Currency,
-		PurchasedAt:    time.Now(),
-		CreatedAt:      time.Now(),
+		RefundedPaymentID: func() *uuid.UUID {
+			id := orig.ID
+			return &id
+		}(),
+		Processor:     orig.Processor,
+		TransactionID: refundTransactionID,
+		Amount:        -amount,
+		Currency:      orig.Currency,
+		PurchasedAt:   time.Now(),
+		CreatedAt:     time.Now(),
 	}
 	if err := s.Create(ctx, refund); err != nil {
 		return nil, err

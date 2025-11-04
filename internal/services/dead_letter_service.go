@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
@@ -52,6 +53,9 @@ func (s *DeadLetterService) LogDeadLetter(ctx context.Context, params LogDeadLet
 	// Note: Dead letter events are logged for admin monitoring via structured logs
 	// We don't create notification queue entries since those are for user notifications
 	// and dead letters are system-level admin alerts that should be monitored via logs/alerting
+	if err := s.persist(ctx, params); err != nil {
+		log.WithContext(ctx).WithError(err).Warn("failed to persist webhook dead letter")
+	}
 
 	// Log structured event for monitoring and alerting
 	logFields := log.Fields{
@@ -78,6 +82,31 @@ func (s *DeadLetterService) LogDeadLetter(ctx context.Context, params LogDeadLet
 	}
 
 	return nil
+}
+
+func (s *DeadLetterService) persist(ctx context.Context, params LogDeadLetterParams) error {
+	if s.DB == nil {
+		return nil
+	}
+	payload := params.RawPayload
+	if len(payload) == 0 {
+		payload = json.RawMessage("null")
+	}
+	wh := &models.WebhookEvent{
+		Processor:        params.Processor,
+		EventType:        params.EventType,
+		Status:           params.ProcessingStatus,
+		RawPayload:       string(payload),
+		Headers:          params.Headers,
+		IPAddress:        params.ClientIP,
+		ProcessingResult: map[string]interface{}{"failure_reason": params.FailureReason},
+	}
+	if params.ProcessingError != "" {
+		msg := params.ProcessingError
+		wh.ErrorMessage = &msg
+	}
+	_, err := s.DB.GetDB().NewInsert().Model(wh).Exec(ctx)
+	return err
 }
 
 // LogUnknownEvent specifically logs webhook events with unknown/unsupported event types

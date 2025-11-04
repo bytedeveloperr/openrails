@@ -2,7 +2,9 @@ package repo
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"math"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -95,6 +97,18 @@ func (r *PaymentRepo) Delete(ctx context.Context, id uuid.UUID) error {
 		return errors.New("no rows affected")
 	}
 	return nil
+}
+
+func (r *PaymentRepo) GetRefundTotalByPaymentID(ctx context.Context, paymentID uuid.UUID) (float64, error) {
+	var total sql.NullFloat64
+	if err := r.db.GetDB().NewSelect().
+		Model((*models.Payment)(nil)).
+		ColumnExpr("COALESCE(SUM(purch.amount), 0)").
+		Where("purch.refunded_payment_id = ?", paymentID).
+		Scan(ctx, &total); err != nil {
+		return 0, err
+	}
+	return math.Abs(total.Float64), nil
 }
 
 func (r *PaymentRepo) GetPaginatedByUserID(ctx context.Context, userID string, page, pageSize int) ([]*models.Payment, int, error) {

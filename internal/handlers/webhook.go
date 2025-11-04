@@ -45,7 +45,7 @@ func Webhook(r *Request) {
 		"client_ip": clientIP,
 	}).Debug("Received webhook")
 
-	ccbillTestMode := true
+	ccbillTestMode := false
 	if r.State != nil && r.State.CCBillRESTClient != nil {
 		if cfg := r.State.CCBillRESTClient.Config(); cfg != nil {
 			ccbillTestMode = cfg.TestMode

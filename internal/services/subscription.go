@@ -118,6 +118,18 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 	if err != nil {
 		return nil, fmt.Errorf("price not found: %w", err)
 	}
+	if !price.IsActive {
+		return nil, errors.New("price is not available for purchase")
+	}
+	if s.ProductService != nil {
+		product, err := s.ProductService.GetByID(ctx, price.ProductID)
+		if err != nil {
+			return nil, fmt.Errorf("product not found: %w", err)
+		}
+		if !product.IsActive {
+			return nil, errors.New("product is not available for purchase")
+		}
+	}
 
 	existingSub, err := s.GetByUserID(ctx, user.ID)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

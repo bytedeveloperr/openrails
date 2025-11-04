@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -22,49 +24,60 @@ func NewDeduplicationService(db *db.DB) *DeduplicationService {
 // ProcessWebhook handles webhook deduplication and processing coordination.
 // Returns (shouldProcess, webhookRecord, error)
 func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, eventType string, processor models.Processor, payload interface{}, processingFunc func(ctx context.Context) error) error {
-	// Convert payload to JSON string for storage
-	// payloadBytes, err := json.Marshal(payload)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to marshal webhook payload: %w", err)
-	// }
-	// payloadJSON := string(payloadBytes)
+	var payloadBytes []byte
+	if payload != nil {
+		if data, err := json.Marshal(payload); err == nil {
+			payloadBytes = data
+		} else {
+			log.WithContext(ctx).WithError(err).Warn("failed to marshal webhook payload for idempotency storage")
+		}
+	}
 
-	// op := fmt.Sprintf("webhook.%s.%s", processor, eventType)
-	// _, exists, err := s.idem.Begin(ctx, op, eventID, nil)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to begin idempotency: %w", err)
-	// }
+	trimmedEventID := strings.TrimSpace(eventID)
+	var idemReq *models.IdempotencyRequest
+	if trimmedEventID != "" {
+		op := fmt.Sprintf("webhook.%s.%s", processor, eventType)
+		req, exists, err := s.idem.Begin(ctx, op, trimmedEventID, nil)
+		if err != nil {
+			return fmt.Errorf("failed to begin idempotency: %w", err)
+		}
+		if exists && strings.EqualFold(req.Status, "success") {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"eventID":   trimmedEventID,
+				"eventType": eventType,
+				"processor": processor,
+			}).Info("Webhook already processed successfully, skipping")
+			return nil
+		}
+		idemReq = req
+	}
 
-	// if exists {
-	// 	log.WithContext(ctx).WithFields(log.Fields{
-	// 		"eventID":   eventID,
-	// 		"eventType": eventType,
-	// 		"processor": processor,
-	// 	}).Info("Webhook already processed successfully, skipping")
-	// 	return nil
-	// }
-
-	// Execute the webhook processing function
 	processingErr := processingFunc(ctx)
-
-	// Handle processing result
 	if processingErr != nil {
-		// Since simplified model only stores successful events, we just log the error
-		// Failed events are not stored in the webhook_events_processed table
 		log.WithContext(ctx).WithFields(log.Fields{
-			"eventID":   eventID,
+			"eventID":   trimmedEventID,
 			"eventType": eventType,
 			"processor": processor,
 			"error":     processingErr.Error(),
 		}).Error("Webhook processing failed")
 
+		if idemReq != nil {
+			if err := s.idem.Fail(ctx, idemReq.ID, processingErr); err != nil {
+				log.WithContext(ctx).WithError(err).Warn("failed to mark webhook idempotency as failed")
+			}
+		}
+
 		return fmt.Errorf("webhook processing failed: %w", processingErr)
 	}
 
-	// Processing succeeded - mark idempotency success and store payload for audit
-	// _ = s.idem.Complete(ctx, op, eventID, json.RawMessage(payloadJSON))
+	if idemReq != nil {
+		if err := s.idem.Complete(ctx, idemReq.ID, payloadBytes); err != nil {
+			log.WithContext(ctx).WithError(err).Warn("failed to mark webhook idempotency as complete")
+		}
+	}
+
 	log.WithContext(ctx).WithFields(log.Fields{
-		"eventID":   eventID,
+		"eventID":   trimmedEventID,
 		"eventType": eventType,
 		"processor": processor,
 	}).Info("Webhook processed successfully")

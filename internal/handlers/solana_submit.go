@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	solanago "github.com/doujins-org/solana-go"
+	"github.com/doujins-org/solana-go/programs/memo"
 	"github.com/doujins-org/solana-go/rpc"
 	"github.com/google/uuid"
 	"github.com/mr-tron/base58"
@@ -264,10 +266,59 @@ func extractTransactionDetails(txResult *rpc.GetTransactionResult, defaultFrom s
 			if len(tx.Message.AccountKeys) > 0 {
 				details.FromAddress = tx.Message.AccountKeys[0].String()
 			}
+			details.References = gatherTransactionReferences(tx, txResult.Meta)
 		}
 	}
 
 	return details
+}
+
+func gatherTransactionReferences(tx *solanago.Transaction, meta *rpc.TransactionMeta) []string {
+	if tx == nil {
+		return nil
+	}
+	referenceSet := make(map[string]struct{})
+	appendRef := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		referenceSet[value] = struct{}{}
+	}
+
+	for _, key := range tx.Message.AccountKeys {
+		appendRef(key.String())
+	}
+	if meta != nil {
+		for _, key := range meta.LoadedAddresses.ReadOnly {
+			appendRef(key.String())
+		}
+		for _, key := range meta.LoadedAddresses.Writable {
+			appendRef(key.String())
+		}
+	}
+
+	for _, inst := range tx.Message.Instructions {
+		programID, err := tx.ResolveProgramIDIndex(inst.ProgramIDIndex)
+		if err != nil {
+			continue
+		}
+		if programID.Equals(memo.ProgramID) {
+			if memoText := strings.TrimSpace(string(inst.Data)); memoText != "" {
+				appendRef(memoText)
+			}
+		}
+	}
+
+	if len(referenceSet) == 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(referenceSet))
+	for value := range referenceSet {
+		refs = append(refs, value)
+	}
+	sort.Strings(refs)
+	return refs
 }
 
 // validateQRReference validates that the transaction came from a legitimate QR code
@@ -305,8 +356,7 @@ func validateQRReference(memo string, references []string, userID string, priceI
 	}
 
 	if len(references) == 0 {
-		log.Debug("Reference extraction not implemented, validating timestamp only")
-		return nil // Allow for now since reference extraction isn't implemented
+		return errors.New("no QR reference accounts found in transaction")
 	}
 
 	return errors.New("no matching QR reference found")

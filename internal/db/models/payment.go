@@ -19,6 +19,9 @@ type Payment struct {
 	// Optional linkage to the subscription that generated this payment
 	SubscriptionID *uuid.UUID `bun:"subscription_id,type:uuid,nullzero" json:"subscription_id,omitempty"`
 
+	// Optional linkage back to the payment that this record refunds
+	RefundedPaymentID *uuid.UUID `bun:"refunded_payment_id,type:uuid,nullzero" json:"refunded_payment_id,omitempty"`
+
 	Processor         Processor `bun:"processor,notnull" json:"processor"`
 	ProcessorProvider *string   `bun:"processor_provider,nullzero" json:"processor_provider"`
 	TransactionID     string    `bun:"transaction_id,notnull" json:"transaction_id"`
