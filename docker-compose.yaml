@@ -143,9 +143,10 @@ services:
       DB_SCHEMA: "billing"
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
       # ClickHouse connection for migrations
-      CLICKHOUSE_URL: "http://clickhouse:8123"
-      CLICKHOUSE_DB: "analytics"
-      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
+      CLICKHOUSE_HTTP_ADDR: "http://clickhouse:8123"
+      CLICKHOUSE_CLIENT_ADDR: "clickhouse:9000"
+      CLICKHOUSE_DATABASE: "analytics"
+      CLICKHOUSE_USERNAME: "${CLICKHOUSE_USERNAME:-analytics_user}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
     command: ["migrate", "up"]
     restart: "no"
@@ -182,11 +183,14 @@ services:
       DB_SCHEMA: "billing"
       PGOPTIONS: -c search_path=$${DB_SCHEMA:-billing},public
       # Redis connection
-      REDIS_URL: "redis://garnet:6379/0"
+      REDIS_ADDR: "garnet:6379"
+      REDIS_PASSWORD: ""
+      REDIS_DB: "0"
       # ClickHouse connection for analytics
-      CLICKHOUSE_URL: "http://clickhouse:8123"
-      CLICKHOUSE_DB: "analytics"
-      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
+      CLICKHOUSE_HTTP_ADDR: "http://clickhouse:8123"
+      CLICKHOUSE_CLIENT_ADDR: "clickhouse:9000"
+      CLICKHOUSE_DATABASE: "analytics"
+      CLICKHOUSE_USERNAME: "${CLICKHOUSE_USERNAME:-analytics_user}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
     command: ["server"]
     healthcheck:

@@ -34,7 +34,7 @@
 
 #### Overriding configuration (optional)
 - Config file: place `config.yaml` in repo root or `./config/config.yaml`.
-- Env vars: common overrides include `DB_URL`, `REDIS_URL`, `CLICKHOUSE_URL`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `AUTH_ISSUER`, `AUTH_AUDIENCE`.
+- Env vars: common overrides include `DB_URL`, `REDIS_ADDR`, `CLICKHOUSE_HTTP_ADDR`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `AUTH_ISSUER`, `AUTH_AUDIENCE`.
 - If not provided, the service uses the defaults above.
 
 Developer tasks
@@ -52,13 +52,12 @@ Service endpoints
 
 Networking
 - Public: port `2053` is published to the host.
-- Private: port `8060` is exposed to the Docker network for intra-service communication. Optionally, you can enable a private TLS listener with client cert verification (mTLS) via config.
+- Private: port `8060` is exposed to the Docker network for intra-service communication (same host, no TLS needed).
 
 Admin access
 - Shared secret: admin routes are protected by header `X-API-KEY: <token>`.
 - Default (dev): `change-me-in-dev`.
 - Override via env `BILLING_API_KEY` or config `admin.api_key`.
-- mTLS (optional): set `tls.private.enabled: true` and provide `tls.private.cert_file`, `tls.private.key_file`. To require client certs, also set `tls.private.client_ca_file` and `tls.private.require_client_cert: true`.
 
 JWT verification (Verifier Only)
 - Billing acts as a **JWT verifier**, not an issuer. It verifies tokens issued by doujins and/or hentai0.

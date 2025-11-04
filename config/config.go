@@ -36,7 +36,6 @@ type Config struct {
 	CorsOrigins []string          `koanf:"cors_origins,omitempty"`
 	RateLimits  *RateLimitConfig  `koanf:"rate_limits,omitempty"`
 	Admin       *AdminConfig      `koanf:"admin,omitempty"`
-	TLS         *TLSConfig        `koanf:"tls,omitempty"`
 }
 
 // DBConfig holds database configuration.
@@ -267,20 +266,6 @@ type AdminConfig struct {
 	APIKey string `koanf:"api_key"`
 }
 
-// TLSConfig controls optional private mTLS listener
-type TLSConfig struct {
-	Private *PrivateTLSConfig `koanf:"private"`
-}
-
-type PrivateTLSConfig struct {
-	Enabled           bool   `koanf:"enabled"`
-	Addr              string `koanf:"addr"` // default ":8060"
-	CertFile          string `koanf:"cert_file"`
-	KeyFile           string `koanf:"key_file"`
-	ClientCAFile      string `koanf:"client_ca_file"`      // optional client CA
-	RequireClientCert bool   `koanf:"require_client_cert"` // enable mTLS if true and ClientCAFile provided
-}
-
 // RateLimit defines a rate limit policy
 type RateLimit struct {
 	RequestsPerMinute int `koanf:"requests_per_minute"`
@@ -435,8 +420,8 @@ func GetDefaultBillingConfig() *Config {
 		Port: 2053,
 		DB: &DBConfig{
 			// Defaults align with docker-compose: Postgres service is `postgres` on the compose network.
-			// Developers running the binary on the host can override via DB_URL.
-			URL:     "postgres://billing_app:billing_password@postgres:5432/doujins_db?sslmode=disable",
+			// All apps use the admin superuser. Developers can override via DB_URL.
+			URL:     "postgres://admin:admin_password@postgres:5432/doujins_db?sslmode=disable&search_path=billing,profiles,public",
 			Schema:  "billing",
 			Dialect: "postgres",
 		},
@@ -461,12 +446,6 @@ func GetDefaultBillingConfig() *Config {
 		Admin: &AdminConfig{
 			// Default internal admin API key for development. Override via env BILLING_API_KEY in prod.
 			APIKey: "change-me-in-dev",
-		},
-		TLS: &TLSConfig{
-			Private: &PrivateTLSConfig{
-				Enabled: false,
-				Addr:    ":8060",
-			},
 		},
 		RateLimits: &RateLimitConfig{
 			SubscribeLimit: &RateLimit{

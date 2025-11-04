@@ -159,16 +159,6 @@ email:
   sendgrid:
     # Provide SENDGRID_API_KEY via env
 
-# TLS configuration (optional private mTLS listener)
-# tls:
-#   private:
-#     enabled: false              # Enable private mTLS listener
-#     addr: ":8060"               # Private listener address (default: :8060)
-#     cert_file: "/path/to/cert"  # Server certificate
-#     key_file: "/path/to/key"    # Server private key
-#     client_ca_file: ""          # Client CA for mTLS (optional)
-#     require_client_cert: false  # Require client cert for mTLS
-
 # Rate limiting configuration
 rate_limits:
   # Subscription endpoints (very restrictive)
