@@ -236,13 +236,13 @@ CREATE TABLE IF NOT EXISTS billing.payments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     price_id UUID NOT NULL REFERENCES billing.prices(id),
-    processor processor_type NOT NULL,
+    processor billing.processor_type NOT NULL,
     processor_provider TEXT,
     transaction_id TEXT NOT NULL,
     amount DECIMAL(10,2) NOT NULL,
     currency TEXT NOT NULL DEFAULT 'USD',
     -- Overall lifecycle state for the payment record
-    status purchase_status NOT NULL DEFAULT 'completed',
+    status billing.purchase_status NOT NULL DEFAULT 'completed',
     subscription_id UUID REFERENCES billing.subscriptions(id) ON DELETE SET NULL,
     refunded_payment_id UUID,
     purchased_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
