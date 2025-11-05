@@ -4,7 +4,7 @@ go 1.24.2
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.1
-	github.com/doujins-org/authkit v0.4.8
+	github.com/doujins-org/authkit v0.5.1
 	github.com/doujins-org/doujins-email v0.1.0
 	github.com/doujins-org/migratekit v0.3.5
 	github.com/doujins-org/solana-go v1.13.0
@@ -27,7 +27,6 @@ require (
 	github.com/uptrace/bun/dialect/pgdialect v1.2.15
 	github.com/uptrace/bun/driver/pgdriver v1.2.15
 	github.com/uptrace/bun/extra/bundebug v1.2.15
-	golang.org/x/time v0.13.0
 )
 
 require (
@@ -52,6 +51,7 @@ require (
 	github.com/sendgrid/sendgrid-go v3.16.1+incompatible // indirect
 	github.com/zitadel/oidc/v2 v2.12.0 // indirect
 	golang.org/x/oauth2 v0.31.0 // indirect
+	golang.org/x/time v0.13.0 // indirect
 	gopkg.in/square/go-jose.v2 v2.6.0 // indirect
 )
 

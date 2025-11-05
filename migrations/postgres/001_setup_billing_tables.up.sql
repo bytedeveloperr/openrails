@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS billing.subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     price_id UUID, -- References prices table (created later)
-    status subscription_status NOT NULL DEFAULT 'pending',
+    status billing.subscription_status NOT NULL DEFAULT 'pending',
 
     -- Processor information
     processor TEXT NOT NULL DEFAULT 'ccbill',
@@ -69,7 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_processor_subscription ON billing.s
 CREATE INDEX IF NOT EXISTS idx_subscriptions_next_retry_at ON billing.subscriptions(next_retry_at) WHERE next_retry_at IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_user_active ON billing.subscriptions(user_id) WHERE status = 'active';
 
-COMMENT ON INDEX idx_subscriptions_user_active IS 'Ensures each user can have only one active subscription at a time';
+COMMENT ON INDEX billing.idx_subscriptions_user_active IS 'Ensures each user can have only one active subscription at a time';
 
 
 -- ============================================================================
@@ -120,11 +120,11 @@ ALTER TABLE billing.prices ADD CONSTRAINT unique_prices_product_amount_cycle
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM information_schema.table_constraints 
+        SELECT 1 FROM information_schema.table_constraints
         WHERE constraint_name = 'fk_subscriptions_price_id'
     ) THEN
-        ALTER TABLE subscriptions 
-        ADD CONSTRAINT fk_subscriptions_price_id 
+        ALTER TABLE billing.subscriptions
+        ADD CONSTRAINT fk_subscriptions_price_id
         FOREIGN KEY (price_id) REFERENCES billing.prices(id);
     END IF;
 END$$;
@@ -160,7 +160,7 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uniq_entitlements_active'
     ) THEN
-        CREATE UNIQUE INDEX uniq_entitlements_active ON entitlements(user_id, entitlement)
+        CREATE UNIQUE INDEX uniq_entitlements_active ON billing.entitlements(user_id, entitlement)
         WHERE revoked_at IS NULL AND end_at IS NULL;
     END IF;
 END$$;
@@ -168,7 +168,7 @@ END$$;
 -- Prevent overlapping entitlement windows per (user_id, entitlement) for non-deleted rows.
 -- Simplified approach using a partial unique index instead of complex exclusion constraint
 CREATE UNIQUE INDEX IF NOT EXISTS idx_entitlements_no_overlap
-ON entitlements(user_id, entitlement, start_at)
+ON billing.entitlements(user_id, entitlement, start_at)
 WHERE revoked_at IS NULL AND deleted_at IS NULL;
 
 -- Backfill cleanup for older schemas: drop the former generated column if it exists
@@ -205,19 +205,19 @@ CREATE INDEX IF NOT EXISTS idx_payment_methods_processor ON billing.payment_meth
 CREATE INDEX IF NOT EXISTS idx_payment_methods_vault_id ON billing.payment_methods(vault_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_processor_vault_id ON billing.payment_methods(processor, coalesce(processor_provider, ''), vault_id);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_is_active ON billing.payment_methods(is_active) WHERE is_active = true;
-COMMENT ON TABLE payment_methods IS 'Generalized payment method table supporting multiple processors.';
-COMMENT ON COLUMN payment_methods.processor IS 'Payment processor type: nmi, ccbill, stripe, etc.';
-COMMENT ON COLUMN payment_methods.vault_id IS 'Primary payment method identifier in the processor system';
+COMMENT ON TABLE billing.payment_methods IS 'Generalized payment method table supporting multiple processors.';
+COMMENT ON COLUMN billing.payment_methods.processor IS 'Payment processor type: nmi, ccbill, stripe, etc.';
+COMMENT ON COLUMN billing.payment_methods.vault_id IS 'Primary payment method identifier in the processor system';
 
 -- Add payment_method_id reference to subscriptions table
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1 FROM information_schema.table_constraints 
+        SELECT 1 FROM information_schema.table_constraints
         WHERE constraint_name = 'fk_subscriptions_payment_method_id'
     ) THEN
-        ALTER TABLE subscriptions 
-        ADD CONSTRAINT fk_subscriptions_payment_method_id 
+        ALTER TABLE billing.subscriptions
+        ADD CONSTRAINT fk_subscriptions_payment_method_id
         FOREIGN KEY (payment_method_id) REFERENCES billing.payment_methods(id) ON DELETE SET NULL;
     END IF;
 END$$;
@@ -260,7 +260,7 @@ CREATE INDEX IF NOT EXISTS idx_payments_processor_provider ON billing.payments(p
 CREATE INDEX IF NOT EXISTS idx_payments_purchased_at ON billing.payments(purchased_at);
 CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON billing.payments(subscription_id);
 
-COMMENT ON COLUMN payments.subscription_id IS 'Links a payment to the subscription that generated it (nullable for one-off payments)';
+COMMENT ON COLUMN billing.payments.subscription_id IS 'Links a payment to the subscription that generated it (nullable for one-off payments)';
 
 -- 4.4: Create solana_payment_intents table (unified Solana payment flow)
 CREATE TABLE IF NOT EXISTS billing.solana_payment_intents (
@@ -420,14 +420,14 @@ CREATE INDEX IF NOT EXISTS idx_idempotency_requests_created_at ON billing.idempo
 -- 6.2: Migrate data from purchases table if it exists and hasn't been renamed yet
 DO $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchases') 
-       AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payments') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'billing' AND table_name = 'purchases')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'billing' AND table_name = 'payments') THEN
         -- First rename the table
-        ALTER TABLE purchases RENAME TO payments;
-        
+        ALTER TABLE billing.purchases RENAME TO payments;
+
         -- Rename any associated indexes
-        IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'idx_purchases_subscription_id') THEN
-            ALTER INDEX idx_purchases_subscription_id RENAME TO idx_payments_subscription_id;
+        IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid WHERE c.relname = 'idx_purchases_subscription_id' AND n.nspname = 'billing') THEN
+            ALTER INDEX billing.idx_purchases_subscription_id RENAME TO idx_payments_subscription_id;
         END IF;
     END IF;
 END$$;
@@ -438,8 +438,8 @@ END$$;
 
 
 -- 7.3: Add comments for documentation
-COMMENT ON TABLE subscriptions IS 'Core subscription records tracking user billing relationships';
-COMMENT ON TABLE products IS 'Product definitions that can be purchased or subscribed to';
-COMMENT ON TABLE prices IS 'Pricing tiers for products with processor-specific identifiers';
-COMMENT ON TABLE payments IS 'Records of all payment transactions (formerly purchases table)';
-COMMENT ON TABLE notification_queue IS 'Queue for user notifications related to billing and subscriptions';
+COMMENT ON TABLE billing.subscriptions IS 'Core subscription records tracking user billing relationships';
+COMMENT ON TABLE billing.products IS 'Product definitions that can be purchased or subscribed to';
+COMMENT ON TABLE billing.prices IS 'Pricing tiers for products with processor-specific identifiers';
+COMMENT ON TABLE billing.payments IS 'Records of all payment transactions (formerly purchases table)';
+COMMENT ON TABLE billing.notification_queue IS 'Queue for user notifications related to billing and subscriptions';

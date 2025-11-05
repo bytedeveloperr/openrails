@@ -77,6 +77,9 @@ RUN chown -R billing:billing /app
 # Switch to non-root user
 USER billing
 
+ENV GIN_MODE=release \
+    TZ=UTC
+
 # Expose ports (2053 public; 8060 private/internal)
 EXPOSE 2053 8060
 
