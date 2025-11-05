@@ -61,13 +61,13 @@ CREATE TABLE IF NOT EXISTS billing.subscriptions (
 );
 
 -- Create indexes for subscriptions
-CREATE INDEX IF NOT EXISTS billing.idx_subscriptions_user_id ON billing.subscriptions(user_id);
-CREATE INDEX IF NOT EXISTS billing.idx_subscriptions_price_id ON billing.subscriptions(price_id);
-CREATE INDEX IF NOT EXISTS billing.idx_subscriptions_status ON billing.subscriptions(status);
-CREATE INDEX IF NOT EXISTS billing.idx_subscriptions_processor ON billing.subscriptions(processor);
-CREATE INDEX IF NOT EXISTS billing.idx_subscriptions_processor_subscription ON billing.subscriptions(processor, coalesce(processor_provider, ''), processor_subscription_id);
-CREATE INDEX IF NOT EXISTS billing.idx_subscriptions_next_retry_at ON billing.subscriptions(next_retry_at) WHERE next_retry_at IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS billing.idx_subscriptions_user_active ON billing.subscriptions(user_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON billing.subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_price_id ON billing.subscriptions(price_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON billing.subscriptions(status);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_processor ON billing.subscriptions(processor);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_processor_subscription ON billing.subscriptions(processor, coalesce(processor_provider, ''), processor_subscription_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_next_retry_at ON billing.subscriptions(next_retry_at) WHERE next_retry_at IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_user_active ON billing.subscriptions(user_id) WHERE status = 'active';
 
 COMMENT ON INDEX idx_subscriptions_user_active IS 'Ensures each user can have only one active subscription at a time';
 
@@ -88,8 +88,8 @@ CREATE TABLE IF NOT EXISTS billing.products (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_products_slug ON billing.products(slug);
-CREATE INDEX IF NOT EXISTS billing.idx_products_is_active ON billing.products(is_active);
+CREATE INDEX IF NOT EXISTS idx_products_slug ON billing.products(slug);
+CREATE INDEX IF NOT EXISTS idx_products_is_active ON billing.products(is_active);
 
 -- 2.2: Create prices table
 CREATE TABLE IF NOT EXISTS billing.prices (
@@ -107,10 +107,10 @@ CREATE TABLE IF NOT EXISTS billing.prices (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_prices_product_id ON billing.prices(product_id);
-CREATE INDEX IF NOT EXISTS billing.idx_prices_nmi_plan_provider ON billing.prices(nmi_provider, nmi_plan_id) WHERE nmi_plan_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS billing.idx_prices_ccbill_price_id ON billing.prices(ccbill_price_id) WHERE ccbill_price_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS billing.idx_prices_is_active ON billing.prices(is_active);
+CREATE INDEX IF NOT EXISTS idx_prices_product_id ON billing.prices(product_id);
+CREATE INDEX IF NOT EXISTS idx_prices_nmi_plan_provider ON billing.prices(nmi_provider, nmi_plan_id) WHERE nmi_plan_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_prices_ccbill_price_id ON billing.prices(ccbill_price_id) WHERE ccbill_price_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_prices_is_active ON billing.prices(is_active);
 
 ALTER TABLE billing.prices DROP CONSTRAINT IF EXISTS unique_prices_product_amount_cycle;
 ALTER TABLE billing.prices ADD CONSTRAINT unique_prices_product_amount_cycle 
@@ -150,9 +150,9 @@ CREATE TABLE IF NOT EXISTS billing.entitlements (
     period tstzrange GENERATED ALWAYS AS (tstzrange(start_at, COALESCE(end_at, 'infinity'::timestamptz), '[)')) STORED
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_entitlements_user_entitlement ON billing.entitlements(user_id, entitlement);
-CREATE INDEX IF NOT EXISTS billing.idx_entitlements_active_window ON billing.entitlements(user_id, entitlement, start_at, end_at) WHERE revoked_at IS NULL;
-CREATE INDEX IF NOT EXISTS billing.idx_entitlements_source ON billing.entitlements(source_type, source_id) WHERE source_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_entitlements_user_entitlement ON billing.entitlements(user_id, entitlement);
+CREATE INDEX IF NOT EXISTS idx_entitlements_active_window ON billing.entitlements(user_id, entitlement, start_at, end_at) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_entitlements_source ON billing.entitlements(source_type, source_id) WHERE source_id IS NOT NULL;
 
 -- At most one active entitlement per user+entitlement
 DO $$
@@ -200,11 +200,11 @@ CREATE TABLE IF NOT EXISTS billing.payment_methods (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_payment_methods_user_id ON billing.payment_methods(user_id);
-CREATE INDEX IF NOT EXISTS billing.idx_payment_methods_processor ON billing.payment_methods(processor);
-CREATE INDEX IF NOT EXISTS billing.idx_payment_methods_vault_id ON billing.payment_methods(vault_id);
-CREATE UNIQUE INDEX IF NOT EXISTS billing.idx_payment_methods_processor_vault_id ON billing.payment_methods(processor, coalesce(processor_provider, ''), vault_id);
-CREATE INDEX IF NOT EXISTS billing.idx_payment_methods_is_active ON billing.payment_methods(is_active) WHERE is_active = true;
+CREATE INDEX IF NOT EXISTS idx_payment_methods_user_id ON billing.payment_methods(user_id);
+CREATE INDEX IF NOT EXISTS idx_payment_methods_processor ON billing.payment_methods(processor);
+CREATE INDEX IF NOT EXISTS idx_payment_methods_vault_id ON billing.payment_methods(vault_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_processor_vault_id ON billing.payment_methods(processor, coalesce(processor_provider, ''), vault_id);
+CREATE INDEX IF NOT EXISTS idx_payment_methods_is_active ON billing.payment_methods(is_active) WHERE is_active = true;
 COMMENT ON TABLE payment_methods IS 'Generalized payment method table supporting multiple processors.';
 COMMENT ON COLUMN payment_methods.processor IS 'Payment processor type: nmi, ccbill, stripe, etc.';
 COMMENT ON COLUMN payment_methods.vault_id IS 'Primary payment method identifier in the processor system';
@@ -222,7 +222,7 @@ BEGIN
     END IF;
 END$$;
 
-CREATE INDEX IF NOT EXISTS billing.idx_subscriptions_payment_method_id ON billing.subscriptions(payment_method_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_payment_method_id ON billing.subscriptions(payment_method_id);
 
 -- 4.2: Create processor and purchase status enums
 DROP TYPE IF EXISTS billing.processor_type CASCADE;
@@ -251,14 +251,14 @@ CREATE TABLE IF NOT EXISTS billing.payments (
     CONSTRAINT fk_payments_refunded_payment FOREIGN KEY (refunded_payment_id) REFERENCES billing.payments(id)
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_payments_refunded_payment_id ON billing.payments(refunded_payment_id);
+CREATE INDEX IF NOT EXISTS idx_payments_refunded_payment_id ON billing.payments(refunded_payment_id);
 
-CREATE INDEX IF NOT EXISTS billing.idx_payments_user_id ON billing.payments(user_id);
-CREATE INDEX IF NOT EXISTS billing.idx_payments_price_id ON billing.payments(price_id);
-CREATE INDEX IF NOT EXISTS billing.idx_payments_processor ON billing.payments(processor);
-CREATE INDEX IF NOT EXISTS billing.idx_payments_processor_provider ON billing.payments(processor, coalesce(processor_provider, ''));
-CREATE INDEX IF NOT EXISTS billing.idx_payments_purchased_at ON billing.payments(purchased_at);
-CREATE INDEX IF NOT EXISTS billing.idx_payments_subscription_id ON billing.payments(subscription_id);
+CREATE INDEX IF NOT EXISTS idx_payments_user_id ON billing.payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_payments_price_id ON billing.payments(price_id);
+CREATE INDEX IF NOT EXISTS idx_payments_processor ON billing.payments(processor);
+CREATE INDEX IF NOT EXISTS idx_payments_processor_provider ON billing.payments(processor, coalesce(processor_provider, ''));
+CREATE INDEX IF NOT EXISTS idx_payments_purchased_at ON billing.payments(purchased_at);
+CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON billing.payments(subscription_id);
 
 COMMENT ON COLUMN payments.subscription_id IS 'Links a payment to the subscription that generated it (nullable for one-off payments)';
 
@@ -288,9 +288,9 @@ CREATE TABLE IF NOT EXISTS billing.solana_payment_intents (
     UNIQUE(reference)
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_solana_payment_intents_user_status ON billing.solana_payment_intents(user_id, status);
-CREATE INDEX IF NOT EXISTS billing.idx_solana_payment_intents_reference ON billing.solana_payment_intents(reference) WHERE reference IS NOT NULL;
-CREATE INDEX IF NOT EXISTS billing.idx_solana_payment_intents_expires ON billing.solana_payment_intents(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_solana_payment_intents_user_status ON billing.solana_payment_intents(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_solana_payment_intents_reference ON billing.solana_payment_intents(reference) WHERE reference IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_solana_payment_intents_expires ON billing.solana_payment_intents(expires_at) WHERE expires_at IS NOT NULL;
 
 -- 4.5: Create solana_transactions table (pending and confirmed Solana payments)
 CREATE TABLE IF NOT EXISTS billing.solana_transactions (
@@ -334,11 +334,11 @@ CREATE TABLE IF NOT EXISTS billing.solana_transactions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_solana_transactions_user_id ON billing.solana_transactions(user_id);
-CREATE INDEX IF NOT EXISTS billing.idx_solana_transactions_status ON billing.solana_transactions(status);
-CREATE INDEX IF NOT EXISTS billing.idx_solana_transactions_expires_at ON billing.solana_transactions(expires_at) WHERE expires_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS billing.idx_solana_transactions_intent_id ON billing.solana_transactions(intent_id);
-CREATE UNIQUE INDEX IF NOT EXISTS billing.idx_solana_tx_signature ON billing.solana_transactions(signature) WHERE signature IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_solana_transactions_user_id ON billing.solana_transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_solana_transactions_status ON billing.solana_transactions(status);
+CREATE INDEX IF NOT EXISTS idx_solana_transactions_expires_at ON billing.solana_transactions(expires_at) WHERE expires_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_solana_transactions_intent_id ON billing.solana_transactions(intent_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_tx_signature ON billing.solana_transactions(signature) WHERE signature IS NOT NULL;
 
 -- ============================================================================
 -- SECTION 5: SUPPORTING TABLES
@@ -357,10 +357,10 @@ CREATE TABLE IF NOT EXISTS billing.notification_queue (
     read_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_notification_queue_user_id ON billing.notification_queue(user_id);
-CREATE INDEX IF NOT EXISTS billing.idx_notification_queue_type ON billing.notification_queue(notification_type);
-CREATE INDEX IF NOT EXISTS billing.idx_notification_queue_is_read ON billing.notification_queue(is_read);
-CREATE INDEX IF NOT EXISTS billing.idx_notification_queue_created_at ON billing.notification_queue(created_at);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_user_id ON billing.notification_queue(user_id);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_type ON billing.notification_queue(notification_type);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_is_read ON billing.notification_queue(is_read);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_created_at ON billing.notification_queue(created_at);
 
 
 -- 5.2: Solana wallet challenges (for address verification)
@@ -376,8 +376,8 @@ CREATE TABLE IF NOT EXISTS billing.solana_wallet_challenges (
     UNIQUE(user_id, address)
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_solana_wallet_challenges_user ON billing.solana_wallet_challenges(user_id);
-CREATE INDEX IF NOT EXISTS billing.idx_solana_wallet_challenges_expires ON billing.solana_wallet_challenges(expires_at);
+CREATE INDEX IF NOT EXISTS idx_solana_wallet_challenges_user ON billing.solana_wallet_challenges(user_id);
+CREATE INDEX IF NOT EXISTS idx_solana_wallet_challenges_expires ON billing.solana_wallet_challenges(expires_at);
 
 -- 5.3: Create solana_wallets table (user wallet linking and verification)
 CREATE TABLE IF NOT EXISTS billing.solana_wallets (
@@ -393,9 +393,9 @@ CREATE TABLE IF NOT EXISTS billing.solana_wallets (
     UNIQUE(user_id, address)
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_solana_wallets_user_id ON billing.solana_wallets(user_id);
-CREATE INDEX IF NOT EXISTS billing.idx_solana_wallets_address ON billing.solana_wallets(address);
-CREATE INDEX IF NOT EXISTS billing.idx_solana_wallets_verified ON billing.solana_wallets(is_verified) WHERE is_verified = true;
+CREATE INDEX IF NOT EXISTS idx_solana_wallets_user_id ON billing.solana_wallets(user_id);
+CREATE INDEX IF NOT EXISTS idx_solana_wallets_address ON billing.solana_wallets(address);
+CREATE INDEX IF NOT EXISTS idx_solana_wallets_verified ON billing.solana_wallets(is_verified) WHERE is_verified = true;
 
 -- 5.4: Idempotency requests table for webhook / billing operations
 CREATE TABLE IF NOT EXISTS billing.idempotency_requests (
@@ -410,8 +410,8 @@ CREATE TABLE IF NOT EXISTS billing.idempotency_requests (
     UNIQUE(operation, key)
 );
 
-CREATE INDEX IF NOT EXISTS billing.idx_idempotency_requests_status ON billing.idempotency_requests(status);
-CREATE INDEX IF NOT EXISTS billing.idx_idempotency_requests_created_at ON billing.idempotency_requests(created_at);
+CREATE INDEX IF NOT EXISTS idx_idempotency_requests_status ON billing.idempotency_requests(status);
+CREATE INDEX IF NOT EXISTS idx_idempotency_requests_created_at ON billing.idempotency_requests(created_at);
 
 -- ============================================================================
 -- SECTION 6: DATA MIGRATION FROM LEGACY TABLES
