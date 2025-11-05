@@ -369,10 +369,7 @@ func buildRiverClient(cfg *config.Config, workers *river.Workers) (*river.Client
 	}
 
 	// Get schema for River tables (same as billing schema)
-	schema := cfg.DB.Schema
-	if schema == "" {
-		schema = "billing"
-	}
+	schema := "billing" // Hardcoded schema
 
 	drv := riverpgxv5.New(pool)
 	client, err := river.NewClient[pgx.Tx](drv, &river.Config{

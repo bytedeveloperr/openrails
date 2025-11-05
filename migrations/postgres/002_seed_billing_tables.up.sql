@@ -2,7 +2,6 @@
 -- Seed data for billing tables - products, prices, and default subscription plans
 
 -- Explicitly set schema to ensure all objects are created in the correct place
-SET search_path = billing, public;
 -- Set timeouts to prevent hanging migrations
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';

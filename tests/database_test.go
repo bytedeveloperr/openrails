@@ -13,13 +13,11 @@ func TestDatabaseConfig(t *testing.T) {
 	t.Run("Create Database Config", func(t *testing.T) {
 		dbConfig := &config.DBConfig{
 			URL:     "postgres://test:test@localhost:5432/test?sslmode=disable",
-			Schema:  "billing",
 			Dialect: "postgres",
 		}
 
 		assert.NotNil(t, dbConfig, "Should create database config")
 		assert.Equal(t, "postgres", dbConfig.Dialect, "Should have correct dialect")
-		assert.Equal(t, "billing", dbConfig.Schema, "Should have correct schema")
 		assert.Contains(t, dbConfig.URL, "postgres://", "Should have postgres URL")
 	})
 
@@ -27,7 +25,6 @@ func TestDatabaseConfig(t *testing.T) {
 		// Test valid config
 		validConfig := &config.DBConfig{
 			URL:     "postgres://test:test@localhost:5432/test?sslmode=disable",
-			Schema:  "billing",
 			Dialect: "postgres",
 		}
 
@@ -38,7 +35,6 @@ func TestDatabaseConfig(t *testing.T) {
 		// Test invalid config
 		invalidConfig := &config.DBConfig{
 			URL:     "",
-			Schema:  "billing",
 			Dialect: "postgres",
 		}
 
@@ -51,7 +47,6 @@ func TestDatabaseConnection(t *testing.T) {
 	t.Run("Database Connection Creation Fails With Invalid Config", func(t *testing.T) {
 		invalidConfig := &config.DBConfig{
 			URL:     "", // Empty URL should cause failure
-			Schema:  "billing",
 			Dialect: "postgres",
 		}
 
@@ -64,7 +59,6 @@ func TestDatabaseConnection(t *testing.T) {
 		// This will fail to connect but should pass config validation
 		validConfig := &config.DBConfig{
 			URL:     "postgres://test:test@localhost:5432/test?sslmode=disable",
-			Schema:  "billing",
 			Dialect: "postgres",
 		}
 

@@ -1,5 +1,4 @@
 -- Explicitly set schema to ensure all objects are created in the correct place
-SET search_path = billing, public;
 
 DELETE FROM prices
 WHERE ccbill_price_id IN ('ccbill_basic_monthly', 'ccbill_premium_monthly');

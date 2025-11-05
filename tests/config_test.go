@@ -113,7 +113,6 @@ func TestBasicConfig(t *testing.T) {
 		require.NotNil(t, config, "Should create test config")
 		assert.Equal(t, "test", config.Env, "Should be test environment")
 		assert.NotEmpty(t, config.Auth.Issuer, "Should have auth issuer")
-		assert.Equal(t, "billing", config.DB.Schema, "Should have correct schema")
 	})
 
 	t.Run("Config Cloning", func(t *testing.T) {

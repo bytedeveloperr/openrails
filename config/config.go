@@ -52,7 +52,6 @@ type DBConfig struct {
 	Database string `koanf:"database"`
 	Username string `koanf:"username"`
 	Password string `koanf:"password"`
-	Schema   string `koanf:"schema"`
 	SSLMode  string `koanf:"sslmode"`
 
 	Dialect string `koanf:"dialect"`
@@ -68,7 +67,7 @@ func (c *DBConfig) GetConnectionString() string {
 	}
 
 	// Build connection string from atomic parameters
-	// Format: postgresql://username:password@host:port/database?sslmode=...&search_path=...
+	// Format: postgresql://username:password@host:port/database?sslmode=...
 	connStr := fmt.Sprintf(
 		"postgresql://%s:%s@%s:%s/%s",
 		c.Username,
@@ -82,9 +81,6 @@ func (c *DBConfig) GetConnectionString() string {
 	params := []string{}
 	if c.SSLMode != "" {
 		params = append(params, fmt.Sprintf("sslmode=%s", c.SSLMode))
-	}
-	if c.Schema != "" {
-		params = append(params, fmt.Sprintf("search_path=%s,public", c.Schema))
 	}
 
 	if len(params) > 0 {
@@ -438,8 +434,7 @@ func GetDefaultBillingConfig() *Config {
 		DB: &DBConfig{
 			// Defaults align with docker-compose: Postgres service is `postgres` on the compose network.
 			// All apps use the admin superuser. Developers can override via DB_URL.
-			URL:     "postgres://admin:admin_password@postgres:5432/doujins_db?sslmode=disable&search_path=billing,profiles,public",
-			Schema:  "billing",
+			URL:     "postgres://admin:admin_password@postgres:5432/doujins_db?sslmode=disable",
 			Dialect: "postgres",
 		},
 		Redis: &RedisConfig{

@@ -16,8 +16,7 @@ import (
 )
 
 type DB struct {
-	db     bun.IDB
-	schema string
+	db bun.IDB
 }
 
 func NewDB(cfg *config.DBConfig) (_ *DB, err error) {
@@ -32,16 +31,8 @@ func NewDB(cfg *config.DBConfig) (_ *DB, err error) {
 
 	switch dialect {
 	case "postgres":
-		connParams := map[string]any{}
-		if cfg.Schema != "" {
-			// Ensure extensions installed in public (e.g., citext, pgcrypto) resolve
-			// Do not override role-level defaults without adding public.
-			connParams["search_path"] = fmt.Sprintf("%s,public", cfg.Schema)
-		}
-
 		sqldb := sql.OpenDB(pgdriver.NewConnector(
 			pgdriver.WithDSN(url),
-			pgdriver.WithConnParams(connParams),
 		))
 
 		db = bun.NewDB(sqldb, pgdialect.New())
@@ -69,14 +60,8 @@ func NewDB(cfg *config.DBConfig) (_ *DB, err error) {
 		bundebug.WithEnabled(false),
 	))
 
-	schema := cfg.Schema
-	if schema == "" {
-		schema = "billing"
-	}
-
 	dbInstance := &DB{
-		db:     db,
-		schema: schema,
+		db: db,
 	}
 
 	return dbInstance, nil
@@ -86,12 +71,8 @@ func (d *DB) GetDB() bun.IDB {
 	return d.db
 }
 
-func (d *DB) GetSchema() string {
-	return d.schema
-}
-
 func (d *DB) QualifiedTable(tableName string) string {
-	return fmt.Sprintf("%s.%s", d.schema, tableName)
+	return fmt.Sprintf("billing.%s", tableName)
 }
 
 func (d *DB) Close() error {
@@ -105,14 +86,12 @@ func (d *DB) Close() error {
 
 func NewWithTx(tx bun.Tx) *DB {
 	return &DB{
-		db:     tx,
-		schema: "billing",
+		db: tx,
 	}
 }
 
 func (d *DB) NewWithTx(tx bun.Tx) *DB {
 	return &DB{
-		db:     tx,
-		schema: d.schema,
+		db: tx,
 	}
 }

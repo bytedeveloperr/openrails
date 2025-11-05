@@ -81,10 +81,7 @@ func Run(ctx context.Context, cfg *config.Config) error {
 	}
 	sqlDB := bunDB.DB
 
-	schema := cfg.DB.Schema
-	if schema == "" {
-		schema = "billing"
-	}
+	schema := "billing" // Hardcoded schema
 
 	// ---------- 1. River Migrations (billing schema) ----------
 	log.Info("Running River migrations (billing schema)...")
