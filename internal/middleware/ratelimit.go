@@ -35,7 +35,7 @@ func NewRateLimitStore() *RateLimitStore {
 }
 
 // RateLimit enforces per-bucket limits using Redis when available and falling back to an in-memory window.
-func RateLimit(rateLimiterConfig *config.RateLimitConfig, rdb *redis.Client) gin.HandlerFunc {
+func RateLimit(rateLimiterConfig *config.RateLimitsConfig, rdb *redis.Client) gin.HandlerFunc {
 	if rateLimiterConfig == nil {
 		return func(c *gin.Context) { c.Next() }
 	}
@@ -158,7 +158,7 @@ func redisAllow(ctx context.Context, rdb *redis.Client, ip, bucket string, limit
 	return allowed, remaining, reset, nil
 }
 
-func resolveRateLimitPolicy(cfg *config.RateLimitConfig, req *http.Request) (*config.RateLimit, string) {
+func resolveRateLimitPolicy(cfg *config.RateLimitsConfig, req *http.Request) (*config.RateLimit, string) {
 	if cfg == nil || req == nil {
 		return nil, ""
 	}
@@ -166,16 +166,16 @@ func resolveRateLimitPolicy(cfg *config.RateLimitConfig, req *http.Request) (*co
 	var limit *config.RateLimit
 	switch bucket {
 	case "webhook":
-		limit = cfg.WebhookLimit
+		limit = (*cfg)["webhook"]
 	case "subscriptions":
-		limit = cfg.SubscribeLimit
+		limit = (*cfg)["subscribe"]
 	case "payment-methods":
-		limit = cfg.PaymentLimit
+		limit = (*cfg)["payment"]
 	default:
-		limit = cfg.DefaultLimit
+		limit = (*cfg)["default"]
 	}
 	if limit == nil {
-		limit = cfg.DefaultLimit
+		limit = (*cfg)["default"]
 	}
 	return limit, bucket
 }
@@ -198,16 +198,8 @@ func effectiveLimit(limit *config.RateLimit) int {
 	if limit == nil {
 		return 0
 	}
-	perMinute := limit.RequestsPerMinute
-	if perMinute <= 0 {
-		perMinute = 60
+	if limit.Limit <= 0 {
+		return 60
 	}
-	burst := limit.BurstSize
-	if burst <= 0 {
-		burst = perMinute
-	}
-	if burst < perMinute {
-		return perMinute
-	}
-	return burst
+	return limit.Limit
 }

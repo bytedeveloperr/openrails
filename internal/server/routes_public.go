@@ -78,21 +78,43 @@ func (s *Server) registerPublicRoutes() {
 
 func (s *Server) readyHandler(c *gin.Context) {
 	ctx := c.Request.Context()
+	checks := gin.H{
+		"db":      "ok",
+		"redis":   "ok",
+		"authkit": "ok",
+	}
+
+	// Check database (critical)
 	var one int
 	if s.runtime != nil && s.runtime.DB != nil {
 		if err := s.runtime.DB.GetDB().NewSelect().ColumnExpr("1").Scan(ctx, &one); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "db": "down"})
+			checks["db"] = "down"
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
 			return
 		}
 	} else {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "db": "missing"})
+		checks["db"] = "missing"
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
 		return
 	}
+
+	// Check Redis (critical for billing operations)
 	if s.runtime != nil && s.runtime.RedisClient != nil {
 		if _, err := s.runtime.RedisClient.Ping(ctx).Result(); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "redis": "down"})
+			checks["redis"] = "down"
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
 			return
 		}
+	} else {
+		checks["redis"] = "missing"
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "ready"})
+
+	// Check AuthKit verifier (critical for authentication)
+	if s.authVerifier == nil {
+		checks["authkit"] = "not_initialized"
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "ready", "checks": checks})
 }

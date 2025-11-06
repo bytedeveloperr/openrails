@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/knadh/koanf/parsers/yaml"
@@ -32,9 +33,10 @@ type Config struct {
 	Redis       *RedisConfig      `koanf:"redis,omitempty"`
 	Auth        *AuthConfig       `koanf:"auth,omitempty"`
 	ClickHouse  *ClickHouseConfig `koanf:"clickhouse,omitempty"`
+	Logger      *LoggerConfig     `koanf:"logger,omitempty"`
 	SendGrid    *SendGridConfig   `koanf:"sendgrid,omitempty"`
 	CorsOrigins []string          `koanf:"cors_origins,omitempty"`
-	RateLimits  *RateLimitConfig  `koanf:"rate_limits,omitempty"`
+	RateLimits  *RateLimitsConfig `koanf:"rate_limits,omitempty"`
 	Admin       *AdminConfig      `koanf:"admin,omitempty"`
 }
 
@@ -233,13 +235,8 @@ type TokenConfig struct {
 	MainnetMint string  `json:"mainnet_mint,omitempty" koanf:"mainnet_mint"`
 }
 
-// RateLimitConfig defines rate limiting for billing endpoints
-type RateLimitConfig struct {
-	SubscribeLimit *RateLimit `koanf:"subscribe_limit,omitempty"` // POST /subscriptions/*
-	WebhookLimit   *RateLimit `koanf:"webhook_limit,omitempty"`   // POST /webhooks/*
-	PaymentLimit   *RateLimit `koanf:"payment_limit,omitempty"`   // Payment method operations
-	DefaultLimit   *RateLimit `koanf:"default_limit,omitempty"`   // Default for other endpoints
-}
+// RateLimitsConfig is a map of endpoint identifier -> rate limit config
+type RateLimitsConfig map[string]*RateLimit
 
 // SendGridConfig holds SendGrid email configuration
 type SendGridConfig struct {
@@ -262,10 +259,15 @@ type AdminConfig struct {
 	APIKey string `koanf:"api_key"`
 }
 
+// LoggerConfig holds logging configuration
+type LoggerConfig struct {
+	Level string `koanf:"level"` // debug | info | error
+}
+
 // RateLimit defines a rate limit policy
 type RateLimit struct {
-	RequestsPerMinute int `koanf:"requests_per_minute"`
-	BurstSize         int `koanf:"burst_size"`
+	Limit  int           `koanf:"limit"`
+	Window time.Duration `koanf:"window"`
 }
 
 // Validate validates the billing configuration
@@ -459,22 +461,25 @@ func GetDefaultBillingConfig() *Config {
 			// Default internal admin API key for development. Override via env BILLING_API_KEY in prod.
 			APIKey: "change-me-in-dev",
 		},
-		RateLimits: &RateLimitConfig{
-			SubscribeLimit: &RateLimit{
-				RequestsPerMinute: 10, // Very restrictive for payment endpoints
-				BurstSize:         3,
+		Logger: &LoggerConfig{
+			Level: "info", // Default to info level (options: debug, info, warn, error, fatal, panic)
+		},
+		RateLimits: &RateLimitsConfig{
+			"subscribe": &RateLimit{
+				Limit:  10,            // Very restrictive for payment endpoints
+				Window: time.Minute,
 			},
-			WebhookLimit: &RateLimit{
-				RequestsPerMinute: 100, // Higher for webhooks
-				BurstSize:         20,
+			"webhook": &RateLimit{
+				Limit:  100,           // Higher for webhooks
+				Window: time.Minute,
 			},
-			PaymentLimit: &RateLimit{
-				RequestsPerMinute: 20,
-				BurstSize:         5,
+			"payment": &RateLimit{
+				Limit:  20,
+				Window: time.Minute,
 			},
-			DefaultLimit: &RateLimit{
-				RequestsPerMinute: 60,
-				BurstSize:         10,
+			"default": &RateLimit{
+				Limit:  60,
+				Window: time.Minute,
 			},
 		},
 		Solana: &SolanaConfig{},

@@ -33,6 +33,17 @@ func Bootstrap(cfg *config.Config) (*App, error) {
 		return nil, fmt.Errorf("config validation failed: %w", err)
 	}
 
+	// Configure logger level
+	if cfg.Logger != nil && cfg.Logger.Level != "" {
+		level, err := log.ParseLevel(cfg.Logger.Level)
+		if err != nil {
+			log.WithError(err).Warnf("Invalid log level '%s', using default", cfg.Logger.Level)
+		} else {
+			log.SetLevel(level)
+			log.Infof("Log level set to: %s", level)
+		}
+	}
+
 	verifier, err := auth.NewVerifier(cfg.Auth)
 	if err != nil {
 		return nil, fmt.Errorf("build auth verifier: %w", err)
