@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,26 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// FlexiblePort is a custom type that can unmarshal both strings and integers
+type FlexiblePort int16
+
+// UnmarshalText implements the encoding.TextUnmarshaler interface
+func (p *FlexiblePort) UnmarshalText(text []byte) error {
+	s := strings.TrimSpace(string(text))
+	if s == "" {
+		*p = 0
+		return nil
+	}
+
+	val, err := strconv.ParseInt(s, 10, 16)
+	if err != nil {
+		return fmt.Errorf("invalid port value: %w", err)
+	}
+
+	*p = FlexiblePort(val)
+	return nil
+}
+
 const EnvProd string = "prod"
 const EnvDev string = "dev"
 
@@ -24,7 +45,7 @@ const ConfigContextKey string = "config"
 
 type Config struct {
 	Env         string            `koanf:"env,omitempty"`
-	Port        int16             `koanf:"port,omitempty"`
+	Port        FlexiblePort      `koanf:"port,omitempty"`
 	Host        string            `koanf:"host,omitempty"`
 	NMI         *NMIConfig        `koanf:"nmi,omitempty"`
 	CCBill      *CCBillConfig     `koanf:"ccbill,omitempty"`
