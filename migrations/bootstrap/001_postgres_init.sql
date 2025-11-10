@@ -14,3 +14,14 @@ CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
+
+-- Create migratekit migrations tracking table
+-- Note: Locking is now handled via PostgreSQL advisory locks, not this table
+CREATE TABLE IF NOT EXISTS public.migrations (
+    id BIGSERIAL PRIMARY KEY,
+    app TEXT NOT NULL,
+    database TEXT NOT NULL,
+    name TEXT NOT NULL,
+    migrated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(app, database, name)
+);

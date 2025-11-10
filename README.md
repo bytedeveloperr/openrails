@@ -13,7 +13,7 @@
 ---
 
 #### Stack
-- Postgres: shared `postgres:17-bookworm` container from the Doujins backend stack (DB `doujins_db`, service user `billing_app` / `billing_password`)
+- Postgres: shared `postgres:17-bookworm` container from the Doujins backend stack (DB `doujins_db`, user `admin` / `admin_password`)
 - Garnet (Redis-compatible): `ghcr.io/microsoft/garnet` on `6379`
 - ClickHouse: `clickhouse/clickhouse-server` (DB `analytics`, user `analytics_user`, pass `analytics_password`)
 - Billing service: this server exposing public API on `:2053` and a private/internal port `:8060` (exposed to the compose network only). Admin routes require an internal shared secret.
@@ -28,7 +28,7 @@
 - ClickHouse migrations: `clickhouse-init` job waits for ClickHouse to be healthy, then applies `migrations/clickhouse/*.sql` to the `analytics` database.
 - Billing service connects using built-in defaults that match the compose network/service names.
 
-- Postgres: `postgres://billing_app:billing_password@postgres:5432/doujins_db?sslmode=disable`
+- Postgres: `postgres://admin:admin_password@postgres:5432/doujins_db?sslmode=disable`
 - Redis (Garnet): `garnet:6379`, DB `0`
 - ClickHouse: `http://clickhouse:8123` with `analytics_user/analytics_password` on DB `analytics`
 

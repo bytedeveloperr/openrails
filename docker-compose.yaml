@@ -108,12 +108,10 @@ services:
     command: [
       "psql",
       "-v", "ON_ERROR_STOP=1",
-      "-v", "DOUJINS_PW=${DOUJINS_DB_PASSWORD:-doujins_password}",
-      "-v", "BILLING_PW=${BILLING_DB_PASSWORD:-billing_password}",
       "-h", "postgres",
       "-U", "admin",
       "-d", "doujins_db",
-      "-f", "/bootstrap/000_baseline_roles.sql"
+      "-f", "/bootstrap/001_postgres_init.sql"
     ]
     restart: "no"
     networks:
@@ -138,9 +136,8 @@ services:
       clickhouse:
         condition: service_healthy
     environment:
-      # Database connection (using billing_app service role after bootstrap)
-      DATABASE_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
-      DB_SCHEMA: "billing"
+      # Database connection (admin superuser)
+      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
       # ClickHouse connection for migrations
       CLICKHOUSE_HTTP_ADDR: "http://clickhouse:8123"
       CLICKHOUSE_CLIENT_ADDR: "clickhouse:9000"
@@ -177,9 +174,8 @@ services:
     expose:
       - "8060"       # Private API (internal-only)
     environment:
-      # Database connection (using billing_app service role)
-      DATABASE_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
-      DB_SCHEMA: "billing"
+      # Database connection (admin superuser)
+      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
       # Redis connection
       REDIS_ADDR: "garnet:6379"
       REDIS_PASSWORD: ""

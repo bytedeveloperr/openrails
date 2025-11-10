@@ -44,21 +44,21 @@ const EnvDev string = "dev"
 const ConfigContextKey string = "config"
 
 type Config struct {
-	Env         string            `koanf:"env,omitempty"`
-	Port        FlexiblePort      `koanf:"port,omitempty"`
-	Host        string            `koanf:"host,omitempty"`
-	NMI         *NMIConfig        `koanf:"nmi,omitempty"`
-	CCBill      *CCBillConfig     `koanf:"ccbill,omitempty"`
-	Solana      *SolanaConfig     `koanf:"solana,omitempty"`
-	DB          *DBConfig         `koanf:"db,omitempty"`
-	Redis       *RedisConfig      `koanf:"redis,omitempty"`
-	Auth        *AuthConfig       `koanf:"auth,omitempty"`
-	ClickHouse  *ClickHouseConfig `koanf:"clickhouse,omitempty"`
-	Logger      *LoggerConfig     `koanf:"logger,omitempty"`
-	SendGrid    *SendGridConfig   `koanf:"sendgrid,omitempty"`
-	CorsOrigins []string          `koanf:"cors_origins,omitempty"`
-	RateLimits  *RateLimitsConfig `koanf:"rate_limits,omitempty"`
-	Admin       *AdminConfig      `koanf:"admin,omitempty"`
+	Env           string            `koanf:"env,omitempty"`
+	Port          FlexiblePort      `koanf:"port,omitempty"`
+	Host          string            `koanf:"host,omitempty"`
+	NMI           *NMIConfig        `koanf:"nmi,omitempty"`
+	CCBill        *CCBillConfig     `koanf:"ccbill,omitempty"`
+	Solana        *SolanaConfig     `koanf:"solana,omitempty"`
+	DB            *DBConfig         `koanf:"db,omitempty"`
+	Redis         *RedisConfig      `koanf:"redis,omitempty"`
+	Auth          *AuthConfig       `koanf:"auth,omitempty"`
+	ClickHouse    *ClickHouseConfig `koanf:"clickhouse,omitempty"`
+	Logger        *LoggerConfig     `koanf:"logger,omitempty"`
+	SendGrid      *SendGridConfig   `koanf:"sendgrid,omitempty"`
+	CorsOrigins   []string          `koanf:"cors_origins,omitempty"`
+	RateLimits    *RateLimitsConfig `koanf:"rate_limits,omitempty"`
+	BillingAPIKey string            `koanf:"billing_api_key,omitempty"`
 }
 
 // DBConfig holds database configuration.
@@ -274,12 +274,6 @@ type ClickHouseConfig struct {
 	Password   string `koanf:"password"`    // Optional password for authentication
 }
 
-// AdminConfig controls private admin access
-type AdminConfig struct {
-	// Shared API key required in 'X-API-Key' header for admin routes
-	APIKey string `koanf:"api_key"`
-}
-
 // LoggerConfig holds logging configuration
 type LoggerConfig struct {
 	Level string `koanf:"level"` // debug | info | error
@@ -478,20 +472,17 @@ func GetDefaultBillingConfig() *Config {
 			Username:   "analytics_user",     // Match docker-compose CLICKHOUSE_USERNAME
 			Password:   "analytics_password", // Match docker-compose CLICKHOUSE_PASSWORD
 		},
-		Admin: &AdminConfig{
-			// Default internal admin API key for development. Override via env BILLING_API_KEY in prod.
-			APIKey: "change-me-in-dev",
-		},
+		BillingAPIKey: "change-me-in-dev", // Override via env BILLING_API_KEY in prod
 		Logger: &LoggerConfig{
 			Level: "info", // Default to info level (options: debug, info, warn, error, fatal, panic)
 		},
 		RateLimits: &RateLimitsConfig{
 			"subscribe": &RateLimit{
-				Limit:  10,            // Very restrictive for payment endpoints
+				Limit:  10, // Very restrictive for payment endpoints
 				Window: time.Minute,
 			},
 			"webhook": &RateLimit{
-				Limit:  100,           // Higher for webhooks
+				Limit:  100, // Higher for webhooks
 				Window: time.Minute,
 			},
 			"payment": &RateLimit{
@@ -560,90 +551,34 @@ func Load(configPath string) (*Config, error) {
 		return nil, err
 	}
 
-	// Load environment variables with prefix
-	if err := k.Load(env.Provider("BILLING_", ".", func(s string) string {
-		// Convert BILLING_DATABASE_URL to database.url
-		s = strings.ToLower(strings.TrimPrefix(s, "BILLING_"))
-		s = strings.ReplaceAll(s, "_", ".")
-		return s
-	}), nil); err != nil {
-		return nil, fmt.Errorf("loading environment variables: %w", err)
-	}
+	// Load environment variables using koanf's env provider
+	// Transform env var names to config keys (e.g., DB_URL -> db.url)
+	envCallback := func(s string) string {
+		s = strings.ToLower(s)
 
-	// Load common environment variables without prefix
-	envMappings := map[string]string{
-		"DB_URL":         "db.url",
-		"REDIS_ADDR":     "redis.addr",
-		"REDIS_PASSWORD": "redis.password",
-		"REDIS_DB":       "redis.db",
-		"ENV":            "env",
-		"ENVIRONMENT":    "env",
-
-		// Auth / JWT verification
-		"AUTH_AUDIENCE": "auth.audience",
-		// AUTH_ISSUERS is handled via BILLING_ prefix or vault injection (array type)
-
-		// CCBill
-		"CCBILL_CLIENT_ACCOUNT":       "ccbill.client_acc_num",
-		"CCBILL_CLIENT_SUBACCOUNT":    "ccbill.client_sub_acc",
-		"CCBILL_SALT":                 "ccbill.salt",
-		"CCBILL_FORM_ID":              "ccbill.form_id",
-		"CCBILL_FLEXFORM_ID":          "ccbill.form_id",
-		"CCBILL_FORM_NAME":            "ccbill.form_name",
-		"CCBILL_LANGUAGE":             "ccbill.language",
-		"CCBILL_CURRENCY_CODE":        "ccbill.currency_code",
-		"CCBILL_SUBSCRIPTION_TYPE_ID": "ccbill.subscription_type_id",
-		"CCBILL_TEST_MODE":            "ccbill.test_mode",
-		"CCBILL_WEBHOOK_SECRET":       "ccbill.webhook_secret",
-		"CCBILL_DATALINK_URL":         "ccbill.datalink_url",
-		"CCBILL_BASE_FLEXFORM_URL":    "ccbill.base_flexform_url",
-		"CCBILL_SUCCESS_URL":          "ccbill.success_url",
-		"CCBILL_DECLINE_URL":          "ccbill.decline_url",
-
-		// NMI
-		"NMI_SECURITY_KEY":        "nmi.security_key",
-		"NMI_TOKENIZATION_KEY":    "nmi.tokenization_key",
-		"NMI_WEBHOOK_SECRET":      "nmi.webhook_secret",
-		"NMI_TEST_MODE":           "nmi.test_mode",
-		"NMI_DIRECT_POST_URL":     "nmi.direct_post_url",
-		"NMI_QUERY_URL":           "nmi.query_url",
-		"MOBIUS_SECURITY_KEY":     "nmi.security_key",
-		"MOBIUS_TOKENIZATION_KEY": "nmi.tokenization_key",
-		"MOBIUS_WEBHOOK_SECRET":   "nmi.webhook_secret",
-		"MOBIUS_TEST_MODE":        "nmi.test_mode",
-		"MOBIUS_DIRECT_POST_URL":  "nmi.direct_post_url",
-		"MOBIUS_QUERY_URL":        "nmi.query_url",
-
-		// SendGrid email configuration
-		"SENDGRID_API_KEY":    "sendgrid.api_key",
-		"SENDGRID_FROM_EMAIL": "sendgrid.from_email",
-		"SENDGRID_FROM_NAME":  "sendgrid.from_name",
-
-		// ClickHouse
-		"CLICKHOUSE_HTTP_ADDR":   "clickhouse.http_addr",
-		"CLICKHOUSE_CLIENT_ADDR": "clickhouse.client_addr",
-		"CLICKHOUSE_DATABASE":    "clickhouse.database",
-		"CLICKHOUSE_USERNAME":    "clickhouse.username",
-		"CLICKHOUSE_PASSWORD":    "clickhouse.password",
-
-		// Schema override (compose now uses DB_SCHEMA; keep APP_SCHEMA as legacy)
-		"DB_SCHEMA":  "db.schema",
-		"APP_SCHEMA": "db.schema",
-
-		// Solana
-		"SOLANA_RPC_ENDPOINT":       "solana.rpc_endpoint",
-		"SOLANA_NETWORK":            "solana.network",
-		"SOLANA_RECIPIENT_WALLET":   "solana.recipient_wallet",
-		"SOLANA_DESTINATION_WALLET": "solana.destination_wallet",
-
-		// Billing API key (for server-to-server communication)
-		"BILLING_API_KEY": "admin.api_key",
-	}
-
-	for envVar, configKey := range envMappings {
-		if val := os.Getenv(envVar); val != "" {
-			k.Set(configKey, val)
+		// Special case: ENVIRONMENT -> env
+		if s == "environment" {
+			return "env"
 		}
+
+		// Special case: BILLING_API_KEY stays as billing_api_key (no nesting)
+		if s == "billing_api_key" {
+			return "billing_api_key"
+		}
+
+		// Standard transformation: Replace first underscore with dot
+		// DB_URL -> db.url
+		// REDIS_ADDR -> redis.addr
+		// CLICKHOUSE_HTTP_ADDR -> clickhouse.http_addr
+		// CCBILL_SALT -> ccbill.salt
+		if !strings.Contains(s, "_") {
+			return s // No underscore, return as-is
+		}
+		return strings.Replace(s, "_", ".", 1)
+	}
+
+	if err := k.Load(env.Provider("", ".", envCallback), nil); err != nil {
+		return nil, fmt.Errorf("loading environment variables: %w", err)
 	}
 
 	// Unmarshal into config struct (overlay onto defaults)

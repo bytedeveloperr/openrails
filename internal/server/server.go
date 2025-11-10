@@ -76,7 +76,7 @@ func (s *Server) setupHandlers() {
 	// Admin handler (internal only, protected by API key)
 	s.adminHandler = gin.New()
 	s.adminHandler.Use(gin.Recovery())
-	s.adminHandler.Use(middleware.InternalOnly(s.cfg.Admin))
+	s.adminHandler.Use(middleware.InternalOnly(s.cfg.BillingAPIKey))
 }
 
 func (s *Server) wrap(fn func(r *handlers.Request)) func(c *gin.Context) {

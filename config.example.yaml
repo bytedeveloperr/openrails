@@ -15,10 +15,7 @@ cors_origins:
 
 # Database configuration (non-secrets only)
 # Provide DB_URL via environment (.env) instead of here
-# Service role passwords come from env: DOUJINS_DB_PASSWORD, BILLING_DB_PASSWORD
 db:
-  # Schema the app uses (compose defaults DB_SCHEMA=billing)
-  schema: "billing"
   dialect: "postgres"
 
 # Redis configuration for caching and sessions (non-secrets only)
@@ -44,11 +41,9 @@ auth:
   # Audience - the expected "aud" claim in incoming JWTs (must be "billing-app")
   audience: "billing-app"
 
-# Admin API key for private routes (header: X-API-KEY)
-# Admin/private API key
+# Billing API key for private admin routes (header: X-API-KEY)
 # Default is "change-me-in-dev"; override via env BILLING_API_KEY for non-dev.
-admin:
-  api_key: "change-me-in-dev"
+billing_api_key: "change-me-in-dev"
 
 # CCBill payment processor configuration
 ccbill:
@@ -149,15 +144,11 @@ clickhouse:
   database: "analytics"
   # Provide CLICKHOUSE_USERNAME and CLICKHOUSE_PASSWORD via env
 
-# Email service configuration
-email:
-  provider: "sendgrid"
-  from_address: "noreply@your-domain.com"
+# SendGrid email service configuration
+sendgrid:
+  from_email: "noreply@your-domain.com"
   from_name: "Doujins Billing"
-  retry_attempts: 1
-  retry_delay: 750ms
-  sendgrid:
-    # Provide SENDGRID_API_KEY via env
+  # Provide SENDGRID_API_KEY via env
 
 # Rate limiting configuration
 rate_limits:
