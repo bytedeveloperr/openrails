@@ -89,6 +89,49 @@ func (s Stringish) Float64() (float64, error) {
 	return strconv.ParseFloat(trimmed, 64)
 }
 
+// Intish models integer-like fields that may arrive as strings or numbers.
+type Intish int
+
+// UnmarshalJSON normalises string/number/null payloads into Intish.
+func (i *Intish) UnmarshalJSON(data []byte) error {
+	if i == nil {
+		return errors.New("Intish: UnmarshalJSON on nil receiver")
+	}
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*i = 0
+		return nil
+	}
+	if trimmed[0] == '"' {
+		var str string
+		if err := json.Unmarshal(data, &str); err != nil {
+			return err
+		}
+		str = strings.TrimSpace(str)
+		if str == "" {
+			*i = 0
+			return nil
+		}
+		val, err := strconv.ParseInt(str, 10, 64)
+		if err != nil {
+			return fmt.Errorf("invalid Intish value %q: %w", str, err)
+		}
+		*i = Intish(val)
+		return nil
+	}
+	val, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid Intish value %q: %w", trimmed, err)
+	}
+	*i = Intish(val)
+	return nil
+}
+
+// Int returns the native int value.
+func (i Intish) Int() int {
+	return int(i)
+}
+
 // -------------------------------- NMI Webhook Types --------------------------------
 
 type NMIWebhookEvent struct {
@@ -99,8 +142,8 @@ type NMIWebhookEvent struct {
 
 type NMIRecurringEventBody struct {
 	SubscriptionID    Stringish          `json:"subscription_id"`
-	AttemptedPayments int                `json:"attempted_payments"`
-	CompletedPayments int                `json:"completed_payments"`
+	AttemptedPayments Intish             `json:"attempted_payments"`
+	CompletedPayments Intish             `json:"completed_payments"`
 	BillingAddress    *NMIBillingAddress `json:"billing_address"`
 	Card              *NMICard           `json:"card"`
 	Features          *NMIFeatures       `json:"features"`
@@ -119,19 +162,47 @@ type NMIRecurringEventBody struct {
 }
 
 type NMITransactionEventBody struct {
-	TransactionID     Stringish             `json:"transaction_id"`
-	Amount            Stringish             `json:"amount"`
-	Currency          Stringish             `json:"currency"`
-	OrderID           Stringish             `json:"order_id"`
-	PONumber          Stringish             `json:"ponumber"`
-	ProcessorID       Stringish             `json:"processor_id"`
-	CustomerID        Stringish             `json:"customerid"`
-	CustomerVaultID   Stringish             `json:"customer_vault_id"`
-	Subscription      *NMISubscriptionRef   `json:"subscription"`
-	Action            *NMIAction            `json:"action"`
-	TransactionDetail *NMITransactionDetail `json:"transaction"`
-	BillingAddress    *NMIBillingAddress    `json:"billing_address"`
-	Card              *NMICard              `json:"card"`
+	TransactionID         Stringish             `json:"transaction_id"`
+	TransactionType       Stringish             `json:"transaction_type"`
+	Condition             Stringish             `json:"condition"`
+	Amount                Stringish             `json:"amount"`
+	RequestedAmount       Stringish             `json:"requested_amount"`
+	Currency              Stringish             `json:"currency"`
+	OrderID               Stringish             `json:"order_id"`
+	OrderDescription      Stringish             `json:"order_description"`
+	PONumber              Stringish             `json:"ponumber"`
+	ProcessorID           Stringish             `json:"processor_id"`
+	CustomerID            Stringish             `json:"customerid"`
+	CustomerTaxID         Stringish             `json:"customertaxid"`
+	CustomerVaultID       Stringish             `json:"customer_vault_id"`
+	Website               Stringish             `json:"website"`
+	Shipping              Stringish             `json:"shipping"`
+	ShippingCarrier       Stringish             `json:"shipping_carrier"`
+	TrackingNumber        Stringish             `json:"tracking_number"`
+	ShippingDate          Stringish             `json:"shipping_date"`
+	Tax                   Stringish             `json:"tax"`
+	Surcharge             Stringish             `json:"surcharge"`
+	ConvenienceFee        Stringish             `json:"convenience_fee"`
+	MiscFee               Stringish             `json:"misc_fee"`
+	MiscFeeName           Stringish             `json:"misc_fee_name"`
+	CashDiscount          Stringish             `json:"cash_discount"`
+	Tip                   Stringish             `json:"tip"`
+	PartialPaymentID      Stringish             `json:"partial_payment_id"`
+	PartialPaymentBalance Stringish             `json:"partial_payment_balance"`
+	PlatformID            Stringish             `json:"platform_id"`
+	AuthorizationCode     Stringish             `json:"authorization_code"`
+	SocialSecurityNumber  Stringish             `json:"social_security_number"`
+	DriversLicenseNumber  Stringish             `json:"drivers_license_number"`
+	DriversLicenseState   Stringish             `json:"drivers_license_state"`
+	DriversLicenseDOB     Stringish             `json:"drivers_license_dob"`
+	Merchant              *NMIMerchant          `json:"merchant"`
+	Features              *NMIFeatures          `json:"features"`
+	Subscription          *NMISubscriptionRef   `json:"subscription"`
+	Action                *NMIAction            `json:"action"`
+	TransactionDetail     *NMITransactionDetail `json:"transaction"`
+	BillingAddress        *NMIBillingAddress    `json:"billing_address"`
+	ShippingAddress       *NMIBillingAddress    `json:"shipping_address"`
+	Card                  *NMICard              `json:"card"`
 }
 
 type NMITransactionDetail struct {
@@ -159,11 +230,24 @@ type NMISubscriptionRef struct {
 }
 
 type NMIAction struct {
-	Source       string    `json:"source"`
-	Response     Stringish `json:"response"`
-	ResponseCode Stringish `json:"response_code"`
-	ResponseText string    `json:"response_text"`
-	Type         string    `json:"type"`
+	Amount                        Stringish `json:"amount"`
+	ActionType                    string    `json:"action_type"`
+	Date                          string    `json:"date"`
+	Success                       Stringish `json:"success"`
+	IPAddress                     string    `json:"ip_address"`
+	Source                        string    `json:"source"`
+	APIMethod                     string    `json:"api_method"`
+	Username                      string    `json:"username"`
+	Response                      Stringish `json:"response"`
+	ResponseCode                  Stringish `json:"response_code"`
+	ResponseText                  string    `json:"response_text"`
+	ProcessorResponseText         string    `json:"processor_response_text"`
+	ProcessorResponseCode         string    `json:"processor_response_code"`
+	NetworkTokenUsed              bool      `json:"network_token_used"`
+	NetworkTokenCryptogramCreated bool      `json:"network_token_cryptogram_created"`
+	DeviceLicenseNumber           string    `json:"device_license_number"`
+	DeviceNickname                string    `json:"device_nickname"`
+	Type                          string    `json:"type"`
 }
 
 // NMIPaymentInfo represents updated payment method information from ACU
@@ -217,9 +301,9 @@ type NMIPlan struct {
 	Name           string    `json:"name"`
 	Amount         Stringish `json:"amount"`
 	Payments       Stringish `json:"payments"`
-	DayOfMonth     *int      `json:"day_of_month"`
-	DayFrequency   *int      `json:"day_frequency"`
-	MonthFrequency *int      `json:"month_frequency"`
+	DayOfMonth     *Intish   `json:"day_of_month"`
+	DayFrequency   *Intish   `json:"day_frequency"`
+	MonthFrequency *Intish   `json:"month_frequency"`
 	ID             Stringish `json:"id"`
 }
 
