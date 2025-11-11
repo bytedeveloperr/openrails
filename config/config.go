@@ -59,6 +59,7 @@ type Config struct {
 	CorsOrigins   []string          `koanf:"cors_origins,omitempty"`
 	RateLimits    *RateLimitsConfig `koanf:"rate_limits,omitempty"`
 	BillingAPIKey string            `koanf:"billing_api_key,omitempty"`
+	Signing     *SigningConfig    `koanf:"signing,omitempty"`
 }
 
 // DBConfig holds database configuration.
@@ -233,6 +234,16 @@ type AuthConfig struct {
 	ExpectedAudience string   `koanf:"expected_audience"` // Expected audience claim (e.g., "billing-app")
 }
 
+// SigningConfig controls the optional RSA signing used for JWT responses (e.g., /v1/access).
+type SigningConfig struct {
+	Enabled       bool   `koanf:"enabled"`
+	PrivateKeyPEM string `koanf:"private_key_pem"`
+	KeyID         string `koanf:"key_id"`
+	Issuer        string `koanf:"issuer"`
+	Audience      string `koanf:"audience"`
+	TTL           string `koanf:"ttl"`
+}
+
 type SolanaConfig struct {
 	RPCEndpoint     string `koanf:"rpc_endpoint"`
 	Network         string `koanf:"network"` // mainnet, devnet, testnet
@@ -321,6 +332,12 @@ func Validate(cfg *Config) error {
 	// Always validate database configuration
 	if err := validateDatabase(cfg.DB); err != nil {
 		return fmt.Errorf("database config validation failed: %w", err)
+	}
+
+	if cfg.Signing != nil && cfg.Signing.Enabled {
+		if err := validateSigning(cfg.Signing); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -439,6 +456,21 @@ func validateDatabase(cfg *DBConfig) error {
 		return fmt.Errorf("database configuration is required (DB_URL or DB_HOST/DB_PORT/etc.)")
 	}
 
+	return nil
+}
+
+func validateSigning(cfg *SigningConfig) error {
+	if cfg.KeyID == "" {
+		return fmt.Errorf("signing key_id is required")
+	}
+	if cfg.PrivateKeyPEM == "" {
+		return fmt.Errorf("signing private_key_pem is required")
+	}
+	if cfg.TTL != "" {
+		if _, err := time.ParseDuration(cfg.TTL); err != nil {
+			return fmt.Errorf("invalid signing ttl: %w", err)
+		}
+	}
 	return nil
 }
 
