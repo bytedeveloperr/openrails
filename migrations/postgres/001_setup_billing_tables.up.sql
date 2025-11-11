@@ -344,22 +344,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_tx_signature ON billing.solana_tran
 -- SECTION 5: SUPPORTING TABLES
 -- ============================================================================
 
--- 5.1: Create notification_queue table
 CREATE TABLE IF NOT EXISTS billing.notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL, -- AuthKit user ID (UUID)
-    notification_type TEXT NOT NULL, -- entitlement_expired, subscription_failed, etc.
-    title TEXT NOT NULL,
-    message TEXT NOT NULL,
-    metadata JSONB DEFAULT '{}',
-    is_read BOOLEAN NOT NULL DEFAULT false,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    read_at TIMESTAMPTZ
+    event_type TEXT NOT NULL, -- premium_started, payment_failed, etc.
+    data JSONB NOT NULL DEFAULT '{}',
+    seen BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
 CREATE INDEX IF NOT EXISTS idx_notification_queue_user_id ON billing.notification_queue(user_id);
-CREATE INDEX IF NOT EXISTS idx_notification_queue_type ON billing.notification_queue(notification_type);
-CREATE INDEX IF NOT EXISTS idx_notification_queue_is_read ON billing.notification_queue(is_read);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_event_type ON billing.notification_queue(event_type);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_seen ON billing.notification_queue(seen);
 CREATE INDEX IF NOT EXISTS idx_notification_queue_created_at ON billing.notification_queue(created_at);
 
 
