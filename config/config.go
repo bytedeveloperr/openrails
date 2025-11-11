@@ -59,7 +59,7 @@ type Config struct {
 	CorsOrigins   []string          `koanf:"cors_origins,omitempty"`
 	RateLimits    *RateLimitsConfig `koanf:"rate_limits,omitempty"`
 	BillingAPIKey string            `koanf:"billing_api_key,omitempty"`
-	Signing     *SigningConfig    `koanf:"signing,omitempty"`
+	Signing       *SigningConfig    `koanf:"signing,omitempty"`
 }
 
 // DBConfig holds database configuration.
@@ -526,7 +526,8 @@ func GetDefaultBillingConfig() *Config {
 				Window: time.Minute,
 			},
 		},
-		Solana: &SolanaConfig{},
+		Solana:  &SolanaConfig{},
+		Signing: &SigningConfig{},
 	}
 }
 
@@ -596,6 +597,18 @@ func Load(configPath string) (*Config, error) {
 		// Special case: BILLING_API_KEY stays as billing_api_key (no nesting)
 		if s == "billing_api_key" {
 			return "billing_api_key"
+		}
+
+		signingMap := map[string]string{
+			"signing_enabled":          "signing.enabled",
+			"signing_private_key_pem": "signing.private_key_pem",
+			"signing_key_id":          "signing.key_id",
+			"signing_issuer":          "signing.issuer",
+			"signing_audience":        "signing.audience",
+			"signing_ttl":             "signing.ttl",
+		}
+		if mapped, ok := signingMap[s]; ok {
+			return mapped
 		}
 
 		// Standard transformation: Replace first underscore with dot
