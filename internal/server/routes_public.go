@@ -67,6 +67,10 @@ func (s *Server) registerPublicRoutes() {
 	solana.POST("/qr", s.wrap(handlers.GenerateSolanaPayQR))
 	solana.GET("/check", s.wrap(handlers.CheckSolanaPayment))
 
+	access := api.Group("/access")
+	access.Use(middleware.AuthRequired(s.authVerifier))
+	access.GET("", s.wrap(handlers.GetAccessStatus))
+
 	api.GET("/me/status", s.wrap(handlers.GetMyBillingStatus))
 
 	s.publicHandler.GET("/health/live", func(c *gin.Context) {

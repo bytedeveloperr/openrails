@@ -393,6 +393,37 @@ Admin routes are not rate limited by the application but should live behind netw
   }
   ```
 
+## Access Status
+
+### GET /v1/access
+- **Auth:** bearer token
+- **Description:** Lists every active premium access grant (subscription-backed or one-off entitlement). This is the canonical endpoint for determining whether the user currently has premium access—even if they paid via Solana or another non-recurring flow.
+- **Response:**
+  ```json
+  {
+    "is_premium": true,
+    "access": [
+      {
+        "kind": "subscription",
+        "entitlement": "premium",
+        "subscription_id": "c8a3c8c0-6521-4ab7-a8a6-5e7ab7d64943",
+        "processor": "nmi",
+        "processor_subscription_id": "sub_123",
+        "start_at": "2025-01-01T00:00:00Z",
+        "end_at": "2025-02-01T00:00:00Z"
+      },
+      {
+        "kind": "entitlement",
+        "entitlement": "premium",
+        "source_type": "one_off",
+        "source_id": "5a76f178-4a9e-4fa2-8554-0cc6e0c0bfe4",
+        "start_at": "2025-02-10T08:30:12Z",
+        "end_at": "2025-03-12T08:30:12Z"
+      }
+    ]
+  }
+  ```
+
 ### POST /v1/wallet/solana/challenge
 - **Auth:** bearer token
 - **Body:** `{ "wallet": "base58" }`

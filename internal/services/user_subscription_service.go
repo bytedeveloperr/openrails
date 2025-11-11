@@ -2,9 +2,11 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
@@ -35,36 +37,76 @@ type UserSubscriptionService struct {
 // UserSubscriptionResponse represents a user's subscription with enriched data
 type UserSubscriptionResponse struct {
 	*models.Subscription
-	Product *models.Product `json:"product,omitempty"`
-	Price   *models.Price   `json:"price,omitempty"`
+	Product *models.Product  `json:"product,omitempty"`
+	Price   *models.Price    `json:"price,omitempty"`
+	Access  *UserAccessGrant `json:"access,omitempty"`
+}
+
+// UserAccessGrant summarizes how the user currently has premium access (subscription vs one-off entitlement).
+type UserAccessGrant struct {
+	Kind                    string                        `json:"kind"`
+	Entitlement             string                        `json:"entitlement"`
+	SourceType              *models.EntitlementSourceType `json:"source_type,omitempty"`
+	SourceID                *uuid.UUID                    `json:"source_id,omitempty"`
+	SubscriptionID          *uuid.UUID                    `json:"subscription_id,omitempty"`
+	Processor               string                        `json:"processor,omitempty"`
+	ProcessorSubscriptionID *string                       `json:"processor_subscription_id,omitempty"`
+	StartAt                 time.Time                     `json:"start_at"`
+	EndAt                   *time.Time                    `json:"end_at,omitempty"`
 }
 
 // GetUserSubscription retrieves the current subscription for a user with enriched data
 func (s *UserSubscriptionService) GetUserSubscription(ctx context.Context, userID string) (*UserSubscriptionResponse, error) {
 	subscription, err := s.SubscriptionService.GetActiveSubscription(ctx, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get subscription: %w", err)
-	}
+	switch {
+	case err == nil:
+		resp := &UserSubscriptionResponse{Subscription: subscription, Access: accessFromSubscription(subscription)}
+		// Enrich with price and product data if available
+		if subscription.PriceID != uuid.Nil {
+			if price, err := s.PriceService.GetByID(ctx, subscription.PriceID); err == nil {
+				resp.Price = price
 
-	response := &UserSubscriptionResponse{
-		Subscription: subscription,
-	}
-
-	// Enrich with price and product data if available
-	if subscription.PriceID != uuid.Nil {
-		price, err := s.PriceService.GetByID(ctx, subscription.PriceID)
-		if err == nil {
-			response.Price = price
-
-			// Get product data
-			product, err := s.ProductService.GetByID(ctx, price.ProductID)
-			if err == nil {
-				response.Product = product
+				if product, err := s.ProductService.GetByID(ctx, price.ProductID); err == nil {
+					resp.Product = product
+				}
 			}
 		}
+		return resp, nil
+	case errors.Is(err, sql.ErrNoRows):
+		access, accessErr := s.activeEntitlementAccess(ctx, userID)
+		if accessErr != nil {
+			return nil, accessErr
+		}
+		if access != nil {
+			return &UserSubscriptionResponse{Access: access}, nil
+		}
+		return nil, sql.ErrNoRows
+	default:
+		return nil, fmt.Errorf("failed to get subscription: %w", err)
 	}
+}
 
-	return response, nil
+// GetUserAccessStatus composes all active access grants (subscriptions + entitlements) for a user.
+func (s *UserSubscriptionService) GetUserAccessStatus(ctx context.Context, userID string) ([]*UserAccessGrant, error) {
+	grants := make([]*UserAccessGrant, 0, 2)
+	skipSubscriptionIDs := make(map[uuid.UUID]struct{})
+	if s.SubscriptionService != nil {
+		if sub, err := s.SubscriptionService.GetActiveSubscription(ctx, userID); err == nil {
+			grants = append(grants, accessFromSubscription(sub))
+			skipSubscriptionIDs[sub.ID] = struct{}{}
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to fetch subscription access: %w", err)
+		}
+	}
+	ents, err := s.entitlementAccessGrants(ctx, userID, skipSubscriptionIDs)
+	if err != nil {
+		return nil, err
+	}
+	grants = append(grants, ents...)
+	if len(grants) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return grants, nil
 }
 
 // GetUserSubscriptionHistory retrieves subscription history for a user
@@ -209,6 +251,80 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 	}
 
 	return nil
+}
+
+func accessFromSubscription(sub *models.Subscription) *UserAccessGrant {
+	grant := &UserAccessGrant{
+		Kind:        "subscription",
+		Entitlement: "premium",
+		Processor:   string(sub.Processor),
+	}
+	if subID := sub.ID; subID != uuid.Nil {
+		grant.SubscriptionID = &subID
+	}
+	if sub.ProcessorSubscriptionID != "" {
+		psid := sub.ProcessorSubscriptionID
+		grant.ProcessorSubscriptionID = &psid
+	}
+	if sub.CurrentPeriodStartsAt != nil && !sub.CurrentPeriodStartsAt.IsZero() {
+		grant.StartAt = *sub.CurrentPeriodStartsAt
+	} else {
+		grant.StartAt = sub.StartedAt
+	}
+	if sub.CurrentPeriodEndsAt != nil && !sub.CurrentPeriodEndsAt.IsZero() {
+		grant.EndAt = sub.CurrentPeriodEndsAt
+	}
+	return grant
+}
+
+func (s *UserSubscriptionService) activeEntitlementAccess(ctx context.Context, userID string) (*UserAccessGrant, error) {
+	grants, err := s.entitlementAccessGrants(ctx, userID, nil)
+	if err != nil {
+		return nil, err
+	}
+	if len(grants) > 0 {
+		return grants[0], nil
+	}
+	return nil, nil
+}
+
+func (s *UserSubscriptionService) entitlementAccessGrants(ctx context.Context, userID string, skipSubs map[uuid.UUID]struct{}) ([]*UserAccessGrant, error) {
+	if s.EntitlementService == nil {
+		return nil, nil
+	}
+	ents, err := s.EntitlementService.ListActiveRecords(ctx, userID, time.Now())
+	if err != nil {
+		return nil, fmt.Errorf("failed to list entitlements: %w", err)
+	}
+	grants := make([]*UserAccessGrant, 0, len(ents))
+	for _, ent := range ents {
+		if ent.Entitlement == "" {
+			continue
+		}
+		if ent.SourceType == models.EntitlementSourceSubscription && ent.SourceID != nil {
+			if _, ok := skipSubs[*ent.SourceID]; ok {
+				continue
+			}
+		}
+		grant := &UserAccessGrant{
+			Kind:        "entitlement",
+			Entitlement: ent.Entitlement,
+			StartAt:     ent.StartAt,
+			EndAt:       ent.EndAt,
+		}
+		if ent.SourceType != "" {
+			src := ent.SourceType
+			grant.SourceType = &src
+			if ent.SourceType == models.EntitlementSourceSubscription && ent.SourceID != nil {
+				grant.SubscriptionID = ent.SourceID
+			}
+		}
+		if ent.SourceID != nil {
+			grant.SourceID = ent.SourceID
+		}
+		grants = append(grants, grant)
+	}
+	return grants, nil
 }
 
 // NewUserSubscriptionService creates a new UserSubscriptionService
