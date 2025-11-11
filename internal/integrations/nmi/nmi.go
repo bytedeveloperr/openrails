@@ -750,6 +750,9 @@ func (c *NMIClient) SearchTransactions(filter QueryFilter) (string, error) {
 	return response, nil
 }
 func (c *NMIClient) sendDirectRequest(data url.Values) (_ string, err error) {
+	fmt.Println("data", data)
+	fmt.Println("DirectPostURL", c.DirectPostURL)
+
 	resp, err := http.PostForm(c.DirectPostURL, data)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)

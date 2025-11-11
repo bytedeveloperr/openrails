@@ -52,6 +52,7 @@ type Runtime struct {
 	SolanaPaymentIntentService *services.SolanaPaymentIntentService
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
+	AccessTokenService           *services.AccessTokenService
 
 	riverStarted bool
 }
