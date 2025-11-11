@@ -169,3 +169,12 @@ rate_limits:
   default_limit:
     requests_per_minute: 60
     burst_size: 10
+
+# Optional signing (for /v1/access JWTs, etc.)
+signing:
+  enabled: false
+  key_id: "billing-access-v1"
+  issuer: "https://billing.your-domain.com"
+  audience: "billing-app"
+  ttl: "5m"
+  private_key_pem: "" # PEM string or load via env SIGNING_PRIVATE_KEY_PEM
