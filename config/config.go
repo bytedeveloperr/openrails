@@ -229,8 +229,8 @@ type RedisConfig struct {
 // AuthConfig holds JWT verification configuration for billing service.
 // Billing is a JWT verifier (not issuer) - it validates tokens issued by doujins/hentai0.
 type AuthConfig struct {
-	Issuers  []string `koanf:"issuers"`  // List of expected token issuers (e.g., ["https://doujins.com", "https://hentai0.com"])
-	Audience string   `koanf:"audience"` // Expected audience claim (e.g., "billing-app")
+	Issuers          []string `koanf:"issuers"`           // List of expected token issuers (e.g., ["https://doujins.com", "https://hentai0.com"])
+	ExpectedAudience string   `koanf:"expected_audience"` // Expected audience claim (e.g., "billing-app")
 }
 
 type SolanaConfig struct {
@@ -251,7 +251,7 @@ type TokenConfig struct {
 	Symbol      string  `json:"symbol" koanf:"symbol"`     // Token symbol (e.g., "SOL", "USDC")
 	Name        string  `json:"name" koanf:"name"`         // Token name
 	Decimals    int     `json:"decimals" koanf:"decimals"` // Token decimal places
-	Price       float64 `json:"price" koanf:"price"`       // Price in USD (for display)
+	Price       float64 `json:"price"`                     // Price in USD (fetched from Jupiter at runtime, not loaded from config)
 	Enabled     bool    `json:"enabled" koanf:"enabled"`   // Whether this token is enabled
 	MainnetMint string  `json:"mainnet_mint,omitempty" koanf:"mainnet_mint"`
 }
@@ -461,8 +461,8 @@ func GetDefaultBillingConfig() *Config {
 			DB:       0,
 		},
 		Auth: &AuthConfig{
-			Issuers:  []string{"http://doujins:2052", "http://doujins:4000"}, // Accept tokens from both doujins and hentai0
-			Audience: "doujins-app",
+			Issuers:          []string{"http://doujins:2052", "http://doujins:4000"}, // Accept tokens from both doujins and hentai0
+			ExpectedAudience: "billing-app",
 		},
 		// Match docker-compose ClickHouse (service: clickhouse)
 		ClickHouse: &ClickHouseConfig{

@@ -64,7 +64,7 @@ JWT verification (Verifier Only)
 - The middleware validates signature and claims, extracting `sub` (user ID), `email`, optional `preferred_username`/`username`/`name`, and `roles` if present.
 - Configuration requirements:
   - `BILLING_AUTH_ISSUERS`: JSON array of token issuer URLs (e.g., `["http://localhost:2052", "http://localhost:4000"]` for local dev, or `["https://doujins.com", "https://hentai0.com"]` for production)
-  - `AUTH_AUDIENCE`: The expected audience claim in JWTs (must be `billing-app`)
+  - `AUTH_EXPECTED_AUDIENCE`: The expected audience claim in JWTs (must be `billing-app`)
   - Public keys are automatically fetched from each `{issuer}/.well-known/jwks.json` per OIDC spec
 - Signature verification:
   - RS256 only (RSA signatures)
@@ -72,7 +72,7 @@ JWT verification (Verifier Only)
   - Keys are cached for 15 minutes and refreshed automatically
 - Required JWT claims:
   - `iss` must equal one of the configured issuers
-  - `aud` must contain the configured audience (`billing-app`)
+  - `aud` must contain the configured expected audience (`billing-app`)
   - `exp` must be valid (not expired, with 60-second clock skew tolerance)
   - `sub` must be present (user ID)
 

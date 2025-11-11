@@ -38,8 +38,8 @@ auth:
   #   - "https://doujins.com"
   #   - "https://hentai0.com"
 
-  # Audience - the expected "aud" claim in incoming JWTs (must be "billing-app")
-  audience: "billing-app"
+  # Expected audience - the expected "aud" claim in incoming JWTs (must be "billing-app")
+  expected_audience: "billing-app"
 
 # Billing API key for private admin routes (header: X-API-KEY)
 # Default is "change-me-in-dev"; override via env BILLING_API_KEY for non-dev.
@@ -111,29 +111,27 @@ solana:
   max_transaction_fee: 0.01 # SOL
   
   # Supported tokens
+  # Note: Token prices are fetched dynamically from Jupiter at runtime
   supported_tokens:
     SOL:
       mint: "" # Native SOL doesn't have a mint address
       symbol: "SOL"
       name: "Solana"
       decimals: 9
-      price: 0.0 # Will be fetched dynamically
       enabled: true
-    
+
     USDC:
       mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
       symbol: "USDC"
       name: "USD Coin"
       decimals: 6
-      price: 1.0
       enabled: true
-    
+
     PYUSD:
       mint: "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"
-      symbol: "PYUSD" 
+      symbol: "PYUSD"
       name: "PayPal USD"
       decimals: 6
-      price: 1.0
       enabled: true
 
 # ClickHouse analytics database

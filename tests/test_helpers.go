@@ -61,7 +61,7 @@ func createTestServer(t *testing.T) (*server.Server, *app.App) {
 	}
 	ensureTestRSAKeys()
 	cfg.Auth.Issuers[0] = testAuthIssuer
-	cfg.Auth.Audience = "billing-app"
+	cfg.Auth.ExpectedAudience = "billing-app"
 	// removed = testRSAPublicPEM
 
 	application, err := app.Bootstrap(cfg)
@@ -97,7 +97,7 @@ func createTestHS256JWT(s *server.Server) string {
 		"exp":   time.Now().Add(time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
 		"iss":   cfg.Auth.Issuers[0],
-		"aud":   cfg.Auth.Audience,
+		"aud":   cfg.Auth.ExpectedAudience,
 	})
 
 	tokenString, err := token.SignedString([]byte(cfg.Auth.Issuers[0]))
@@ -130,7 +130,7 @@ func createTestRS256JWT(s *server.Server) string {
 		"exp":   time.Now().Add(time.Hour).Unix(),
 		"iat":   time.Now().Unix(),
 		"iss":   cfg.Auth.Issuers[0],
-		"aud":   cfg.Auth.Audience,
+		"aud":   cfg.Auth.ExpectedAudience,
 	})
 
 	signed, err := token.SignedString(testRSAPrivate)

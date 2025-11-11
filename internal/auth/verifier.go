@@ -58,8 +58,8 @@ func NewVerifier(cfg *config.AuthConfig) (Verifier, error) {
 		}
 
 		issCfg := core.IssuerAccept{Issuer: issuer}
-		if cfg.Audience != "" {
-			issCfg.Audience = cfg.Audience
+		if cfg.ExpectedAudience != "" {
+			issCfg.Audience = cfg.ExpectedAudience
 		}
 
 		issuerAccepts = append(issuerAccepts, issCfg)
