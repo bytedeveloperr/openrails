@@ -28,7 +28,6 @@ func NewTestConfig() *TestConfig {
 		Port: 8080,
 		DB: &config.DBConfig{
 			URL:     "postgres://test:test@localhost:5432/test?sslmode=disable",
-			Schema:  "billing",
 			Dialect: "postgres",
 		},
 		Redis: &config.RedisConfig{
@@ -37,9 +36,8 @@ func NewTestConfig() *TestConfig {
 			DB:       0,
 		},
 		Auth: &config.AuthConfig{
-			Issuer:   "doujins-test",
-			Audience: "billing-app",
-			BaseURL:  "doujins-test",
+			Issuers:          []string{"doujins-test"},
+			ExpectedAudience: "billing-app",
 		},
 	}
 
@@ -112,7 +110,7 @@ func TestBasicConfig(t *testing.T) {
 		config := NewTestConfig()
 		require.NotNil(t, config, "Should create test config")
 		assert.Equal(t, "test", config.Env, "Should be test environment")
-		assert.NotEmpty(t, config.Auth.Issuer, "Should have auth issuer")
+		assert.NotEmpty(t, config.Auth.Issuers, "Should have auth issuers")
 	})
 
 	t.Run("Config Cloning", func(t *testing.T) {

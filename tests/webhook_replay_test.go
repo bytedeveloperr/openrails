@@ -105,9 +105,6 @@ func TestCCBillWebhookReplay(t *testing.T) {
 		name       string
 		eventType  string
 		filePrefix string
-		name       string
-		eventType  string
-		filePrefix string
 	}{
 		{"NewSaleSuccess", "NewSaleSuccess", "newsalesuccess"},
 		{"NewSaleFailure", "NewSaleFailure", "newsalefailure"},

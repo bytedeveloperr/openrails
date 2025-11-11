@@ -599,16 +599,13 @@ func Load(configPath string) (*Config, error) {
 			return "billing_api_key"
 		}
 
-		signingMap := map[string]string{
-			"signing_enabled":          "signing.enabled",
-			"signing_private_key_pem": "signing.private_key_pem",
-			"signing_key_id":          "signing.key_id",
-			"signing_issuer":          "signing.issuer",
-			"signing_audience":        "signing.audience",
-			"signing_ttl":             "signing.ttl",
-		}
-		if mapped, ok := signingMap[s]; ok {
-			return mapped
+		// Special case: NMI_PROVIDERS_<PROVIDER>_<KEY> -> nmi.providers.<provider>.<key>
+		// Example: NMI_PROVIDERS_MOBIUS_SECURITY_KEY -> nmi.providers.mobius.security_key
+		if strings.HasPrefix(s, "nmi_providers_") {
+			parts := strings.SplitN(s, "_", 4) // ["nmi", "providers", "mobius", "security_key"]
+			if len(parts) == 4 {
+				return fmt.Sprintf("nmi.providers.%s.%s", parts[2], parts[3])
+			}
 		}
 
 		// Standard transformation: Replace first underscore with dot
