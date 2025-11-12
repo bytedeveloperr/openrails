@@ -299,7 +299,6 @@ type RateLimit struct {
 func Validate(cfg *Config) error {
 	// Skip strict validation in development environments
 	isDev := cfg.Env == "development" || cfg.Env == "dev" || cfg.Env == ""
-	prodEnv := !isDev && (strings.EqualFold(cfg.Env, EnvProd) || strings.EqualFold(cfg.Env, "production"))
 
 	if !isDev {
 		if err := validateNMI(cfg.NMI); err != nil {
@@ -466,10 +465,15 @@ func GetDefaultBillingConfig() *Config {
 		Host: "0.0.0.0",
 		Port: 2053,
 		DB: &DBConfig{
-			// Defaults align with docker-compose: Postgres service is `postgres` on the compose network.
-			// All apps use the admin superuser. Developers can override via DB_URL.
-			URL:     "postgres://admin:admin_password@postgres:5432/doujins_db?sslmode=disable",
-			Dialect: "postgres",
+			// Defaults for individual parameters (kubernetes will set these via env vars)
+			// For docker-compose, use DB_URL env var: postgres://admin:admin_password@postgres:5432/doujins_db?sslmode=disable
+			Host:     "localhost",
+			Port:     "5432",
+			Username: "postgres",
+			Password: "",
+			Database: "doujins_db",
+			SSLMode:  "disable",
+			Dialect:  "postgres",
 		},
 		Redis: &RedisConfig{
 			// Match docker-compose Garnet (service: garnet)
