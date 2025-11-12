@@ -82,15 +82,6 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	serviceInstances.SubscriptionLifecycleService.SetNotificationService(notificationService)
 	serviceInstances.SolanaPaymentService.SetNotificationService(notificationService)
 
-	var accessTokenService *services.AccessTokenService
-	if cfg.Signing != nil && cfg.Signing.Enabled {
-		if svc, err := services.NewAccessTokenService(cfg.Signing); err != nil {
-			log.WithError(err).Warn("Access token signing disabled")
-		} else {
-			accessTokenService = svc
-		}
-	}
-
 	runtime := &Runtime{
 		DB:               database,
 		RedisClient:      redisClient,
@@ -121,7 +112,6 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		EmailService:                 emailService,
 		SubscriptionEmailService:     subscriptionEmailService,
 		SubscriptionLifecycleService: serviceInstances.SubscriptionLifecycleService,
-		AccessTokenService:           accessTokenService,
 	}
 
 	// River client will be initialized later in StartWorkers with proper worker registration

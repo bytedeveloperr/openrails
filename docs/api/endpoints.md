@@ -421,11 +421,6 @@ Admin routes are not rate limited by the application but should live behind netw
         "end_at": "2025-03-12T08:30:12Z"
       }
     ],
-    "token": {
-      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ICJiaWxsaW5nLWFjY2Vzcy12MSJ9...",
-      "expires_at": "2025-01-01T12:45:00Z",
-      "kid": "billing-access"
-    }
   }
   ```
 
