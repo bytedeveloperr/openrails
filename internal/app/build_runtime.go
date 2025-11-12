@@ -161,6 +161,7 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 	}
 
 	// Validate ClickHouse migrations if ClickHouse is configured
+	// ClickHouse is optional - warn if validation fails but continue running
 	if cfg.ClickHouse != nil {
 		if err := migratekit.ValidateClickHouseMigrations(
 			context.Background(),
@@ -173,8 +174,7 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 			},
 			clickhousemigrations.FS,
 		); err != nil {
-			log.WithError(err).Fatal("ClickHouse migrations validation failed")
-			return nil, err
+			log.WithError(err).Warn("ClickHouse migrations validation failed - analytics disabled")
 		}
 	}
 
