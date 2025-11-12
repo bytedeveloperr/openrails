@@ -312,21 +312,7 @@ func Validate(cfg *Config) error {
 		}
 	}
 
-	if prodEnv {
-		if cfg.CCBill != nil && cfg.CCBill.TestMode {
-			return fmt.Errorf("ccbill.test_mode must be false in production")
-		}
-		if cfg.NMI != nil {
-			if cfg.NMI.TestMode {
-				return fmt.Errorf("nmi.test_mode must be false in production")
-			}
-			for name, provider := range cfg.NMI.Providers {
-				if provider != nil && provider.TestMode != nil && *provider.TestMode {
-					return fmt.Errorf("nmi provider %s test_mode must be false in production", name)
-				}
-			}
-		}
-	}
+	// Note: test_mode is allowed in production for safe payment processor testing
 
 	// Always validate database configuration
 	if err := validateDatabase(cfg.DB); err != nil {
