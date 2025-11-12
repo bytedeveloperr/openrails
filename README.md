@@ -57,7 +57,7 @@ Networking
 Admin access
 - Shared secret: admin routes are protected by header `X-API-KEY: <token>`.
 - Default (dev): `change-me-in-dev`.
-- Override via env `BILLING_API_KEY` or config `admin.api_key`.
+- Override via env `BILLING_API_KEY` or config `billing_api_key`.
 
 JWT verification (Verifier Only)
 - Billing acts as a **JWT verifier**, not an issuer. It verifies tokens issued by doujins and/or hentai0.

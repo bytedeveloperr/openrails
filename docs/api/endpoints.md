@@ -15,7 +15,7 @@ purpose. Unless otherwise noted, responses are JSON encoded and errors follow th
 - **User endpoints** require a bearer token issued by your IdP (see `auth.*` config). Pass using
   `Authorization: Bearer <token>`.
 - **Admin endpoints** listen on the private handler and require `X-API-KEY` to match
-  `admin.api_key`. These routes do **not** establish a user context; operations act directly on the
+  `billing_api_key`. These routes do **not** establish a user context; operations act directly on the
   supplied identifiers.
 - **Webhooks** are public; callers must supply the appropriate processor secrets
   (e.g., IP allow-list for CCBill, HMAC signature for NMI).
