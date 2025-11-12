@@ -248,7 +248,7 @@ func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
 	if cfg.CCBill == nil {
 		return nil
 	}
-	if cfg.CCBill.DataLinkUsername == "" || cfg.CCBill.DataLinkPassword == "" || cfg.CCBill.DataLinkClientAccNum == "" {
+	if cfg.CCBill.DataLinkUsername == "" || cfg.CCBill.DataLinkPassword == "" || cfg.CCBill.ClientAccNum == "" {
 		log.Info("CCBill DataLink credentials missing; DataLink worker disabled")
 		return nil
 	}

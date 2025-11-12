@@ -45,7 +45,7 @@ func NewDataLinkClient(cfg *config.CCBillConfig) *DataLinkClient {
 
 	return &DataLinkClient{
 		BaseURL:      baseURL,
-		ClientAccNum: cfg.DataLinkClientAccNum,
+		ClientAccNum: cfg.ClientAccNum,
 		Username:     cfg.DataLinkUsername,
 		Password:     cfg.DataLinkPassword,
 		HTTPClient: &http.Client{

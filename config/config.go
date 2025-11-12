@@ -213,10 +213,9 @@ type CCBillConfig struct {
 	SuccessURL string `koanf:"success_url"`
 	DeclineURL string `koanf:"decline_url"`
 
-	DataLinkURL          string `koanf:"datalink_url"`
-	DataLinkUsername     string `koanf:"datalink_username"`
-	DataLinkPassword     string `koanf:"datalink_password"`
-	DataLinkClientAccNum string `koanf:"datalink_client_acc_num"`
+	DataLinkURL      string `koanf:"datalink_url"`
+	DataLinkUsername string `koanf:"datalink_username"`
+	DataLinkPassword string `koanf:"datalink_password"`
 
 	WebhookIPs []string `koanf:"webhook_ips"`
 }
@@ -438,8 +437,8 @@ func validateCCBill(cfg *CCBillConfig) error {
 			return fmt.Errorf("datalink username and password are required when datalink URL is provided")
 		}
 
-		if cfg.DataLinkClientAccNum == "" {
-			return fmt.Errorf("datalink client account number is required when datalink URL is provided")
+		if cfg.ClientAccNum == "" {
+			return fmt.Errorf("client account number is required when datalink URL is provided")
 		}
 	}
 
