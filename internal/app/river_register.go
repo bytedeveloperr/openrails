@@ -12,9 +12,6 @@ import (
 
 // buildRiverWorkers constructs the worker registry for River.
 func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error) {
-	if r.RiverClient == nil {
-		return nil, fmt.Errorf("river client is nil")
-	}
 	workers := river.NewWorkers()
 	if err := river.AddWorkerSafely(workers, &riverjobs.DunningAttemptWorker{DB: r.DB, NMIClients: r.NMIClients}); err != nil {
 		return nil, fmt.Errorf("add dunning attempt worker: %w", err)
@@ -33,10 +30,6 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 
 // buildRiverPeriodicJobs defines recurring schedules for workers using River periodic jobs.
 func (r *Runtime) buildRiverPeriodicJobs(ctx context.Context) ([]*river.PeriodicJob, error) {
-	if r.RiverClient == nil {
-		return nil, fmt.Errorf("river client is nil")
-	}
-
 	var jobs []*river.PeriodicJob
 
 	// Every minute: run DunningSweep

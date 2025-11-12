@@ -78,6 +78,12 @@ func (s *Server) registerPublicRoutes() {
 	})
 
 	s.publicHandler.GET("/health/ready", s.readyHandler)
+
+	// Kubernetes-style health check endpoints (aliases)
+	s.publicHandler.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})
+	})
+	s.publicHandler.GET("/readyz", s.readyHandler)
 }
 
 func (s *Server) readyHandler(c *gin.Context) {
