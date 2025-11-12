@@ -205,6 +205,14 @@ func createNMIClients(cfg *config.Config) (map[string]*nmi.NMIClient, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		// Log test mode status for this provider
+		if settings.TestMode {
+			log.Warnf("⚠️  NMI provider '%s' TEST MODE is ENABLED - no real charges will be processed", providerKey)
+		} else {
+			log.Warnf("🔴 NMI provider '%s' TEST MODE is DISABLED - REAL CHARGES WILL BE PROCESSED!", providerKey)
+		}
+
 		clients[providerKey] = client
 	}
 
@@ -237,6 +245,13 @@ func createRedisClient(cfg *config.Config) (*redis.Client, error) {
 }
 
 func createCCBillClient(cfg *config.Config) *ccbill.CCBillClient {
+	if cfg.CCBill != nil {
+		if cfg.CCBill.TestMode {
+			log.Warn("⚠️  CCBill TEST MODE is ENABLED - no real charges will be processed")
+		} else {
+			log.Warn("🔴 CCBill TEST MODE is DISABLED - REAL CHARGES WILL BE PROCESSED!")
+		}
+	}
 	return ccbill.NewClient(cfg.CCBill, cfg.Env == config.EnvProd)
 }
 
