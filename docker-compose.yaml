@@ -141,8 +141,8 @@ services:
       # ClickHouse connection for migrations
       CLICKHOUSE_HTTP_ADDR: "http://clickhouse:8123"
       CLICKHOUSE_CLIENT_ADDR: "clickhouse:9000"
-      CLICKHOUSE_DATABASE: "analytics"
-      CLICKHOUSE_USERNAME: "${CLICKHOUSE_USERNAME:-analytics_user}"
+      CLICKHOUSE_DB: "analytics"
+      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
     command: ["migrate", "up"]
     restart: "no"
@@ -183,8 +183,8 @@ services:
       # ClickHouse connection for analytics
       CLICKHOUSE_HTTP_ADDR: "http://clickhouse:8123"
       CLICKHOUSE_CLIENT_ADDR: "clickhouse:9000"
-      CLICKHOUSE_DATABASE: "analytics"
-      CLICKHOUSE_USERNAME: "${CLICKHOUSE_USERNAME:-analytics_user}"
+      CLICKHOUSE_DB: "analytics"
+      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
     command: ["server"]
     healthcheck:

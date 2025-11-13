@@ -140,7 +140,7 @@ clickhouse:
   http_addr: "http://clickhouse:8123"
   client_addr: "clickhouse:9000"
   database: "analytics"
-  # Provide CLICKHOUSE_USERNAME and CLICKHOUSE_PASSWORD via env
+  # Provide CLICKHOUSE_USER and CLICKHOUSE_PASSWORD via env
 
 # SendGrid email service configuration
 sendgrid:

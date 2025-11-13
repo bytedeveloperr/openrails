@@ -458,7 +458,7 @@ func GetDefaultBillingConfig() *Config {
 			HTTPAddr:   "http://clickhouse:8123",
 			ClientAddr: "clickhouse:9000",
 			Database:   "analytics",
-			Username:   "analytics_user",     // Match docker-compose CLICKHOUSE_USERNAME
+			Username:   "analytics_user",     // Match docker-compose CLICKHOUSE_USER
 			Password:   "analytics_password", // Match docker-compose CLICKHOUSE_PASSWORD
 		},
 		BillingAPIKey: "change-me-in-dev", // Override via env BILLING_API_KEY in prod
