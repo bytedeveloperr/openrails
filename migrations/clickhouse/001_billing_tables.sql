@@ -16,9 +16,11 @@ CREATE TABLE IF NOT EXISTS subscription_events ON CLUSTER doujins (
 ) ENGINE = ReplacingMergeTree()
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
+
 -- Data-skipping indexes to speed time/user filters
-CREATE INDEX IF NOT EXISTS idx_subscription_events_ts ON CLUSTER doujins ON subscription_events (timestamp) TYPE minmax GRANULARITY 1;
-CREATE INDEX IF NOT EXISTS idx_subscription_events_user ON CLUSTER doujins ON subscription_events (user_id) TYPE set(0) GRANULARITY 1;
+ALTER TABLE subscription_events ON CLUSTER doujins
+  ADD INDEX IF NOT EXISTS idx_subscription_events_ts (timestamp) TYPE minmax GRANULARITY 1,
+  ADD INDEX IF NOT EXISTS idx_subscription_events_user (user_id) TYPE set(0) GRANULARITY 1;
 
 -- payment_events
 CREATE TABLE IF NOT EXISTS payment_events ON CLUSTER doujins (
@@ -38,8 +40,10 @@ CREATE TABLE IF NOT EXISTS payment_events ON CLUSTER doujins (
 ) ENGINE = ReplacingMergeTree()
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
-CREATE INDEX IF NOT EXISTS idx_payment_events_ts ON CLUSTER doujins ON payment_events (timestamp) TYPE minmax GRANULARITY 1;
-CREATE INDEX IF NOT EXISTS idx_payment_events_user ON CLUSTER doujins ON payment_events (user_id) TYPE set(0) GRANULARITY 1;
+
+ALTER TABLE payment_events ON CLUSTER doujins
+  ADD INDEX IF NOT EXISTS idx_payment_events_ts (timestamp) TYPE minmax GRANULARITY 1,
+  ADD INDEX IF NOT EXISTS idx_payment_events_user (user_id) TYPE set(0) GRANULARITY 1;
 
 -- webhook_events (incoming webhook processing logs)
 CREATE TABLE IF NOT EXISTS webhook_events ON CLUSTER doujins (
@@ -61,7 +65,9 @@ CREATE TABLE IF NOT EXISTS webhook_events ON CLUSTER doujins (
 ) ENGINE = ReplacingMergeTree()
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
-CREATE INDEX IF NOT EXISTS idx_webhook_events_ts ON CLUSTER doujins ON webhook_events (timestamp) TYPE minmax GRANULARITY 1;
+
+ALTER TABLE webhook_events ON CLUSTER doujins
+  ADD INDEX IF NOT EXISTS idx_webhook_events_ts (timestamp) TYPE minmax GRANULARITY 1;
 
 -- acu_events (Automatic Card Updater)
 CREATE TABLE IF NOT EXISTS acu_events ON CLUSTER doujins (
@@ -81,7 +87,9 @@ CREATE TABLE IF NOT EXISTS acu_events ON CLUSTER doujins (
 ) ENGINE = ReplacingMergeTree()
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
-CREATE INDEX IF NOT EXISTS idx_acu_events_ts ON CLUSTER doujins ON acu_events (timestamp) TYPE minmax GRANULARITY 1;
+
+ALTER TABLE acu_events ON CLUSTER doujins
+  ADD INDEX IF NOT EXISTS idx_acu_events_ts (timestamp) TYPE minmax GRANULARITY 1;
 
 -- chargeback_events
 CREATE TABLE IF NOT EXISTS chargeback_events ON CLUSTER doujins (
@@ -104,4 +112,6 @@ CREATE TABLE IF NOT EXISTS chargeback_events ON CLUSTER doujins (
 ) ENGINE = ReplacingMergeTree()
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
-CREATE INDEX IF NOT EXISTS idx_chargeback_events_ts ON CLUSTER doujins ON chargeback_events (timestamp) TYPE minmax GRANULARITY 1;
+
+ALTER TABLE chargeback_events ON CLUSTER doujins
+  ADD INDEX IF NOT EXISTS idx_chargeback_events_ts (timestamp) TYPE minmax GRANULARITY 1;
