@@ -348,7 +348,7 @@ CREATE TABLE IF NOT EXISTS billing.notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     event_type TEXT NOT NULL, -- premium_started, payment_failed, etc.
-    data JSONB NOT NULL DEFAULT '{}',
+    data JSONB NOT NULL DEFAULT '{}'::jsonb,
     seen BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
