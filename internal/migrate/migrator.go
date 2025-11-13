@@ -53,12 +53,11 @@ func RunAuthKit(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-// Run applies all migrations in the correct order:
+// RunPostgres applies all Postgres migrations:
 // 0. AuthKit (profiles schema) - via migratekit
 // 1. River (billing schema) - via rivermigrate
 // 2. Billing (billing schema) - via migratekit
-// 3. ClickHouse - via migratekit
-func Run(ctx context.Context, cfg *config.Config) error {
+func RunPostgres(ctx context.Context, cfg *config.Config) error {
 	if cfg == nil || cfg.DB == nil {
 		return fmt.Errorf("missing database config")
 	}
@@ -102,15 +101,52 @@ func Run(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("billing: apply migrations: %w", err)
 	}
 	log.Info("✓ Billing migrations completed successfully")
+	return nil
+}
 
-	// ---------- 3. ClickHouse Migrations ----------
-	if cfg.ClickHouse != nil && cfg.ClickHouse.HTTPAddr != "" {
-		log.Info("Running ClickHouse migrations...")
-		if err := runClickHouseMigrations(ctx, cfg.ClickHouse); err != nil {
-			return fmt.Errorf("clickhouse migrations failed: %w", err)
-		}
-	} else {
+// RunClickHouse applies ClickHouse migrations
+func RunClickHouse(ctx context.Context, cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("missing config")
+	}
+
+	if cfg.ClickHouse == nil || cfg.ClickHouse.HTTPAddr == "" {
 		log.Info("ClickHouse URL not set; skipping ClickHouse migrations")
+		return nil
+	}
+
+	log.Info("Running ClickHouse migrations...")
+	if err := runClickHouseMigrations(ctx, cfg.ClickHouse); err != nil {
+		return fmt.Errorf("clickhouse migrations failed: %w", err)
+	}
+
+	log.Info("✓ ClickHouse migrations completed successfully")
+	return nil
+}
+
+// Run applies all migrations (Postgres and ClickHouse independently):
+// Postgres: AuthKit → River → Billing
+// ClickHouse: Billing analytics
+func Run(ctx context.Context, cfg *config.Config) error {
+	if cfg == nil || cfg.DB == nil {
+		return fmt.Errorf("missing database config")
+	}
+
+	// Run Postgres migrations
+	pgErr := RunPostgres(ctx, cfg)
+
+	// Run ClickHouse migrations independently (don't stop on Postgres failure)
+	chErr := RunClickHouse(ctx, cfg)
+
+	// Report results
+	if pgErr != nil && chErr != nil {
+		return fmt.Errorf("both migrations failed: postgres=%v; clickhouse=%v", pgErr, chErr)
+	}
+	if pgErr != nil {
+		return pgErr
+	}
+	if chErr != nil {
+		return chErr
 	}
 
 	log.Info("✓ All migrations completed successfully")
