@@ -72,15 +72,38 @@ services:
     networks:
       - local-doujins
 
+  # ClickHouse Keeper for coordination (enables ON CLUSTER DDL)
+  clickhouse-keeper:
+    image: clickhouse/clickhouse-keeper:25.8-alpine
+    restart: unless-stopped
+    volumes:
+      - ./config/clickhouse-keeper.xml:/etc/clickhouse-keeper/keeper_config.xml:ro
+      - clickhouse_keeper_data:/var/lib/clickhouse
+    ports:
+      - "9181:9181" # Keeper port
+    networks:
+      - local-doujins
+    healthcheck:
+      test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "9181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   # ClickHouse for analytics
   clickhouse:
     image: clickhouse/clickhouse-server:25.8-alpine
     restart: unless-stopped
+    depends_on:
+      clickhouse-keeper:
+        condition: service_healthy
     ports:
       - "8124:8123"  # HTTP interface
       - "9003:9000"  # Native client (avoid conflicts)
     volumes:
-      - ./clickhouse/config.yaml:/etc/clickhouse-server/config.yaml:ro
+      # Mount configs as config.d fragments so they merge with default config.xml
+      - ./config/clickhouse.yaml:/etc/clickhouse-server/config.d/local.yaml:ro
+      - ./config/clickhouse-cluster.xml:/etc/clickhouse-server/config.d/cluster.xml:ro
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
     environment:
@@ -90,7 +113,7 @@ services:
       test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 10s
       timeout: 10s
-      retries: 20
+      retries: 5
       start_period: 120s
     networks:
       - local-doujins
@@ -145,6 +168,9 @@ services:
 
         -- Grant full database access WITH GRANT OPTION so user can run migrations
         GRANT ON CLUSTER doujins ALL ON analytics.* TO analytics_user WITH GRANT OPTION;
+
+        -- Grant CLUSTER privilege required for ON CLUSTER DDL statements
+        GRANT ON CLUSTER doujins CLUSTER ON *.* TO analytics_user;
 
         -- Grant system table permissions for monitoring and debugging
         GRANT ON CLUSTER doujins SELECT ON system.tables TO analytics_user;
@@ -246,6 +272,7 @@ volumes:
     name: go_mod_cache_persistent
   clickhouse_data:
   clickhouse_logs:
+  clickhouse_keeper_data:
   billing_spool:
 
 networks:
