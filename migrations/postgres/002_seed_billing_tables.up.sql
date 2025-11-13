@@ -28,10 +28,9 @@ WHERE started_at IS NULL;
 -- Basic tier: Essential access to the standard catalog and community features
 -- Premium tier: Everything in Basic plus premium catalog access and enhanced perks
 INSERT INTO billing.products (slug, display_name, description, entitlements_spec) VALUES
-('basic_membership', 'Basic Membership', 'Essential access to the standard catalog and community features.', '{"basic": null}'::jsonb),
-('premium_membership', 'Premium Membership', 'Everything in Basic plus premium catalog access and enhanced perks.', '{"basic": null, "premium": null}'::jsonb)
-
-ON CONFLICT (slug) DO UPDATE SET 
+('basic_membership', 'Basic Membership', 'Essential access to the standard catalog and community features.', jsonb_build_object('basic', null)),
+('premium_membership', 'Premium Membership', 'Everything in Basic plus premium catalog access and enhanced perks.', jsonb_build_object('basic', null, 'premium', null))
+ON CONFLICT (slug) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     description = EXCLUDED.description,
     entitlements_spec = EXCLUDED.entitlements_spec,

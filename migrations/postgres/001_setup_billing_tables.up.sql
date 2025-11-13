@@ -155,15 +155,8 @@ CREATE INDEX IF NOT EXISTS idx_entitlements_active_window ON billing.entitlement
 CREATE INDEX IF NOT EXISTS idx_entitlements_source ON billing.entitlements(source_type, source_id) WHERE source_id IS NOT NULL;
 
 -- At most one active entitlement per user+entitlement
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND indexname = 'uniq_entitlements_active'
-    ) THEN
-        CREATE UNIQUE INDEX uniq_entitlements_active ON billing.entitlements(user_id, entitlement)
-        WHERE revoked_at IS NULL AND end_at IS NULL;
-    END IF;
-END$$;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_entitlements_active ON billing.entitlements(user_id, entitlement)
+WHERE revoked_at IS NULL AND end_at IS NULL;
 
 -- Prevent overlapping entitlement windows per (user_id, entitlement) for non-deleted rows.
 -- Simplified approach using a partial unique index instead of complex exclusion constraint
@@ -348,7 +341,7 @@ CREATE TABLE IF NOT EXISTS billing.notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     event_type TEXT NOT NULL, -- premium_started, payment_failed, etc.
-    data JSONB NOT NULL DEFAULT '{}'::jsonb,
+    data JSONB NOT NULL,
     seen BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
