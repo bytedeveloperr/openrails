@@ -84,12 +84,10 @@ services:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
     environment:
-      CLICKHOUSE_DB: analytics
-      CLICKHOUSE_USER: analytics_user
-      CLICKHOUSE_PASSWORD: analytics_password
+      # No user/db creation via entrypoint - bootstrap script handles everything
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
     healthcheck:
-      test: ["CMD", "clickhouse-client", "--user=analytics_user", "--password=analytics_password", "--query", "SELECT 1"]
+      test: ["CMD", "clickhouse-client", "--query", "SELECT 1"]
       interval: 10s
       timeout: 10s
       retries: 20
