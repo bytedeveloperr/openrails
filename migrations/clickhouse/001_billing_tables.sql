@@ -2,7 +2,7 @@
 -- Matches fields used in internal/services/billing_event_service.go
 
 -- subscription_events
-CREATE TABLE IF NOT EXISTS subscription_events ON CLUSTER doujins (
+CREATE TABLE IF NOT EXISTS subscription_events {{ON_CLUSTER}} (
     event_id UUID,
     subscription_id UUID,
     user_id String,
@@ -18,12 +18,12 @@ ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
 
 -- Data-skipping indexes to speed time/user filters
-ALTER TABLE subscription_events ON CLUSTER doujins
+ALTER TABLE subscription_events {{ON_CLUSTER}}
   ADD INDEX IF NOT EXISTS idx_subscription_events_ts (timestamp) TYPE minmax GRANULARITY 1,
   ADD INDEX IF NOT EXISTS idx_subscription_events_user (user_id) TYPE set(0) GRANULARITY 1;
 
 -- payment_events
-CREATE TABLE IF NOT EXISTS payment_events ON CLUSTER doujins (
+CREATE TABLE IF NOT EXISTS payment_events {{ON_CLUSTER}} (
     event_id UUID,
     subscription_id Nullable(UUID),
     user_id String,
@@ -41,12 +41,12 @@ CREATE TABLE IF NOT EXISTS payment_events ON CLUSTER doujins (
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
 
-ALTER TABLE payment_events ON CLUSTER doujins
+ALTER TABLE payment_events {{ON_CLUSTER}}
   ADD INDEX IF NOT EXISTS idx_payment_events_ts (timestamp) TYPE minmax GRANULARITY 1,
   ADD INDEX IF NOT EXISTS idx_payment_events_user (user_id) TYPE set(0) GRANULARITY 1;
 
 -- webhook_events (incoming webhook processing logs)
-CREATE TABLE IF NOT EXISTS webhook_events ON CLUSTER doujins (
+CREATE TABLE IF NOT EXISTS webhook_events {{ON_CLUSTER}} (
     event_id UUID,
     webhook_source LowCardinality(String),
     event_type String,
@@ -66,11 +66,11 @@ CREATE TABLE IF NOT EXISTS webhook_events ON CLUSTER doujins (
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
 
-ALTER TABLE webhook_events ON CLUSTER doujins
+ALTER TABLE webhook_events {{ON_CLUSTER}}
   ADD INDEX IF NOT EXISTS idx_webhook_events_ts (timestamp) TYPE minmax GRANULARITY 1;
 
 -- acu_events (Automatic Card Updater)
-CREATE TABLE IF NOT EXISTS acu_events ON CLUSTER doujins (
+CREATE TABLE IF NOT EXISTS acu_events {{ON_CLUSTER}} (
     event_id UUID,
     subscription_id Nullable(UUID),
     user_id Nullable(String),
@@ -88,11 +88,11 @@ CREATE TABLE IF NOT EXISTS acu_events ON CLUSTER doujins (
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
 
-ALTER TABLE acu_events ON CLUSTER doujins
+ALTER TABLE acu_events {{ON_CLUSTER}}
   ADD INDEX IF NOT EXISTS idx_acu_events_ts (timestamp) TYPE minmax GRANULARITY 1;
 
 -- chargeback_events
-CREATE TABLE IF NOT EXISTS chargeback_events ON CLUSTER doujins (
+CREATE TABLE IF NOT EXISTS chargeback_events {{ON_CLUSTER}} (
     event_id UUID,
     chargeback_id String,
     batch_id String,
@@ -113,5 +113,5 @@ CREATE TABLE IF NOT EXISTS chargeback_events ON CLUSTER doujins (
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
 
-ALTER TABLE chargeback_events ON CLUSTER doujins
+ALTER TABLE chargeback_events {{ON_CLUSTER}}
   ADD INDEX IF NOT EXISTS idx_chargeback_events_ts (timestamp) TYPE minmax GRANULARITY 1;
