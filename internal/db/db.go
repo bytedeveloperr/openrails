@@ -25,25 +25,13 @@ func NewDB(cfg *config.DBConfig) (_ *DB, err error) {
 		return nil, fmt.Errorf("missing database configuration (DB_URL or DB_HOST/DB_PORT/etc.)")
 	}
 
-	var db *bun.DB
+	// Database is always PostgreSQL
+	sqldb := sql.OpenDB(pgdriver.NewConnector(
+		pgdriver.WithDSN(url),
+	))
 
-	dialect := cfg.Dialect
-
-	switch dialect {
-	case "postgres":
-		sqldb := sql.OpenDB(pgdriver.NewConnector(
-			pgdriver.WithDSN(url),
-		))
-
-		db = bun.NewDB(sqldb, pgdialect.New())
-		models.RegisterModels(db)
-	default:
-		err = fmt.Errorf("unsupported database dialect: %s", dialect)
-	}
-
-	if err != nil {
-		return nil, err
-	}
+	db := bun.NewDB(sqldb, pgdialect.New())
+	models.RegisterModels(db)
 
 	if err := db.PingContext(context.Background()); err != nil {
 		if underlyingDB := db.DB; underlyingDB != nil {

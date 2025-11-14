@@ -65,6 +65,7 @@ type Config struct {
 // Supports both legacy connection string (URL) and atomic parameters.
 // If URL is provided, it takes precedence. Otherwise, connection string
 // is built from individual parameters (Host, Port, Username, etc.).
+// Database is always PostgreSQL.
 type DBConfig struct {
 	// Legacy: Full connection string (optional)
 	URL string `koanf:"url"`
@@ -76,45 +77,50 @@ type DBConfig struct {
 	Username string `koanf:"username"`
 	Password string `koanf:"password"`
 	SSLMode  string `koanf:"sslmode"`
-
-	Dialect string `koanf:"dialect"`
 }
 
 // GetConnectionString returns the database connection string.
-// If URL is set, returns it directly. Otherwise, builds the connection
-// string from atomic parameters.
+// Priority order:
+// 1. If URL is set, use it directly
+// 2. If all atomic parameters are present, build connection string from them
+// 3. Return empty string (caller should use defaults or error based on environment)
 func (c *DBConfig) GetConnectionString() string {
-	// If legacy URL is provided, use it
+	// 1. If legacy URL is provided, use it
 	if c.URL != "" {
 		return c.URL
 	}
 
-	// Build connection string from atomic parameters
-	// Format: postgresql://username:password@host:port/database?sslmode=...
-	connStr := fmt.Sprintf(
-		"postgresql://%s:%s@%s:%s/%s",
-		c.Username,
-		c.Password,
-		c.Host,
-		c.Port,
-		c.Database,
-	)
+	// 2. Build connection string from atomic parameters if all required fields are present
+	if c.Host != "" && c.Port != "" && c.Database != "" && c.Username != "" {
+		// Format: postgresql://username:password@host:port/database?sslmode=...
+		connStr := fmt.Sprintf(
+			"postgresql://%s:%s@%s:%s/%s",
+			c.Username,
+			c.Password,
+			c.Host,
+			c.Port,
+			c.Database,
+		)
 
-	// Add query parameters
-	params := []string{}
+		// Add query parameters
+		params := []string{}
 
-	// Default to sslmode=disable if not specified
-	sslMode := c.SSLMode
-	if sslMode == "" {
-		sslMode = "disable"
+		// Default to sslmode=disable if not specified
+		sslMode := c.SSLMode
+		if sslMode == "" {
+			sslMode = "disable"
+		}
+		params = append(params, fmt.Sprintf("sslmode=%s", sslMode))
+
+		if len(params) > 0 {
+			connStr += "?" + strings.Join(params, "&")
+		}
+
+		return connStr
 	}
-	params = append(params, fmt.Sprintf("sslmode=%s", sslMode))
 
-	if len(params) > 0 {
-		connStr += "?" + strings.Join(params, "&")
-	}
-
-	return connStr
+	// 3. No URL and incomplete atomic parameters - return empty (caller handles defaults)
+	return ""
 }
 
 type NMIConfig struct {
@@ -418,14 +424,65 @@ func validateCCBill(cfg *CCBillConfig) error {
 	return nil
 }
 
+// assembleDBURL builds the database URL from atomic parameters if not explicitly set
+func assembleDBURL(cfg *Config) {
+	if cfg.DB == nil {
+		return
+	}
+
+	// If URL is already explicitly set, nothing to do
+	if cfg.DB.URL != "" {
+		log.Debug("Using explicitly configured DB_URL")
+		return
+	}
+
+	// Assemble URL from atomic parameters
+	// All parameters have defaults from GetDefaultBillingConfig(), so they should all be present
+	connStr := fmt.Sprintf(
+		"postgresql://%s:%s@%s:%s/%s?sslmode=%s",
+		cfg.DB.Username,
+		cfg.DB.Password,
+		cfg.DB.Host,
+		cfg.DB.Port,
+		cfg.DB.Database,
+		cfg.DB.SSLMode,
+	)
+
+	cfg.DB.URL = connStr
+
+	// Log warnings for critical default values being used
+	warnings := []string{}
+	if cfg.DB.Host == "localhost" {
+		warnings = append(warnings, "DB host")
+	}
+	if cfg.DB.Username == "admin" {
+		warnings = append(warnings, "DB username")
+	}
+	if cfg.DB.Password == "admin_password" {
+		warnings = append(warnings, "DB password")
+	}
+	if cfg.DB.Database == "doujins_db" {
+		warnings = append(warnings, "DB database name")
+	}
+
+	if len(warnings) > 0 {
+		log.Warnf("Using default values for: %s. Assembled DB URL: %s",
+			strings.Join(warnings, ", "), connStr)
+	} else {
+		log.Debugf("Assembled DB URL from configured parameters: %s", connStr)
+	}
+}
+
 // validateDatabase validates database configuration
 func validateDatabase(cfg *DBConfig) error {
 	if cfg == nil {
 		return fmt.Errorf("database configuration is required")
 	}
 
-	if cfg.GetConnectionString() == "" {
-		return fmt.Errorf("database configuration is required (DB_URL or DB_HOST/DB_PORT/etc.)")
+	// Database is always PostgreSQL
+	// After assembleDBURL, cfg.URL should always be set
+	if cfg.URL == "" {
+		return fmt.Errorf("database URL could not be determined")
 	}
 
 	return nil
@@ -438,15 +495,12 @@ func GetDefaultBillingConfig() *Config {
 		Host: "0.0.0.0",
 		Port: 2053,
 		DB: &DBConfig{
-			// Defaults for individual parameters (kubernetes will set these via env vars)
-			// For docker-compose, use DB_URL env var: postgres://admin:admin_password@postgres:5432/doujins_db?sslmode=disable
 			Host:     "localhost",
 			Port:     "5432",
-			Username: "postgres",
-			Password: "",
 			Database: "doujins_db",
+			Username: "admin",
+			Password: "admin_password",
 			SSLMode:  "disable",
-			Dialect:  "postgres",
 		},
 		Redis: &RedisConfig{
 			// Match docker-compose Garnet (service: garnet)
@@ -458,13 +512,13 @@ func GetDefaultBillingConfig() *Config {
 			Issuers:          []string{"http://doujins:2052", "http://doujins:4000"}, // Accept tokens from both doujins and hentai0
 			ExpectedAudience: "billing-app",
 		},
-		// Match docker-compose ClickHouse (service: clickhouse)
 		ClickHouse: &ClickHouseConfig{
-			HTTPAddr:   "http://clickhouse:8123",
-			ClientAddr: "clickhouse:9000",
+			HTTPAddr:   "http://localhost:8123",
+			ClientAddr: "localhost:9000",
 			Database:   "analytics",
 			Username:   "analytics_user",     // Match docker-compose CLICKHOUSE_USER
 			Password:   "analytics_password", // Match docker-compose CLICKHOUSE_PASSWORD
+			Cluster:    "doujins",            // Match docker-compose cluster name
 		},
 		BillingAPIKey: "change-me-in-dev", // Override via env BILLING_API_KEY in prod
 		Logger: &LoggerConfig{
@@ -622,6 +676,9 @@ func Load(configPath string) (*Config, error) {
 		}
 		cfg.NMI.Providers = normalized
 	}
+
+	// Assemble DB URL from pieces if not explicitly set
+	assembleDBURL(cfg)
 
 	// Validate the loaded configuration
 	if err := Validate(cfg); err != nil {
