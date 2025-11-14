@@ -275,6 +275,7 @@ type ClickHouseConfig struct {
 	Database   string `koanf:"database"`    // ClickHouse database name (e.g., analytics)
 	Username   string `koanf:"username"`    // Optional username for authentication
 	Password   string `koanf:"password"`    // Optional password for authentication
+	Cluster    string `koanf:"cluster"`     // ClickHouse cluster name (e.g., doujins)
 }
 
 // LoggerConfig holds logging configuration

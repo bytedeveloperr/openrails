@@ -192,6 +192,11 @@ func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) 
 		chDB = "analytics"
 	}
 
+	chCluster := cfg.Cluster
+	if chCluster == "" {
+		chCluster = "doujins"
+	}
+
 	chMigrations, err := migratekit.LoadFromFS(clickhousemigrations.FS)
 	if err != nil {
 		return fmt.Errorf("clickhouse: load migrations: %w", err)
@@ -203,7 +208,7 @@ func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) 
 		Username:  cfg.Username,
 		Password:  cfg.Password,
 		App:       "billing",
-		Cluster:   "doujins",
+		Cluster:   chCluster,
 	})
 	// ApplyMigrations now calls Setup() automatically within the lock
 	if err := m.ApplyMigrations(ctx, chMigrations); err != nil {
