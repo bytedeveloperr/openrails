@@ -157,30 +157,30 @@ services:
         sleep 5
 
         # Run bootstrap SQL as default admin user (has all privileges)
-        cat <<'SQL_EOF' | sed 's/{CLICKHOUSE_PASSWORD}/analytics_password/g' | clickhouse-client --host clickhouse --multiquery
+        cat <<'SQL_EOF' | sed 's/{CLICKHOUSE_USER}/analytics_user/g' | sed 's/{CLICKHOUSE_PASSWORD}/analytics_password/g' | clickhouse-client --host clickhouse --multiquery
         -- Create database across cluster
         CREATE DATABASE IF NOT EXISTS analytics ON CLUSTER doujins;
 
-        -- Create analytics user with password
-        CREATE USER IF NOT EXISTS analytics_user ON CLUSTER doujins
+        -- Create ClickHouse user with password
+        CREATE USER IF NOT EXISTS {CLICKHOUSE_USER} ON CLUSTER doujins
           IDENTIFIED WITH plaintext_password BY '{CLICKHOUSE_PASSWORD}'
           HOST ANY;
 
         -- Grant full database access WITH GRANT OPTION so user can run migrations
-        GRANT ON CLUSTER doujins ALL ON analytics.* TO analytics_user WITH GRANT OPTION;
+        GRANT ON CLUSTER doujins ALL ON analytics.* TO {CLICKHOUSE_USER} WITH GRANT OPTION;
 
         -- Grant CLUSTER privilege required for ON CLUSTER DDL statements
-        GRANT ON CLUSTER doujins CLUSTER ON *.* TO analytics_user;
+        GRANT ON CLUSTER doujins CLUSTER ON *.* TO {CLICKHOUSE_USER};
 
         -- Grant system table permissions for monitoring and debugging
-        GRANT ON CLUSTER doujins SELECT ON system.tables TO analytics_user;
-        GRANT ON CLUSTER doujins SELECT ON system.columns TO analytics_user;
-        GRANT ON CLUSTER doujins SELECT ON system.databases TO analytics_user;
-        GRANT ON CLUSTER doujins SELECT ON system.parts TO analytics_user;
-        GRANT ON CLUSTER doujins SELECT ON system.parts_columns TO analytics_user;
-        GRANT ON CLUSTER doujins SELECT ON system.mutations TO analytics_user;
-        GRANT ON CLUSTER doujins SELECT ON system.merges TO analytics_user;
-        GRANT ON CLUSTER doujins SELECT ON system.processes TO analytics_user;
+        GRANT ON CLUSTER doujins SELECT ON system.tables TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER doujins SELECT ON system.columns TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER doujins SELECT ON system.databases TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER doujins SELECT ON system.parts TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER doujins SELECT ON system.parts_columns TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER doujins SELECT ON system.mutations TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER doujins SELECT ON system.merges TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER doujins SELECT ON system.processes TO {CLICKHOUSE_USER};
         SQL_EOF
 
         echo "✓ ClickHouse bootstrap completed successfully"
