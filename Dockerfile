@@ -32,14 +32,14 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       echo "GitHub token secret (gh_token) is required for private module downloads" >&2; \
       exit 1; \
     fi; \
-    git config --global url."https://${GH_TOKEN}:x-oauth-basic@github.com/doujins-org/".insteadOf "https://github.com/doujins-org/"; \
-    git config --global url."https://${GH_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"; \
+    git config --global url."https://${GH_TOKEN}@github.com/doujins-org/".insteadOf "https://github.com/doujins-org/"; \
+    git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; \
     for i in 1 2 3; do \
       go mod download && break || (echo "go mod download failed, retrying" && sleep 5); \
     done; \
     if [ -n "${GH_TOKEN}" ]; then \
-      git config --global --unset-all url."https://${GH_TOKEN}:x-oauth-basic@github.com/doujins-org/".insteadOf || true; \
-      git config --global --unset-all url."https://${GH_TOKEN}:x-oauth-basic@github.com/".insteadOf || true; \
+      git config --global --unset-all url."https://${GH_TOKEN}@github.com/doujins-org/".insteadOf || true; \
+      git config --global --unset-all url."https://${GH_TOKEN}@github.com/".insteadOf || true; \
     fi; \
     unset GH_TOKEN
 
