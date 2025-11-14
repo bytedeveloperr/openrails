@@ -10,7 +10,7 @@ CREATE DATABASE IF NOT EXISTS analytics ON CLUSTER doujins;
 -- Production uses Vault template: {{- with secret "kv-prod/data/infra/clickhouse" -}}{{ .Data.data.password }}{{- end -}}
 -- Local dev uses: analytics_password
 CREATE USER IF NOT EXISTS analytics_user ON CLUSTER doujins
-  IDENTIFIED WITH plaintext_password BY '{CLICKHOUSE_PASSWORD}'
+  IDENTIFIED WITH plaintext_password BY '{{CLICKHOUSE_PASSWORD}}'
   HOST ANY;
 
 -- Grant full database access WITH GRANT OPTION so user can run migrations
