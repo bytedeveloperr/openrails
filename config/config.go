@@ -102,9 +102,13 @@ func (c *DBConfig) GetConnectionString() string {
 
 	// Add query parameters
 	params := []string{}
-	if c.SSLMode != "" {
-		params = append(params, fmt.Sprintf("sslmode=%s", c.SSLMode))
+
+	// Default to sslmode=disable if not specified
+	sslMode := c.SSLMode
+	if sslMode == "" {
+		sslMode = "disable"
 	}
+	params = append(params, fmt.Sprintf("sslmode=%s", sslMode))
 
 	if len(params) > 0 {
 		connStr += "?" + strings.Join(params, "&")
