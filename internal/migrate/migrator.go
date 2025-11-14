@@ -203,6 +203,7 @@ func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) 
 		Username:  cfg.Username,
 		Password:  cfg.Password,
 		App:       "billing",
+		Cluster:   "doujins",
 	})
 	// ApplyMigrations now calls Setup() automatically within the lock
 	if err := m.ApplyMigrations(ctx, chMigrations); err != nil {
