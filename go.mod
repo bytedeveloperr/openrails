@@ -6,7 +6,7 @@ require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.1
 	github.com/doujins-org/authkit v0.6.2
 	github.com/doujins-org/doujins-email v0.1.0
-	github.com/doujins-org/migratekit v0.5.0
+	github.com/doujins-org/migratekit v0.6.0
 	github.com/doujins-org/solana-go v1.13.0
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.10.1
