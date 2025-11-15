@@ -203,12 +203,13 @@ func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) 
 	}
 
 	m := migratekit.NewClickHouse(&migratekit.ClickHouseConfig{
-		ServerURL: cfg.HTTPAddr,
-		Database:  chDB,
-		Username:  cfg.Username,
-		Password:  cfg.Password,
-		App:       "billing",
-		Cluster:   chCluster,
+		HTTPAddr:   cfg.HTTPAddr,
+		NativeAddr: cfg.ClientAddr,
+		Database:   chDB,
+		Username:   cfg.Username,
+		Password:   cfg.Password,
+		App:        "billing",
+		Cluster:    chCluster,
 	})
 	// ApplyMigrations now calls Setup() automatically within the lock
 	if err := m.ApplyMigrations(ctx, chMigrations); err != nil {

@@ -177,10 +177,10 @@ func (suite *TestContainerSuite) initializeDatabaseConnections() {
 			DB:       0,
 		},
 		ClickHouse: &config.ClickHouseConfig{
-			ServerURL: fmt.Sprintf("http://%s:%s", clickhouseHost, clickhousePort.Port()),
-			Database:  "test_analytics",
-			Username:  "test_user",
-			Password:  "test_password",
+			HTTPAddr: fmt.Sprintf("http://%s:%s", clickhouseHost, clickhousePort.Port()),
+			Database: "test_analytics",
+			Username: "test_user",
+			Password: "test_password",
 		},
 		JWT: &config.AuthConfig{
 			Secret:   "test-secret-key-for-testing-only",
