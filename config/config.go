@@ -276,6 +276,7 @@ type SendGridConfig struct {
 }
 
 type ClickHouseConfig struct {
+	HTTPAddr        string `koanf:"http_addr"`        // HTTP address for queries, e.g., http://clickhouse:8123
 	ClientAddr      string `koanf:"client_addr"`      // Native client address, e.g., clickhouse:9000
 	Database        string `koanf:"database"`         // ClickHouse database name (e.g., analytics)
 	Username        string `koanf:"username"`         // Optional username for authentication
@@ -512,6 +513,7 @@ func GetDefaultBillingConfig() *Config {
 			ExpectedAudience: "billing-app",
 		},
 		ClickHouse: &ClickHouseConfig{
+			HTTPAddr:   "http://localhost:8123",
 			ClientAddr: "localhost:9000",
 			Database:   "analytics",
 			Username:   "analytics_user",     // Match docker-compose CLICKHOUSE_USER
