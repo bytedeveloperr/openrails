@@ -153,11 +153,17 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 	// Validate ClickHouse migrations if ClickHouse is configured
 	// ClickHouse is optional - warn if validation fails but continue running
 	if cfg.ClickHouse != nil {
+		// Use MigrationsAddr if set, otherwise fall back to ClientAddr
+		migrationsAddr := cfg.ClickHouse.MigrationsAddr
+		if migrationsAddr == "" {
+			migrationsAddr = cfg.ClickHouse.ClientAddr
+		}
+
 		if err := migratekit.ValidateClickHouseMigrations(
 			context.Background(),
 			&migratekit.ClickHouseConfig{
 				HTTPAddr:   cfg.ClickHouse.HTTPAddr,
-				NativeAddr: cfg.ClickHouse.ClientAddr,
+				NativeAddr: migrationsAddr,
 				Database:   cfg.ClickHouse.Database,
 				Username:   cfg.ClickHouse.Username,
 				Password:   cfg.ClickHouse.Password,

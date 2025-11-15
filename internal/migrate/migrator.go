@@ -197,6 +197,13 @@ func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) 
 		chCluster = "doujins"
 	}
 
+	// Use MigrationsAddr if set, otherwise fall back to ClientAddr
+	// MigrationsAddr points to a specific pod to ensure deterministic migrations
+	migrationsAddr := cfg.MigrationsAddr
+	if migrationsAddr == "" {
+		migrationsAddr = cfg.ClientAddr
+	}
+
 	chMigrations, err := migratekit.LoadFromFS(clickhousemigrations.FS)
 	if err != nil {
 		return fmt.Errorf("clickhouse: load migrations: %w", err)
@@ -204,7 +211,7 @@ func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) 
 
 	m := migratekit.NewClickHouse(&migratekit.ClickHouseConfig{
 		HTTPAddr:   cfg.HTTPAddr,
-		NativeAddr: cfg.ClientAddr,
+		NativeAddr: migrationsAddr,
 		Database:   chDB,
 		Username:   cfg.Username,
 		Password:   cfg.Password,
