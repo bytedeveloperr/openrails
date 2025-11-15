@@ -67,8 +67,12 @@ func New(deps Dependencies) (*Server, error) {
 }
 
 func (s *Server) setupHandlers() {
-	// Public handler
-	s.publicHandler = gin.Default()
+	// Public handler with custom logging that excludes health checks
+	s.publicHandler = gin.New()
+	s.publicHandler.Use(gin.Recovery())
+	s.publicHandler.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipPaths: []string{"/health/live", "/health/ready", "/healthz", "/readyz"},
+	}))
 	s.publicHandler.
 		Use(middleware.CORS(s.cfg.CorsOrigins)).
 		Use(middleware.RateLimit(s.cfg.RateLimits, s.rdb))
