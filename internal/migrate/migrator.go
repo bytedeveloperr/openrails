@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	authkitmigrations "github.com/doujins-org/authkit/migrations/postgres"
+	authkitmigrations "github.com/PaulFidika/authkit/migrations/postgres"
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	clickhousemigrations "github.com/doujins-org/doujins-billing/migrations/clickhouse"
@@ -110,8 +110,8 @@ func RunClickHouse(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("missing config")
 	}
 
-	if cfg.ClickHouse == nil || cfg.ClickHouse.HTTPAddr == "" {
-		log.Info("ClickHouse URL not set; skipping ClickHouse migrations")
+	if cfg.ClickHouse == nil || cfg.ClickHouse.ClientAddr == "" {
+		log.Info("ClickHouse not configured; skipping ClickHouse migrations")
 		return nil
 	}
 
@@ -197,26 +197,18 @@ func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) 
 		chCluster = "doujins"
 	}
 
-	// Use MigrationsAddr if set, otherwise fall back to ClientAddr
-	// MigrationsAddr points to a specific pod to ensure deterministic migrations
-	migrationsAddr := cfg.MigrationsAddr
-	if migrationsAddr == "" {
-		migrationsAddr = cfg.ClientAddr
-	}
-
 	chMigrations, err := migratekit.LoadFromFS(clickhousemigrations.FS)
 	if err != nil {
 		return fmt.Errorf("clickhouse: load migrations: %w", err)
 	}
 
 	m := migratekit.NewClickHouse(&migratekit.ClickHouseConfig{
-		HTTPAddr:   cfg.HTTPAddr,
-		NativeAddr: migrationsAddr,
-		Database:   chDB,
-		Username:   cfg.Username,
-		Password:   cfg.Password,
-		App:        "billing",
-		Cluster:    chCluster,
+		Addr:     cfg.ClientAddr,
+		Database: chDB,
+		Username: cfg.Username,
+		Password: cfg.Password,
+		App:      "billing",
+		Cluster:  chCluster,
 	})
 	// ApplyMigrations now calls Setup() automatically within the lock
 	if err := m.ApplyMigrations(ctx, chMigrations); err != nil {
