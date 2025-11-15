@@ -6,12 +6,16 @@ import (
 	"strings"
 	"time"
 
-	email "github.com/doujins-org/doujins-email"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/doujins-org/doujins-billing/config"
 )
 
 type EmailService struct {
-	svc *email.Service
+	client *sendgrid.Client
+	from   *mail.Email
 }
 
 // OneOffPurchaseEmailData contains data for one-off purchase receipts
@@ -24,23 +28,28 @@ type OneOffPurchaseEmailData struct {
 	IsPremium     bool
 }
 
-// NewEmailService wires the shared email package into the billing domain service.
-func NewEmailService(cfg *email.Config) (*EmailService, error) {
+// NewEmailService wires the SendGrid SDK into the billing domain service.
+func NewEmailService(cfg *config.SendGridConfig) (*EmailService, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("email configuration not provided")
 	}
 
-	svc, err := email.NewService(*cfg, email.WithLogger(logrusAdapter{}))
-	if err != nil {
-		return nil, err
+	apiKey := strings.TrimSpace(cfg.APIKey)
+	fromEmail := strings.TrimSpace(cfg.FromEmail)
+	fromName := strings.TrimSpace(cfg.FromName)
+	if apiKey == "" || fromEmail == "" {
+		return nil, fmt.Errorf("sendgrid configuration incomplete")
 	}
 
-	return &EmailService{svc: svc}, nil
+	client := sendgrid.NewSendClient(apiKey)
+	from := mail.NewEmail(fromName, fromEmail)
+
+	return &EmailService{client: client, from: from}, nil
 }
 
 // IsEnabled returns true when delivery is possible.
 func (s *EmailService) IsEnabled() bool {
-	return s != nil && s.svc != nil && s.svc.IsEnabled()
+	return s != nil && s.client != nil && s.from != nil
 }
 
 // SendEmail sends a basic email using the configured provider.
@@ -53,12 +62,8 @@ func (s *EmailService) SendEmail(ctx context.Context, to, subject, htmlContent, 
 		return nil
 	}
 
-	msg := email.Message{
-		To:       []email.Recipient{{Address: to}},
-		Subject:  subject,
-		HTMLBody: htmlContent,
-		TextBody: plainContent,
-	}
+	toMail := mail.NewEmail("", to)
+	msg := mail.NewSingleEmail(s.from, subject, toMail, plainContent, htmlContent)
 
 	return s.send(ctx, msg, to)
 }
@@ -73,11 +78,16 @@ func (s *EmailService) SendTemplatedEmail(ctx context.Context, to, templateID st
 		return nil
 	}
 
-	msg := email.Message{
-		To:           []email.Recipient{{Address: to}},
-		TemplateID:   templateID,
-		TemplateData: templateData,
+	toMail := mail.NewEmail("", to)
+	msg := mail.NewV3Mail()
+	msg.SetFrom(s.from)
+	msg.SetTemplateID(templateID)
+	personalization := mail.NewPersonalization()
+	personalization.AddTos(toMail)
+	for key, value := range templateData {
+		personalization.SetDynamicTemplateData(key, value)
 	}
+	msg.AddPersonalizations(personalization)
 
 	return s.send(ctx, msg, to)
 }
@@ -171,27 +181,18 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
 }
 
-func (s *EmailService) send(ctx context.Context, msg email.Message, to string) error {
-	res, err := s.svc.Send(ctx, msg)
+func (s *EmailService) send(ctx context.Context, msg *mail.SGMailV3, to string) error {
+	res, err := s.client.SendWithContext(ctx, msg)
 	if err != nil {
-		return fmt.Errorf("email send failed: %w", err)
+		return fmt.Errorf("sendgrid email send failed: %w", err)
+	}
+	if res.StatusCode >= 400 {
+		return fmt.Errorf("sendgrid api error: status %d, body: %s", res.StatusCode, res.Body)
 	}
 
-	if res != nil {
-		log.WithContext(ctx).WithFields(log.Fields{
-			"to":        to,
-			"provider":  res.Provider,
-			"status":    res.StatusCode,
-			"messageID": res.MessageID,
-		}).Debug("email sent successfully")
-	}
-
+	log.WithContext(ctx).WithFields(log.Fields{
+		"to":     to,
+		"status": res.StatusCode,
+	}).Debug("email sent successfully via sendgrid")
 	return nil
 }
-
-type logrusAdapter struct{}
-
-func (logrusAdapter) Debugf(format string, args ...any) { log.Debugf(format, args...) }
-func (logrusAdapter) Infof(format string, args ...any)  { log.Infof(format, args...) }
-func (logrusAdapter) Warnf(format string, args ...any)  { log.Warnf(format, args...) }
-func (logrusAdapter) Errorf(format string, args ...any) { log.Errorf(format, args...) }

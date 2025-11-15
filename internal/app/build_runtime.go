@@ -23,7 +23,6 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/services"
 	clickhousemigrations "github.com/doujins-org/doujins-billing/migrations/clickhouse"
 	postgresmigrations "github.com/doujins-org/doujins-billing/migrations/postgres"
-	email "github.com/doujins-org/doujins-email"
 	"github.com/doujins-org/migratekit"
 )
 
@@ -51,16 +50,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	var emailService *services.EmailService
 	var subscriptionEmailService *services.SubscriptionEmailService
 	if cfg.SendGrid != nil {
-		// Convert SendGridConfig to email.Config
-		emailCfg := &email.Config{
-			Provider:    "sendgrid",
-			FromName:    cfg.SendGrid.FromName,
-			FromAddress: cfg.SendGrid.FromEmail,
-			SendGrid: &email.SendGridConfig{
-				APIKey: cfg.SendGrid.APIKey,
-			},
-		}
-		if es, err := services.NewEmailService(emailCfg); err != nil {
+		if es, err := services.NewEmailService(cfg.SendGrid); err != nil {
 			log.WithError(err).Warn("EmailService init failed; email disabled")
 		} else {
 			emailService = es
