@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS subscription_events {{ON_CLUSTER}} (
     metadata String,
     timestamp DateTime('UTC'),
     created_at DateTime('UTC') DEFAULT now()
-) ENGINE = ReplacingMergeTree()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}')
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
 
@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS payment_events {{ON_CLUSTER}} (
     metadata String,
     timestamp DateTime('UTC'),
   created_at DateTime('UTC') DEFAULT now()
-) ENGINE = ReplacingMergeTree()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}')
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
 
@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS webhook_events {{ON_CLUSTER}} (
     timestamp DateTime('UTC'),
     processed_at Nullable(DateTime('UTC')),
     created_at DateTime('UTC') DEFAULT now()
-) ENGINE = ReplacingMergeTree()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}')
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
 
@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS acu_events {{ON_CLUSTER}} (
     metadata String,
     timestamp DateTime('UTC'),
     created_at DateTime('UTC') DEFAULT now()
-) ENGINE = ReplacingMergeTree()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}')
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
 
@@ -109,7 +109,7 @@ CREATE TABLE IF NOT EXISTS chargeback_events {{ON_CLUSTER}} (
     metadata String,
     timestamp DateTime('UTC'),
     created_at DateTime('UTC') DEFAULT now()
-) ENGINE = ReplacingMergeTree()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/{table}', '{replica}')
 ORDER BY (event_id)
 SETTINGS index_granularity = 8192;
 
