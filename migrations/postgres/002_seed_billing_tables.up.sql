@@ -20,46 +20,42 @@ UPDATE billing.subscriptions
 SET started_at = created_at
 WHERE started_at IS NULL;
 
--- ============================================================================
 -- SECTION 2: SEED PRODUCTS CATALOG
 -- ============================================================================
 
--- Insert product catalog
--- Basic tier: Essential access to the standard catalog and community features
--- Premium tier: Everything in Basic plus premium catalog access and enhanced perks
-INSERT INTO billing.products (slug, display_name, description, entitlements_spec) VALUES
-('basic_membership', 'Basic Membership', 'Essential access to the standard catalog and community features.', jsonb_build_object('basic', null)),
-('premium_membership', 'Premium Membership', 'Everything in Basic plus premium catalog access and enhanced perks.', jsonb_build_object('basic', null, 'premium', null))
-ON CONFLICT (slug) DO UPDATE SET
-    display_name = EXCLUDED.display_name,
-    description = EXCLUDED.description,
-    entitlements_spec = EXCLUDED.entitlements_spec,
-    updated_at = current_timestamp;
-
--- ============================================================================
--- SECTION 3: SEED PRICING TIERS
--- ============================================================================
-
--- Insert pricing tiers
+-- Seed product catalog and pricing with deterministic IDs to match frontend fixtures
 DO $$
 DECLARE
-    basic_id UUID;
-    premium_id UUID;
+    basic_product_id CONSTANT UUID := 'c454b402-80e7-4f84-924f-99ffaa82d002';
+    premium_product_id CONSTANT UUID := 'bc5fe9a7-b8cf-4a61-b618-886b4c7b6faa';
+    basic_price_id CONSTANT UUID := '1028cc14-cdcb-4be7-92b1-8d434f220d3f';
+    premium_price_id CONSTANT UUID := '99854e03-4f2e-421d-83a5-bf9d46223f01';
 BEGIN
-    -- Get product IDs
-    SELECT id INTO basic_id FROM billing.products WHERE slug = 'basic_membership';
-    SELECT id INTO premium_id FROM billing.products WHERE slug = 'premium_membership';
+    -- Insert products with fixed IDs (upsert to keep IDs aligned on re-runs)
+    INSERT INTO billing.products (id, slug, display_name, description, entitlements_spec)
+    VALUES
+        (basic_product_id, 'basic_membership', 'Basic Membership', 'Essential access to the standard catalog and community features.', jsonb_build_object('basic', null)),
+        (premium_product_id, 'premium_membership', 'Premium Membership', 'Everything in Basic plus premium catalog access and enhanced perks.', jsonb_build_object('basic', null, 'premium', null))
+    ON CONFLICT (slug) DO UPDATE SET
+        id = EXCLUDED.id,
+        display_name = EXCLUDED.display_name,
+        description = EXCLUDED.description,
+        entitlements_spec = EXCLUDED.entitlements_spec,
+        updated_at = current_timestamp;
 
-    -- Basic tier pricing
-    INSERT INTO billing.prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
-    (basic_id, 'Basic Monthly', 4.99, 'USD', 30, '75383d6a-41d4-4bd0-ac12-6c8c37fde5e5', 'basic_monthly', 'mobius', true)
-    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
-
-    -- Premium tier pricing
-    INSERT INTO billing.prices (product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active) VALUES
-    (premium_id, 'Premium Monthly', 9.99, 'USD', 30, '75383d6a-41d4-4bd0-ac12-6c8c37fde5e5', 'premium_monthly', 'mobius', true)
-    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
-
+    -- Insert pricing tiers with fixed IDs linked to the deterministic product IDs
+    INSERT INTO billing.prices (id, product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active)
+    VALUES
+        (basic_price_id, basic_product_id, 'Basic Monthly', 4.99, 'USD', 30, '75383d6a-41d4-4bd0-ac12-6c8c37fde5e5', 'basic_monthly', 'mobius', true),
+        (premium_price_id, premium_product_id, 'Premium Monthly', 9.99, 'USD', 30, '75383d6a-41d4-4bd0-ac12-6c8c37fde5e5', 'premium_monthly', 'mobius', true)
+    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO UPDATE SET
+        id = EXCLUDED.id,
+        display_name = EXCLUDED.display_name,
+        is_active = EXCLUDED.is_active,
+        ccbill_price_id = EXCLUDED.ccbill_price_id,
+        nmi_plan_id = EXCLUDED.nmi_plan_id,
+        nmi_provider = EXCLUDED.nmi_provider,
+        updated_at = current_timestamp;
 END$$;
 
 -- Add helpful comments for operators
