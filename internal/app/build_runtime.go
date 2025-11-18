@@ -14,7 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 
-	authkitPostgres "github.com/doujins-org/authkit/migrations/postgres"
+	authkitPostgres "github.com/PaulFidika/authkit/migrations/postgres"
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
@@ -144,7 +144,7 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 	// ClickHouse is optional - warn if validation fails but continue running
 	if cfg.ClickHouse != nil {
 		// Use MigrationsAddr if set, otherwise fall back to ClientAddr
-		migrationsAddr := cfg.ClickHouse.MigrationsAddr
+		migrationsAddr := cfg.ClickHouse.ClientAddr
 		if migrationsAddr == "" {
 			migrationsAddr = cfg.ClickHouse.ClientAddr
 		}
@@ -152,12 +152,11 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 		if err := migratekit.ValidateClickHouseMigrations(
 			context.Background(),
 			&migratekit.ClickHouseConfig{
-				HTTPAddr:   cfg.ClickHouse.HTTPAddr,
-				NativeAddr: migrationsAddr,
-				Database:   cfg.ClickHouse.Database,
-				Username:   cfg.ClickHouse.Username,
-				Password:   cfg.ClickHouse.Password,
-				App:        "billing",
+				Addr:     cfg.ClickHouse.HTTPAddr,
+				Database: cfg.ClickHouse.Database,
+				Username: cfg.ClickHouse.Username,
+				Password: cfg.ClickHouse.Password,
+				App:      "billing",
 			},
 			clickhousemigrations.FS,
 		); err != nil {

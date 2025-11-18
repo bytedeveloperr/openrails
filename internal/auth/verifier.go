@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	authgin "github.com/doujins-org/authkit/adapters/gin"
-	"github.com/doujins-org/authkit/core"
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
+	"github.com/PaulFidika/authkit/core"
 	jwt "github.com/golang-jwt/jwt/v5"
 
 	"github.com/doujins-org/doujins-billing/config"
