@@ -20,6 +20,7 @@ ENV GIT_TERMINAL_PROMPT=0
 COPY go.mod go.sum ./
 
 # Download dependencies with cache mount for Go modules (with retry)
+# GitHub token is optional since all dependencies are public
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=secret,id=gh_token \
@@ -28,12 +29,13 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     if [ -f /run/secrets/gh_token ]; then \
       GH_TOKEN=$(tr -d '\r\n' < /run/secrets/gh_token); \
     fi; \
-    if [ -z "${GH_TOKEN}" ]; then \
-      echo "GitHub token secret (gh_token) is required for private module downloads" >&2; \
-      exit 1; \
+    if [ -n "${GH_TOKEN}" ]; then \
+      echo "Using GitHub token for authentication"; \
+      git config --global url."https://${GH_TOKEN}@github.com/doujins-org/".insteadOf "https://github.com/doujins-org/"; \
+      git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; \
+    else \
+      echo "No GitHub token provided, using public access"; \
     fi; \
-    git config --global url."https://${GH_TOKEN}@github.com/doujins-org/".insteadOf "https://github.com/doujins-org/"; \
-    git config --global url."https://${GH_TOKEN}@github.com/".insteadOf "https://github.com/"; \
     for i in 1 2 3; do \
       go mod download && break || (echo "go mod download failed, retrying" && sleep 5); \
     done; \
