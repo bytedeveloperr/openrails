@@ -152,11 +152,11 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 		if err := migratekit.ValidateClickHouseMigrations(
 			context.Background(),
 			&migratekit.ClickHouseConfig{
-				Addr:     cfg.ClickHouse.HTTPAddr,
-				Database: cfg.ClickHouse.Database,
-				Username: cfg.ClickHouse.Username,
-				Password: cfg.ClickHouse.Password,
-				App:      "billing",
+				ClientAddr: migrationsAddr,
+				Database:   cfg.ClickHouse.Database,
+				Username:   cfg.ClickHouse.Username,
+				Password:   cfg.ClickHouse.Password,
+				App:        "billing",
 			},
 			clickhousemigrations.FS,
 		); err != nil {
