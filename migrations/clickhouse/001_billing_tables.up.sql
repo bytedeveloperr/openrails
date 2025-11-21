@@ -1,28 +1,27 @@
 -- ClickHouse billing tables needed by doujins-billing
 -- Matches fields used in internal/services/billing_event_service.go
 
--- subscription_events
 CREATE TABLE IF NOT EXISTS subscription_events {{ON_CLUSTER}} (
     event_id UUID,
-    subscription_id UUID,
+    subscription_id Nullable(UUID),
     user_id String,
     event_type LowCardinality(String),
     processor LowCardinality(String),
     processor_subscription_id Nullable(String),
     processor_transaction_id Nullable(String),
-    metadata String,
+    metadata String DEFAULT '{}',
     timestamp DateTime('UTC'),
-    created_at DateTime('UTC') DEFAULT now()
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{database}/{table}', '{replica}')
-ORDER BY (event_id)
+    created_at DateTime('UTC') DEFAULT now(),
+    version DateTime('UTC') DEFAULT now(),
+    INDEX idx_subscription_events_user (user_id) TYPE minmax GRANULARITY 1,
+    INDEX idx_subscription_events_subscription (subscription_id) TYPE minmax GRANULARITY 1,
+    INDEX idx_subscription_events_processor (processor) TYPE set(100) GRANULARITY 1,
+    INDEX idx_subscription_events_type (event_type) TYPE set(100) GRANULARITY 1,
+    INDEX idx_subscription_events_ts (timestamp) TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{database}/{table}', '{replica}', version)
+ORDER BY (event_id, timestamp)
 SETTINGS index_granularity = 8192;
 
--- Data-skipping indexes to speed time/user filters
-ALTER TABLE subscription_events {{ON_CLUSTER}}
-  ADD INDEX IF NOT EXISTS idx_subscription_events_ts (timestamp) TYPE minmax GRANULARITY 1,
-  ADD INDEX IF NOT EXISTS idx_subscription_events_user (user_id) TYPE set(0) GRANULARITY 1;
-
--- payment_events
 CREATE TABLE IF NOT EXISTS payment_events {{ON_CLUSTER}} (
     event_id UUID,
     subscription_id Nullable(UUID),
@@ -30,20 +29,22 @@ CREATE TABLE IF NOT EXISTS payment_events {{ON_CLUSTER}} (
     event_type LowCardinality(String),
     processor LowCardinality(String),
     processor_transaction_id Nullable(String),
-    amount Nullable(Float64),
+    amount Decimal(10, 2),
     currency LowCardinality(String) DEFAULT 'USD',
-    billing_info String,
+    billing_info String DEFAULT '{}',
     webhook_source LowCardinality(String),
-    metadata String,
+    metadata String DEFAULT '{}',
     timestamp DateTime('UTC'),
-  created_at DateTime('UTC') DEFAULT now()
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{database}/{table}', '{replica}')
-ORDER BY (event_id)
+    created_at DateTime('UTC') DEFAULT now(),
+    version DateTime('UTC') DEFAULT now(),
+    INDEX idx_payment_events_user (user_id) TYPE minmax GRANULARITY 1,
+    INDEX idx_payment_events_subscription (subscription_id) TYPE minmax GRANULARITY 1,
+    INDEX idx_payment_events_processor (processor) TYPE set(100) GRANULARITY 1,
+    INDEX idx_payment_events_type (event_type) TYPE set(100) GRANULARITY 1,
+    INDEX idx_payment_events_ts (timestamp) TYPE minmax GRANULARITY 1
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{database}/{table}', '{replica}', version)
+ORDER BY (event_id, timestamp)
 SETTINGS index_granularity = 8192;
-
-ALTER TABLE payment_events {{ON_CLUSTER}}
-  ADD INDEX IF NOT EXISTS idx_payment_events_ts (timestamp) TYPE minmax GRANULARITY 1,
-  ADD INDEX IF NOT EXISTS idx_payment_events_user (user_id) TYPE set(0) GRANULARITY 1;
 
 -- webhook_events (incoming webhook processing logs)
 CREATE TABLE IF NOT EXISTS webhook_events {{ON_CLUSTER}} (
