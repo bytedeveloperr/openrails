@@ -115,7 +115,7 @@ func RunClickHouse(ctx context.Context, cfg *config.Config) error {
 		return nil
 	}
 
-	log.Info("Running ClickHouse migrations...")
+	log.Infof("Running ClickHouse migrations... %v+", cfg.ClickHouse)
 	if err := runClickHouseMigrations(ctx, cfg.ClickHouse); err != nil {
 		return fmt.Errorf("clickhouse migrations failed: %w", err)
 	}
