@@ -143,6 +143,7 @@ func createDatabase(cfg *config.Config) (*db.DB, error) {
 	// Validate ClickHouse migrations if ClickHouse is configured
 	// ClickHouse is optional - warn if validation fails but continue running
 	if cfg.ClickHouse != nil {
+		log.Infof("Validating ClickHouse migrations for database %s at %s", cfg.ClickHouse.Database, cfg.ClickHouse.ClientAddr)
 		if err := migratekit.ValidateClickHouseMigrations(
 			context.Background(),
 			&migratekit.ClickHouseConfig{
