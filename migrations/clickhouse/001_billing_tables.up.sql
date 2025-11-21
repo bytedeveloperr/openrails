@@ -16,8 +16,7 @@ CREATE TABLE IF NOT EXISTS subscription_events {{ON_CLUSTER}} (
     INDEX idx_subscription_events_user (user_id) TYPE minmax GRANULARITY 1,
     INDEX idx_subscription_events_subscription (subscription_id) TYPE minmax GRANULARITY 1,
     INDEX idx_subscription_events_processor (processor) TYPE set(100) GRANULARITY 1,
-    INDEX idx_subscription_events_type (event_type) TYPE set(100) GRANULARITY 1,
-    INDEX idx_subscription_events_ts (timestamp) TYPE minmax GRANULARITY 1
+    INDEX idx_subscription_events_type (event_type) TYPE set(100) GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{database}/{table}', '{replica}', version)
 ORDER BY (event_id, timestamp)
 SETTINGS index_granularity = 8192;
@@ -40,8 +39,7 @@ CREATE TABLE IF NOT EXISTS payment_events {{ON_CLUSTER}} (
     INDEX idx_payment_events_user (user_id) TYPE minmax GRANULARITY 1,
     INDEX idx_payment_events_subscription (subscription_id) TYPE minmax GRANULARITY 1,
     INDEX idx_payment_events_processor (processor) TYPE set(100) GRANULARITY 1,
-    INDEX idx_payment_events_type (event_type) TYPE set(100) GRANULARITY 1,
-    INDEX idx_payment_events_ts (timestamp) TYPE minmax GRANULARITY 1
+    INDEX idx_payment_events_type (event_type) TYPE set(100) GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{database}/{table}', '{replica}', version)
 ORDER BY (event_id, timestamp)
 SETTINGS index_granularity = 8192;
