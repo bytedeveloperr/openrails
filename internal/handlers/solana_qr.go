@@ -62,6 +62,7 @@ func GenerateSolanaPayQR(r *Request) {
 
 	amount, _, tokenAmountUnits, exp, err := r.State.SolanaPaymentService.Generate(ctx, user.ID, price.ID, tokenSymbol, req.UserWallet)
 	if err != nil {
+		log.WithError(err).Error("Failed to create Solana Pay intent")
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to prepare payment")
 		return
 	}
