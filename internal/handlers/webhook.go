@@ -1,11 +1,13 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -87,6 +89,13 @@ func Webhook(r *Request) {
 		if err != nil {
 			deadLetterService.LogInvalidPayload(context.Background(), "ccbill", nil, err, headers, clientIP)
 			r.ErrorJSON(http.StatusInternalServerError, "Failed to read request body")
+			return
+		}
+
+		body, err = normalizeCCBillPayload(body)
+		if err != nil {
+			deadLetterService.LogInvalidPayload(context.Background(), "ccbill", body, err, headers, clientIP)
+			r.ErrorJSON(http.StatusBadRequest, "Invalid webhook payload")
 			return
 		}
 
@@ -213,4 +222,25 @@ func readRequestBody(body io.ReadCloser) ([]byte, error) {
 	}
 	defer body.Close()
 	return io.ReadAll(body)
+}
+
+func normalizeCCBillPayload(body []byte) ([]byte, error) {
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		return body, nil
+	}
+	if body[0] == '{' || body[0] == '[' {
+		return body, nil
+	}
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		return nil, err
+	}
+	payload := make(map[string]string, len(values))
+	for key, val := range values {
+		if len(val) > 0 {
+			payload[key] = val[0]
+		}
+	}
+	return json.Marshal(payload)
 }
