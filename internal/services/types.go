@@ -341,10 +341,10 @@ type CCBillVersionedPayload interface {
 }
 
 type CCBillCommonFields struct {
-	ClientAccnum   int    `json:"clientAccnum" validate:"required"`
-	ClientSubacc   string `json:"clientSubacc" validate:"required"`
-	SubscriptionID string `json:"subscriptionId" validate:"required"`
-	Timestamp      string `json:"timestamp" validate:"required"`
+	ClientAccnum   Stringish `json:"clientAccnum" validate:"required"`
+	ClientSubacc   string    `json:"clientSubacc" validate:"required"`
+	SubscriptionID string    `json:"subscriptionId" validate:"required"`
+	Timestamp      string    `json:"timestamp" validate:"required"`
 }
 
 // CCBillNewSaleSuccessEvent represents official CCBill NewSaleSuccess webhook v8 (April 2025)
@@ -378,22 +378,22 @@ type CCBillNewSaleSuccessEvent struct {
 	RecurringPriceDescription string `json:"recurringPriceDescription"`
 
 	// Pricing information
-	BilledInitialPrice         string `json:"billedInitialPrice"`
-	BilledRecurringPrice       string `json:"billedRecurringPrice"`
-	BilledCurrencyCode         int    `json:"billedCurrencyCode"`
-	SubscriptionInitialPrice   string `json:"subscriptionInitialPrice"`
-	SubscriptionRecurringPrice string `json:"subscriptionRecurringPrice"`
-	SubscriptionCurrencyCode   int    `json:"subscriptionCurrencyCode"`
-	AccountingInitialPrice     string `json:"accountingInitialPrice"`
-	AccountingRecurringPrice   string `json:"accountingRecurringPrice"`
-	AccountingCurrencyCode     int    `json:"accountingCurrencyCode"`
+	BilledInitialPrice         string    `json:"billedInitialPrice"`
+	BilledRecurringPrice       string    `json:"billedRecurringPrice"`
+	BilledCurrencyCode         Stringish `json:"billedCurrencyCode"`
+	SubscriptionInitialPrice   string    `json:"subscriptionInitialPrice"`
+	SubscriptionRecurringPrice string    `json:"subscriptionRecurringPrice"`
+	SubscriptionCurrencyCode   Stringish `json:"subscriptionCurrencyCode"`
+	AccountingInitialPrice     string    `json:"accountingInitialPrice"`
+	AccountingRecurringPrice   string    `json:"accountingRecurringPrice"`
+	AccountingCurrencyCode     Stringish `json:"accountingCurrencyCode"`
 
 	// Subscription details
-	InitialPeriod      int    `json:"initialPeriod"`
-	RecurringPeriod    int    `json:"recurringPeriod"`
-	Rebills            int    `json:"rebills"`
-	NextRenewalDate    string `json:"nextRenewalDate"`
-	SubscriptionTypeID string `json:"subscriptionTypeId"`
+	InitialPeriod      Stringish `json:"initialPeriod"`
+	RecurringPeriod    Stringish `json:"recurringPeriod"`
+	Rebills            Stringish `json:"rebills"`
+	NextRenewalDate    string    `json:"nextRenewalDate"`
+	SubscriptionTypeID string    `json:"subscriptionTypeId"`
 
 	// Payment information
 	PaymentType    string `json:"paymentType"`
@@ -409,12 +409,12 @@ type CCBillNewSaleSuccessEvent struct {
 	CardSubType    string `json:"cardSubType"`
 
 	// Additional fields
-	ReservationID                  string `json:"reservationId"`
-	DynamicPricingValidationDigest string `json:"dynamicPricingValidationDigest"`
-	AffiliateSystem                string `json:"affiliateSystem"`
-	ReferringURL                   string `json:"referringUrl"`
-	LifeTimeSubscription           int    `json:"lifeTimeSubscription"`
-	LifeTimePrice                  string `json:"lifeTimePrice"`
+	ReservationID                  string    `json:"reservationId"`
+	DynamicPricingValidationDigest string    `json:"dynamicPricingValidationDigest"`
+	AffiliateSystem                string    `json:"affiliateSystem"`
+	ReferringURL                   string    `json:"referringUrl"`
+	LifeTimeSubscription           Stringish `json:"lifeTimeSubscription"`
+	LifeTimePrice                  string    `json:"lifeTimePrice"`
 }
 
 // Implement CCBillVersionedPayload interface
@@ -460,26 +460,26 @@ type CCBillUpgradeSuccessEvent struct {
 	RecurringPriceDescription string `json:"recurringPriceDescription"`
 
 	// Billing information
-	BilledInitialPrice   string `json:"billedInitialPrice"`
-	BilledRecurringPrice string `json:"billedRecurringPrice"`
-	BilledCurrencyCode   int    `json:"billedCurrencyCode"`
+	BilledInitialPrice   string    `json:"billedInitialPrice"`
+	BilledRecurringPrice string    `json:"billedRecurringPrice"`
+	BilledCurrencyCode   Stringish `json:"billedCurrencyCode"`
 
 	// Subscription information
-	SubscriptionInitialPrice   string `json:"subscriptionInitialPrice"`
-	SubscriptionRecurringPrice string `json:"subscriptionRecurringPrice"`
-	SubscriptionCurrencyCode   int    `json:"subscriptionCurrencyCode"`
+	SubscriptionInitialPrice   string    `json:"subscriptionInitialPrice"`
+	SubscriptionRecurringPrice string    `json:"subscriptionRecurringPrice"`
+	SubscriptionCurrencyCode   Stringish `json:"subscriptionCurrencyCode"`
 
 	// Accounting information
-	AccountingInitialPrice   string `json:"accountingInitialPrice"`
-	AccountingRecurringPrice string `json:"accountingRecurringPrice"`
-	AccountingCurrencyCode   int    `json:"accountingCurrencyCode"`
+	AccountingInitialPrice   string    `json:"accountingInitialPrice"`
+	AccountingRecurringPrice string    `json:"accountingRecurringPrice"`
+	AccountingCurrencyCode   Stringish `json:"accountingCurrencyCode"`
 
 	// Subscription terms
-	InitialPeriod      int    `json:"initialPeriod"`
-	RecurringPeriod    int    `json:"recurringPeriod"`
-	Rebills            int    `json:"rebills"`
-	NextRenewalDate    string `json:"nextRenewalDate"`
-	SubscriptionTypeID string `json:"subscriptionTypeId"`
+	InitialPeriod      Stringish `json:"initialPeriod"`
+	RecurringPeriod    Stringish `json:"recurringPeriod"`
+	Rebills            Stringish `json:"rebills"`
+	NextRenewalDate    string    `json:"nextRenewalDate"`
+	SubscriptionTypeID string    `json:"subscriptionTypeId"`
 
 	// Security and validation
 	DynamicPricingValidationDigest string `json:"dynamicPricingValidationDigest"`
@@ -498,10 +498,10 @@ type CCBillUpgradeSuccessEvent struct {
 	CardSubType    string `json:"cardSubType"`
 
 	// Additional information
-	AffiliateSystem      string `json:"affiliateSystem"`
-	ReferringURL         string `json:"referringUrl"`
-	LifeTimeSubscription int    `json:"lifeTimeSubscription"`
-	LifeTimePrice        string `json:"lifeTimePrice"`
+	AffiliateSystem      string    `json:"affiliateSystem"`
+	ReferringURL         string    `json:"referringUrl"`
+	LifeTimeSubscription Stringish `json:"lifeTimeSubscription"`
+	LifeTimePrice        string    `json:"lifeTimePrice"`
 
 	// -------- UpgradeSuccess-only fields (v5) --------
 	OriginalSubscriptionID string `json:"originalSubscriptionId"`
@@ -555,25 +555,25 @@ type CCBillUpgradeFailureEvent struct {
 	RecurringPriceDescription string `json:"recurringPriceDescription"`
 
 	// Billing information
-	BilledInitialPrice   string `json:"billedInitialPrice"`
-	BilledRecurringPrice string `json:"billedRecurringPrice"`
-	BilledCurrencyCode   int    `json:"billedCurrencyCode"`
+	BilledInitialPrice   string    `json:"billedInitialPrice"`
+	BilledRecurringPrice string    `json:"billedRecurringPrice"`
+	BilledCurrencyCode   Stringish `json:"billedCurrencyCode"`
 
 	// Subscription information
-	SubscriptionInitialPrice   string `json:"subscriptionInitialPrice"`
-	SubscriptionRecurringPrice string `json:"subscriptionRecurringPrice"`
-	SubscriptionCurrencyCode   int    `json:"subscriptionCurrencyCode"`
+	SubscriptionInitialPrice   string    `json:"subscriptionInitialPrice"`
+	SubscriptionRecurringPrice string    `json:"subscriptionRecurringPrice"`
+	SubscriptionCurrencyCode   Stringish `json:"subscriptionCurrencyCode"`
 
 	// Accounting information
-	AccountingInitialPrice   string `json:"accountingInitialPrice"`
-	AccountingRecurringPrice string `json:"accountingRecurringPrice"`
-	AccountingCurrencyCode   int    `json:"accountingCurrencyCode"`
+	AccountingInitialPrice   string    `json:"accountingInitialPrice"`
+	AccountingRecurringPrice string    `json:"accountingRecurringPrice"`
+	AccountingCurrencyCode   Stringish `json:"accountingCurrencyCode"`
 
 	// Subscription terms
-	InitialPeriod      int    `json:"initialPeriod"`
-	RecurringPeriod    int    `json:"recurringPeriod"`
-	Rebills            int    `json:"rebills"`
-	SubscriptionTypeID string `json:"subscriptionTypeId"`
+	InitialPeriod      Stringish `json:"initialPeriod"`
+	RecurringPeriod    Stringish `json:"recurringPeriod"`
+	Rebills            Stringish `json:"rebills"`
+	SubscriptionTypeID string    `json:"subscriptionTypeId"`
 
 	// Security and validation
 	DynamicPricingValidationDigest string `json:"dynamicPricingValidationDigest"`
@@ -590,10 +590,10 @@ type CCBillUpgradeFailureEvent struct {
 	ThreeDSecure   string `json:"threeDSecure"`
 
 	// Additional information
-	AffiliateSystem      string `json:"affiliateSystem"`
-	ReferringURL         string `json:"referringUrl"`
-	LifeTimeSubscription int    `json:"lifeTimeSubscription"`
-	LifeTimePrice        string `json:"lifeTimePrice"`
+	AffiliateSystem      string    `json:"affiliateSystem"`
+	ReferringURL         string    `json:"referringUrl"`
+	LifeTimeSubscription Stringish `json:"lifeTimeSubscription"`
+	LifeTimePrice        string    `json:"lifeTimePrice"`
 
 	// Failure information
 	FailureReason string `json:"failureReason"`
@@ -601,10 +601,10 @@ type CCBillUpgradeFailureEvent struct {
 
 	// -------- UpgradeFailure-specific fields (v4) --------
 	OriginalSubscriptionID string                 `json:"originalSubscriptionId"`
-	OriginalClientAccnum   int                    `json:"originalClientAccnum"`
+	OriginalClientAccnum   Stringish              `json:"originalClientAccnum"`
 	OriginalClientSubacc   string                 `json:"originalClientSubacc"`
 	Source                 string                 `json:"source"` // FORM | API | PHONE
-	Bin                    int                    `json:"bin"`
+	Bin                    Stringish              `json:"bin"`
 	SCAResponseStatus      string                 `json:"scaResponseStatus"` // E | Y | N | A | U | R
 	CardSubType            string                 `json:"cardSubType"`       // v4 addition
 	PassThrough            map[string]interface{} `json:"passThrough"`       // Custom pass-through data
@@ -661,10 +661,10 @@ type CCBillCustomerDataUpdateEvent struct {
 	Password       string `json:"password"`
 
 	// Payment information
-	PaymentType string `json:"paymentType"`
-	CardType    string `json:"cardType"`
-	Bin         int    `json:"bin"`
-	ExpDate     string `json:"expDate"`
+	PaymentType string    `json:"paymentType"`
+	CardType    string    `json:"cardType"`
+	Bin         Stringish `json:"bin"`
+	ExpDate     string    `json:"expDate"`
 }
 
 // Implement CCBillVersionedPayload interface
@@ -707,14 +707,14 @@ type CCBillRenewalSuccessEvent struct {
 	Timestamp      string `json:"timestamp" validate:"required"`
 
 	// Billing information
-	BilledAmount       string `json:"billedAmount"`
-	BilledCurrency     string `json:"billedCurrency"`
-	BilledCurrencyCode int    `json:"billedCurrencyCode"`
+	BilledAmount       string    `json:"billedAmount"`
+	BilledCurrency     string    `json:"billedCurrency"`
+	BilledCurrencyCode Stringish `json:"billedCurrencyCode"`
 
 	// Accounting information
-	AccountingAmount       string `json:"accountingAmount"`
-	AccountingCurrency     string `json:"accountingCurrency"`
-	AccountingCurrencyCode int    `json:"accountingCurrencyCode"`
+	AccountingAmount       string    `json:"accountingAmount"`
+	AccountingCurrency     string    `json:"accountingCurrency"`
+	AccountingCurrencyCode Stringish `json:"accountingCurrencyCode"`
 
 	// Renewal information
 	NextRenewalDate string `json:"nextRenewalDate"`
@@ -806,21 +806,21 @@ type CCBillNewSaleFailureEvent struct {
 	RecurringPriceDescription string `json:"recurringPriceDescription"`
 
 	// Pricing information
-	BilledInitialPrice         string `json:"billedInitialPrice"`
-	BilledRecurringPrice       string `json:"billedRecurringPrice"`
-	BilledCurrencyCode         int    `json:"billedCurrencyCode"`
-	SubscriptionInitialPrice   string `json:"subscriptionInitialPrice"`
-	SubscriptionRecurringPrice string `json:"subscriptionRecurringPrice"`
-	SubscriptionCurrencyCode   int    `json:"subscriptionCurrencyCode"`
-	AccountingInitialPrice     string `json:"accountingInitialPrice"`
-	AccountingRecurringPrice   string `json:"accountingRecurringPrice"`
-	AccountingCurrencyCode     int    `json:"accountingCurrencyCode"`
+	BilledInitialPrice         string    `json:"billedInitialPrice"`
+	BilledRecurringPrice       string    `json:"billedRecurringPrice"`
+	BilledCurrencyCode         Stringish `json:"billedCurrencyCode"`
+	SubscriptionInitialPrice   string    `json:"subscriptionInitialPrice"`
+	SubscriptionRecurringPrice string    `json:"subscriptionRecurringPrice"`
+	SubscriptionCurrencyCode   Stringish `json:"subscriptionCurrencyCode"`
+	AccountingInitialPrice     string    `json:"accountingInitialPrice"`
+	AccountingRecurringPrice   string    `json:"accountingRecurringPrice"`
+	AccountingCurrencyCode     Stringish `json:"accountingCurrencyCode"`
 
 	// Subscription details
-	InitialPeriod      int    `json:"initialPeriod"`
-	RecurringPeriod    int    `json:"recurringPeriod"`
-	Rebills            int    `json:"rebills"`
-	SubscriptionTypeID string `json:"subscriptionTypeId"`
+	InitialPeriod      Stringish `json:"initialPeriod"`
+	RecurringPeriod    Stringish `json:"recurringPeriod"`
+	Rebills            Stringish `json:"rebills"`
+	SubscriptionTypeID string    `json:"subscriptionTypeId"`
 
 	// Payment information
 	PaymentType    string `json:"paymentType"`
@@ -837,12 +837,12 @@ type CCBillNewSaleFailureEvent struct {
 	FailureCode   string `json:"failureCode"`
 
 	// Additional fields
-	ReservationID                  string `json:"reservationId"`
-	DynamicPricingValidationDigest string `json:"dynamicPricingValidationDigest"`
-	AffiliateSystem                string `json:"affiliateSystem"`
-	ReferringURL                   string `json:"referringUrl"`
-	LifeTimeSubscription           int    `json:"lifeTimeSubscription"`
-	LifeTimePrice                  string `json:"lifeTimePrice"`
+	ReservationID                  string    `json:"reservationId"`
+	DynamicPricingValidationDigest string    `json:"dynamicPricingValidationDigest"`
+	AffiliateSystem                string    `json:"affiliateSystem"`
+	ReferringURL                   string    `json:"referringUrl"`
+	LifeTimeSubscription           Stringish `json:"lifeTimeSubscription"`
+	LifeTimePrice                  string    `json:"lifeTimePrice"`
 }
 
 // Implement CCBillVersionedPayload interface
@@ -863,15 +863,15 @@ type CCBillRefundEvent struct {
 	Timestamp      string `json:"timestamp" validate:"required"`
 
 	// Refund information
-	Amount       string `json:"amount"`
-	Currency     string `json:"currency"`
-	CurrencyCode int    `json:"currencyCode"`
-	Reason       string `json:"reason"`
+	Amount       string    `json:"amount"`
+	Currency     string    `json:"currency"`
+	CurrencyCode Stringish `json:"currencyCode"`
+	Reason       string    `json:"reason"`
 
 	// Accounting information
-	AccountingAmount       string `json:"accountingAmount"`
-	AccountingCurrency     string `json:"accountingCurrency"`
-	AccountingCurrencyCode int    `json:"accountingCurrencyCode"`
+	AccountingAmount       string    `json:"accountingAmount"`
+	AccountingCurrency     string    `json:"accountingCurrency"`
+	AccountingCurrencyCode Stringish `json:"accountingCurrencyCode"`
 
 	// Payment information
 	CardType       string `json:"cardType"`
@@ -899,15 +899,15 @@ type CCBillChargebackEvent struct {
 	Timestamp      string `json:"timestamp" validate:"required"`
 
 	// Chargeback information
-	Amount       string `json:"amount"`
-	Currency     string `json:"currency"`
-	CurrencyCode int    `json:"currencyCode"`
-	Reason       string `json:"reason"`
+	Amount       string    `json:"amount"`
+	Currency     string    `json:"currency"`
+	CurrencyCode Stringish `json:"currencyCode"`
+	Reason       string    `json:"reason"`
 
 	// Accounting information
-	AccountingAmount       string `json:"accountingAmount"`
-	AccountingCurrency     string `json:"accountingCurrency"`
-	AccountingCurrencyCode int    `json:"accountingCurrencyCode"`
+	AccountingAmount       string    `json:"accountingAmount"`
+	AccountingCurrency     string    `json:"accountingCurrency"`
+	AccountingCurrencyCode Stringish `json:"accountingCurrencyCode"`
 
 	// Payment information
 	CardType       string `json:"cardType"`
@@ -936,15 +936,15 @@ type CCBillVoidEvent struct {
 	Timestamp      string `json:"timestamp" validate:"required"`
 
 	// Void information
-	Amount       string `json:"amount"`
-	Currency     string `json:"currency"`
-	CurrencyCode int    `json:"currencyCode"`
-	Reason       string `json:"reason"`
+	Amount       string    `json:"amount"`
+	Currency     string    `json:"currency"`
+	CurrencyCode Stringish `json:"currencyCode"`
+	Reason       string    `json:"reason"`
 
 	// Accounting information
-	AccountingAmount       string `json:"accountingAmount"`
-	AccountingCurrency     string `json:"accountingCurrency"`
-	AccountingCurrencyCode int    `json:"accountingCurrencyCode"`
+	AccountingAmount       string    `json:"accountingAmount"`
+	AccountingCurrency     string    `json:"accountingCurrency"`
+	AccountingCurrencyCode Stringish `json:"accountingCurrencyCode"`
 
 	// Payment information
 	CardType       string `json:"cardType"`
