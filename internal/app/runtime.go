@@ -18,14 +18,15 @@ import (
 
 // Runtime aggregates infrastructure clients and application services.
 type Runtime struct {
-	DB               *db.DB
-	RedisClient      *redis.Client
-	Config           *config.Config
-	CCBillClient     *ccbill.CCBillClient
-	CCBillRESTClient *ccbill.RESTClient
-	CCBillDataLink   *ccbill.DataLinkClient
-	NMIClients       map[string]*nmi.NMIClient
-	RiverClient      *river.Client[pgx.Tx]
+	DB                 *db.DB
+	RedisClient        *redis.Client
+	Config             *config.Config
+	CCBillClient       *ccbill.CCBillClient
+	CCBillRESTClient   *ccbill.RESTClient
+	CCBillDataLink     *ccbill.DataLinkClient
+	CCBillAliasService *services.CCBillAliasService
+	NMIClients         map[string]*nmi.NMIClient
+	RiverClient        *river.Client[pgx.Tx]
 
 	UserService              *services.UserService
 	SubscriptionService      *services.SubscriptionService

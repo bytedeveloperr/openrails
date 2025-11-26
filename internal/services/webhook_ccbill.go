@@ -31,6 +31,18 @@ type CCBillWebhookService struct {
 	BillingEventService          *BillingEventService
 	SubscriptionService          *SubscriptionService
 	SubscriptionLifecycleService *SubscriptionLifecycleService
+	CCBillAliasService           *CCBillAliasService
+}
+
+func (s *CCBillWebhookService) resolveUserID(ctx context.Context, alias string) (string, error) {
+	if s.CCBillAliasService == nil {
+		return "", fmt.Errorf("ccbill alias service is not configured")
+	}
+	userID, err := s.CCBillAliasService.Resolve(ctx, alias)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve CCBill username '%s': %w", alias, err)
+	}
+	return userID, nil
 }
 
 type CCBillWebhookEventType = string
@@ -133,7 +145,10 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 
 	email := data.Email
 	formID := data.FlexID
-	userID := data.Username // We pass the OIDC subject as Username in FlexForm
+	userID, err := s.resolveUserID(ctx, data.Username)
+	if err != nil {
+		return err
+	}
 	formName := data.FormName
 	ccBillSubID := data.SubscriptionID
 	transactionID := data.TransactionID
@@ -252,7 +267,10 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 	failureReason := data.FailureReason
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		userID := data.Username
+		userID, err := s.resolveUserID(ctx, data.Username)
+		if err != nil {
+			return err
+		}
 
 		// Validate form configuration
 		cfg := s.CCBillClient.Config()
@@ -487,9 +505,10 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 	originalSubscriptionID := data.OriginalSubscriptionID
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-
-		// Map to OIDC subject when available in webhook (sent as username)
-		userID := data.Username
+		userID, err := s.resolveUserID(ctx, data.Username)
+		if err != nil {
+			return err
+		}
 
 		// Log upgrade failure event to ClickHouse
 		if s.BillingEventService != nil {

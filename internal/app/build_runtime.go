@@ -73,13 +73,14 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	serviceInstances.SolanaPaymentService.SetNotificationService(notificationService)
 
 	runtime := &Runtime{
-		DB:               database,
-		RedisClient:      redisClient,
-		Config:           cfg,
-		CCBillClient:     ccbillClient,
-		CCBillRESTClient: ccbillRESTClient,
-		CCBillDataLink:   ccbillDataLinkClient,
-		NMIClients:       nmiClients,
+		DB:                 database,
+		RedisClient:        redisClient,
+		Config:             cfg,
+		CCBillClient:       ccbillClient,
+		CCBillRESTClient:   ccbillRESTClient,
+		CCBillDataLink:     ccbillDataLinkClient,
+		CCBillAliasService: serviceInstances.CCBillAliasService,
+		NMIClients:         nmiClients,
 
 		SubscriptionService:        serviceInstances.SubscriptionService,
 		UserService:                serviceInstances.UserService,
@@ -260,6 +261,7 @@ func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
 type servicesInstances struct {
 	SubscriptionService *services.SubscriptionService
 	UserService         *services.UserService
+	CCBillAliasService  *services.CCBillAliasService
 
 	ProductService             *services.ProductService
 	PriceService               *services.PriceService
@@ -290,6 +292,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	paymentMethodService := services.NewPaymentMethodService(database)
 	purchaseService := services.NewPaymentService(database)
 	entitlementService := services.NewEntitlementService(database)
+	aliasService := services.NewCCBillAliasService(database)
 	solanaWalletService := services.NewSolanaWalletService(database)
 	solanaPaymentService := services.NewSolanaPaymentService(database, cfg, priceService, purchaseService, productService, entitlementService, nil)
 	solanaPaymentIntentService := services.NewSolanaPaymentIntentService(database, cfg, priceService)
@@ -342,6 +345,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	return &servicesInstances{
 		SubscriptionService:          subscriptionService,
 		UserService:                  userService,
+		CCBillAliasService:           aliasService,
 		ProductService:               productService,
 		PriceService:                 priceService,
 		NotificationQueueService:     notificationQueueService,

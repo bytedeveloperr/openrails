@@ -41,9 +41,23 @@ func GenerateFlexFormURL(r *Request) {
 		return
 	}
 
+	ccbillAliasService := r.State.CCBillAliasService
+	if ccbillAliasService == nil {
+		log.Error("CCBill alias service is not configured")
+		r.ErrorJSON(http.StatusInternalServerError, "Failed to generate payment form")
+		return
+	}
+
+	alias, err := ccbillAliasService.GetOrCreate(r.Request.Context(), userCtx.User.ID)
+	if err != nil {
+		log.WithError(err).Error("Failed to create or fetch CCBill username alias")
+		r.ErrorJSON(http.StatusInternalServerError, "Failed to generate payment form")
+		return
+	}
+
 	ccbillClient := ccbill.NewClient(r.State.Config.CCBill, r.State.Config.Env == "prod")
 	flexFormParams := &ccbill.GenerateFlexFormURLParams{
-		Username:      userCtx.User.ID,
+		Username:      alias,
 		Email:         *userCtx.User.Email,
 		CustomerFName: req.FirstName,
 		CustomerLName: req.LastName,

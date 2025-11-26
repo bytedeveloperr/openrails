@@ -107,6 +107,8 @@ func Webhook(r *Request) {
 			NotificationQueueService:     r.State.NotificationQueueService,
 			NotificationService:          r.State.NotificationService,
 			SubscriptionLifecycleService: r.State.SubscriptionLifecycleService,
+			DeadLetterService:            deadLetterService,
+			CCBillAliasService:           r.State.CCBillAliasService,
 		}
 
 		if err := service.HandleCCBillWebhook(context.Background()); err != nil {
