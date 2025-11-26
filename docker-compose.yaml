@@ -192,8 +192,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      secrets:
-        - gh_token
     depends_on:
       postgres:
         condition: service_healthy
@@ -220,8 +218,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      secrets:
-        - gh_token
     # Avoid infinite restart loops if the app panics at startup
     restart: on-failure:3
     depends_on:
@@ -278,7 +274,3 @@ volumes:
 networks:
   local-doujins:
     name: local-doujins
-
-secrets:
-  gh_token:
-    file: .secrets/gh_token

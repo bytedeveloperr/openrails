@@ -1,6 +1,14 @@
 <clickhouse>
     <!-- Single-node cluster for local development -->
     <!-- Requires ClickHouse Keeper for ON CLUSTER DDL coordination -->
+
+    <!-- Macros for ReplicatedMergeTree table paths -->
+    <macros>
+        <shard>1</shard>
+        <replica>replica1</replica>
+        <cluster>doujins</cluster>
+    </macros>
+
     <remote_servers>
         <doujins>
             <shard>

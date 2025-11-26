@@ -65,10 +65,8 @@ github.com/docker/go-connections v0.5.0 h1:USnMq7hx7gwdVZq1L49hLXaFtUdTADjXGp+uj
 github.com/docker/go-connections v0.5.0/go.mod h1:ov60Kzw0kKElRwhNs9UlUHAE/F9Fe6GLaXnqyDdmEXc=
 github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4=
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
-github.com/doujins-org/migratekit v0.7.6 h1:eG6Q5GzyDlnZY+91JabFWjeZwclHc8CNF1VcsKecepQ=
-github.com/doujins-org/migratekit v0.7.6/go.mod h1:W1w6pYvA7Ij3ZSiaLllvYkf/nMHOjIYNFqooiPRxqD4=
-github.com/doujins-org/migratekit v0.7.7 h1:YKziK24GUo0X4Fn0eLZHKsORK9xoL7v2JFBZuLwnpS4=
-github.com/doujins-org/migratekit v0.7.7/go.mod h1:W1w6pYvA7Ij3ZSiaLllvYkf/nMHOjIYNFqooiPRxqD4=
+github.com/doujins-org/migratekit v0.7.8 h1:2CR2qG1ckCSe6URABatuz1jhMyIdVJd6cgzMvkKeAeI=
+github.com/doujins-org/migratekit v0.7.8/go.mod h1:W1w6pYvA7Ij3ZSiaLllvYkf/nMHOjIYNFqooiPRxqD4=
 github.com/doujins-org/solana-go v1.13.0 h1:+XgMeTL0/C3Q311WxmBdxjVzf8+F5yG+qC9xwcTr+Sc=
 github.com/doujins-org/solana-go v1.13.0/go.mod h1:CFzbOQhmKammRzM/8biL4w/bOjb9g1jpLGASJpkEBtE=
 github.com/ebitengine/purego v0.8.4 h1:CF7LEKg5FFOsASUj0+QwaXf8Ht6TlFxg09+S9wz0omw=
