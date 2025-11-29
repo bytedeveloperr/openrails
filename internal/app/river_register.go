@@ -25,6 +25,12 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 	if err := river.AddWorkerSafely(workers, &riverjobs.CCBillReconcileWorker{DB: r.DB, DataLink: r.CCBillDataLink}); err != nil {
 		return nil, fmt.Errorf("add ccbill reconcile worker: %w", err)
 	}
+	if err := river.AddWorkerSafely(workers, &riverjobs.WebhookProcessWorker{Processor: r.WebhookProcessor}); err != nil {
+		return nil, fmt.Errorf("add webhook process worker: %w", err)
+	}
+	if err := river.AddWorkerSafely(workers, &riverjobs.WebhookRetryWorker{Events: r.WebhookEventService, Processor: r.WebhookProcessor}); err != nil {
+		return nil, fmt.Errorf("add webhook retry worker: %w", err)
+	}
 	return workers, nil
 }
 
@@ -63,6 +69,17 @@ func (r *Runtime) buildRiverPeriodicJobs(ctx context.Context) ([]*river.Periodic
 			}
 		},
 		&river.PeriodicJobOpts{RunOnStart: false},
+	))
+
+	// Every minute: check for webhook retries
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(time.Minute),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return riverjobs.WebhookRetryArgs{}, &river.InsertOpts{
+				Queue: riverjobs.QueueBilling,
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: true},
 	))
 
 	return jobs, nil

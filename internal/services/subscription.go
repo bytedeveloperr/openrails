@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -50,6 +51,7 @@ type SubscriptionService struct {
 	NMIClients               map[string]*nmi.NMIClient
 	PaymentMethodService     *PaymentMethodService
 	VaultService             *VaultService
+	IdempotencyService       *IdempotencyService
 }
 
 func (s *SubscriptionService) nmiClientForProvider(provider string) (*nmi.NMIClient, error) {
@@ -219,6 +221,19 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			return nil, errors.New("payment token or payment method ID is required")
 		}
 
+		var idemReq *models.IdempotencyRequest
+		if s.IdempotencyService != nil {
+			key := buildNMIIdempotencyKey(user.ID, priceID, trimmedToken, paymentMethodID)
+			req, exists, err := s.IdempotencyService.Begin(ctx, "nmi_subscription", key, &user.ID)
+			if err != nil {
+				return nil, fmt.Errorf("start idempotency window: %w", err)
+			}
+			if exists {
+				return nil, errors.New("duplicate subscription request detected")
+			}
+			idemReq = req
+		}
+
 		params := nmi.RecurringPaymentData{
 			CardUserData: nmi.CardUserData{
 				FirstName: data.FirstName,
@@ -301,6 +316,9 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 
 		resp, err := client.AddRecurringSubscription(params)
 		if err != nil {
+			if idemReq != nil {
+				_ = s.IdempotencyService.Fail(ctx, idemReq.ID, err)
+			}
 			if createdPaymentMethod != nil && s.VaultService != nil {
 				cleanupErr := s.VaultService.DeleteVault(ctx, createdPaymentMethod)
 				if cleanupErr != nil {
@@ -311,6 +329,14 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				}
 			}
 			return nil, err
+		}
+		if idemReq != nil {
+			payload, marshalErr := json.Marshal(resp)
+			if marshalErr != nil {
+				_ = s.IdempotencyService.Fail(ctx, idemReq.ID, marshalErr)
+			} else {
+				_ = s.IdempotencyService.Complete(ctx, idemReq.ID, payload)
+			}
 		}
 
 		var emailCopy *string
@@ -394,6 +420,18 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 	}
 
 	return nil
+}
+
+func buildNMIIdempotencyKey(userID string, priceID uuid.UUID, paymentToken string, paymentMethodID string) string {
+	token := strings.TrimSpace(paymentToken)
+	method := strings.TrimSpace(paymentMethodID)
+	if token == "" {
+		token = "none"
+	}
+	if method == "" {
+		method = "none"
+	}
+	return fmt.Sprintf("user:%s:price:%s:token:%s:method:%s", strings.TrimSpace(userID), priceID.String(), token, method)
 }
 
 // GetAvailableProducts returns all active products with their prices

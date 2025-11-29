@@ -53,6 +53,10 @@ type Runtime struct {
 	SolanaPaymentIntentService *services.SolanaPaymentIntentService
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
+	WebhookEventService          *services.WebhookEventService
+	WebhookDispatcher            *services.WebhookDispatcher
+	DeduplicationService         *services.DeduplicationService
+	WebhookProcessor             *services.WebhookProcessor
 
 	riverStarted bool
 }

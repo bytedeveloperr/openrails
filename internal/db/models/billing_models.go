@@ -42,6 +42,7 @@ type WebhookEvent struct {
 	// Retry tracking
 	ProcessingAttempts int        `bun:",default:0" json:"processing_attempts"`
 	LastAttemptAt      *time.Time `bun:",nullzero" json:"last_attempt_at,omitempty"`
+	NextAttemptAt      *time.Time `bun:",nullzero" json:"next_attempt_at,omitempty"`
 
 	// Timestamps
 	ReceivedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"received_at"`

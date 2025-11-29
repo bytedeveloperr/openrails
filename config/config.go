@@ -49,6 +49,7 @@ type Config struct {
 	Host          string            `koanf:"host,omitempty"`
 	NMI           *NMIConfig        `koanf:"nmi,omitempty"`
 	CCBill        *CCBillConfig     `koanf:"ccbill,omitempty"`
+	Webhooks      *WebhookConfig    `koanf:"webhooks,omitempty"`
 	Solana        *SolanaConfig     `koanf:"solana,omitempty"`
 	DB            *DBConfig         `koanf:"db,omitempty"`
 	Redis         *RedisConfig      `koanf:"redis,omitempty"`
@@ -295,6 +296,17 @@ type RateLimit struct {
 	Window time.Duration `koanf:"window"`
 }
 
+type WebhookConfig struct {
+	Retry WebhookRetryConfig `koanf:"retry"`
+}
+
+type WebhookRetryConfig struct {
+	MaxAttempts    int           `koanf:"max_attempts"`
+	InitialBackoff time.Duration `koanf:"initial_backoff"`
+	MaxBackoff     time.Duration `koanf:"max_backoff"`
+	BatchSize      int           `koanf:"batch_size"`
+}
+
 // Validate validates the billing configuration
 func Validate(cfg *Config) error {
 	// Skip strict validation in development environments
@@ -318,7 +330,61 @@ func Validate(cfg *Config) error {
 		return fmt.Errorf("database config validation failed: %w", err)
 	}
 
+	if err := validateWebhookConfig(cfg); err != nil {
+		return fmt.Errorf("webhook config validation failed: %w", err)
+	}
+
 	return nil
+}
+
+func validateWebhookConfig(cfg *Config) error {
+	retry := cfg.GetWebhookRetryConfig()
+	if retry.MaxAttempts < 1 {
+		return fmt.Errorf("max_attempts must be at least 1")
+	}
+	if retry.InitialBackoff <= 0 {
+		return fmt.Errorf("initial_backoff must be positive")
+	}
+	if retry.MaxBackoff < retry.InitialBackoff {
+		return fmt.Errorf("max_backoff must be greater than or equal to initial_backoff")
+	}
+	if retry.BatchSize < 1 {
+		return fmt.Errorf("batch_size must be at least 1")
+	}
+	return nil
+}
+
+func defaultWebhookRetryConfig() WebhookRetryConfig {
+	return WebhookRetryConfig{
+		MaxAttempts:    5,
+		InitialBackoff: time.Minute,
+		MaxBackoff:     time.Hour,
+		BatchSize:      100,
+	}
+}
+
+func (cfg *Config) GetWebhookRetryConfig() WebhookRetryConfig {
+	defaults := defaultWebhookRetryConfig()
+	if cfg == nil || cfg.Webhooks == nil {
+		return defaults
+	}
+	retry := cfg.Webhooks.Retry
+	if retry.MaxAttempts <= 0 {
+		retry.MaxAttempts = defaults.MaxAttempts
+	}
+	if retry.InitialBackoff <= 0 {
+		retry.InitialBackoff = defaults.InitialBackoff
+	}
+	if retry.MaxBackoff <= 0 {
+		retry.MaxBackoff = defaults.MaxBackoff
+	}
+	if retry.MaxBackoff < retry.InitialBackoff {
+		retry.MaxBackoff = retry.InitialBackoff
+	}
+	if retry.BatchSize <= 0 {
+		retry.BatchSize = defaults.BatchSize
+	}
+	return retry
 }
 
 // validateNMI validates NMI-specific configuration

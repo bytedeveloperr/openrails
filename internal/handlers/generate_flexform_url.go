@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -38,6 +39,16 @@ func GenerateFlexFormURL(r *Request) {
 	if price == nil {
 		log.WithField("price_id", priceID).Warn("Price lookup returned nil result")
 		r.ErrorJSON(http.StatusBadRequest, "Invalid price ID")
+		return
+	}
+	if price.CCBillPriceID == nil || strings.TrimSpace(*price.CCBillPriceID) == "" {
+		log.WithField("price_id", priceID).Error("Price missing CCBill configuration")
+		r.ErrorJSON(http.StatusBadRequest, "Price is not configured for CCBill")
+		return
+	}
+	if userCtx.User.Email == nil || strings.TrimSpace(*userCtx.User.Email) == "" {
+		log.Error("Authenticated user missing email for FlexForm request")
+		r.ErrorJSON(http.StatusBadRequest, "Verified email required for CCBill payments")
 		return
 	}
 

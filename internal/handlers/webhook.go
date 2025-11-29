@@ -10,8 +10,12 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/google/uuid"
+	"github.com/riverqueue/river"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/doujins-org/doujins-billing/internal/app"
+	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	ipverify "github.com/doujins-org/doujins-billing/internal/utils"
 )
@@ -99,34 +103,45 @@ func Webhook(r *Request) {
 			return
 		}
 
-		eventType := r.Query("eventType")
-		data := services.CCBillWebhookEvent{
-			EventType: eventType,
-			EventBody: body,
-		}
-
-		service := services.CCBillWebhookService{
-			Data:                         data,
-			DB:                           r.State.DB,
-			PriceService:                 r.State.PriceService,
-			ProductService:               r.State.ProductService,
-			CCBillClient:                 r.State.CCBillRESTClient,
-			BillingEventService:          r.State.BillingEventService,
-			SubscriptionService:          r.State.SubscriptionService,
-			NotificationQueueService:     r.State.NotificationQueueService,
-			NotificationService:          r.State.NotificationService,
-			SubscriptionLifecycleService: r.State.SubscriptionLifecycleService,
-			DeadLetterService:            deadLetterService,
-			CCBillAliasService:           r.State.CCBillAliasService,
-		}
-
-		if err := service.HandleCCBillWebhook(context.Background()); err != nil {
-			log.WithError(err).Error("failed to process CCBill webhook")
-			r.ErrorJSON(http.StatusInternalServerError, err.Error())
+		eventType := strings.TrimSpace(r.Query("eventType"))
+		if eventType == "" {
+			r.ErrorJSON(http.StatusBadRequest, "Missing eventType parameter")
 			return
 		}
+
+		if r.State == nil || r.State.WebhookEventService == nil || r.State.WebhookProcessor == nil {
+			log.Error("Webhook components not configured; unable to persist event")
+			r.ErrorJSON(http.StatusInternalServerError, "Webhook processing unavailable")
+			return
+		}
+
+		eventHeaders := copyHeaders(headers)
+		if provider != "" {
+			eventHeaders["x-internal-provider"] = provider
+		}
+
+		ctx := r.Request.Context()
+		event, err := r.State.WebhookEventService.Create(ctx, services.CreateWebhookEventParams{
+			Processor: services.ProcessorCCBill,
+			EventType: eventType,
+			Payload:   body,
+			Headers:   eventHeaders,
+			IPAddress: clientIP,
+		})
+		if err != nil {
+			log.WithError(err).Error("failed to persist CCBill webhook event")
+			r.ErrorJSON(http.StatusInternalServerError, "Failed to persist webhook event")
+			return
+		}
+
+		if err := queueOrProcessWebhook(ctx, r.State, event.ID); err != nil {
+			log.WithError(err).Error("failed to enqueue CCBill webhook for processing")
+		}
+
+		r.SuccessJSON(map[string]string{"status": "accepted"})
+		return
 	case services.ProcessorNMI:
-		handleNMIWebhook(r, provider)
+		handleNMIWebhook(r, provider, headers, clientIP)
 		return
 	default:
 		webhookBody, readErr := readRequestBody(r.Request.Body)
@@ -141,7 +156,7 @@ func Webhook(r *Request) {
 
 }
 
-func handleNMIWebhook(r *Request, provider string) {
+func handleNMIWebhook(r *Request, provider string, headers map[string]string, clientIP string) {
 	// Read the request body for signature verification
 	body, err := readRequestBody(r.Request.Body)
 	if err != nil {
@@ -160,11 +175,11 @@ func handleNMIWebhook(r *Request, provider string) {
 		return
 	}
 
-	// Check if NMI is in test mode - bypass authentication for testing
+	signature := ""
+	signatureValidated := false
 	if !client.Config().TestMode {
-		// Verify webhook signature if webhook secret is configured
 		if client.GetWebhookSecret() != "" {
-			signature := r.Request.Header.Get("X-Signature")
+			signature = r.Request.Header.Get("X-Signature")
 			if signature == "" {
 				signature = r.Request.Header.Get("X-NMI-Signature")
 			}
@@ -176,12 +191,12 @@ func handleNMIWebhook(r *Request, provider string) {
 				r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
 				return
 			}
-
 			if err := client.VerifyWebhookSignature(body, signature); err != nil {
 				log.WithError(err).Error("NMI webhook signature verification failed")
 				r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
 				return
 			}
+			signatureValidated = true
 		} else {
 			log.Warn("NMI webhook secret not configured - skipping signature verification")
 		}
@@ -195,25 +210,48 @@ func handleNMIWebhook(r *Request, provider string) {
 		r.ErrorJSON(http.StatusBadRequest, "Invalid JSON data")
 		return
 	}
-	service := services.NMIWebhookService{
-		Data:                         data,
-		DB:                           r.State.DB,
-		PriceService:                 r.State.PriceService,
-		ProductService:               r.State.ProductService,
-		Provider:                     providerKey,
-		NMIClient:                    client,
-		BillingEventService:          r.State.BillingEventService,
-		SubscriptionService:          r.State.SubscriptionService,
-		PaymentService:               r.State.PaymentService,
-		NotificationQueueService:     r.State.NotificationQueueService,
-		SubscriptionLifecycleService: r.State.SubscriptionLifecycleService,
-	}
-
-	if err := service.HandleNMIWebhook(context.Background()); err != nil {
-		log.WithError(err).Error("failed to process webhook")
-		r.ErrorJSON(http.StatusInternalServerError, err.Error())
+	if data.EventID == "" {
+		r.ErrorJSON(http.StatusBadRequest, "Missing event_id in payload")
 		return
 	}
+
+	if r.State == nil || r.State.WebhookEventService == nil || r.State.WebhookProcessor == nil {
+		log.Error("Webhook components not configured; unable to persist NMI event")
+		r.ErrorJSON(http.StatusInternalServerError, "Webhook processing unavailable")
+		return
+	}
+
+	ctx := r.Request.Context()
+	eventHeaders := copyHeaders(headers)
+	eventHeaders["x-internal-provider"] = providerKey
+
+	var signatureValidPtr *bool
+	if signatureValidated {
+		truth := true
+		signatureValidPtr = &truth
+	}
+
+	params := services.CreateWebhookEventParams{
+		Processor:      services.ProcessorNMI,
+		EventID:        data.EventID,
+		EventType:      string(data.EventType),
+		Payload:        body,
+		Headers:        eventHeaders,
+		IPAddress:      clientIP,
+		Signature:      signature,
+		SignatureValid: signatureValidPtr,
+	}
+	if event, err := r.State.WebhookEventService.Create(ctx, params); err != nil {
+		log.WithError(err).Error("failed to persist NMI webhook event")
+		r.ErrorJSON(http.StatusInternalServerError, "Failed to persist webhook event")
+		return
+	} else {
+		if err := queueOrProcessWebhook(ctx, r.State, event.ID); err != nil {
+			log.WithError(err).Error("failed to enqueue NMI webhook for processing")
+		}
+	}
+
+	r.SuccessJSON(map[string]string{"status": "accepted"})
 }
 
 func readRequestBody(body io.ReadCloser) ([]byte, error) {
@@ -243,4 +281,30 @@ func normalizeCCBillPayload(body []byte) ([]byte, error) {
 		}
 	}
 	return json.Marshal(payload)
+}
+
+func copyHeaders(src map[string]string) map[string]string {
+	if src == nil {
+		return map[string]string{}
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func queueOrProcessWebhook(ctx context.Context, runtime *app.Runtime, eventID uuid.UUID) error {
+	if runtime == nil || runtime.WebhookProcessor == nil {
+		return fmt.Errorf("webhook processor unavailable")
+	}
+	if runtime.RiverClient != nil {
+		if _, err := runtime.RiverClient.Insert(ctx, riverjobs.WebhookProcessArgs{EventID: eventID}, &river.InsertOpts{Queue: riverjobs.QueueBilling}); err == nil {
+			return nil
+		} else {
+			log.WithError(err).Warn("Failed to enqueue webhook job; processing inline")
+		}
+	}
+	_, err := runtime.WebhookProcessor.Process(ctx, eventID)
+	return err
 }

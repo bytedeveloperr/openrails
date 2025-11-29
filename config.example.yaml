@@ -98,6 +98,14 @@ nmi:
       # direct_post_url: "https://secure.mobiusgateway.com/api/transact.php"
       # query_url: "https://secure.mobiusgateway.com/api/query.php"
 
+# Webhook processing configuration
+webhooks:
+  retry:
+    max_attempts: 5
+    initial_backoff: 1m
+    max_backoff: 1h
+    batch_size: 100
+
 # Solana blockchain configuration
 solana:
   rpc_endpoint: "https://api.mainnet-beta.solana.com"

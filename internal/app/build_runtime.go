@@ -69,6 +69,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		subscriptionEmailService,
 		emailService,
 	)
+	serviceInstances.WebhookDispatcher.NotificationService = notificationService
 	serviceInstances.SubscriptionLifecycleService.SetNotificationService(notificationService)
 	serviceInstances.SolanaPaymentService.SetNotificationService(notificationService)
 
@@ -103,6 +104,13 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		EmailService:                 emailService,
 		SubscriptionEmailService:     subscriptionEmailService,
 		SubscriptionLifecycleService: serviceInstances.SubscriptionLifecycleService,
+		WebhookEventService:          serviceInstances.WebhookEventService,
+		WebhookDispatcher:            serviceInstances.WebhookDispatcher,
+		DeduplicationService:         serviceInstances.DeduplicationService,
+	}
+	runtime.WebhookProcessor = &services.WebhookProcessor{
+		Events:     runtime.WebhookEventService,
+		Dispatcher: runtime.WebhookDispatcher,
 	}
 
 	// River client will be initialized later in StartWorkers with proper worker registration
@@ -119,6 +127,8 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 			runtime.BillingEventService = bes
 		}
 	}
+
+	runtime.WebhookDispatcher.BillingEventService = runtime.BillingEventService
 
 	return runtime, nil
 }
@@ -282,6 +292,9 @@ type servicesInstances struct {
 	SubscriptionEmailService *services.SubscriptionEmailService
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
+	DeduplicationService         *services.DeduplicationService
+	WebhookEventService          *services.WebhookEventService
+	WebhookDispatcher            *services.WebhookDispatcher
 }
 
 func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, nmiClients map[string]*nmi.NMIClient) *servicesInstances {
@@ -317,6 +330,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 
 	vaultService := services.NewVaultService(paymentMethodService, subscriptionService, nmiClients, database)
 	subscriptionService.VaultService = vaultService
+	subscriptionService.IdempotencyService = services.NewIdempotencyService(database)
 
 	userSubscriptionService := services.NewUserSubscriptionService(
 		subscriptionService,
@@ -342,6 +356,24 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		purchaseService,
 	)
 
+	deduplicationService := services.NewDeduplicationService(database)
+	webhookEventService := services.NewWebhookEventService(database, cfg.GetWebhookRetryConfig())
+	webhookDispatcher := &services.WebhookDispatcher{
+		DB:                           database,
+		PriceService:                 priceService,
+		ProductService:               productService,
+		NotificationQueueService:     notificationQueueService,
+		NotificationService:          nil,
+		SubscriptionService:          subscriptionService,
+		PaymentService:               purchaseService,
+		BillingEventService:          nil,
+		SubscriptionLifecycleService: subscriptionLifecycleService,
+		CCBillAliasService:           aliasService,
+		DeduplicationService:         deduplicationService,
+		CCBillRESTClient:             ccbillRESTClient,
+		NMIClients:                   nmiClients,
+	}
+
 	return &servicesInstances{
 		SubscriptionService:          subscriptionService,
 		UserService:                  userService,
@@ -360,6 +392,9 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		PublicSubscriptionService:    publicSubscriptionService,
 		AdminSubscriptionService:     adminSubscriptionService,
 		SubscriptionLifecycleService: subscriptionLifecycleService,
+		DeduplicationService:         deduplicationService,
+		WebhookEventService:          webhookEventService,
+		WebhookDispatcher:            webhookDispatcher,
 	}
 }
 
