@@ -12,6 +12,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/google/uuid"
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -177,16 +178,21 @@ func (w *DunningAttemptWorker) Work(ctx context.Context, job *river.Job[DunningA
 	return nil
 }
 
+// JobInserter allows enqueuing additional River jobs from within a worker.
+type JobInserter interface {
+	Insert(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error)
+}
+
 // DunningSweepArgs triggers a scan and inline processing of due dunning attempts.
 type DunningSweepArgs struct{}
 
 func (DunningSweepArgs) Kind() string { return KindDunningScan }
 
-// DunningSweepWorker scans for due past_due NMI subscriptions and processes attempts inline.
+// DunningSweepWorker scans for due past_due NMI subscriptions and enqueues attempt jobs.
 type DunningSweepWorker struct {
 	river.WorkerDefaults[DunningSweepArgs]
-	DB         *db.DB
-	NMIClients map[string]*nmi.NMIClient
+	DB       *db.DB
+	Inserter JobInserter
 }
 
 func (DunningSweepWorker) Kind() string { return KindDunningScan }
@@ -194,6 +200,9 @@ func (DunningSweepWorker) Kind() string { return KindDunningScan }
 func (w *DunningSweepWorker) Work(ctx context.Context, job *river.Job[DunningSweepArgs]) error {
 	if w.DB == nil {
 		return fmt.Errorf("db is required")
+	}
+	if w.Inserter == nil {
+		return fmt.Errorf("job inserter is required")
 	}
 	// query due subs
 	due := []models.Subscription{}
@@ -210,19 +219,15 @@ func (w *DunningSweepWorker) Work(ctx context.Context, job *river.Job[DunningSwe
 		log.WithContext(ctx).Info("DunningScan: no attempts due")
 		return nil
 	}
-	// Process attempts inline to avoid needing a client within workers
 	count := 0
 	for _, sub := range due {
-		// Reuse attempt logic from DunningAttemptWorker by calling it directly
-		// Simplify by creating a temporary worker bound to current DB/NMI clients
-		tmp := DunningAttemptWorker{DB: w.DB, NMIClients: w.NMIClients}
-		if err := tmp.Work(ctx, &river.Job[DunningAttemptArgs]{Args: DunningAttemptArgs{SubscriptionID: sub.ID}}); err != nil {
-			log.WithContext(ctx).WithError(err).WithField("subscription_id", sub.ID).Warn("dunning attempt failed")
+		if _, err := w.Inserter.Insert(ctx, DunningAttemptArgs{SubscriptionID: sub.ID}, &river.InsertOpts{Queue: QueueBilling}); err != nil {
+			log.WithContext(ctx).WithError(err).WithField("subscription_id", sub.ID).Warn("enqueue dunning attempt failed")
 			continue
 		}
 		count++
 	}
-	log.WithContext(ctx).WithField("count", count).Info("DunningSweep: processed attempts")
+	log.WithContext(ctx).WithField("count", count).Info("DunningScan: enqueued attempts")
 	return nil
 }
 

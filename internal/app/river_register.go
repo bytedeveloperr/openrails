@@ -6,9 +6,21 @@ import (
 	"time"
 
 	"github.com/riverqueue/river"
+	"github.com/riverqueue/river/rivertype"
 
 	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 )
+
+type riverClientJobInserter struct {
+	runtime *Runtime
+}
+
+func (i riverClientJobInserter) Insert(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error) {
+	if i.runtime == nil || i.runtime.RiverClient == nil {
+		return nil, fmt.Errorf("river client is not initialised")
+	}
+	return i.runtime.RiverClient.Insert(ctx, args, opts)
+}
 
 // buildRiverWorkers constructs the worker registry for River.
 func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error) {
@@ -16,7 +28,8 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 	if err := river.AddWorkerSafely(workers, &riverjobs.DunningAttemptWorker{DB: r.DB, NMIClients: r.NMIClients}); err != nil {
 		return nil, fmt.Errorf("add dunning attempt worker: %w", err)
 	}
-	if err := river.AddWorkerSafely(workers, &riverjobs.DunningSweepWorker{DB: r.DB, NMIClients: r.NMIClients}); err != nil {
+	sweepWorker := &riverjobs.DunningSweepWorker{DB: r.DB, Inserter: riverClientJobInserter{runtime: r}}
+	if err := river.AddWorkerSafely(workers, sweepWorker); err != nil {
 		return nil, fmt.Errorf("add dunning sweep worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.IdempotencyCleanupWorker{DB: r.DB}); err != nil {
