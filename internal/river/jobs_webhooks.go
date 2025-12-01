@@ -36,6 +36,7 @@ func (w *WebhookProcessWorker) Work(ctx context.Context, job *river.Job[WebhookP
 	retry, err := w.Processor.Process(ctx, job.Args.EventID)
 	if err != nil {
 		log.WithContext(ctx).WithError(err).WithField("event_id", job.Args.EventID).Error("Webhook processing failed")
+		return err
 	}
 	if retry {
 		log.WithContext(ctx).WithField("event_id", job.Args.EventID).Info("Webhook scheduled for retry")
@@ -65,11 +66,15 @@ func (w *WebhookRetryWorker) Work(ctx context.Context, job *river.Job[WebhookRet
 		return fmt.Errorf("list retryable webhooks: %w", err)
 	}
 
+	var firstErr error
 	for _, event := range events {
 		if _, err := w.Processor.Process(ctx, event.ID); err != nil {
 			log.WithContext(ctx).WithError(err).WithField("event_id", event.ID).Warn("Retrying webhook event failed")
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 
-	return nil
+	return firstErr
 }
