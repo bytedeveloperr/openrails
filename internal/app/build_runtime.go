@@ -398,19 +398,19 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	}
 }
 
-func buildRiverClient(cfg *config.Config, workers *river.Workers) (*river.Client[pgx.Tx], error) {
+func buildRiverClient(cfg *config.Config, workers *river.Workers) (*river.Client[pgx.Tx], *pgxpool.Pool, error) {
 	if cfg.DB == nil {
-		return nil, fmt.Errorf("missing database configuration for River")
+		return nil, nil, fmt.Errorf("missing database configuration for River")
 	}
 	dbURL := cfg.DB.GetConnectionString()
 	if dbURL == "" {
-		return nil, fmt.Errorf("missing database configuration for River (DB_URL or DB_HOST/DB_PORT/etc.)")
+		return nil, nil, fmt.Errorf("missing database configuration for River (DB_URL or DB_HOST/DB_PORT/etc.)")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed creating pgx pool for River: %w", err)
+		return nil, nil, fmt.Errorf("failed creating pgx pool for River: %w", err)
 	}
 
 	// Get schema for River tables (same as billing schema)
@@ -426,7 +426,8 @@ func buildRiverClient(cfg *config.Config, workers *river.Workers) (*river.Client
 		Workers: workers,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed creating River client: %w", err)
+		pool.Close()
+		return nil, nil, fmt.Errorf("failed creating River client: %w", err)
 	}
-	return client, nil
+	return client, pool, nil
 }

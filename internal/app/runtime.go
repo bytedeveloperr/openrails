@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	redis "github.com/redis/go-redis/v9"
 	"github.com/riverqueue/river"
 	log "github.com/sirupsen/logrus"
@@ -27,6 +28,7 @@ type Runtime struct {
 	CCBillAliasService *services.CCBillAliasService
 	NMIClients         map[string]*nmi.NMIClient
 	RiverClient        *river.Client[pgx.Tx]
+	riverPool          *pgxpool.Pool
 
 	UserService              *services.UserService
 	SubscriptionService      *services.SubscriptionService
@@ -74,6 +76,10 @@ func (r *Runtime) Close(ctx context.Context) error {
 		}
 		r.riverStarted = false
 	}
+	if r.riverPool != nil {
+		r.riverPool.Close()
+		r.riverPool = nil
+	}
 	if r.DB != nil {
 		if err := r.DB.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close db: %w", err))
@@ -104,11 +110,12 @@ func (r *Runtime) InitRiver(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("build river workers: %w", err)
 	}
-	client, err := buildRiverClient(r.Config, workers)
+	client, pool, err := buildRiverClient(r.Config, workers)
 	if err != nil {
 		return err
 	}
 	r.RiverClient = client
+	r.riverPool = pool
 	return nil
 }
 
