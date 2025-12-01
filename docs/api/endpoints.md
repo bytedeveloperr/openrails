@@ -128,7 +128,7 @@ Admin routes are not rate limited by the application but should live behind netw
 - **Response:**
   ```json
   {
-    "iframe_url": "https://api.ccbill.com/wap-frontflex/flexforms/...",
+    "iframe_url": "https://sandbox-api.ccbill.com/wap-frontflex/flexforms/...",
     "width": "100%",
     "height": "600px",
     "success_url": "https://example.com/billing/success",
