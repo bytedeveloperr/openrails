@@ -49,6 +49,7 @@ func main() {
 		RunE:    runServer,
 		Short:   "Start the billing service server",
 	}
+	serverCmd.Flags().Bool("start-workers", false, "Start River workers inside the server process")
 
 	workerCmd := &cobra.Command{
 		Use:   "worker",
@@ -154,8 +155,16 @@ func runServer(cmd *cobra.Command, args []string) error {
 	}
 	cleanupOnError = false
 
-	// Ensure API routes are registered and background workers are started
-	billingServer.StartWorkers(cmd.Context())
+	startWorkers, err := cmd.Flags().GetBool("start-workers")
+	if err != nil {
+		return fmt.Errorf("read start-workers flag: %w", err)
+	}
+	if startWorkers {
+		log.Info("Starting River workers within server process")
+		billingServer.StartWorkers(cmd.Context())
+	} else {
+		log.Info("Server start-workers flag not set; skipping River workers")
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
