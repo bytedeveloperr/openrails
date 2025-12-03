@@ -115,6 +115,7 @@ func main() {
 	chMigrateCmd.AddCommand(chMigrateUpCmd)
 	migrateCmd.AddCommand(migrateUpCmd)
 	rootCmd.AddCommand(serverCmd, workerCmd, migrateCmd, pgMigrateCmd, chMigrateCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		log.WithError(err).Fatal("Failed to execute command")
 	}
@@ -122,9 +123,6 @@ func main() {
 
 func runServer(cmd *cobra.Command, args []string) error {
 	cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
-	// Note: migrations are no longer auto-run on server startup.
-	// In Docker Compose, a separate one-shot service runs `billing migrate`
-	// before the server starts. Use the `migrate` CLI for manual runs.
 
 	if cfg.Env == "production" || cfg.Env == "prod" {
 		gin.SetMode(gin.ReleaseMode)

@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/app"
+	"github.com/doujins-org/doujins-billing/internal/migrate"
 	"github.com/doujins-org/doujins-billing/internal/server"
 
+	_ "github.com/lib/pq" // PostgreSQL driver for schema creation
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -34,8 +36,8 @@ type TestContainerSuite struct {
 	redisContainer      *redismodule.RedisContainer
 	clickhouseContainer *clickhouse.ClickHouseContainer
 
-	// Database connections
-	DB          *db.DB
+	// Application and database connections
+	App         *app.App
 	BunDB       *bun.DB
 	RedisClient *redis.Client
 
@@ -72,13 +74,13 @@ func (suite *TestContainerSuite) SetupSuite() {
 	suite.startRedisContainer()
 	suite.startClickHouseContainer()
 
-	// Initialize database connections
+	// Initialize config with container connection details
 	suite.initializeDatabaseConnections()
 
-	// Run database migrations
+	// Run database migrations (creates schema before app connects)
 	suite.runDatabaseMigrations()
 
-	// Initialize server
+	// Initialize server (bootstraps the app and sets up DB connection)
 	suite.initializeServer()
 
 	// Wait for server to be ready
@@ -162,14 +164,15 @@ func (suite *TestContainerSuite) initializeDatabaseConnections() {
 	require.NoError(suite.t, err)
 
 	// Create configuration
+	// Use "dev" to skip NMI/CCBill validation in config.Validate()
+	// Use the JWKS server URL as the issuer so auth verification works
+	jwksIssuer := GetTestIssuerURL()
 	suite.Config = &config.Config{
-		Env:  "test",
+		Env:  "dev",
 		Host: "localhost",
 		Port: 8080, // Fixed port for testing
 		DB: &config.DBConfig{
-			URL:     postgresConnStr,
-			Schema:  "billing",
-			Dialect: "postgres",
+			URL: postgresConnStr,
 		},
 		Redis: &config.RedisConfig{
 			Addr:     fmt.Sprintf("%s:%s", redisHost, redisPort.Port()),
@@ -182,18 +185,11 @@ func (suite *TestContainerSuite) initializeDatabaseConnections() {
 			Username: "test_user",
 			Password: "test_password",
 		},
-		JWT: &config.AuthConfig{
-			Secret:   "test-secret-key-for-testing-only",
-			Issuer:   "doujins-test",
-			Audience: "doujins-test-app",
+		Auth: &config.AuthConfig{
+			Issuers:          []string{jwksIssuer},
+			ExpectedAudience: "test-app",
 		},
 	}
-
-	// Initialize database connection
-	suite.DB, err = db.NewDB(suite.Config.DB)
-	require.NoError(suite.t, err)
-
-	suite.BunDB = suite.DB.GetDB().(*bun.DB)
 
 	// Initialize Redis connection
 	suite.RedisClient = redis.NewClient(&redis.Options{
@@ -211,8 +207,24 @@ func (suite *TestContainerSuite) initializeDatabaseConnections() {
 func (suite *TestContainerSuite) runDatabaseMigrations() {
 	suite.t.Helper()
 
-	// Create billing schema
-	_, err := suite.BunDB.ExecContext(suite.ctx, "CREATE SCHEMA IF NOT EXISTS billing")
+	// First, create the required schemas (normally done by bootstrap SQL)
+	postgresConnStr, err := suite.postgresContainer.ConnectionString(suite.ctx, "sslmode=disable")
+	require.NoError(suite.t, err)
+
+	// Connect directly to create schemas
+	sqlDB, err := sql.Open("postgres", postgresConnStr)
+	require.NoError(suite.t, err)
+	defer sqlDB.Close()
+
+	// Create required schemas
+	_, err = sqlDB.ExecContext(suite.ctx, `
+		CREATE SCHEMA IF NOT EXISTS billing;
+		CREATE SCHEMA IF NOT EXISTS profiles;
+	`)
+	require.NoError(suite.t, err)
+
+	// Run all migrations using the migrate package
+	err = migrate.RunPostgres(suite.ctx, suite.Config)
 	require.NoError(suite.t, err)
 }
 
@@ -220,8 +232,22 @@ func (suite *TestContainerSuite) runDatabaseMigrations() {
 func (suite *TestContainerSuite) initializeServer() {
 	suite.t.Helper()
 
-	// Create server
-	billingServer, err := server.New(suite.Config)
+	// Bootstrap the application (creates runtime, cache, auth verifier, etc.)
+	application, err := app.Bootstrap(suite.Config)
+	require.NoError(suite.t, err)
+	suite.App = application
+
+	// Get the BunDB from the app runtime
+	suite.BunDB = application.Runtime.DB.GetDB().(*bun.DB)
+
+	// Create server with dependencies
+	billingServer, err := server.New(server.Dependencies{
+		Config:       suite.Config,
+		Cache:        application.Cache,
+		Runtime:      application.Runtime,
+		Redis:        application.RedisClient,
+		AuthVerifier: application.AuthVerifier,
+	})
 	require.NoError(suite.t, err)
 
 	suite.Server = billingServer
@@ -285,13 +311,11 @@ func (suite *TestContainerSuite) Cleanup() {
 		suite.Server.Close(ctx)
 	}
 
-	// Close database connections
-	if suite.DB != nil {
-		suite.DB.Close()
-	}
-
-	if suite.RedisClient != nil {
-		suite.RedisClient.Close()
+	// Close application (handles DB, Redis, cache, etc.)
+	if suite.App != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		suite.App.Close(ctx)
 	}
 
 	// Terminate containers

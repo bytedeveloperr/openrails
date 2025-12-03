@@ -62,9 +62,17 @@ func TestPostgresContainer(t *testing.T) {
 	})
 }
 
-// isDockerAvailable checks if Docker is available
+// isDockerAvailable checks if Docker daemon is accessible
 func isDockerAvailable() bool {
-	// For now, always return false since Docker is not running
-	// In a real environment, you would check if Docker daemon is accessible
-	return false
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Try to create a minimal container provider - this checks Docker connectivity
+	provider, err := testcontainers.ProviderDocker.GetProvider()
+	if err != nil {
+		return false
+	}
+
+	// Check if we can ping the Docker daemon
+	return provider.Health(ctx) == nil
 }

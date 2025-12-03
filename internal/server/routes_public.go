@@ -71,7 +71,9 @@ func (s *Server) registerPublicRoutes() {
 	access.Use(middleware.AuthRequired(s.authVerifier))
 	access.GET("", s.wrap(handlers.GetAccessStatus))
 
-	api.GET("/me/status", s.wrap(handlers.GetMyBillingStatus))
+	me := api.Group("/me")
+	me.Use(middleware.AuthRequired(s.authVerifier))
+	me.GET("/status", s.wrap(handlers.GetMyBillingStatus))
 
 	s.publicHandler.GET("/health/live", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})

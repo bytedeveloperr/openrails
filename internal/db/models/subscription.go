@@ -12,7 +12,6 @@ import (
 type SubscriptionStatus string
 
 const (
-	// Wave 18 Subscription Status System - Simplified 4-State Model
 	// The status system is designed around a simple question: "Will we attempt to rebill this subscription?"
 	// - If rebilling will be attempted → past_due (when payment fails but we're still trying)
 	// - If rebilling will NEVER be attempted again → cancelled (user cancelled, max retries reached, etc.)

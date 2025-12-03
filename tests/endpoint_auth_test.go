@@ -1,3 +1,5 @@
+//go:build integration
+
 package tests
 
 import (
@@ -9,18 +11,24 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestNotificationEndpoints tests notification endpoints
-func TestNotificationEndpoints(t *testing.T) {
-	server, token := setupTestServerWithAuth(t)
-	_ = token // Used in auth tests below
+// TestEndpointAuthRequirements tests that protected endpoints require authentication
+func TestEndpointAuthRequirements(t *testing.T) {
+	server, _ := setupTestServerWithAuth(t)
 
+	// All endpoints that require authentication
 	endpoints := []struct {
 		method string
 		path   string
 	}{
+		// Notification endpoints
 		{"GET", "/v1/notifications"},
 		{"GET", "/v1/notifications/unread-count"},
 		{"POST", "/v1/notifications/123/read"},
+		// Payment method endpoints
+		{"GET", "/v1/payment-methods"},
+		{"PUT", "/v1/payment-methods/123"},
+		{"DELETE", "/v1/payment-methods/123"},
+		{"PUT", "/v1/payment-methods/123/activate"},
 	}
 
 	for _, endpoint := range endpoints {

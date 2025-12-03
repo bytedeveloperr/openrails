@@ -1,144 +1,55 @@
+//go:build integration
+
 package tests
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/x509"
-	"encoding/pem"
-	"fmt"
 	"net/http/httptest"
 	"sync"
 	"testing"
-	"time"
 
+	authtesting "github.com/PaulFidika/authkit/testing"
 	"github.com/gin-gonic/gin"
-	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/app"
 	"github.com/doujins-org/doujins-billing/internal/server"
 )
 
-const testAuthIssuer = "TEST_JWT_SECRET"
-
 var (
-	testRSAOnce      sync.Once
-	testRSAPrivate   *rsa.PrivateKey
-	testRSAPublicPEM string
-)
+	// Test issuer for auth verification (shared across tests)
+	testIssuerOnce sync.Once
+	testIssuer     *authtesting.TestIssuer
 
-func ensureTestRSAKeys() {
-	testRSAOnce.Do(func() {
-		key, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			panic(fmt.Sprintf("failed to generate test RSA key: %v", err))
-		}
-		testRSAPrivate = key
-		pubBytes, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
-		if err != nil {
-			panic(fmt.Sprintf("failed to marshal test RSA public key: %v", err))
-		}
-		testRSAPublicPEM = string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubBytes}))
-	})
-}
+	// Shared test container suite for tests that need infra
+	sharedSuiteOnce sync.Once
+	sharedSuite     *TestContainerSuite
+)
 
 func init() {
 	gin.SetMode(gin.TestMode)
 }
 
-// Helper function to create a real server instance for testing
-func createTestServer(t *testing.T) (*server.Server, *app.App) {
-	// Try to load config, but if it fails, create minimal test config
-	cfg, err := config.Load("")
-	if err != nil {
-		t.Skipf("Skipping test due to config load failure: %v", err)
-	}
-
-	// Inject deterministic auth settings so tests do not rely on external configuration
-	if cfg.Auth == nil {
-		cfg.Auth = &config.AuthConfig{}
-	}
-	ensureTestRSAKeys()
-	cfg.Auth.Issuers[0] = testAuthIssuer
-	cfg.Auth.ExpectedAudience = "billing-app"
-	// removed = testRSAPublicPEM
-
-	application, err := app.Bootstrap(cfg)
-	if err != nil {
-		t.Skipf("Skipping test due to app bootstrap failure (expected in test environment): %v", err)
-	}
-
-	srv, err := server.New(server.Dependencies{
-		Config:       application.Config,
-		Cache:        application.Cache,
-		Runtime:      application.Runtime,
-		Redis:        application.RedisClient,
-		AuthVerifier: application.AuthVerifier,
+// getTestIssuer returns a shared test issuer for authentication.
+// The issuer provides a JWKS endpoint and can sign tokens.
+func getTestIssuer() *authtesting.TestIssuer {
+	testIssuerOnce.Do(func() {
+		testIssuer = authtesting.NewTestIssuerWithAudience("test-app")
 	})
-	if err != nil {
-		t.Skipf("Skipping test due to server initialization failure (expected in test environment): %v", err)
-	}
-
-	return srv, application
+	return testIssuer
 }
 
-// Helper function to create deterministic HS256 JWT token for testing
-func createTestHS256JWT(s *server.Server) string {
-	// Deterministic user ID and email for consistent testing
-	userID := "test-user-billing-12345"
-	email := "test@billing.example.com"
-
-	cfg := s.Cfg()
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"sub":   userID,
-		"email": email,
-		"exp":   time.Now().Add(time.Hour).Unix(),
-		"iat":   time.Now().Unix(),
-		"iss":   cfg.Auth.Issuers[0],
-		"aud":   cfg.Auth.ExpectedAudience,
-	})
-
-	tokenString, err := token.SignedString([]byte(cfg.Auth.Issuers[0]))
-	if err != nil {
-		panic(fmt.Sprintf("Failed to sign JWT token: %v", err))
-	}
-
-	// Log token creation for debugging
-	claims := token.Claims.(jwt.MapClaims)
-	var expValue int64
-	if exp, ok := claims["exp"].(int64); ok {
-		expValue = exp
-	} else if exp, ok := claims["exp"].(float64); ok {
-		expValue = int64(exp)
-	}
-	fmt.Printf("DEBUG: Created HS256 JWT with claims: sub=%s, email=%s, iss=%s, aud=%s, exp=%d, secret_len=%d\n",
-		claims["sub"], claims["email"], claims["iss"], claims["aud"], expValue, len(cfg.Auth.Issuers[0]))
-
-	return tokenString
+// GetTestIssuerURL returns the URL of the test JWKS server to use as issuer.
+// This is called by testcontainer_suite.go when configuring the auth verifier.
+func GetTestIssuerURL() string {
+	return getTestIssuer().URL()
 }
 
-// Helper function to create RS256 JWT token using a generated test key
-func createTestRS256JWT(s *server.Server) string {
-	ensureTestRSAKeys()
-
-	cfg := s.Cfg()
-	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
-		"sub":   "test-user-billing-rs256",
-		"email": "rs256@billing.example.com",
-		"exp":   time.Now().Add(time.Hour).Unix(),
-		"iat":   time.Now().Unix(),
-		"iss":   cfg.Auth.Issuers[0],
-		"aud":   cfg.Auth.ExpectedAudience,
+// getSharedTestSuite returns a shared TestContainerSuite for integration tests.
+// The suite is initialized once and reused across tests for performance.
+func getSharedTestSuite(t *testing.T) *TestContainerSuite {
+	sharedSuiteOnce.Do(func() {
+		sharedSuite = NewTestContainerSuite(t)
 	})
-
-	signed, err := token.SignedString(testRSAPrivate)
-	if err != nil {
-		panic(fmt.Sprintf("failed to sign RS256 JWT: %v", err))
-	}
-
-	return signed
+	return sharedSuite
 }
 
 // Helper function to log HTTP response for debugging
@@ -148,30 +59,47 @@ func logResponse(t *testing.T, w *httptest.ResponseRecorder, testName string) {
 	if body == "" {
 		body = "(empty body)"
 	}
-	fmt.Printf("DEBUG [%s]: Status=%d, Body=%s\n", testName, w.Code, body)
+	t.Logf("[%s]: Status=%d, Body=%s", testName, w.Code, body)
 }
 
-// Helper function to create test server and defer cleanup
+// setupTestServer creates a test server using testcontainers infrastructure.
+// This requires the integration build tag and Docker to be available.
 func setupTestServer(t *testing.T) *server.Server {
-	srv, application := createTestServer(t)
+	suite := getSharedTestSuite(t)
+
+	// Register cleanup only once at the end of all tests
 	t.Cleanup(func() {
-		srv.Close(context.Background())
-		application.Close(context.Background())
+		// Don't cleanup the shared suite here - it will be cleaned up when all tests finish
+		// The suite.Cleanup() should be called in TestMain or similar
 	})
 
-	return srv
+	return suite.Server
 }
 
-// Helper function to create test server with JWT token
+// setupTestServerWithAuth creates a test server with a valid JWT token.
+// The token is signed by the test issuer and will validate against the JWKS endpoint.
 func setupTestServerWithAuth(t *testing.T) (*server.Server, string) {
-	server := setupTestServer(t)
-	token := createTestHS256JWT(server)
-	return server, token
+	srv := setupTestServer(t)
+	token := getTestIssuer().CreateToken("test-user-billing-12345", "test@billing.example.com")
+	return srv, token
 }
 
-// Helper function to create test server with RS256-authenticated JWT token
+// setupTestServerWithRSAuth creates a test server with RS256-authenticated JWT token.
+// This is the same as setupTestServerWithAuth since all tokens use RS256.
 func setupTestServerWithRSAuth(t *testing.T) (*server.Server, string) {
-	server := setupTestServer(t)
-	token := createTestRS256JWT(server)
-	return server, token
+	srv := setupTestServer(t)
+	token := getTestIssuer().CreateToken("test-user-billing-rs256", "rs256@billing.example.com")
+	return srv, token
+}
+
+// CleanupSharedSuite should be called at the end of all tests to cleanup containers.
+func CleanupSharedSuite() {
+	if sharedSuite != nil {
+		sharedSuite.Server.Close(context.Background())
+		sharedSuite.App.Close(context.Background())
+		sharedSuite.Cleanup()
+	}
+	if testIssuer != nil {
+		testIssuer.Close()
+	}
 }
