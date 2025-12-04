@@ -1503,7 +1503,7 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 		ProcessorSubscriptionID: &ccBillSubID,
 		CancelType:              cancelType,
 		CancelFeedback:          &data.Reason,
-		ImmediateCancellation:   true, // CCBill cancellations are immediate
+		RevokeAccess:            true, // CCBill cancellations revoke access immediately
 	}); err != nil {
 		return fmt.Errorf("failed to cancel membership: %w", err)
 	}

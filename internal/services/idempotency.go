@@ -83,7 +83,7 @@ func (g *IdempotencyService) GenerateForRenewal(subscriptionID uuid.UUID, period
 	return uuid.NewSHA1(namespace, []byte(data))
 }
 
-// GenerateForCancelNow generates key for immediate cancellation
+// GenerateForCancelNow generates key for cancellation with access revocation
 // Format: v5({subscription_id}:cancel:{event_id})
 func (g *IdempotencyService) GenerateForCancelNow(subscriptionID uuid.UUID, eventID string) uuid.UUID {
 	namespace := uuid.MustParse("6ba7b812-9dad-11d1-80b4-00c04fd430c8")

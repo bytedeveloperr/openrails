@@ -115,18 +115,26 @@ func (r *EntitlementRepo) ListActiveRecords(ctx context.Context, userID string, 
 	return ents, nil
 }
 
+// EndActiveBySubscription ends entitlements for a subscription.
+// If reason is nil, only end_at is set (for period-end expirations).
+// If reason is provided, revoked_at and revoke_reason are also set (for immediate revocations).
 func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscriptionID uuid.UUID, endAt time.Time, reason *models.EntitlementRevokeReason) error {
 	now := time.Now()
-	_, err := r.db.GetDB().NewUpdate().
+	q := r.db.GetDB().NewUpdate().
 		Model((*models.Entitlement)(nil)).
 		Set("end_at = ?", endAt).
-		Set("revoked_at = ?", now).
-		Set("revoke_reason = ?", reason).
 		Set("updated_at = ?", now).
 		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
 		Where("ent.source_id = ?", subscriptionID).
-		Where("ent.end_at IS NULL").
-		Exec(ctx)
+		Where("ent.end_at IS NULL")
+
+	// Only set revoked_at and revoke_reason if a reason is provided (immediate revocation)
+	if reason != nil {
+		q = q.Set("revoked_at = ?", now).
+			Set("revoke_reason = ?", reason)
+	}
+
+	_, err := q.Exec(ctx)
 	return err
 }
 

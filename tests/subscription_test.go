@@ -14,6 +14,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/handlers"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
 // TestGetProductsEndpoint tests the public products endpoint returns seeded products
@@ -32,29 +33,34 @@ func TestGetProductsEndpoint(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
 
-		// Parse response
-		var products []*services.PublicProductResponse
-		err := json.Unmarshal(w.Body.Bytes(), &products)
+		// Parse list response with pagination
+		var response api.ListResponse[api.ProductObject]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err, "Should parse response JSON")
 
-		// Verify products returned (at least the seeded ones)
-		require.GreaterOrEqual(t, len(products), 2, "Should return at least 2 products")
+		// Verify list envelope
+		assert.Equal(t, "list", response.Object, "Should have object: list")
+		assert.GreaterOrEqual(t, response.TotalItems, int64(2), "Should have at least 2 total items")
 
-		// Find premium-monthly product
-		var monthlyProduct *services.PublicProductResponse
-		for _, p := range products {
-			if p.Slug == "premium-monthly" {
-				monthlyProduct = p
+		// Verify products returned (at least the seeded ones)
+		require.GreaterOrEqual(t, len(response.Data), 2, "Should return at least 2 products")
+
+		// Find premium-monthly product by name (Stripe uses name instead of slug)
+		var monthlyProduct *api.ProductObject
+		for i, p := range response.Data {
+			if p.Name == "Premium Monthly" {
+				monthlyProduct = &response.Data[i]
 				break
 			}
 		}
 
-		require.NotNil(t, monthlyProduct, "Should find premium-monthly product")
-		assert.Equal(t, "Premium Monthly", monthlyProduct.DisplayName)
-		assert.True(t, monthlyProduct.IsActive)
+		require.NotNil(t, monthlyProduct, "Should find Premium Monthly product")
+		assert.Equal(t, "product", monthlyProduct.Object)
+		assert.True(t, monthlyProduct.Active)
 		require.Len(t, monthlyProduct.Prices, 1, "Should have 1 price")
-		assert.Equal(t, 9.99, monthlyProduct.Prices[0].Amount)
+		assert.Equal(t, int64(999), monthlyProduct.Prices[0].UnitAmount, "Amount should be 999 cents")
 		assert.Equal(t, "USD", monthlyProduct.Prices[0].Currency)
+		assert.Equal(t, "price", monthlyProduct.Prices[0].Object)
 	})
 
 	t.Run("returns products with correct price details", func(t *testing.T) {
@@ -65,24 +71,26 @@ func TestGetProductsEndpoint(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 
-		var products []*services.PublicProductResponse
-		err := json.Unmarshal(w.Body.Bytes(), &products)
+		var response api.ListResponse[api.ProductObject]
+		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
 		// Find yearly product and verify pricing
-		var yearlyProduct *services.PublicProductResponse
-		for _, p := range products {
-			if p.Slug == "premium-yearly" {
-				yearlyProduct = p
+		var yearlyProduct *api.ProductObject
+		for i, p := range response.Data {
+			if p.Name == "Premium Yearly" {
+				yearlyProduct = &response.Data[i]
 				break
 			}
 		}
 
-		require.NotNil(t, yearlyProduct, "Should find premium-yearly product")
+		require.NotNil(t, yearlyProduct, "Should find Premium Yearly product")
 		require.Len(t, yearlyProduct.Prices, 1, "Should have 1 price")
-		assert.Equal(t, 99.99, yearlyProduct.Prices[0].Amount)
-		assert.NotNil(t, yearlyProduct.Prices[0].BillingCycleDays)
-		assert.Equal(t, 365, *yearlyProduct.Prices[0].BillingCycleDays)
+		assert.Equal(t, int64(9999), yearlyProduct.Prices[0].UnitAmount, "Amount should be 9999 cents")
+		assert.NotNil(t, yearlyProduct.Prices[0].Recurring, "Should have recurring info")
+		assert.Equal(t, "year", yearlyProduct.Prices[0].Recurring.Interval)
+		assert.Equal(t, 1, yearlyProduct.Prices[0].Recurring.IntervalCount)
+		assert.Equal(t, "recurring", yearlyProduct.Prices[0].Type)
 	})
 }
 
@@ -127,7 +135,7 @@ func TestGetActiveSubscriptionEndpoint(t *testing.T) {
 		assert.Equal(t, sub.ID.String(), response.ID.String())
 		assert.Equal(t, string(models.StatusActive), string(response.Status))
 		assert.NotNil(t, response.Price, "Should include price details")
-		assert.Equal(t, 9.99, response.Price.Amount)
+		assert.Equal(t, int64(999), response.Price.Amount, "Amount should be 999 cents")
 	})
 
 	t.Run("requires authentication", func(t *testing.T) {
@@ -273,7 +281,8 @@ func TestGetUserPaymentsEndpoint(t *testing.T) {
 		paymentIDs := make(map[string]bool)
 		for _, p := range payments {
 			paymentIDs[p["id"].(string)] = true
-			assert.Equal(t, 9.99, p["amount"])
+			// JSON unmarshals numbers as float64, but we compare against int64 value
+			assert.Equal(t, float64(999), p["amount"], "Amount should be 999 cents")
 			assert.Equal(t, "USD", p["currency"])
 		}
 		assert.True(t, paymentIDs[payment1.ID.String()], "Should include payment 1")

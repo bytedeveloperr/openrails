@@ -4,12 +4,16 @@ import (
 	"time"
 )
 
-// ListResponse is a generic list response wrapper matching Stripe's pattern
+// ListResponse is a generic list response wrapper with full pagination info.
+// We use explicit pagination (total_items, page, page_size, total_pages) instead of
+// Stripe's has_more pattern because it provides more useful information to the UI.
 type ListResponse[T any] struct {
-	Object  string `json:"object"`   // Always "list"
-	URL     string `json:"url"`      // The URL where this list was retrieved
-	HasMore bool   `json:"has_more"` // Whether there are more items
-	Data    []T    `json:"data"`     // The list of items
+	Object     string `json:"object"`                // Always "list"
+	Data       []T    `json:"data"`                  // The list of items
+	TotalItems int64  `json:"total_items"`           // Total number of items across all pages
+	Page       int    `json:"page,omitempty"`        // Current page number (1-indexed)
+	PageSize   int    `json:"page_size,omitempty"`   // Number of items per page
+	TotalPages int    `json:"total_pages,omitempty"` // Total number of pages
 }
 
 // ProductObject represents a product resource
@@ -49,19 +53,19 @@ type RecurringInfo struct {
 
 // SubscriptionObject represents a subscription resource
 type SubscriptionObject struct {
-	ID                 string                               `json:"id"`
-	Object             string                               `json:"object"` // Always "subscription"
-	Status             string                               `json:"status"`
-	Customer           string                               `json:"customer"`
-	Items              ListResponse[SubscriptionItemObject] `json:"items"`
-	StartDate          int64                                `json:"start_date"`
-	CurrentPeriodStart int64                                `json:"current_period_start"`
-	CurrentPeriodEnd   int64                                `json:"current_period_end"`
-	CanceledAt         *int64                               `json:"canceled_at,omitempty"`
-	EndedAt            *int64                               `json:"ended_at,omitempty"`
-	CancelAtPeriodEnd  bool                                 `json:"cancel_at_period_end"`
-	Metadata           map[string]any                       `json:"metadata,omitempty"`
-	LatestInvoice      *InvoiceObject                       `json:"latest_invoice,omitempty"`
+	ID                 string                   `json:"id"`
+	Object             string                   `json:"object"` // Always "subscription"
+	Status             string                   `json:"status"`
+	Customer           string                   `json:"customer"`
+	Items              []SubscriptionItemObject `json:"items"` // Subscription items (typically just one)
+	StartDate          int64                    `json:"start_date"`
+	CurrentPeriodStart int64                    `json:"current_period_start"`
+	CurrentPeriodEnd   int64                    `json:"current_period_end"`
+	CanceledAt         *int64                   `json:"canceled_at,omitempty"`
+	EndedAt            *int64                   `json:"ended_at,omitempty"`
+	CancelAtPeriodEnd  bool                     `json:"cancel_at_period_end"`
+	Metadata           map[string]any           `json:"metadata,omitempty"`
+	LatestInvoice      *InvoiceObject           `json:"latest_invoice,omitempty"`
 }
 
 // SubscriptionItemObject represents an item in a subscription

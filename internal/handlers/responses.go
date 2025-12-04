@@ -3,17 +3,102 @@ package handlers
 import (
 	"time"
 
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
 type GetSubscriptionResponse = services.UserSubscriptionResponse
 
 type SubscribeResponse = services.SubscribeResponse
 
-type GetProductsResponse = []*services.PublicProductResponse
+// GetProductsResponse is now a Stripe-like list response
+type GetProductsResponse = api.ListResponse[api.ProductObject]
 
+// NewGetProductsResponse converts internal product responses to API response.
+// Products endpoint returns all items without pagination since catalogs are typically small.
 func NewGetProductsResponse(products []*services.PublicProductResponse) GetProductsResponse {
-	return GetProductsResponse(products)
+	productObjects := make([]api.ProductObject, len(products))
+	for i, p := range products {
+		productObjects[i] = ProductToAPI(p.Product, p.Prices)
+	}
+	return api.ListResponse[api.ProductObject]{
+		Object:     "list",
+		Data:       productObjects,
+		TotalItems: int64(len(productObjects)),
+		// Page, PageSize, TotalPages omitted - this endpoint returns all products without pagination
+	}
+}
+
+// ProductToAPI converts a models.Product to api.ProductObject
+func ProductToAPI(p *models.Product, prices []*models.Price) api.ProductObject {
+	priceObjects := make([]api.PriceObject, len(prices))
+	for i, price := range prices {
+		priceObjects[i] = PriceToAPI(price)
+	}
+
+	return api.ProductObject{
+		ID:          p.ID.String(),
+		Object:      "product",
+		Active:      p.IsActive,
+		Name:        p.DisplayName,
+		Description: p.Description,
+		Metadata:    nil, // Could map EntitlementsSpec if needed
+		Created:     api.ToUnix(p.CreatedAt),
+		Updated:     api.ToUnix(p.UpdatedAt),
+		Prices:      priceObjects,
+	}
+}
+
+// PriceToAPI converts a models.Price to api.PriceObject
+func PriceToAPI(p *models.Price) api.PriceObject {
+	priceType := "one_time"
+	var recurring *api.RecurringInfo
+
+	if p.BillingCycleDays != nil && *p.BillingCycleDays > 0 {
+		priceType = "recurring"
+		interval, intervalCount := billingCycleDaysToInterval(*p.BillingCycleDays)
+		recurring = &api.RecurringInfo{
+			Interval:      interval,
+			IntervalCount: intervalCount,
+		}
+	}
+
+	return api.PriceObject{
+		ID:            p.ID.String(),
+		Object:        "price",
+		Active:        p.IsActive,
+		Currency:      p.Currency,
+		UnitAmount:    p.Amount,
+		Product:       p.ProductID.String(),
+		BillingScheme: "per_unit",
+		Recurring:     recurring,
+		Type:          priceType,
+		Created:       api.ToUnix(p.CreatedAt),
+		Metadata:      nil,
+	}
+}
+
+// billingCycleDaysToInterval converts billing cycle days to Stripe-style interval
+func billingCycleDaysToInterval(days int) (string, int) {
+	switch {
+	case days == 1:
+		return "day", 1
+	case days == 7:
+		return "week", 1
+	case days >= 28 && days <= 31:
+		return "month", 1
+	case days >= 365 && days <= 366:
+		return "year", 1
+	case days%365 == 0:
+		return "year", days / 365
+	case days%30 == 0:
+		return "month", days / 30
+	case days%7 == 0:
+		return "week", days / 7
+	default:
+		return "day", days
+	}
 }
 
 // -------------------------------- Solana / Payments Responses --------------------------------
@@ -231,7 +316,6 @@ type GetBillingHistoryResponse struct {
 	PageSize           int                       `json:"page_size"`
 	TotalItems         int64                     `json:"total_items"`
 	TotalPages         int                       `json:"total_pages"`
-	HasMore            bool                      `json:"has_more"`
 }
 
 // NewGetBillingHistoryResponse creates a new billing history response

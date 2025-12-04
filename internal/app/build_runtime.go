@@ -98,6 +98,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		SolanaWalletService:        serviceInstances.SolanaWalletService,
 		SolanaPaymentService:       serviceInstances.SolanaPaymentService,
 		SolanaPaymentIntentService: serviceInstances.SolanaPaymentIntentService,
+		SolanaVerificationService:  serviceInstances.SolanaVerificationService,
 
 		UserSubscriptionService:   serviceInstances.UserSubscriptionService,
 		PublicSubscriptionService: serviceInstances.PublicSubscriptionService,
@@ -285,6 +286,7 @@ type servicesInstances struct {
 	SolanaWalletService        *services.SolanaWalletService
 	SolanaPaymentService       *services.SolanaPaymentService
 	SolanaPaymentIntentService *services.SolanaPaymentIntentService
+	SolanaVerificationService  *services.SolanaVerificationService
 
 	UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService
@@ -311,6 +313,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	solanaWalletService := services.NewSolanaWalletService(database)
 	solanaPaymentService := services.NewSolanaPaymentService(database, cfg, priceService, purchaseService, productService, entitlementService, nil)
 	solanaPaymentIntentService := services.NewSolanaPaymentIntentService(database, cfg, priceService)
+	solanaVerificationService := services.NewSolanaVerificationService(database, solanaWalletService)
 
 	subscriptionLifecycleService := services.NewSubscriptionLifecycleService(
 		database,
@@ -391,6 +394,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		SolanaWalletService:          solanaWalletService,
 		SolanaPaymentService:         solanaPaymentService,
 		SolanaPaymentIntentService:   solanaPaymentIntentService,
+		SolanaVerificationService:    solanaVerificationService,
 		UserSubscriptionService:      userSubscriptionService,
 		PublicSubscriptionService:    publicSubscriptionService,
 		AdminSubscriptionService:     adminSubscriptionService,

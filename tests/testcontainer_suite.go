@@ -408,9 +408,9 @@ func (suite *TestContainerSuite) ResetDatabase() {
 // SetMockClock replaces the runtime's clock with a mock clock and returns the mock.
 // This allows tests to control time for testing time-dependent logic.
 // It also updates the clock on services that use time-dependent logic.
-func (suite *TestContainerSuite) SetMockClock(t ...time.Time) clockwork.FakeClock {
+func (suite *TestContainerSuite) SetMockClock(t ...time.Time) *clockwork.FakeClock {
 	suite.t.Helper()
-	var mockClock clockwork.FakeClock
+	var mockClock *clockwork.FakeClock
 	if len(t) > 0 {
 		mockClock = clockwork.NewFakeClockAt(t[0])
 	} else {
@@ -421,6 +421,12 @@ func (suite *TestContainerSuite) SetMockClock(t ...time.Time) clockwork.FakeCloc
 	// Also set the clock on services that use time-dependent logic
 	if suite.App.Runtime.SubscriptionLifecycleService != nil {
 		suite.App.Runtime.SubscriptionLifecycleService.SetClock(mockClock)
+	}
+	if suite.App.Runtime.SolanaPaymentIntentService != nil {
+		suite.App.Runtime.SolanaPaymentIntentService.SetClock(mockClock)
+	}
+	if suite.App.Runtime.SolanaVerificationService != nil {
+		suite.App.Runtime.SolanaVerificationService.SetClock(mockClock)
 	}
 	return mockClock
 }

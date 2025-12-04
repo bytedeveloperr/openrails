@@ -50,7 +50,7 @@ type CancelMembershipParams struct {
 	ProcessorSubscriptionID *string
 	CancelType              models.CancelType
 	CancelFeedback          *string
-	ImmediateCancellation   bool
+	RevokeAccess            bool // If true, entitlements revoked immediately. If false, access continues until period end.
 	ProcessorProvider       string
 }
 
@@ -426,8 +426,8 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 			subscription.CancelFeedback = params.CancelFeedback
 		}
 
-		// Set end date to now or current period end based on immediate cancellation
-		if params.ImmediateCancellation {
+		// Set end date to now or current period end based on whether access is revoked
+		if params.RevokeAccess {
 			subscription.EndedAt = &now
 			subscription.CurrentPeriodEndsAt = &now
 		} else {
@@ -442,14 +442,24 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		}
 
 		// End entitlements at correct boundary: immediate or at period end
-		if params.ImmediateCancellation || (subscription.CurrentPeriodEndsAt != nil && subscription.CurrentPeriodEndsAt.Before(now)) {
-			if entSvc != nil {
-				endAt := now
-				if !params.ImmediateCancellation && subscription.CurrentPeriodEndsAt != nil {
-					endAt = *subscription.CurrentPeriodEndsAt
-				}
+		// When RevokeAccess is true: end immediately with revocation reason
+		// When RevokeAccess is false: set end_at to period end (entitlement remains active until then)
+		if entSvc != nil {
+			if params.RevokeAccess {
+				// Immediate revocation - set end_at to now with a revocation reason
 				reason := models.EntitlementRevokeAdmin
-				if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, endAt, &reason); err != nil {
+				if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+					log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for cancelled subscription")
+				}
+			} else if subscription.CurrentPeriodEndsAt != nil && subscription.CurrentPeriodEndsAt.After(now) {
+				// Period-end cancellation - just set end_at without revocation (user keeps access until then)
+				if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, *subscription.CurrentPeriodEndsAt, nil); err != nil {
+					log.WithContext(ctx).WithError(err).Error("failed to set entitlement end date for cancelled subscription")
+				}
+			} else {
+				// Period already ended - immediately revoke
+				reason := models.EntitlementRevokeAdmin
+				if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
 					log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for cancelled subscription")
 				}
 			}

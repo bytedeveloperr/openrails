@@ -401,7 +401,7 @@ func (s *NMIWebhookService) handleDeleteSubscription(ctx context.Context) error 
 	cancelFeedback := "Cancelled via NMI webhook"
 	processor := models.ProcessorNMI
 	if err := s.SubscriptionLifecycleService.CancelMembership(ctx, &CancelMembershipParams{
-		ImmediateCancellation:   false,
+		RevokeAccess:            false, // User keeps access until period end
 		Processor:               &processor,
 		ProcessorSubscriptionID: &nmiSubID,
 		CancelFeedback:          &cancelFeedback,

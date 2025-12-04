@@ -276,7 +276,7 @@ func TestCCBillFlexFormPriceWithoutCCBill(t *testing.T) {
 		ID:               uuid.MustParse("99999999-9999-9999-9999-999999999999"),
 		ProductID:        product.ID,
 		DisplayName:      "No CCBill Price",
-		Amount:           4.99,
+		Amount:           499, // Amount in cents ($4.99)
 		Currency:         "USD",
 		BillingCycleDays: &billingCycleDays,
 		IsActive:         true,

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	solanago "github.com/doujins-org/solana-go"
+	"github.com/jonboulle/clockwork"
 	"github.com/mr-tron/base58"
 	log "github.com/sirupsen/logrus"
 
@@ -26,6 +27,7 @@ type SolanaVerificationService struct {
 	challenges   *repo.SolanaChallengeRepo
 	wallets      *SolanaWalletService
 	challengeTTL time.Duration
+	clock        clockwork.Clock
 }
 
 // VerificationChallenge represents a generated challenge message
@@ -49,7 +51,22 @@ func NewSolanaVerificationService(db *db.DB, wallets *SolanaWalletService) *Sola
 		challenges:   repo.NewSolanaChallengeRepo(db),
 		wallets:      wallets,
 		challengeTTL: ttl,
+		clock:        clockwork.NewRealClock(),
 	}
+}
+
+// SetClock sets the clock used for time-based operations (for testing).
+func (s *SolanaVerificationService) SetClock(clock clockwork.Clock) {
+	s.clock = clock
+}
+
+func (s *SolanaVerificationService) now() time.Time {
+	return s.clock.Now()
+}
+
+// IsChallengeExpired checks if a challenge has expired based on the service's clock.
+func (s *SolanaVerificationService) IsChallengeExpired(challenge *models.SolanaWalletChallenge) bool {
+	return s.now().After(challenge.ExpiresAt)
 }
 
 // GenerateChallenge persists a new verification challenge for the given wallet.
@@ -72,7 +89,7 @@ func (s *SolanaVerificationService) GenerateChallenge(ctx context.Context, userI
 	}
 	nonce := hex.EncodeToString(nonceBytes)
 
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	expiresAt := now.Add(s.challengeTTL)
 
 	message := fmt.Sprintf(
@@ -131,7 +148,7 @@ func (s *SolanaVerificationService) VerifySignature(ctx context.Context, userID,
 		return nil, fmt.Errorf("no active challenge found for wallet %s: %w", address, err)
 	}
 
-	if time.Now().After(challenge.ExpiresAt) {
+	if s.IsChallengeExpired(challenge) {
 		_ = s.challenges.Delete(ctx, challenge.UserID, challenge.Address)
 		return nil, fmt.Errorf("challenge expired")
 	}

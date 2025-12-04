@@ -80,7 +80,7 @@ func SubmitPayment(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, "Payment intent already processed")
 		return
 	}
-	if intent.ExpiresAt != nil && time.Now().After(*intent.ExpiresAt) {
+	if r.State.SolanaPaymentIntentService.IsExpired(intent) {
 		log.WithFields(log.Fields{"intent_id": intent.ID}).Warn("Intent expired")
 		r.ErrorJSON(http.StatusBadRequest, "Payment intent expired")
 		return

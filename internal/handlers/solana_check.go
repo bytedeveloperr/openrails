@@ -75,7 +75,7 @@ func CheckSolanaPayment(r *Request) {
 		return
 	}
 
-	if intent.ExpiresAt != nil && time.Now().After(*intent.ExpiresAt) {
+	if r.State.SolanaPaymentIntentService.IsExpired(intent) {
 		_ = r.State.SolanaPaymentIntentService.MarkFailed(ctx, intent.ID, "intent expired")
 		r.SuccessJSON(CheckSolanaPaymentResponse{Status: "failed", IntentID: intent.ID.String(), ErrorMessage: "Intent expired"})
 		return

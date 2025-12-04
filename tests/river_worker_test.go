@@ -67,8 +67,8 @@ func TestRiverPeriodicJobs(t *testing.T) {
 	suite := setupTestSuite(t)
 
 	t.Run("periodic jobs are registered", func(t *testing.T) {
-		client, ok := suite.App.Runtime.RiverClient.(*river.Client[pgx.Tx])
-		require.True(t, ok, "Should have River client")
+		client := suite.App.Runtime.RiverClient
+		require.NotNil(t, client, "Should have River client")
 
 		// Check that periodic jobs exist
 		periodicJobs := client.PeriodicJobs()
@@ -87,8 +87,8 @@ func TestWebhookProcessingFlow(t *testing.T) {
 	suite.ClearJobQueue()
 
 	t.Run("webhook processing job can be enqueued", func(t *testing.T) {
-		client, ok := suite.App.Runtime.RiverClient.(*river.Client[pgx.Tx])
-		require.True(t, ok)
+		client := suite.App.Runtime.RiverClient
+		require.NotNil(t, client)
 
 		// Create a webhook process job (this would normally be enqueued when a webhook is received)
 		// Note: We're just testing that the job infrastructure works, not the actual webhook processing
@@ -100,7 +100,7 @@ func TestWebhookProcessingFlow(t *testing.T) {
 		// Enqueue a webhook process job with a fake event ID
 		// This will fail to find the event but proves the infrastructure works
 		_, err := client.Insert(ctx, riverjobs.WebhookProcessArgs{
-			EventID: "test-event-id-12345",
+			EventID: uuid.MustParse("12345678-1234-1234-1234-123456789012"),
 		}, &river.InsertOpts{
 			Queue: riverjobs.QueueBilling,
 		})
@@ -128,8 +128,8 @@ func TestDunningJobEnqueue(t *testing.T) {
 	suite.ClearJobQueue()
 
 	t.Run("dunning job can be manually enqueued", func(t *testing.T) {
-		client, ok := suite.App.Runtime.RiverClient.(*river.Client[pgx.Tx])
-		require.True(t, ok)
+		client := suite.App.Runtime.RiverClient
+		require.NotNil(t, client)
 
 		ctx := context.Background()
 		initialCompleted := suite.GetCompletedJobCount()

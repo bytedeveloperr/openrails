@@ -7,5 +7,4 @@ type PaginatedResponse[T any] struct {
 	PageSize   int   `json:"page_size" binding:"required"`
 	TotalItems int64 `json:"total_items" binding:"required"`
 	TotalPages int   `json:"total_pages" binding:"required"`
-	HasMore    bool  `json:"has_more" binding:"required"`
 }

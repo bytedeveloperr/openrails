@@ -196,9 +196,9 @@ func TestLifecycleServiceUsesMockClock(t *testing.T) {
 
 		// Cancel the subscription
 		err = suite.App.Runtime.SubscriptionLifecycleService.CancelMembership(ctx, &services.CancelMembershipParams{
-			SubscriptionID:        &sub.ID,
-			CancelType:            models.CancelTypeUser,
-			ImmediateCancellation: true,
+			SubscriptionID: &sub.ID,
+			CancelType:     models.CancelTypeUser,
+			RevokeAccess:   true,
 		})
 		require.NoError(t, err)
 

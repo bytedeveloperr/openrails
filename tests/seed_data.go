@@ -57,7 +57,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 				{
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222222"),
 					DisplayName:      "Monthly - $9.99",
-					Amount:           9.99,
+					Amount:           999, // Amount in cents ($9.99)
 					Currency:         "USD",
 					BillingCycleDays: intPtr(30),
 					NMIPlanID:        strPtr("plan_monthly_999"),
@@ -83,7 +83,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 				{
 					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444444"),
 					DisplayName:      "Yearly - $99.99",
-					Amount:           99.99,
+					Amount:           9999, // Amount in cents ($99.99)
 					Currency:         "USD",
 					BillingCycleDays: intPtr(365),
 					NMIPlanID:        strPtr("plan_yearly_9999"),
@@ -368,7 +368,7 @@ func (suite *TestContainerSuite) CreateTestPayment(userID string, priceID uuid.U
 		SubscriptionID: subscriptionID,
 		Processor:      models.ProcessorNMI,
 		TransactionID:  "txn-" + uuid.New().String()[:8],
-		Amount:         9.99,
+		Amount:         999, // Amount in cents ($9.99)
 		Currency:       "USD",
 		PurchasedAt:    now,
 		CreatedAt:      now,
@@ -406,7 +406,7 @@ func (suite *TestContainerSuite) CreateTestPaymentWithOptions(opts PaymentOption
 		opts.TransactionID = "txn-" + uuid.New().String()[:8]
 	}
 	if opts.Amount == 0 {
-		opts.Amount = 9.99
+		opts.Amount = 999 // Default: $9.99 in cents
 	}
 	if opts.Currency == "" {
 		opts.Currency = "USD"

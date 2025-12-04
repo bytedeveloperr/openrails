@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	"github.com/mr-tron/base58"
 	log "github.com/sirupsen/logrus"
 
@@ -38,10 +39,25 @@ type SolanaPaymentIntentService struct {
 	repo         *repo.SolanaPaymentIntentRepo
 	cfg          *config.Config
 	priceService *PriceService
+	clock        clockwork.Clock
 }
 
 func NewSolanaPaymentIntentService(db *db.DB, cfg *config.Config, priceService *PriceService) *SolanaPaymentIntentService {
-	return &SolanaPaymentIntentService{repo: repo.NewSolanaPaymentIntentRepo(db), cfg: cfg, priceService: priceService}
+	return &SolanaPaymentIntentService{repo: repo.NewSolanaPaymentIntentRepo(db), cfg: cfg, priceService: priceService, clock: clockwork.NewRealClock()}
+}
+
+// SetClock sets the clock used for time-based operations (for testing).
+func (s *SolanaPaymentIntentService) SetClock(clock clockwork.Clock) {
+	s.clock = clock
+}
+
+func (s *SolanaPaymentIntentService) now() time.Time {
+	return s.clock.Now()
+}
+
+// IsExpired checks if an intent has expired based on the service's clock.
+func (s *SolanaPaymentIntentService) IsExpired(intent *models.SolanaPaymentIntent) bool {
+	return intent.ExpiresAt != nil && s.now().After(*intent.ExpiresAt)
 }
 
 // CreateDirectIntent creates an intent for a direct wallet transaction using a verified payer wallet.
@@ -73,7 +89,7 @@ func (s *SolanaPaymentIntentService) CreateDirectIntent(ctx context.Context, use
 		return nil, fmt.Errorf("failed to calculate token amount: %w", err)
 	}
 
-	expiresAt := time.Now().Add(10 * time.Minute)
+	expiresAt := s.now().Add(10 * time.Minute)
 	intent := &models.SolanaPaymentIntent{
 		ID:                     uuid.New(),
 		UserID:                 userID,
@@ -136,7 +152,7 @@ func (s *SolanaPaymentIntentService) CreateSolanaPayIntent(ctx context.Context, 
 	}
 
 	memo := fmt.Sprintf("purchase:%s:%s", userID, price.ID.String())
-	expiresAt := time.Now().Add(15 * time.Minute)
+	expiresAt := s.now().Add(15 * time.Minute)
 	intent := &models.SolanaPaymentIntent{
 		ID:                     uuid.New(),
 		UserID:                 userID,
@@ -216,7 +232,7 @@ func (s *SolanaPaymentIntentService) MarkFailed(ctx context.Context, intentID uu
 }
 
 func (s *SolanaPaymentIntentService) insertIntent(ctx context.Context, intent *models.SolanaPaymentIntent) error {
-	intent.CreatedAt = time.Now()
+	intent.CreatedAt = s.now()
 	intent.UpdatedAt = intent.CreatedAt
 	if err := s.repo.Insert(ctx, intent); err != nil {
 		return fmt.Errorf("failed to create solana payment intent: %w", err)

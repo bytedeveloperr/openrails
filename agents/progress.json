@@ -33,10 +33,10 @@
     {
       "name": "stripe-like-api-structs",
       "category": "refactor",
-      "description": "Create Stripe-like response envelopes (Object wrappers)",
+      "description": "Create Stripe-like response envelopes (Object wrappers) with our pagination system",
       "steps": [
         "Create `pkg/api/response.go` defining standard response structs.",
-        "Define `ListResponse` struct with `object: list`, `url`, `has_more`, `data` fields.",
+        "Define `ListResponse` struct with `object: list`, `data`, `total_items`, `page`, `page_size`, `total_pages` fields (NOT Stripe's has_more - we prefer explicit pagination).",
         "Define wrappers for core resources: `ProductObject`, `PriceObject`, `SubscriptionObject`.",
         "Define `PaymentIntentObject` and `NextActionObject` for handling redirects.",
         "Update existing handlers to use these wrappers for JSON responses (starting with `GetProducts`).",
@@ -55,48 +55,35 @@
         "Update `GetProducts` handler to map internal models to new API structs.",
         "Update tests to use new routes and validate new response format."
       ],
-      "passes": true
+      "passes": null
     },
     {
       "name": "stripe-like-api-subscriptions",
       "category": "refactor",
-      "description": "Refactor Subscription creation and management to match Stripe patterns",
+      "description": "Refactor Subscription creation endpoints to cleaner RESTful patterns",
       "steps": [
-        "Create `POST /v1/subscriptions` handler that accepts `items` (price_id) and `default_payment_method`.",
-        "Implement logic in `CreateSubscription` to look up the Price and determine the processor (NMI vs CCBill).",
-        "If NMI: Call NMI service to create subscription directly. Return `SubscriptionObject` with status='active' (or 'incomplete').",
-        "If CCBill: Generate FlexForm URL. Return `SubscriptionObject` with status='incomplete', containing `latest_invoice.payment_intent` with `status='requires_action'` and `next_action.redirect_to_url`.",
-        "Remove old `POST /v1/subscriptions/process/:processor` endpoint.",
-        "Remove old `POST /v1/subscriptions/ccbill/flexform-url` endpoint.",
-        "Consolidate `GET /v1/subscriptions/active` and `history` into `GET /v1/subscriptions` with query params (e.g., `status=active`, `limit=10`).",
-        "Update tests to use new endpoints and payloads."
+        "Change `POST /v1/subscriptions/process/:processor` to `POST /v1/subscriptions/:provider` (e.g., /mobius, /ccbill, /solana).",
+        "Register explicit routes for each provider rather than using a dynamic :provider param to avoid collision with :id.",
+        "Move `POST /v1/subscriptions/ccbill/flexform-url` to `POST /v1/subscriptions/ccbill` (same endpoint, just generates FlexForm URL).",
+        "Simplify webhooks: `POST /v1/webhooks/:provider` instead of `/v1/subscriptions/webhook/:processor/:provider` (e.g., /webhooks/mobius, /webhooks/ccbill).",
+        "Update tests to use new endpoint paths."
       ],
       "passes": null
     },
     {
       "name": "stripe-like-api-rest",
       "category": "refactor",
-      "description": "Standardize remaining endpoints to RESTful resources",
+      "description": "Consolidate user-scoped endpoints under /v1/me/ and standardize RESTful patterns",
       "steps": [
-        "Rename `GET /v1/subscriptions/purchases` to `GET /v1/charges` (or `GET /v1/payment_intents` if we want to unify).",
-        "Rename `GET /v1/payment-methods` to `GET /v1/payment_methods` (snake_case).",
-        "Refactor Wallet endpoints to `/v1/wallets`. `GET /v1/wallets` lists them.",
-        "Refactor Solana endpoints to `/v1/payment_intents` structure. `POST /v1/payment_intents` creates intent (replacing `generate`). `POST /v1/payment_intents/:id/confirm` submits tx (replacing `submit`).",
-        "Update `GET /v1/me/status` to `GET /v1/customers/me` which returns the full customer object including expanded subscriptions and entitlements.",
+        "CURRENT: Only `GET /v1/me/status` exists under /v1/me/",
+        "Move `GET /v1/subscriptions/active` + `GET /v1/subscriptions/history` → `GET /v1/me/subscriptions` with query params (?status=active, ?status=all)",
+        "Move `GET /v1/subscriptions/purchases` → `GET /v1/me/payments`",
+        "Move `POST /v1/subscriptions/cancel` → `POST /v1/me/subscriptions/cancel`",
+        "Move `GET /v1/payment-methods` → `GET /v1/me/payment-methods` (also POST, PUT, DELETE)",
+        "Move `GET /v1/wallet/solana/*` → `GET /v1/me/wallets/*` (all wallet endpoints)",
+        "Move `GET /v1/notifications/*` → `GET /v1/me/notifications/*` (all notification endpoints)",
+        "Refactor Solana payment endpoints: `POST /v1/solana/generate` → `POST /v1/payment-intents`, `POST /v1/solana/submit` → `POST /v1/payment-intents/:id/confirm`, etc.",
         "Update all corresponding tests."
-      ],
-      "passes": null
-    },
-    {
-      "name": "stripe-like-api-metadata",
-      "category": "refactor",
-      "description": "Ensure metadata support for major API resources (Subscription, Payment, Product)",
-      "steps": [
-        "Verify/Add `Metadata map[string]any` field to relevant internal models (e.g., `models.Product`, `models.Subscription`, `models.Payment`).",
-        "Ensure database schema supports JSONB/text field for metadata in corresponding tables.",
-        "Implement logic in handlers/services to correctly store and retrieve metadata from models.",
-        "Ensure API response objects (`ProductObject`, `SubscriptionObject`, etc.) correctly expose metadata.",
-        "Add tests to verify metadata can be set on creation/update and retrieved correctly."
       ],
       "passes": null
     },
@@ -173,7 +160,7 @@
         "Add helper functions for cents <-> dollars conversion if needed for display",
         "Update seed data and tests to use cent amounts"
       ],
-      "passes": null
+      "passes": true
     },
     {
       "name": "processor-jsonb-field",
@@ -232,6 +219,328 @@
         "Use existing entitlement granting logic (from lifecycle_service or admin_subscription_service)",
         "Write tests for entitlement updates on tier upgrade",
         "Handle edge case: same entitlements in both tiers (extend end dates)"
+      ],
+      "passes": null
+    },
+    {
+      "name": "test-subscription-renewal-webhook",
+      "category": "testing",
+      "description": "Test that renewal webhook extends subscription period",
+      "steps": [
+        "Create active subscription with period ending soon",
+        "Simulate renewal webhook from processor (NMI or CCBill)",
+        "Verify CurrentPeriodEndsAt moved forward by billing cycle days",
+        "Verify payment record created for the renewal"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-failed-payment-webhook",
+      "category": "testing",
+      "description": "Test that failed payment webhook sets subscription to past_due",
+      "steps": [
+        "Create active subscription",
+        "Simulate failed payment webhook from processor",
+        "Verify subscription status becomes past_due",
+        "Verify next_retry_at is scheduled for dunning"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-cancel-access-at-period-end",
+      "category": "testing",
+      "description": "Test user cancellation keeps access until period end, then revokes",
+      "steps": [
+        "Create active subscription with entitlements",
+        "User cancels (RevokeAccess: false)",
+        "Verify user still has entitlements immediately after cancel",
+        "Advance clock to period end",
+        "Trigger period-end processing",
+        "Verify entitlements are revoked after period ends"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-admin-revoke-access",
+      "category": "testing",
+      "description": "Test admin revocation removes access immediately",
+      "steps": [
+        "Create active subscription with entitlements",
+        "Admin revokes access (RevokeAccess: true)",
+        "Verify entitlements are revoked immediately",
+        "Verify subscription status is cancelled"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-dunning-retry-schedule",
+      "category": "testing",
+      "description": "Test dunning worker respects retry schedule with clock advancement",
+      "steps": [
+        "Create past_due subscription with next_retry_at in future",
+        "Run dunning worker - verify no attempt made (not yet due)",
+        "Advance clock past next_retry_at",
+        "Run dunning worker - verify rebill attempt made",
+        "On failure, verify next_retry_at incremented correctly (+1 day, +3 days, etc.)",
+        "Verify retry_count incremented"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-dunning-max-retries",
+      "category": "testing",
+      "description": "Test subscription fails after max dunning attempts",
+      "steps": [
+        "Create past_due subscription near max retries",
+        "Mock NMI to return decline",
+        "Advance clock and run dunning worker for final attempt",
+        "Verify subscription status becomes failed",
+        "Verify entitlements are revoked"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-dunning-success-reactivates",
+      "category": "testing",
+      "description": "Test successful dunning reactivates subscription",
+      "steps": [
+        "Create past_due subscription",
+        "Mock NMI to return success",
+        "Advance clock and run dunning worker",
+        "Verify subscription status becomes active",
+        "Verify new period dates set correctly",
+        "Verify payment record created"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-entitlement-expiry",
+      "category": "testing",
+      "description": "Test time-limited entitlements expire correctly",
+      "steps": [
+        "Grant 15-day entitlement to user",
+        "Verify entitlement is active immediately",
+        "Advance clock 14 days - verify still active",
+        "Advance clock 1 more day (15 total) - verify no longer active"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-entitlement-stacking",
+      "category": "testing",
+      "description": "Test entitlement stacking extends expiry",
+      "steps": [
+        "Grant 15-day entitlement to user",
+        "Grant another 15-day entitlement of same type",
+        "Verify expires_at is 30 days from original grant",
+        "Advance clock 20 days - verify still active",
+        "Advance clock 10 more days - verify no longer active"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-indefinite-entitlement",
+      "category": "testing",
+      "description": "Test indefinite entitlements never expire",
+      "steps": [
+        "Grant entitlement with null duration (indefinite)",
+        "Verify entitlement is active",
+        "Advance clock 1 year",
+        "Verify entitlement is still active"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-payment-intent-expiry",
+      "category": "testing",
+      "description": "Test expired Solana payment intents are rejected",
+      "steps": [
+        "Create Solana payment intent with 10-minute expiry",
+        "Verify intent is valid immediately",
+        "Advance clock 15 minutes",
+        "Attempt to submit payment - verify rejected as expired"
+      ],
+      "passes": true
+    },
+    {
+      "name": "test-wallet-challenge-expiry",
+      "category": "testing",
+      "description": "Test wallet verification challenges expire",
+      "steps": [
+        "Create wallet challenge with expiry",
+        "Advance clock past expiry",
+        "Attempt to verify challenge - verify rejected as expired"
+      ],
+      "passes": true
+    },
+    {
+      "name": "fix-test-cancel-access-at-period-end",
+      "category": "testing",
+      "description": "Fix TestCancelAccessAtPeriodEnd to properly test period-end revocation with mock clock",
+      "steps": [
+        "Current test uses indefinite entitlement (EndAt: nil) which never expires regardless of time",
+        "Need to either: (a) create a period-end worker that revokes entitlements, or (b) create entitlement with EndAt set to period end",
+        "If using period-end worker: inject mock clock into worker, run worker after advancing clock past period end",
+        "If setting EndAt: set entitlement EndAt = subscription period end, then verify IsEntitled returns false after advancing clock",
+        "Ensure test actually verifies entitlements are revoked at period end, not just that subscription is cancelled"
+      ],
+      "passes": true
+    },
+    {
+      "name": "fix-test-dunning-retry-schedule",
+      "category": "testing",
+      "description": "Fix TestDunningRetrySchedule to actually run the dunning worker with mock clock",
+      "steps": [
+        "Current test only checks timestamps, doesn't run the actual dunning worker",
+        "Inject mock clock into DunningWorker",
+        "Run DunningWorker when clock is before next_retry_at - verify NO rebill attempt made",
+        "Advance clock past next_retry_at",
+        "Run DunningWorker again - verify rebill attempt IS made",
+        "This requires DunningWorker to use injected clock for time comparisons"
+      ],
+      "passes": true
+    },
+    {
+      "name": "fix-test-dunning-max-retries",
+      "category": "testing",
+      "description": "Fix TestDunningMaxRetriesFailsSubscription to use mock clock and run dunning worker",
+      "steps": [
+        "Current test never advances mock clock and calls FailMembership directly instead of running worker",
+        "Inject mock clock into DunningWorker",
+        "Create subscription with retry_count at max-1",
+        "Run DunningWorker (with mocked NMI returning decline)",
+        "Verify subscription is cancelled and entitlements revoked",
+        "This tests the actual dunning flow, not just the FailMembership service method"
+      ],
+      "passes": true
+    },
+    {
+      "name": "fix-test-dunning-success-reactivates",
+      "category": "testing",
+      "description": "Fix TestDunningSuccessReactivates to use mock clock and run dunning worker",
+      "steps": [
+        "Current test advances clock but doesn't use it - calls RenewMembership directly",
+        "Inject mock clock into DunningWorker",
+        "Create past_due subscription with next_retry_at in the past (relative to mock clock)",
+        "Run DunningWorker (with mocked NMI returning success)",
+        "Verify subscription is reactivated with correct period dates",
+        "This tests the actual dunning flow, not just the RenewMembership service method"
+      ],
+      "passes": true
+    },
+    {
+      "name": "fix-test-payment-intent-expiry",
+      "category": "testing",
+      "description": "Fix TestPaymentIntentExpiry to use mock clock instead of time.Now()",
+      "steps": [
+        "Current test uses time.Now() directly - Solana handlers don't use mock clock",
+        "Add Clock field to SolanaPaymentIntentService or relevant handlers",
+        "Update expiry check to use injected clock instead of time.Now()",
+        "Create payment intent with ExpiresAt = mockClock.Now() + 10 minutes",
+        "Verify intent is valid at mockClock.Now()",
+        "Advance mock clock 15 minutes",
+        "Attempt to check/submit - verify rejected as expired (using mock clock time)"
+      ],
+      "passes": true
+    },
+    {
+      "name": "fix-test-wallet-challenge-expiry",
+      "category": "testing",
+      "description": "Fix TestWalletChallengeExpiry to use mock clock instead of time.Now()",
+      "steps": [
+        "Current test uses time.Now() directly - SolanaVerificationService uses time.Now()",
+        "Add Clock field to SolanaVerificationService",
+        "Update expiry check in VerifyChallenge to use s.Clock.Now() instead of time.Now()",
+        "Create challenge with ExpiresAt = mockClock.Now() + 10 minutes",
+        "Verify challenge is valid at mockClock.Now()",
+        "Advance mock clock past ExpiresAt",
+        "Attempt to verify - verify rejected as expired (using mock clock time)"
+      ],
+      "passes": true
+    },
+    {
+      "name": "unify-admin-auth",
+      "category": "refactor",
+      "description": "Remove separate admin port and API key, use JWT with admin role claims instead",
+      "steps": [
+        "CURRENT: Admin API runs on separate port with API key authentication",
+        "PROBLEM: API key is a shared secret - if stolen, attacker has full admin access with no audit trail",
+        "Add admin role/claims check to existing JWT validation middleware (e.g., middleware.AdminRequired)",
+        "Move admin routes from separate adminHandler to publicHandler, protected by AdminRequired middleware",
+        "Remove BillingAPIKey from config",
+        "Remove separate admin server/port setup",
+        "Update admin route paths if needed (currently /v1/subscriptions/:id/extend, /v1/users/:user_id/entitlements, etc.)",
+        "Update api-server to pass through JWT instead of using API key",
+        "BENEFIT: Each admin request tied to user identity, full audit trail, no shared secrets"
+      ],
+      "passes": null
+    },
+    {
+      "name": "admin-rate-limiting",
+      "category": "security",
+      "description": "Add rate limiting to admin endpoints to limit blast radius of compromised JWT",
+      "steps": [
+        "PROBLEM: If admin JWT is leaked, attacker could cancel/refund thousands of users before detection",
+        "Implement per-admin-user rate limiting using Redis (keyed by admin user ID from JWT)",
+        "Define rate limits for destructive operations: e.g., 5 cancellations/minute, 10/hour, 50/day",
+        "Define rate limits for bulk operations: e.g., 3 extend operations/minute",
+        "On rate limit exceeded: lock out admin for extended period (e.g., 1 hour) and alert",
+        "Add alerting/notification when rate limits are approached (e.g., 80% threshold)",
+        "Create admin rate limit middleware that wraps destructive endpoints",
+        "Allow super-admin or manual override to unlock rate-limited admin if legitimate",
+        "Log all rate limit events for security audit",
+        "BENEFIT: Limits blast radius - attacker can only affect ~5-10 users before getting locked out"
+      ],
+      "passes": null
+    },
+    {
+      "name": "unix-epoch-timestamps",
+      "category": "refactor",
+      "description": "Standardize all API response timestamps to unix epochs (like Stripe)",
+      "steps": [
+        "Audit all response structs in internal/handlers/responses.go for time.Time fields",
+        "Audit pkg/api/response.go - already uses int64 unix epochs (good)",
+        "Convert time.Time fields to int64 unix epochs in: SubmitPaymentResponse, PaymentStatusResponse, GeneratePaymentResponse, SolanaPaymentQRResponse, etc.",
+        "Use existing api.ToUnix() and api.ToUnixPtr() helpers for conversions",
+        "Update any handlers that return time.Time directly to use unix epochs",
+        "Ensure webhook event timestamps also use unix epochs",
+        "Update tests to expect int64 timestamps instead of time.Time strings",
+        "Document in API that all timestamps are unix epoch seconds (like Stripe)"
+      ],
+      "passes": null
+    },
+    {
+      "name": "prefixed-resource-ids",
+      "category": "refactor",
+      "description": "Add Stripe-like prefixes to resource IDs in API layer (prod_xxx, price_xxx, sub_xxx)",
+      "steps": [
+        "NOTE: Prefixes should only exist in the API layer, NOT in the database. Database keeps clean UUIDs for indexing/joins.",
+        "Create pkg/api/id.go with helper functions: FormatProductID(uuid) -> 'prod_xxx', FormatPriceID(uuid) -> 'price_xxx', FormatSubscriptionID(uuid) -> 'sub_xxx', FormatPaymentID(uuid) -> 'pay_xxx'",
+        "Create ParseProductID(string) -> uuid that strips 'prod_' prefix and validates",
+        "Create ParsePriceID, ParseSubscriptionID, ParsePaymentID similarly",
+        "Update response conversion functions (ProductToAPI, PriceToAPI, etc.) to use FormatXxxID()",
+        "Update request handlers to use ParseXxxID() when accepting IDs from clients",
+        "Return clear error if ID prefix doesn't match expected resource type (e.g., 'prod_xxx' passed to subscription endpoint)",
+        "Update tests to use prefixed IDs in requests and expect them in responses",
+        "BENEFIT: Easier debugging, self-documenting IDs, matches Stripe pattern"
+      ],
+      "passes": null
+    },
+    {
+      "name": "structured-error-responses",
+      "category": "refactor",
+      "description": "Standardize error responses to match Stripe's error format",
+      "steps": [
+        "CURRENT: Errors return simple {message: 'error text'}",
+        "TARGET: Errors return {error: {type, code, message, param}} like Stripe",
+        "Create pkg/api/error.go with ErrorResponse and ErrorDetails structs",
+        "Define error types: 'invalid_request_error', 'authentication_error', 'authorization_error', 'api_error', 'card_error', 'idempotency_error'",
+        "Define error codes: 'missing_param', 'invalid_param', 'resource_not_found', 'authentication_required', 'insufficient_permissions', etc.",
+        "Update Request.ErrorJSON() in internal/handlers/request.go to accept structured error info",
+        "Create helper functions: InvalidParamError(param, message), NotFoundError(resource), AuthRequiredError(), etc.",
+        "Update handlers to use structured error helpers instead of plain strings",
+        "Update tests to expect structured error format",
+        "BENEFIT: Clients can programmatically handle errors by type/code, better UX"
       ],
       "passes": null
     }

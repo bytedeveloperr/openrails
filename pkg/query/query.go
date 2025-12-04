@@ -13,7 +13,6 @@ type Response struct {
 	PageSize   int   `json:"page_size" binding:"required"`
 	TotalItems int64 `json:"total_items" binding:"required"`
 	TotalPages int   `json:"total_pages" binding:"required"`
-	HasMore    bool  `json:"has_more" binding:"required"`
 }
 
 type QueryOptions[T any] struct {
@@ -103,12 +102,10 @@ func (q QueryOptions[T]) PaginatedResponse(items any, totalItems int64) Response
 			PageSize:   int(totalItems),
 			TotalItems: totalItems,
 			TotalPages: 1,
-			HasMore:    false,
 		}
 	}
 
 	totalPages := int(math.Ceil(float64(totalItems) / float64(q.PageSize)))
-	hasMore := q.Page < totalPages
 
 	if totalItems == 0 {
 		items = []any{}
@@ -120,6 +117,5 @@ func (q QueryOptions[T]) PaginatedResponse(items any, totalItems int64) Response
 		PageSize:   q.PageSize,
 		TotalItems: totalItems,
 		TotalPages: totalPages,
-		HasMore:    hasMore,
 	}
 }

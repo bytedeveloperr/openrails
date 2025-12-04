@@ -55,6 +55,7 @@ type Runtime struct {
 	SolanaWalletService        *services.SolanaWalletService
 	SolanaPaymentService       *services.SolanaPaymentService
 	SolanaPaymentIntentService *services.SolanaPaymentIntentService
+	SolanaVerificationService  *services.SolanaVerificationService
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 	WebhookEventService          *services.WebhookEventService
