@@ -73,6 +73,10 @@ func TestWebhookSubscriptionLifecycle(t *testing.T) {
 		assert.NotEmpty(t, entitlements, "Should have entitlements after subscription created")
 	})
 
+	// Set up mock clock and advance it to ensure end_at > start_at when webhook revokes entitlements
+	mockClock := suite.SetMockClock()
+	mockClock.Advance(1 * time.Hour)
+
 	// Step 2: Send Cancellation webhook - should cancel subscription
 	t.Run("Cancellation cancels subscription", func(t *testing.T) {
 		filePath := filepath.Join("../testdata/webhooks/ccbill", "cancellation.json")
@@ -252,6 +256,10 @@ func TestWebhookExpirationFlow(t *testing.T) {
 	sub := suite.GetSubscriptionByProcessorID(CCBillTestSubscriptionID)
 	suite.CreateTestEntitlement(CCBillTestUserID, "premium", &sub.ID, models.EntitlementSourceSubscription)
 
+	// Set up mock clock and advance it to ensure end_at > start_at when webhook revokes entitlements
+	mockClock := suite.SetMockClock()
+	mockClock.Advance(1 * time.Hour)
+
 	t.Run("Expiration cancels subscription and revokes entitlements", func(t *testing.T) {
 		filePath := filepath.Join("../testdata/webhooks/ccbill", "expiration.json")
 		data, err := os.ReadFile(filePath)
@@ -315,6 +323,10 @@ func TestWebhookChargebackTerminatesSubscription(t *testing.T) {
 	// Create entitlement
 	sub := suite.GetSubscriptionByProcessorID(CCBillTestSubscriptionID)
 	suite.CreateTestEntitlement(CCBillTestUserID, "premium", &sub.ID, models.EntitlementSourceSubscription)
+
+	// Set up mock clock and advance it to ensure end_at > start_at when webhook revokes entitlements
+	mockClock := suite.SetMockClock()
+	mockClock.Advance(1 * time.Hour)
 
 	t.Run("Chargeback immediately terminates subscription", func(t *testing.T) {
 		filePath := filepath.Join("../testdata/webhooks/ccbill", "chargeback.json")

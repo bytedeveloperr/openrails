@@ -45,17 +45,18 @@ BEGIN
 
     -- Insert pricing tiers with fixed IDs linked to the deterministic product IDs
     -- Note: amount is in cents (smallest currency unit), e.g., 499 = $4.99
-    INSERT INTO billing.prices (id, product_id, display_name, amount, currency, billing_cycle_days, ccbill_price_id, nmi_plan_id, nmi_provider, is_active)
+    -- processors JSONB contains processor-specific config keyed by processor name
+    INSERT INTO billing.prices (id, product_id, display_name, amount, currency, billing_cycle_days, processors, is_active)
     VALUES
-        (basic_price_id, basic_product_id, 'Basic Monthly', 499, 'USD', 30, '681cb38f-afb9-4665-931f-2b896072178a', 'basic_monthly', 'mobius', true),
-        (premium_price_id, premium_product_id, 'Premium Monthly', 999, 'USD', 30, '681cb38f-afb9-4665-931f-2b896072178a', 'premium_monthly', 'mobius', true)
+        (basic_price_id, basic_product_id, 'Basic Monthly', 499, 'USD', 30,
+         '{"mobius": {"plan_id": "basic_monthly"}, "ccbill": {"price_id": "681cb38f-afb9-4665-931f-2b896072178a"}}'::jsonb, true),
+        (premium_price_id, premium_product_id, 'Premium Monthly', 999, 'USD', 30,
+         '{"mobius": {"plan_id": "premium_monthly"}, "ccbill": {"price_id": "681cb38f-afb9-4665-931f-2b896072178a"}}'::jsonb, true)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO UPDATE SET
         id = EXCLUDED.id,
         display_name = EXCLUDED.display_name,
         is_active = EXCLUDED.is_active,
-        ccbill_price_id = EXCLUDED.ccbill_price_id,
-        nmi_plan_id = EXCLUDED.nmi_plan_id,
-        nmi_provider = EXCLUDED.nmi_provider,
+        processors = EXCLUDED.processors,
         updated_at = current_timestamp;
 END$$;
 
@@ -63,6 +64,4 @@ END$$;
 COMMENT ON TABLE billing.products IS 'Product catalog - modify these via your application, not directly in billing service';
 COMMENT ON TABLE billing.prices IS 'Pricing tiers with processor integration - modify these via your application for new campaigns';
 COMMENT ON COLUMN billing.prices.is_active IS 'Set to false to disable pricing tier without deleting (useful for campaigns)';
-COMMENT ON COLUMN billing.prices.ccbill_price_id IS 'CCBill FlexForm price identifier - update when creating new CCBill products';
-COMMENT ON COLUMN billing.prices.nmi_plan_id IS 'NMI plan identifier - update when creating new NMI plans';
-COMMENT ON COLUMN billing.prices.nmi_provider IS 'NMI provider slug (e.g., mobius) for multi-tenant gateways';
+COMMENT ON COLUMN billing.prices.processors IS 'JSONB map of processor configs: {"mobius": {"plan_id": "xyz"}, "ccbill": {"price_id": "abc"}}';

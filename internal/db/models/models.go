@@ -15,8 +15,9 @@ const (
 	ProcessorSolana Processor = "solana" // Solana crypto payments (self-contained)
 	ProcessorPayPal Processor = "paypal" // PayPal processor (self-contained)
 
-	// ProcessorNMI is kept for backwards compatibility and gateway references
-	// New code should use ProcessorMobius for the processor field
+	// ProcessorNMI is kept for backwards compatibility with legacy database records.
+	// New code should use ProcessorMobius for the processor field.
+	// Deprecated: Use ProcessorMobius instead.
 	ProcessorNMI Processor = "nmi"
 )
 

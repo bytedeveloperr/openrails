@@ -10,6 +10,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -233,8 +234,8 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 		}
 	}
 
-	// Only mobius subscriptions can be cancelled via this service (uses NMI)
-	if subscription.Processor != models.ProcessorMobius && subscription.Processor != models.ProcessorNMI {
+	// Only NMI-backed processors (e.g., mobius) can be cancelled via this service
+	if !processors.IsNMIBackedProcessor(subscription.Processor) {
 		return fmt.Errorf("unable to cancel subscription for processor %s", subscription.Processor)
 	}
 

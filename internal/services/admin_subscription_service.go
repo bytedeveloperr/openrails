@@ -10,6 +10,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -164,8 +165,7 @@ func (s *AdminSubscriptionService) UpdateSubscription(ctx context.Context, subsc
 
 // cancelWithNMI cancels a subscription with NMI if applicable
 func (s *AdminSubscriptionService) cancelWithNMI(subscription *models.Subscription) error {
-	// Only mobius subscriptions use NMI
-	if subscription.Processor != models.ProcessorMobius && subscription.Processor != models.ProcessorNMI {
+	if !processors.IsNMIBackedProcessor(subscription.Processor) {
 		return nil // Not an NMI-backed subscription, nothing to do
 	}
 

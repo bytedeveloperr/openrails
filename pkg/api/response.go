@@ -129,6 +129,30 @@ type RedirectToURLObject struct {
 	ReturnURL string `json:"return_url,omitempty"`
 }
 
+// PaymentObject represents a payment resource
+type PaymentObject struct {
+	ID              string              `json:"id"`
+	Object          string              `json:"object"` // Always "payment"
+	Amount          int64               `json:"amount"` // Amount in cents (positive for payments, negative for refunds)
+	AmountRefunded  int64               `json:"amount_refunded"`
+	Currency        string              `json:"currency"`
+	Customer        string              `json:"customer"`                      // User ID with cus_ prefix
+	Subscription    *string             `json:"subscription,omitempty"`        // Subscription ID if linked
+	Processor       string              `json:"processor"`                     // mobius, ccbill, solana
+	TransactionID   string              `json:"transaction_id"`                // Processor's transaction identifier
+	Refunded        bool                `json:"refunded"`                      // True if fully refunded
+	Refunds         *PaymentRefundsList `json:"refunds,omitempty"`             // List of refunds (for single payment view)
+	Created         int64               `json:"created"`                       // Unix epoch seconds
+	Price           *PriceObject        `json:"price,omitempty"`               // Expanded price object
+	SubscriptionObj *SubscriptionObject `json:"subscription_object,omitempty"` // Expanded subscription (for detail view)
+}
+
+// PaymentRefundsList contains refund entries for a payment
+type PaymentRefundsList struct {
+	Object string          `json:"object"` // Always "list"
+	Data   []PaymentObject `json:"data"`
+}
+
 // Helper to convert time.Time to unix epoch
 func ToUnix(t time.Time) int64 {
 	if t.IsZero() {

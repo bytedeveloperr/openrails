@@ -23,7 +23,19 @@ type PublicProductResponse struct {
 
 // GetAvailableProducts returns all active products with their prices for public consumption
 func (s *PublicSubscriptionService) GetAvailableProducts(ctx context.Context) ([]*PublicProductResponse, error) {
-	products, err := s.ProductService.GetActive(ctx)
+	return s.GetProducts(ctx, false)
+}
+
+// GetProducts returns products with their prices. If includeInactive is true, returns all products.
+func (s *PublicSubscriptionService) GetProducts(ctx context.Context, includeInactive bool) ([]*PublicProductResponse, error) {
+	var products []*models.Product
+	var err error
+
+	if includeInactive {
+		products, err = s.ProductService.GetAll(ctx)
+	} else {
+		products, err = s.ProductService.GetActive(ctx)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get products: %w", err)
 	}
@@ -35,7 +47,12 @@ func (s *PublicSubscriptionService) GetAvailableProducts(ctx context.Context) ([
 		}
 
 		// Get prices for this product
-		prices, err := s.PriceService.GetByProductID(ctx, product.ID)
+		var prices []*models.Price
+		if includeInactive {
+			prices, err = s.PriceService.GetByProductID(ctx, product.ID)
+		} else {
+			prices, err = s.PriceService.GetActiveByProductID(ctx, product.ID)
+		}
 		if err != nil {
 			log.WithFields(log.Fields{
 				"product_id": product.ID,

@@ -180,8 +180,9 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 	}
 
 	// Validate amount - convert billedAmount (dollars) to cents for comparison
+	// Note: price.Amount is already in cents (int64), billedAmount is in dollars (float64)
 	billedAmountCents := int64(billedAmount * 100)
-	expectedAmountCents := int64(price.Amount * 100)
+	expectedAmountCents := price.Amount
 	tolerance := int64(float64(expectedAmountCents) * 0.02) // 2% tolerance
 	if billedAmountCents < (expectedAmountCents-tolerance) || billedAmountCents > (expectedAmountCents+tolerance) {
 		billingErr := newBillingError(ErrorTypeAmount,
@@ -373,6 +374,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
 		notificationQueueService := NewNotificationQueueService(txdb)
+		entitlementService := NewEntitlementService(txdb)
 		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
 
 		// Find subscription by processor subscription ID
@@ -384,14 +386,18 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to get subscription: %w", err)
 		}
 
+		// Store old price ID before updating
+		oldPriceID := subscription.PriceID
+
 		newPrice, err := priceService.GetByCCBillPriceID(ctx, data.FlexID)
 		if err != nil {
 			return fmt.Errorf("failed to find new price for CCBill price ID %s: %w", data.FlexID, err)
 		}
 
 		// Validate the billed amount matches the new price - convert dollars to cents
+		// Note: newPrice.Amount is already in cents (int64), billedAmount is in dollars (float64)
 		billedAmountCents := int64(billedAmount * 100)
-		expectedAmountCents := int64(newPrice.Amount * 100)
+		expectedAmountCents := newPrice.Amount
 		tolerance := int64(float64(expectedAmountCents) * 0.02) // 2% tolerance
 		if billedAmountCents < (expectedAmountCents-tolerance) || billedAmountCents > (expectedAmountCents+tolerance) {
 			billingErr := newBillingError(ErrorTypeAmount,
@@ -426,6 +432,12 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
 
+		// Update entitlements based on product tier change
+		if err := s.updateEntitlementsForUpgrade(ctx, txdb, entitlementService, productService, priceService, subscription, oldPriceID, newPrice.ID); err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to update entitlements for subscription upgrade")
+			// Don't fail the webhook - entitlement issues shouldn't block subscription updates
+		}
+
 		// Log upgrade payment event to ClickHouse
 		if s.BillingEventService != nil {
 			metadata := map[string]interface{}{
@@ -437,7 +449,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 				"new_flex_id":              data.FlexID,
 				"new_form_name":            formName,
 				"original_subscription_id": originalSubscriptionID,
-				"previous_price_id":        subscription.PriceID.String(),
+				"previous_price_id":        oldPriceID.String(),
 				"new_price_id":             newPrice.ID.String(),
 			}
 
@@ -475,6 +487,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"subscriptionID":         subscription.ID,
 			"userID":                 subscription.UserID,
+			"oldPriceID":             oldPriceID,
 			"newPriceID":             newPrice.ID,
 			"billedAmount":           billedAmount,
 			"transactionID":          transactionID,
@@ -486,6 +499,111 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 	}); err != nil {
 		return err
 	}
+
+	return nil
+}
+
+// updateEntitlementsForUpgrade handles entitlement changes when a subscription is upgraded/downgraded.
+// It revokes entitlements that are no longer in the new product's spec and grants new ones.
+func (s *CCBillWebhookService) updateEntitlementsForUpgrade(
+	ctx context.Context,
+	txdb *db.DB,
+	entitlementService *EntitlementService,
+	productService *ProductService,
+	priceService *PriceService,
+	subscription *models.Subscription,
+	oldPriceID uuid.UUID,
+	newPriceID uuid.UUID,
+) error {
+	// Get old and new prices
+	oldPrice, err := priceService.GetByID(ctx, oldPriceID)
+	if err != nil {
+		return fmt.Errorf("failed to get old price: %w", err)
+	}
+
+	newPrice, err := priceService.GetByID(ctx, newPriceID)
+	if err != nil {
+		return fmt.Errorf("failed to get new price: %w", err)
+	}
+
+	// Get old and new products
+	oldProduct, err := productService.GetByID(ctx, oldPrice.ProductID)
+	if err != nil {
+		return fmt.Errorf("failed to get old product: %w", err)
+	}
+
+	newProduct, err := productService.GetByID(ctx, newPrice.ProductID)
+	if err != nil {
+		return fmt.Errorf("failed to get new product: %w", err)
+	}
+
+	// Build entitlement sets for old and new products
+	oldEntitlements := make(map[string]bool)
+	if len(oldProduct.EntitlementsSpec) > 0 {
+		for name := range oldProduct.EntitlementsSpec {
+			oldEntitlements[name] = true
+		}
+	} else {
+		oldEntitlements["premium"] = true // default entitlement
+	}
+
+	newEntitlements := make(map[string]bool)
+	if len(newProduct.EntitlementsSpec) > 0 {
+		for name := range newProduct.EntitlementsSpec {
+			newEntitlements[name] = true
+		}
+	} else {
+		newEntitlements["premium"] = true // default entitlement
+	}
+
+	now := time.Now()
+
+	// Revoke entitlements that are no longer in the new product (downgrade case)
+	for oldEnt := range oldEntitlements {
+		if !newEntitlements[oldEnt] {
+			// This entitlement is being removed
+			reason := models.EntitlementRevokeAdmin
+			if err := entitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+				log.WithContext(ctx).WithError(err).WithField("entitlement", oldEnt).Warn("failed to revoke entitlement during upgrade")
+			} else {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"subscription_id": subscription.ID,
+					"entitlement":     oldEnt,
+					"action":          "revoked",
+				}).Info("Revoked entitlement during subscription tier change")
+			}
+		}
+	}
+
+	// Grant new entitlements that weren't in the old product (upgrade case)
+	for newEnt := range newEntitlements {
+		if !oldEntitlements[newEnt] {
+			// This is a new entitlement - check if it already exists
+			exists, err := entitlementService.ExistsBySource(ctx, models.EntitlementSourceSubscription, subscription.ID, newEnt)
+			if err != nil {
+				log.WithContext(ctx).WithError(err).WithField("entitlement", newEnt).Warn("failed to check entitlement existence")
+				continue
+			}
+			if exists {
+				continue
+			}
+
+			// Grant new indefinite entitlement tied to subscription
+			if _, err := entitlementService.GrantWindow(ctx, subscription.UserID, newEnt, now, nil, models.EntitlementSourceSubscription, &subscription.ID); err != nil {
+				log.WithContext(ctx).WithError(err).WithField("entitlement", newEnt).Warn("failed to grant entitlement during upgrade")
+			} else {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"subscription_id": subscription.ID,
+					"user_id":         subscription.UserID,
+					"entitlement":     newEnt,
+					"action":          "granted",
+				}).Info("Granted new entitlement during subscription tier change")
+			}
+		}
+	}
+
+	// For entitlements that exist in both products, no action needed - they continue
+	// The indefinite window remains valid
 
 	return nil
 }

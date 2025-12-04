@@ -47,9 +47,9 @@ func TestAdminEndpointsRequireAuth(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, w.Code, "Should return 401 Unauthorized")
 	})
 
-	t.Run("GET user entitlements returns 401 without auth", func(t *testing.T) {
+	t.Run("GET user billing profile returns 401 without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/admin/users/"+uuid.New().String()+"/entitlements", nil)
+		req, _ := http.NewRequest("GET", "/v1/admin/users/"+uuid.New().String(), nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -88,7 +88,7 @@ func TestAdminExtendSubscription(t *testing.T) {
 			UserID:         userID,
 			PriceID:        priceID,
 			Status:         models.StatusActive,
-			Processor:      models.ProcessorNMI,
+			Processor:      models.ProcessorMobius,
 			ProcessorSubID: "admin-extend-sub-" + uuid.New().String()[:8],
 			PeriodStart:    now,
 			PeriodEnd:      periodEnd,
@@ -126,7 +126,7 @@ func TestAdminExtendSubscription(t *testing.T) {
 			UserID:         userID,
 			PriceID:        priceID,
 			Status:         models.StatusCancelled,
-			Processor:      models.ProcessorNMI,
+			Processor:      models.ProcessorMobius,
 			ProcessorSubID: "admin-extend-cancelled-" + uuid.New().String()[:8],
 		})
 
@@ -146,49 +146,51 @@ func TestAdminExtendSubscription(t *testing.T) {
 	})
 }
 
-// TestAdminGetUserEntitlements tests the GET user entitlements endpoint
-func TestAdminGetUserEntitlements(t *testing.T) {
+// TestAdminGetUserBillingProfile tests the GET user billing profile endpoint
+func TestAdminGetUserBillingProfile(t *testing.T) {
 	suite, adminToken := setupAdminTestSuite(t)
 
-	t.Run("returns empty list for user with no entitlements", func(t *testing.T) {
+	t.Run("returns empty profile for new user", func(t *testing.T) {
 		userID := uuid.New().String()
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/admin/users/%s/entitlements", userID), nil)
+		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/admin/users/%s", userID), nil)
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
 
-		var response []interface{}
+		var response map[string]interface{}
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.Empty(t, response, "Should return empty array for user with no entitlements")
+		assert.Equal(t, userID, response["user_id"], "User ID should match")
 	})
 
-	t.Run("returns entitlements for user", func(t *testing.T) {
+	t.Run("returns entitlements in user profile", func(t *testing.T) {
 		userID := uuid.New().String()
 
 		// Create entitlements
-		ent := suite.CreateTestEntitlement(userID, "premium", nil, models.EntitlementSourceAdmin)
+		suite.CreateTestEntitlement(userID, "premium", nil, models.EntitlementSourceAdmin)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/admin/users/%s/entitlements", userID), nil)
+		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/admin/users/%s", userID), nil)
 		req.Header.Set("Authorization", "Bearer "+adminToken)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
 
-		var response []map[string]interface{}
+		var response map[string]interface{}
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		require.Len(t, response, 1, "Should return one entitlement")
-		assert.Equal(t, ent.ID.String(), response[0]["id"], "Entitlement ID should match")
-		assert.Equal(t, "premium", response[0]["entitlement"], "Entitlement type should be premium")
+		assert.Equal(t, userID, response["user_id"], "User ID should match")
+		// The profile includes entitlements as part of the response
+		entitlements, ok := response["entitlements"].([]interface{})
+		require.True(t, ok, "Response should have entitlements array")
+		assert.Len(t, entitlements, 1, "Should have one entitlement")
 	})
 }
 
@@ -196,9 +198,9 @@ func TestAdminGetUserEntitlements(t *testing.T) {
 func TestAdminHealth(t *testing.T) {
 	suite, _ := setupAdminTestSuite(t)
 
-	t.Run("health endpoint returns ok without auth", func(t *testing.T) {
+	t.Run("health/live endpoint returns ok without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/health", nil)
+		req, _ := http.NewRequest("GET", "/health/live", nil)
 		// No auth header - health endpoint should be public
 
 		suite.Server.Handler().ServeHTTP(w, req)

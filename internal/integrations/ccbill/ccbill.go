@@ -131,3 +131,60 @@ func (c *CCBillClient) getConfigOrDefault(configValue, defaultValue string) stri
 
 	return configValue
 }
+
+// GenerateUpgradeFlexFormURLParams contains parameters for generating CCBill upgrade FlexForm URLs
+type GenerateUpgradeFlexFormURLParams struct {
+	// Customer identity
+	Username string `json:"username"`
+	Email    string `json:"email"`
+
+	// The new pricing tier to upgrade to
+	FlexID string `json:"flex_id"`
+
+	// The existing CCBill subscription ID to upgrade
+	OriginalSubscriptionID string `json:"original_subscription_id"`
+}
+
+// GenerateUpgradeFlexFormURL creates a CCBill FlexForm URL for upgrading an existing subscription
+// This allows users to change their subscription tier (upgrade or downgrade)
+func (c *CCBillClient) GenerateUpgradeFlexFormURL(params *GenerateUpgradeFlexFormURLParams) (*FlexFormResponse, error) {
+	if params.Username == "" || params.Email == "" {
+		return nil, fmt.Errorf("username and email are required")
+	}
+	if params.FlexID == "" {
+		return nil, fmt.Errorf("flex_id (target price) is required")
+	}
+	if params.OriginalSubscriptionID == "" {
+		return nil, fmt.Errorf("original_subscription_id is required")
+	}
+
+	// Build FlexForm URL parameters for upgrade
+	// CCBill upgrade forms require the original subscription ID to identify what to upgrade
+	q := url.Values{
+		"clientAccnum":           {c.config.ClientAccNum},
+		"clientSubacc":           {c.config.ClientSubAcc},
+		"formName":               {c.config.FormName},
+		"language":               {c.config.Language},
+		"currencyCode":           {c.config.CurrencyCode},
+		"email":                  {params.Email},
+		"username":               {params.Username},
+		"originalSubscriptionId": {params.OriginalSubscriptionID},
+	}
+
+	// Generate signature if salt is configured
+	if c.config.Salt != "" {
+		sigInput := url.Values{"username": {params.Username}}
+		q.Set("signature", c.generateCCBillSignature(sigInput))
+	}
+
+	baseURL := c.config.BaseFlexFormURL
+	flexFormURL := fmt.Sprintf("%s/%s?%s", strings.TrimRight(baseURL, "/"), params.FlexID, q.Encode())
+
+	return &FlexFormResponse{
+		IFrameURL:  flexFormURL,
+		Width:      c.getConfigOrDefault(c.config.IFrameWidth, "100%"),
+		Height:     c.getConfigOrDefault(c.config.IFrameHeight, "600px"),
+		SuccessURL: c.config.SuccessURL,
+		DeclineURL: c.config.DeclineURL,
+	}, nil
+}

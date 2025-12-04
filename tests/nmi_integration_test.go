@@ -318,8 +318,7 @@ func TestDunningWorkerWithRealNMI(t *testing.T) {
 	userID := uuid.New().String()
 	pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
-		Processor: models.ProcessorNMI,
-		Provider:  "mobius",
+		Processor: models.ProcessorMobius,
 		VaultID:   vaultID,
 		BillingID: billingID,
 		IsActive:  true,
@@ -333,15 +332,14 @@ func TestDunningWorkerWithRealNMI(t *testing.T) {
 	processorSubID := "test-sub-" + uuid.New().String()
 
 	sub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
-		UserID:            userID,
-		PriceID:           priceID,
-		Status:            models.StatusPastDue,
-		Processor:         models.ProcessorNMI,
-		ProcessorSubID:    processorSubID,
-		ProcessorProvider: "mobius",
-		PaymentMethodID:   &pm.ID,
-		RetryAttempts:     &retryAttempts,
-		NextRetryAt:       &pastTime,
+		UserID:          userID,
+		PriceID:         priceID,
+		Status:          models.StatusPastDue,
+		Processor:       models.ProcessorMobius,
+		ProcessorSubID:  processorSubID,
+		PaymentMethodID: &pm.ID,
+		RetryAttempts:   &retryAttempts,
+		NextRetryAt:     &pastTime,
 	})
 
 	// Create worker with real NMI client configured from suite

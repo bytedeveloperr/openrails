@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -71,6 +72,11 @@ func (r *EntitlementRepo) GetLatestFiniteActive(ctx context.Context, userID, ent
 }
 
 func (r *EntitlementRepo) Insert(ctx context.Context, entitlement *models.Entitlement) error {
+	// Validate that end_at > start_at if end_at is provided (non-indefinite entitlement)
+	if entitlement.EndAt != nil && !entitlement.EndAt.After(entitlement.StartAt) {
+		return fmt.Errorf("invalid entitlement: end_at (%v) must be after start_at (%v)", entitlement.EndAt, entitlement.StartAt)
+	}
+
 	res, err := r.db.GetDB().NewInsert().Model(entitlement).Exec(ctx)
 	if err != nil {
 		return err
@@ -118,8 +124,26 @@ func (r *EntitlementRepo) ListActiveRecords(ctx context.Context, userID string, 
 // EndActiveBySubscription ends entitlements for a subscription.
 // If reason is nil, only end_at is set (for period-end expirations).
 // If reason is provided, revoked_at and revoke_reason are also set (for immediate revocations).
-func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscriptionID uuid.UUID, endAt time.Time, reason *models.EntitlementRevokeReason) error {
-	now := time.Now()
+// Returns an error if any entitlement would have end_at <= start_at (zero or negative duration).
+// The now parameter is used for updated_at and revoked_at timestamps to support mock clocks in tests.
+func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscriptionID uuid.UUID, endAt time.Time, now time.Time, reason *models.EntitlementRevokeReason) error {
+	// First, check if any entitlements would violate the start_at < end_at constraint
+	var invalidCount int
+	err := r.db.GetDB().NewSelect().
+		Model((*models.Entitlement)(nil)).
+		ColumnExpr("COUNT(*)").
+		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
+		Where("ent.source_id = ?", subscriptionID).
+		Where("ent.end_at IS NULL").
+		Where("ent.start_at >= ?", endAt).
+		Scan(ctx, &invalidCount)
+	if err != nil {
+		return fmt.Errorf("failed to check entitlement validity: %w", err)
+	}
+	if invalidCount > 0 {
+		return fmt.Errorf("cannot set end_at to %v: %d entitlement(s) have start_at >= end_at (zero or negative duration)", endAt, invalidCount)
+	}
+
 	q := r.db.GetDB().NewUpdate().
 		Model((*models.Entitlement)(nil)).
 		Set("end_at = ?", endAt).
@@ -134,13 +158,32 @@ func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscript
 			Set("revoke_reason = ?", reason)
 	}
 
-	_, err := q.Exec(ctx)
+	_, err = q.Exec(ctx)
 	return err
 }
 
-func (r *EntitlementRepo) EndActiveByPayment(ctx context.Context, paymentID uuid.UUID, endAt time.Time, reason *models.EntitlementRevokeReason) error {
-	now := time.Now()
-	_, err := r.db.GetDB().NewUpdate().
+// EndActiveByPayment ends entitlements for a one-off payment.
+// Returns an error if any entitlement would have end_at <= start_at (zero or negative duration).
+// The now parameter is used for updated_at and revoked_at timestamps to support mock clocks in tests.
+func (r *EntitlementRepo) EndActiveByPayment(ctx context.Context, paymentID uuid.UUID, endAt time.Time, now time.Time, reason *models.EntitlementRevokeReason) error {
+	// First, check if any entitlements would violate the start_at < end_at constraint
+	var invalidCount int
+	err := r.db.GetDB().NewSelect().
+		Model((*models.Entitlement)(nil)).
+		ColumnExpr("COUNT(*)").
+		Where("ent.source_type = ?", models.EntitlementSourceOneOff).
+		Where("ent.source_id = ?", paymentID).
+		Where("ent.end_at IS NULL").
+		Where("ent.start_at >= ?", endAt).
+		Scan(ctx, &invalidCount)
+	if err != nil {
+		return fmt.Errorf("failed to check entitlement validity: %w", err)
+	}
+	if invalidCount > 0 {
+		return fmt.Errorf("cannot set end_at to %v: %d entitlement(s) have start_at >= end_at (zero or negative duration)", endAt, invalidCount)
+	}
+
+	_, err = r.db.GetDB().NewUpdate().
 		Model((*models.Entitlement)(nil)).
 		Set("end_at = ?", endAt).
 		Set("revoked_at = ?", now).
@@ -189,8 +232,8 @@ func (r *EntitlementRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.En
 }
 
 // RevokeByID immediately revokes an entitlement by setting revoked_at and revoke_reason
-func (r *EntitlementRepo) RevokeByID(ctx context.Context, id uuid.UUID, reason models.EntitlementRevokeReason) error {
-	now := time.Now()
+// The now parameter is used for revoked_at and updated_at timestamps to support mock clocks in tests.
+func (r *EntitlementRepo) RevokeByID(ctx context.Context, id uuid.UUID, now time.Time, reason models.EntitlementRevokeReason) error {
 	res, err := r.db.GetDB().NewUpdate().
 		Model((*models.Entitlement)(nil)).
 		Set("revoked_at = ?", now).

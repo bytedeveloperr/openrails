@@ -106,8 +106,7 @@ func TestListPaymentMethods(t *testing.T) {
 	// Create some test payment methods
 	pm1 := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
-		Processor: models.ProcessorNMI,
-		Provider:  "mobius",
+		Processor: models.ProcessorMobius,
 		IsActive:  true,
 		LastFour:  "4242",
 		CardType:  "Visa",
@@ -115,8 +114,7 @@ func TestListPaymentMethods(t *testing.T) {
 
 	pm2 := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
-		Processor: models.ProcessorNMI,
-		Provider:  "mobius",
+		Processor: models.ProcessorMobius,
 		IsActive:  true, // Note: Database has default:true, so false values become true
 		LastFour:  "1234",
 		CardType:  "Mastercard",
@@ -214,7 +212,7 @@ func TestCreatePaymentMethod(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.NotEmpty(t, response["id"], "Should return payment method ID")
-		assert.Equal(t, "nmi", response["processor"], "Processor should be NMI")
+		assert.Equal(t, "mobius", response["processor"], "Processor should be mobius")
 		assert.True(t, response["is_active"].(bool), "Should be active by default")
 	})
 
@@ -245,8 +243,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 		// Create a payment method to delete
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
-			Processor: models.ProcessorNMI,
-			Provider:  "mobius",
+			Processor: models.ProcessorMobius,
 			IsActive:  true,
 		})
 
@@ -287,8 +284,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 		otherUserID := uuid.New().String()
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
-			Processor: models.ProcessorNMI,
-			Provider:  "mobius",
+			Processor: models.ProcessorMobius,
 			IsActive:  true,
 		})
 
@@ -323,8 +319,7 @@ func TestActivatePaymentMethod(t *testing.T) {
 		// Create a payment method (will be active due to default:true)
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
-			Processor: models.ProcessorNMI,
-			Provider:  "mobius",
+			Processor: models.ProcessorMobius,
 			IsActive:  true,
 		})
 
@@ -358,8 +353,7 @@ func TestActivatePaymentMethod(t *testing.T) {
 		otherUserID := uuid.New().String()
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
-			Processor: models.ProcessorNMI,
-			Provider:  "mobius",
+			Processor: models.ProcessorMobius,
 			IsActive:  true,
 		})
 
@@ -388,8 +382,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		// Create a payment method to update
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
-			Processor: models.ProcessorNMI,
-			Provider:  "mobius",
+			Processor: models.ProcessorMobius,
 			IsActive:  true,
 		})
 
@@ -419,8 +412,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 	t.Run("returns error without payment_token", func(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
-			Processor: models.ProcessorNMI,
-			Provider:  "mobius",
+			Processor: models.ProcessorMobius,
 			IsActive:  true,
 		})
 
@@ -461,8 +453,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		otherUserID := uuid.New().String()
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
-			Processor: models.ProcessorNMI,
-			Provider:  "mobius",
+			Processor: models.ProcessorMobius,
 			IsActive:  true,
 		})
 

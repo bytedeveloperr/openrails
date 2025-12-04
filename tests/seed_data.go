@@ -39,15 +39,20 @@ const (
 	CCBillTestVoidSubscriptionID = "0125217202000000020"
 )
 
-// DefaultTestProducts returns the standard set of test products
+// DefaultTestProducts returns a comprehensive set of test products covering:
+// - Multiple products with different entitlements
+// - Multiple prices per product with varying currencies (USD, EUR, JPY)
+// - Different billing cycles (monthly, quarterly, yearly, one-time)
+// - Both recurring and one-off pricing options
 func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 	return []TestProduct{
 		{
+			// Product 1: Premium subscription with multiple price options
 			Product: &models.Product{
 				ID:          uuid.MustParse("11111111-1111-1111-1111-111111111111"),
-				Slug:        "premium-monthly",
-				DisplayName: "Premium Monthly",
-				Description: "Monthly premium subscription",
+				Slug:        "premium",
+				DisplayName: "Premium",
+				Description: "Premium subscription with full access",
 				EntitlementsSpec: map[string]*int{
 					"premium": nil, // Indefinite while subscription is active
 				},
@@ -55,15 +60,15 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 			},
 			Prices: []*models.Price{
 				{
+					// Price 1.1: Monthly USD recurring
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222222"),
 					DisplayName:      "Monthly - $9.99",
 					Amount:           999, // Amount in cents ($9.99)
 					Currency:         "USD",
 					BillingCycleDays: intPtr(30),
 					Processors: map[string]map[string]string{
-						string(models.ProcessorNMI): {
-							models.ProcessorKeyPlanID:   "plan_monthly_999",
-							models.ProcessorKeyProvider: "mobius",
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_monthly_usd_999",
 						},
 						// CCBillPriceID matches flexId from testdata/webhooks/ccbill/newsalesuccess.json
 						string(models.ProcessorCCBill): {
@@ -75,34 +80,247 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					},
 					IsActive: true,
 				},
+				{
+					// Price 1.2: Quarterly USD recurring (discounted)
+					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222223"),
+					DisplayName:      "Quarterly - $24.99",
+					Amount:           2499, // Amount in cents ($24.99, ~17% discount)
+					Currency:         "USD",
+					BillingCycleDays: intPtr(90),
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_quarterly_usd_2499",
+						},
+						string(models.ProcessorCCBill): {
+							models.ProcessorKeyPriceID: "ccbill_quarterly_usd_2499",
+						},
+						string(models.ProcessorSolana): {
+							"enabled": "true",
+						},
+					},
+					IsActive: true,
+				},
+				{
+					// Price 1.3: Monthly EUR recurring
+					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222224"),
+					DisplayName:      "Monthly - €8.99",
+					Amount:           899, // Amount in cents (€8.99)
+					Currency:         "EUR",
+					BillingCycleDays: intPtr(30),
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_monthly_eur_899",
+						},
+						string(models.ProcessorCCBill): {
+							models.ProcessorKeyPriceID: "ccbill_monthly_eur_899",
+						},
+					},
+					IsActive: true,
+				},
+				{
+					// Price 1.4: Monthly JPY recurring
+					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222225"),
+					DisplayName:      "Monthly - ¥1,200",
+					Amount:           1200, // Amount in yen (no decimals for JPY)
+					Currency:         "JPY",
+					BillingCycleDays: intPtr(30),
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_monthly_jpy_1200",
+						},
+						// CCBill doesn't support JPY in this example
+					},
+					IsActive: true,
+				},
+				{
+					// Price 1.5: Yearly USD recurring (heavily discounted)
+					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222226"),
+					DisplayName:      "Yearly - $79.99",
+					Amount:           7999, // Amount in cents ($79.99, ~33% discount)
+					Currency:         "USD",
+					BillingCycleDays: intPtr(365),
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_yearly_usd_7999",
+						},
+						string(models.ProcessorCCBill): {
+							models.ProcessorKeyPriceID: "ccbill_yearly_usd_7999",
+						},
+						string(models.ProcessorSolana): {
+							"enabled": "true",
+						},
+					},
+					IsActive: true,
+				},
 			},
 		},
 		{
+			// Product 2: Pro tier with higher pricing and additional features
 			Product: &models.Product{
 				ID:          uuid.MustParse("33333333-3333-3333-3333-333333333333"),
-				Slug:        "premium-yearly",
-				DisplayName: "Premium Yearly",
-				Description: "Yearly premium subscription with discount",
+				Slug:        "pro",
+				DisplayName: "Pro",
+				Description: "Pro subscription with premium features and priority support",
 				EntitlementsSpec: map[string]*int{
-					"premium": nil,
+					"premium":          nil,
+					"priority_support": nil,
+					"api_access":       nil,
 				},
 				IsActive: true,
 			},
 			Prices: []*models.Price{
 				{
+					// Price 2.1: Monthly USD recurring
 					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444444"),
-					DisplayName:      "Yearly - $99.99",
-					Amount:           9999, // Amount in cents ($99.99)
+					DisplayName:      "Pro Monthly - $19.99",
+					Amount:           1999, // Amount in cents ($19.99)
+					Currency:         "USD",
+					BillingCycleDays: intPtr(30),
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_pro_monthly_usd_1999",
+						},
+						string(models.ProcessorCCBill): {
+							models.ProcessorKeyPriceID: "ccbill_pro_monthly_usd_1999",
+						},
+						string(models.ProcessorSolana): {
+							"enabled": "true",
+						},
+					},
+					IsActive: true,
+				},
+				{
+					// Price 2.2: Yearly USD recurring
+					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444445"),
+					DisplayName:      "Pro Yearly - $149.99",
+					Amount:           14999, // Amount in cents ($149.99)
 					Currency:         "USD",
 					BillingCycleDays: intPtr(365),
 					Processors: map[string]map[string]string{
-						string(models.ProcessorNMI): {
-							models.ProcessorKeyPlanID:   "plan_yearly_9999",
-							models.ProcessorKeyProvider: "mobius",
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_pro_yearly_usd_14999",
 						},
 						string(models.ProcessorCCBill): {
-							models.ProcessorKeyPriceID: "ccbill_yearly_9999",
+							models.ProcessorKeyPriceID: "ccbill_pro_yearly_usd_14999",
 						},
+						string(models.ProcessorSolana): {
+							"enabled": "true",
+						},
+					},
+					IsActive: true,
+				},
+				{
+					// Price 2.3: Monthly EUR recurring
+					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444446"),
+					DisplayName:      "Pro Monthly - €17.99",
+					Amount:           1799, // Amount in cents (€17.99)
+					Currency:         "EUR",
+					BillingCycleDays: intPtr(30),
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_pro_monthly_eur_1799",
+						},
+						string(models.ProcessorCCBill): {
+							models.ProcessorKeyPriceID: "ccbill_pro_monthly_eur_1799",
+						},
+					},
+					IsActive: true,
+				},
+			},
+		},
+		{
+			// Product 3: One-time purchase (lifetime access or credits)
+			Product: &models.Product{
+				ID:          uuid.MustParse("55555555-5555-5555-5555-555555555555"),
+				Slug:        "lifetime",
+				DisplayName: "Lifetime Access",
+				Description: "One-time purchase for lifetime premium access",
+				EntitlementsSpec: map[string]*int{
+					"premium":  nil, // Indefinite
+					"lifetime": nil, // Special lifetime marker
+				},
+				IsActive: true,
+			},
+			Prices: []*models.Price{
+				{
+					// Price 3.1: One-time USD purchase (no billing cycle)
+					ID:               uuid.MustParse("66666666-6666-6666-6666-666666666666"),
+					DisplayName:      "Lifetime - $299.99",
+					Amount:           29999, // Amount in cents ($299.99)
+					Currency:         "USD",
+					BillingCycleDays: nil, // One-time purchase, no recurring billing
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_lifetime_usd_29999",
+						},
+						string(models.ProcessorCCBill): {
+							models.ProcessorKeyPriceID: "ccbill_lifetime_usd_29999",
+						},
+						string(models.ProcessorSolana): {
+							"enabled": "true",
+						},
+					},
+					IsActive: true,
+				},
+				{
+					// Price 3.2: One-time EUR purchase
+					ID:               uuid.MustParse("66666666-6666-6666-6666-666666666667"),
+					DisplayName:      "Lifetime - €269.99",
+					Amount:           26999, // Amount in cents (€269.99)
+					Currency:         "EUR",
+					BillingCycleDays: nil, // One-time purchase
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_lifetime_eur_26999",
+						},
+						string(models.ProcessorCCBill): {
+							models.ProcessorKeyPriceID: "ccbill_lifetime_eur_26999",
+						},
+					},
+					IsActive: true,
+				},
+				{
+					// Price 3.3: One-time JPY purchase
+					ID:               uuid.MustParse("66666666-6666-6666-6666-666666666668"),
+					DisplayName:      "Lifetime - ¥39,800",
+					Amount:           39800, // Amount in yen
+					Currency:         "JPY",
+					BillingCycleDays: nil, // One-time purchase
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_lifetime_jpy_39800",
+						},
+						// CCBill doesn't support JPY in this example
+					},
+					IsActive: true,
+				},
+			},
+		},
+		{
+			// Product 4: NMI-only product (not available via CCBill)
+			Product: &models.Product{
+				ID:          uuid.MustParse("77777777-7777-7777-7777-777777777777"),
+				Slug:        "basic",
+				DisplayName: "Basic",
+				Description: "Basic subscription (NMI/Mobius only)",
+				EntitlementsSpec: map[string]*int{
+					"basic": nil,
+				},
+				IsActive: true,
+			},
+			Prices: []*models.Price{
+				{
+					// Price 4.1: Monthly USD - NMI only (no CCBill)
+					ID:               uuid.MustParse("88888888-8888-8888-8888-888888888888"),
+					DisplayName:      "Basic Monthly - $4.99",
+					Amount:           499, // Amount in cents ($4.99)
+					Currency:         "USD",
+					BillingCycleDays: intPtr(30),
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_basic_monthly_usd_499",
+						},
+						// No CCBill - this price is NMI-only
 						string(models.ProcessorSolana): {
 							"enabled": "true",
 						},
@@ -206,8 +424,7 @@ func (suite *TestContainerSuite) CreateTestSubscription(userID string, priceID u
 		StartedAt:               now,
 		CurrentPeriodStartsAt:   &periodStart,
 		CurrentPeriodEndsAt:     &periodEnd,
-		Processor:               models.ProcessorNMI,
-		ProcessorProvider:       strPtr("mobius"),
+		Processor:               models.ProcessorMobius,
 		ProcessorSubscriptionID: "test-sub-" + uuid.New().String()[:8],
 		CreatedAt:               now,
 		UpdatedAt:               now,
@@ -221,19 +438,18 @@ func (suite *TestContainerSuite) CreateTestSubscription(userID string, priceID u
 
 // CreateTestSubscriptionWithOptions creates a subscription with custom options
 type SubscriptionOptions struct {
-	UserID            string
-	PriceID           uuid.UUID
-	Status            models.SubscriptionStatus
-	Processor         models.Processor
-	ProcessorProvider string
-	PeriodStart       time.Time
-	PeriodEnd         time.Time
-	PaymentMethodID   *uuid.UUID
-	CancelType        *models.CancelType
-	CancelFeedback    *string
-	ProcessorSubID    string
-	RetryAttempts     *int
-	NextRetryAt       *time.Time
+	UserID          string
+	PriceID         uuid.UUID
+	Status          models.SubscriptionStatus
+	Processor       models.Processor
+	PeriodStart     time.Time
+	PeriodEnd       time.Time
+	PaymentMethodID *uuid.UUID
+	CancelType      *models.CancelType
+	CancelFeedback  *string
+	ProcessorSubID  string
+	RetryAttempts   *int
+	NextRetryAt     *time.Time
 }
 
 func (suite *TestContainerSuite) CreateTestSubscriptionWithOptions(opts SubscriptionOptions) *models.Subscription {
@@ -248,10 +464,7 @@ func (suite *TestContainerSuite) CreateTestSubscriptionWithOptions(opts Subscrip
 		opts.PeriodEnd = now.Add(30 * 24 * time.Hour)
 	}
 	if opts.Processor == "" {
-		opts.Processor = models.ProcessorNMI
-	}
-	if opts.ProcessorProvider == "" {
-		opts.ProcessorProvider = "mobius"
+		opts.Processor = models.ProcessorMobius
 	}
 	if opts.ProcessorSubID == "" {
 		opts.ProcessorSubID = "test-sub-" + uuid.New().String()[:8]
@@ -266,7 +479,6 @@ func (suite *TestContainerSuite) CreateTestSubscriptionWithOptions(opts Subscrip
 		CurrentPeriodStartsAt:   &opts.PeriodStart,
 		CurrentPeriodEndsAt:     &opts.PeriodEnd,
 		Processor:               opts.Processor,
-		ProcessorProvider:       &opts.ProcessorProvider,
 		ProcessorSubscriptionID: opts.ProcessorSubID,
 		PaymentMethodID:         opts.PaymentMethodID,
 		CancelType:              opts.CancelType,
@@ -298,8 +510,7 @@ func (suite *TestContainerSuite) CreateTestPaymentMethod(userID string) *models.
 	pm := &models.PaymentMethod{
 		ID:                   uuid.New(),
 		UserID:               userID,
-		Processor:            models.ProcessorNMI,
-		Provider:             strPtr("mobius"),
+		Processor:            models.ProcessorMobius,
 		VaultID:              "vault-" + uuid.New().String()[:8],
 		BillingID:            strPtr("billing-" + uuid.New().String()[:8]),
 		InitialTransactionID: "txn-" + uuid.New().String()[:8],
@@ -321,7 +532,6 @@ func (suite *TestContainerSuite) CreateTestPaymentMethod(userID string) *models.
 type PaymentMethodOptions struct {
 	UserID               string
 	Processor            models.Processor
-	Provider             string
 	VaultID              string
 	BillingID            string
 	InitialTransactionID string
@@ -338,10 +548,7 @@ func (suite *TestContainerSuite) CreateTestPaymentMethodWithOptions(opts Payment
 	now := time.Now()
 
 	if opts.Processor == "" {
-		opts.Processor = models.ProcessorNMI
-	}
-	if opts.Provider == "" {
-		opts.Provider = "mobius"
+		opts.Processor = models.ProcessorMobius
 	}
 	if opts.VaultID == "" {
 		opts.VaultID = "vault-" + uuid.New().String()[:8]
@@ -354,7 +561,6 @@ func (suite *TestContainerSuite) CreateTestPaymentMethodWithOptions(opts Payment
 		ID:                   uuid.New(),
 		UserID:               opts.UserID,
 		Processor:            opts.Processor,
-		Provider:             strPtr(opts.Provider),
 		VaultID:              opts.VaultID,
 		BillingID:            strPtrOrNil(opts.BillingID),
 		InitialTransactionID: opts.InitialTransactionID,
@@ -384,7 +590,7 @@ func (suite *TestContainerSuite) CreateTestPayment(userID string, priceID uuid.U
 		UserID:         userID,
 		PriceID:        priceID,
 		SubscriptionID: subscriptionID,
-		Processor:      models.ProcessorNMI,
+		Processor:      models.ProcessorMobius,
 		TransactionID:  "txn-" + uuid.New().String()[:8],
 		Amount:         999, // Amount in cents ($9.99)
 		Currency:       "USD",
@@ -405,7 +611,6 @@ type PaymentOptions struct {
 	SubscriptionID    *uuid.UUID
 	RefundedPaymentID *uuid.UUID
 	Processor         models.Processor
-	ProcessorProvider string
 	TransactionID     string
 	Amount            int64 // Amount in cents
 	Currency          string
@@ -418,7 +623,7 @@ func (suite *TestContainerSuite) CreateTestPaymentWithOptions(opts PaymentOption
 	now := time.Now()
 
 	if opts.Processor == "" {
-		opts.Processor = models.ProcessorNMI
+		opts.Processor = models.ProcessorMobius
 	}
 	if opts.TransactionID == "" {
 		opts.TransactionID = "txn-" + uuid.New().String()[:8]
@@ -440,7 +645,6 @@ func (suite *TestContainerSuite) CreateTestPaymentWithOptions(opts PaymentOption
 		SubscriptionID:    opts.SubscriptionID,
 		RefundedPaymentID: opts.RefundedPaymentID,
 		Processor:         opts.Processor,
-		ProcessorProvider: strPtrOrNil(opts.ProcessorProvider),
 		TransactionID:     opts.TransactionID,
 		Amount:            opts.Amount,
 		Currency:          opts.Currency,
@@ -454,11 +658,12 @@ func (suite *TestContainerSuite) CreateTestPaymentWithOptions(opts PaymentOption
 	return payment
 }
 
-// CreateTestEntitlement creates a test entitlement for a user
+// CreateTestEntitlement creates a test entitlement for a user.
+// Uses the mock clock if set, otherwise falls back to real time.
 func (suite *TestContainerSuite) CreateTestEntitlement(userID string, entitlementName string, sourceID *uuid.UUID, sourceType models.EntitlementSourceType) *models.Entitlement {
 	suite.t.Helper()
 	ctx := context.Background()
-	now := time.Now()
+	now := suite.GetClock().Now()
 
 	// For subscription-sourced entitlements, end_at should be NULL (indefinite while subscription is active)
 	// For other sources, we may want a finite window

@@ -14,6 +14,7 @@ const (
 	PrefixPrice         = "price_"
 	PrefixSubscription  = "sub_"
 	PrefixPayment       = "pay_"
+	PrefixCharge        = "ch_" // Stripe-like charge prefix (alias for payment)
 	PrefixPaymentMethod = "pm_"
 	PrefixPaymentIntent = "pi_"
 	PrefixInvoice       = "inv_"
@@ -39,6 +40,12 @@ func FormatSubscriptionID(id uuid.UUID) string {
 // FormatPaymentID formats a UUID as a payment ID (pay_xxx)
 func FormatPaymentID(id uuid.UUID) string {
 	return PrefixPayment + id.String()
+}
+
+// FormatChargeID formats a UUID as a Stripe-like charge ID (ch_xxx)
+// This is used for external API compatibility with Stripe's naming conventions.
+func FormatChargeID(id uuid.UUID) string {
+	return PrefixCharge + id.String()
 }
 
 // FormatPaymentMethodID formats a UUID as a payment method ID (pm_xxx)
@@ -85,6 +92,11 @@ func ParseSubscriptionID(id string) (uuid.UUID, error) {
 // ParsePaymentID parses a prefixed payment ID and returns the UUID
 func ParsePaymentID(id string) (uuid.UUID, error) {
 	return parseID(id, PrefixPayment, "payment")
+}
+
+// ParseChargeID parses a Stripe-like prefixed charge ID (ch_xxx) and returns the UUID
+func ParseChargeID(id string) (uuid.UUID, error) {
+	return parseID(id, PrefixCharge, "charge")
 }
 
 // ParsePaymentMethodID parses a prefixed payment method ID and returns the UUID
@@ -135,7 +147,7 @@ func TryParseID(id string) (uuid.UUID, bool, error) {
 	// Check for known prefixes
 	prefixes := []string{
 		PrefixProduct, PrefixPrice, PrefixSubscription,
-		PrefixPayment, PrefixPaymentMethod, PrefixPaymentIntent,
+		PrefixPayment, PrefixCharge, PrefixPaymentMethod, PrefixPaymentIntent,
 		PrefixInvoice, PrefixCustomer, PrefixEvent,
 	}
 

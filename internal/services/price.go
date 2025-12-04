@@ -45,6 +45,10 @@ func (s *PriceService) GetAllActive(ctx context.Context) ([]*models.Price, error
 	return s.repo.GetAllActive(ctx)
 }
 
+func (s *PriceService) GetAll(ctx context.Context) ([]*models.Price, error) {
+	return s.repo.GetAll(ctx)
+}
+
 func (s *PriceService) Update(ctx context.Context, price *models.Price) error {
 	return s.repo.Update(ctx, price)
 }

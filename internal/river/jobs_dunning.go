@@ -9,11 +9,13 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
 	"github.com/riverqueue/river"
 	log "github.com/sirupsen/logrus"
+	"github.com/uptrace/bun"
 )
 
 const (
@@ -57,12 +59,13 @@ func (w *DunningWorker) Work(ctx context.Context, job *river.Job[DunningArgs]) e
 		return nil
 	}
 
-	// Query all due past_due NMI subscriptions
+	// Query all due past_due NMI-backed subscriptions
 	// Use w.now() instead of SQL NOW() to support time mocking in tests
+	nmiProcessors := processors.GetNMIBackedProcessorsList()
 	var dueSubscriptions []models.Subscription
 	if err := w.DB.GetDB().NewSelect().
 		Model(&dueSubscriptions).
-		Where("sub.processor = ?", models.ProcessorNMI).
+		Where("sub.processor IN (?)", bun.In(nmiProcessors)).
 		Where("sub.status = ?", models.StatusPastDue).
 		Where("sub.next_retry_at IS NOT NULL AND sub.next_retry_at <= ?", w.now()).
 		Relation("Price").

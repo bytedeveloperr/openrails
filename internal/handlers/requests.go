@@ -120,6 +120,21 @@ func (r *GenerateFlexFormURLRequest) Body() any {
 	return &r.GenerateFlexFormURLBodyParams
 }
 
+// -------------------------------- GenerateCCBillUpgradeURL Request --------------------------------
+
+type GenerateCCBillUpgradeURLBodyParams struct {
+	TargetPriceID string `json:"target_price_id" validate:"required,uuid"` // The new price tier to upgrade to
+}
+
+type GenerateCCBillUpgradeURLRequest struct {
+	BaseRequest
+	GenerateCCBillUpgradeURLBodyParams
+}
+
+func (r *GenerateCCBillUpgradeURLRequest) Body() any {
+	return &r.GenerateCCBillUpgradeURLBodyParams
+}
+
 // -------------------------------- Solana Generate Payment Request --------------------------------
 
 type GeneratePaymentBodyParams struct {

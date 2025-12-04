@@ -29,6 +29,10 @@ func (s *ProductService) GetActive(ctx context.Context) ([]*models.Product, erro
 	return s.repo.GetActive(ctx)
 }
 
+func (s *ProductService) GetAll(ctx context.Context) ([]*models.Product, error) {
+	return s.repo.GetAll(ctx)
+}
+
 func (s *ProductService) Update(ctx context.Context, product *models.Product) error {
 	return s.repo.Update(ctx, product)
 }

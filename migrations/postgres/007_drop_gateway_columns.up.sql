@@ -11,8 +11,5 @@ ALTER TABLE billing.payments DROP COLUMN IF EXISTS gateway;
 -- Drop gateway column from payment_methods
 ALTER TABLE billing.payment_methods DROP COLUMN IF EXISTS gateway;
 
--- Normalize any 'nmi' processor values to 'mobius'
--- (legacy data cleanup - NMI is the gateway, mobius is the processor)
-UPDATE billing.subscriptions SET processor = 'mobius' WHERE processor = 'nmi';
-UPDATE billing.payments SET processor = 'mobius' WHERE processor = 'nmi';
-UPDATE billing.payment_methods SET processor = 'mobius' WHERE processor = 'nmi';
+-- Note: 'nmi' was never a valid enum value for processor_type, so no data migration needed.
+-- The enum only contains: 'paypal', 'solana', 'mobius', 'ccbill'

@@ -20,6 +20,8 @@ func (s *Server) registerAdminRoutes() {
 	admin.POST("/subscriptions/:id/cancel", s.wrap(handlers.AdminCancelSubscription))
 
 	// Payment management
+	admin.GET("/payments", s.wrap(handlers.GetAdminPayments))
+	admin.GET("/payments/:id", s.wrap(handlers.GetAdminPayment))
 	admin.POST("/payments/:id/refund", s.wrap(handlers.AdminRefundPayment))
 
 	// User management

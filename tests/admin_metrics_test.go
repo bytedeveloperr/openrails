@@ -17,9 +17,9 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 )
 
-// TestAdminDashboardMetrics tests the GET dashboard metrics endpoint
+// TestAdminDashboardMetrics tests the GET admin metrics endpoint with type=dashboard
 func TestAdminDashboardMetrics(t *testing.T) {
-	suite := setupAdminTestSuite(t)
+	suite, adminToken := setupAdminTestSuite(t)
 
 	// Seed some test data
 	products := suite.SeedProducts()
@@ -34,7 +34,7 @@ func TestAdminDashboardMetrics(t *testing.T) {
 		UserID:         userID1,
 		PriceID:        priceID,
 		Status:         models.StatusActive,
-		Processor:      models.ProcessorNMI,
+		Processor:      models.ProcessorMobius,
 		ProcessorSubID: "metrics-active-1-" + uuid.New().String()[:8],
 	})
 
@@ -50,16 +50,16 @@ func TestAdminDashboardMetrics(t *testing.T) {
 		UserID:         userID3,
 		PriceID:        priceID,
 		Status:         models.StatusCancelled,
-		Processor:      models.ProcessorNMI,
+		Processor:      models.ProcessorMobius,
 		ProcessorSubID: "metrics-cancelled-1-" + uuid.New().String()[:8],
 	})
 
 	t.Run("returns dashboard metrics", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/dashboard-metrics", nil)
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		req, _ := http.NewRequest("GET", "/v1/admin/metrics?type=dashboard", nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got: %s", w.Body.String())
 
@@ -74,9 +74,9 @@ func TestAdminDashboardMetrics(t *testing.T) {
 	})
 }
 
-// TestAdminDailyMetrics tests the GET daily metrics endpoint
+// TestAdminDailyMetrics tests the GET admin metrics endpoint with type=daily
 func TestAdminDailyMetrics(t *testing.T) {
-	suite := setupAdminTestSuite(t)
+	suite, adminToken := setupAdminTestSuite(t)
 
 	t.Run("returns daily metrics for date range", func(t *testing.T) {
 		now := time.Now()
@@ -84,10 +84,10 @@ func TestAdminDailyMetrics(t *testing.T) {
 		endDate := now.Format("2006-01-02")
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/subscriptions/daily-metrics?start=%s&end=%s", startDate, endDate), nil)
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/admin/metrics?type=daily&start=%s&end=%s", startDate, endDate), nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got: %s", w.Body.String())
 
@@ -101,45 +101,45 @@ func TestAdminDailyMetrics(t *testing.T) {
 
 	t.Run("returns error for missing start date", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/daily-metrics?end=2025-01-01", nil)
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		req, _ := http.NewRequest("GET", "/v1/admin/metrics?type=daily&end=2025-01-01", nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
 	})
 
 	t.Run("returns error for missing end date", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/daily-metrics?start=2025-01-01", nil)
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		req, _ := http.NewRequest("GET", "/v1/admin/metrics?type=daily&start=2025-01-01", nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
 	})
 
 	t.Run("returns error for invalid date format", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/daily-metrics?start=01-01-2025&end=01-31-2025", nil)
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		req, _ := http.NewRequest("GET", "/v1/admin/metrics?type=daily&start=01-01-2025&end=01-31-2025", nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
 	})
 }
 
-// TestAdminProcessorMetrics tests the GET processor metrics endpoint
+// TestAdminProcessorMetrics tests the GET admin metrics endpoint with type=processor
 func TestAdminProcessorMetrics(t *testing.T) {
-	suite := setupAdminTestSuite(t)
+	suite, adminToken := setupAdminTestSuite(t)
 
 	t.Run("returns processor metrics", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/processor-metrics", nil)
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		req, _ := http.NewRequest("GET", "/v1/admin/metrics?type=processor", nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got: %s", w.Body.String())
 

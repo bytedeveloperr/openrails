@@ -20,6 +20,7 @@ import (
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	clickhousemigrations "github.com/doujins-org/doujins-billing/migrations/clickhouse"
 	postgresmigrations "github.com/doujins-org/doujins-billing/migrations/postgres"
@@ -28,6 +29,10 @@ import (
 )
 
 func buildRuntime(cfg *config.Config) (*Runtime, error) {
+	// Initialize NMI-backed processors from config BEFORE creating clients
+	// This ensures IsNMIBacked() works correctly for all configured processors
+	processors.InitNMIBackedProcessors(cfg)
+
 	database, err := createDatabase(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db: %w", err)

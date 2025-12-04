@@ -229,7 +229,7 @@ func SubmitPayment(r *Request) {
 	}
 
 	resp := SubmitPaymentResponse{
-		PurchaseID:    api.FormatPaymentID(pay.ID),
+		PurchaseID:    api.FormatChargeID(pay.ID),
 		TransactionID: pay.TransactionID,
 		Status:        "confirmed",
 		Amount:        pay.Amount,

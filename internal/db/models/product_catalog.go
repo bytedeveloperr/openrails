@@ -80,8 +80,23 @@ func (p *Price) HasProcessor(processor Processor) bool {
 }
 
 // GetNMIConfig returns the NMI processor configuration
+// Looks for "mobius" first, then falls back to legacy "nmi" key
 func (p *Price) GetNMIConfig() (planID, provider string, ok bool) {
-	config := p.GetProcessorConfig(ProcessorNMI)
+	// Try mobius first (preferred)
+	config := p.GetProcessorConfig(ProcessorMobius)
+	if config != nil {
+		planID = config[ProcessorKeyPlanID]
+		provider = config[ProcessorKeyProvider]
+		if provider == "" {
+			provider = "mobius"
+		}
+		if planID != "" {
+			return planID, provider, true
+		}
+	}
+
+	// Fall back to legacy "nmi" key for backwards compatibility
+	config = p.GetProcessorConfig(ProcessorNMI)
 	if config == nil {
 		return "", "", false
 	}
@@ -91,6 +106,17 @@ func (p *Price) GetNMIConfig() (planID, provider string, ok bool) {
 		provider = "mobius" // default provider
 	}
 	return planID, provider, planID != ""
+}
+
+// GetNMIConfigForProcessor returns the NMI config for a specific processor (e.g., "mobius", "acme")
+// This allows support for multiple NMI-backed processors with different plan IDs
+func (p *Price) GetNMIConfigForProcessor(processorName string) (planID string, ok bool) {
+	config := p.GetProcessorConfig(Processor(processorName))
+	if config == nil {
+		return "", false
+	}
+	planID = config[ProcessorKeyPlanID]
+	return planID, planID != ""
 }
 
 // GetCCBillConfig returns the CCBill processor configuration
@@ -117,15 +143,23 @@ func (p *Price) SetProcessorConfig(processor Processor, config map[string]string
 	p.Processors[string(processor)] = config
 }
 
-// SetNMIConfig sets the NMI processor configuration
+// SetNMIConfig sets the NMI processor configuration using "mobius" as the key
 func (p *Price) SetNMIConfig(planID, provider string) {
 	config := map[string]string{
 		ProcessorKeyPlanID: planID,
 	}
-	if provider != "" {
+	if provider != "" && provider != "mobius" {
 		config[ProcessorKeyProvider] = provider
 	}
-	p.SetProcessorConfig(ProcessorNMI, config)
+	// Use mobius as the key instead of legacy "nmi"
+	p.SetProcessorConfig(ProcessorMobius, config)
+}
+
+// SetNMIConfigForProcessor sets the NMI config for a specific processor (e.g., "acme")
+func (p *Price) SetNMIConfigForProcessor(processorName, planID string) {
+	p.SetProcessorConfig(Processor(processorName), map[string]string{
+		ProcessorKeyPlanID: planID,
+	})
 }
 
 // SetCCBillConfig sets the CCBill processor configuration

@@ -11,6 +11,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/google/uuid"
 )
 
@@ -284,8 +285,13 @@ func describePaymentMethod(subscription *models.Subscription) string {
 }
 
 func processorDisplayName(processor models.Processor) string {
+	// NMI-backed processors (mobius, etc.) are displayed as "Credit Card"
+	if processors.IsNMIBackedProcessor(processor) {
+		return "Credit Card"
+	}
+
 	switch processor {
-	case models.ProcessorNMI, models.ProcessorCCBill:
+	case models.ProcessorCCBill:
 		return "Credit Card"
 	case models.ProcessorPayPal:
 		return "PayPal"

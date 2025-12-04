@@ -47,6 +47,65 @@ func ProductToAPI(p *models.Product, prices []*models.Price) api.ProductObject {
 	}
 }
 
+// PaymentToAPI converts a models.Payment to api.PaymentObject
+// If refunds is provided, it calculates amount_refunded and includes the refunds list
+func PaymentToAPI(p *models.Payment, refunds []*models.Payment) api.PaymentObject {
+	var subID *string
+	if p.SubscriptionID != nil {
+		s := api.FormatSubscriptionID(*p.SubscriptionID)
+		subID = &s
+	}
+
+	// Calculate refund totals
+	var amountRefunded int64
+	var refundObjects []api.PaymentObject
+	if refunds != nil {
+		for _, r := range refunds {
+			// Refunds have negative amounts, so we negate to get positive refund amount
+			if r.Amount < 0 {
+				amountRefunded += -r.Amount
+			} else {
+				amountRefunded += r.Amount
+			}
+			refundObjects = append(refundObjects, PaymentToAPI(r, nil))
+		}
+	}
+
+	payment := api.PaymentObject{
+		ID:             api.FormatPaymentID(p.ID),
+		Object:         "payment",
+		Amount:         p.Amount,
+		AmountRefunded: amountRefunded,
+		Currency:       p.Currency,
+		Customer:       api.FormatCustomerID(p.UserID),
+		Subscription:   subID,
+		Processor:      string(p.Processor),
+		TransactionID:  p.TransactionID,
+		Refunded:       amountRefunded >= p.Amount && p.Amount > 0,
+		Created:        api.ToUnix(p.CreatedAt),
+	}
+
+	// Include refunds list if provided (always include for single payment detail view)
+	if refunds != nil {
+		// Ensure Data is never nil (use empty slice if no refunds)
+		if refundObjects == nil {
+			refundObjects = []api.PaymentObject{}
+		}
+		payment.Refunds = &api.PaymentRefundsList{
+			Object: "list",
+			Data:   refundObjects,
+		}
+	}
+
+	// Include expanded price if available
+	if p.Price != nil {
+		priceObj := PriceToAPI(p.Price)
+		payment.Price = &priceObj
+	}
+
+	return payment
+}
+
 // PriceToAPI converts a models.Price to api.PriceObject
 func PriceToAPI(p *models.Price) api.PriceObject {
 	var recurring *api.RecurringInfo

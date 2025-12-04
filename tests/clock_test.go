@@ -113,7 +113,7 @@ func TestSubscriptionExpiryWithMockClock(t *testing.T) {
 			UserID:      userID,
 			PriceID:     priceID,
 			Status:      "active",
-			Processor:   "nmi",
+			Processor:   "mobius",
 			PeriodStart: startDate,
 			PeriodEnd:   endDate,
 		})
@@ -155,7 +155,7 @@ func TestLifecycleServiceUsesMockClock(t *testing.T) {
 		sub, err := suite.App.Runtime.SubscriptionLifecycleService.CreateMembership(ctx, &services.CreateMembershipParams{
 			UserID:    userID,
 			PriceID:   priceID,
-			Processor: models.ProcessorNMI,
+			Processor: models.ProcessorMobius,
 		})
 		require.NoError(t, err)
 		require.NotNil(t, sub)
@@ -184,7 +184,7 @@ func TestLifecycleServiceUsesMockClock(t *testing.T) {
 		sub, err := suite.App.Runtime.SubscriptionLifecycleService.CreateMembership(ctx, &services.CreateMembershipParams{
 			UserID:                  userID,
 			PriceID:                 priceID,
-			Processor:               models.ProcessorNMI,
+			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: &processorSubID,
 		})
 		require.NoError(t, err)

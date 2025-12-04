@@ -152,7 +152,7 @@ func TestSubscribeRequiresAuth(t *testing.T) {
 	t.Run("returns 401 without auth token", func(t *testing.T) {
 		body := map[string]string{
 			"price_id":      uuid.New().String(),
-			"gateway":       "nmi",
+			"gateway":       "mobius",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
@@ -169,7 +169,7 @@ func TestSubscribeRequiresAuth(t *testing.T) {
 	t.Run("returns 401 with invalid token", func(t *testing.T) {
 		body := map[string]string{
 			"price_id":      uuid.New().String(),
-			"gateway":       "nmi",
+			"gateway":       "mobius",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
@@ -203,7 +203,7 @@ func TestSubscribeNMISuccess(t *testing.T) {
 
 		body := map[string]interface{}{
 			"price_id":      priceID.String(),
-			"gateway":       "nmi",
+			"gateway":       "mobius",
 			"provider":      "mobius",
 			"payment_token": "test-payment-token-123",
 			"email":         email,
@@ -235,9 +235,7 @@ func TestSubscribeNMISuccess(t *testing.T) {
 
 		sub := subs[0]
 		assert.Equal(t, models.StatusPending, sub.Status, "Subscription should be pending until webhook confirms")
-		assert.Equal(t, models.ProcessorNMI, sub.Processor, "Processor should be NMI")
-		require.NotNil(t, sub.ProcessorProvider)
-		assert.Equal(t, "mobius", *sub.ProcessorProvider, "Provider should be mobius")
+		assert.Equal(t, models.ProcessorMobius, sub.Processor, "Processor should be mobius")
 	})
 }
 
@@ -261,7 +259,7 @@ func TestSubscribeNMIDeclined(t *testing.T) {
 
 		body := map[string]interface{}{
 			"price_id":      priceID.String(),
-			"gateway":       "nmi",
+			"gateway":       "mobius",
 			"provider":      "mobius",
 			"payment_token": "test-payment-token-declined",
 			"email":         email,
@@ -307,8 +305,7 @@ func TestSubscribeNMIWithExistingPaymentMethod(t *testing.T) {
 	// Create a payment method for the user
 	pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
-		Processor: models.ProcessorNMI,
-		Provider:  "mobius",
+		Processor: models.ProcessorMobius,
 		VaultID:   "existing-vault-123",
 		BillingID: "billing-123",
 		IsActive:  true,
@@ -321,7 +318,7 @@ func TestSubscribeNMIWithExistingPaymentMethod(t *testing.T) {
 
 		body := map[string]interface{}{
 			"price_id":          priceID.String(),
-			"gateway":           "nmi",
+			"gateway":           "mobius",
 			"provider":          "mobius",
 			"payment_method_id": pm.ID.String(),
 			"email":             email,
@@ -360,7 +357,7 @@ func TestSubscribeNMIInvalidPrice(t *testing.T) {
 	t.Run("returns error for non-existent price", func(t *testing.T) {
 		body := map[string]interface{}{
 			"price_id":      uuid.New().String(), // Non-existent price
-			"gateway":       "nmi",
+			"gateway":       "mobius",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
@@ -378,7 +375,7 @@ func TestSubscribeNMIInvalidPrice(t *testing.T) {
 	t.Run("returns error for invalid price ID format", func(t *testing.T) {
 		body := map[string]interface{}{
 			"price_id":      "not-a-uuid",
-			"gateway":       "nmi",
+			"gateway":       "mobius",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
@@ -412,14 +409,14 @@ func TestSubscribeNMIAlreadySubscribed(t *testing.T) {
 		UserID:         userID,
 		PriceID:        priceID,
 		Status:         models.StatusActive,
-		Processor:      models.ProcessorNMI,
+		Processor:      models.ProcessorMobius,
 		ProcessorSubID: "existing-sub-123",
 	})
 
 	t.Run("returns error when user already has active subscription", func(t *testing.T) {
 		body := map[string]interface{}{
 			"price_id":      priceID.String(),
-			"gateway":       "nmi",
+			"gateway":       "mobius",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
@@ -487,7 +484,7 @@ func TestSubscribeNMIMissingPaymentInfo(t *testing.T) {
 	t.Run("returns error without payment token or method", func(t *testing.T) {
 		body := map[string]interface{}{
 			"price_id": priceID.String(),
-			"gateway":  "nmi",
+			"gateway":  "mobius",
 			// No payment_token or payment_method_id
 		}
 		jsonBody, _ := json.Marshal(body)

@@ -32,6 +32,11 @@ func (s *PaymentService) GetByID(ctx context.Context, id uuid.UUID) (*models.Pay
 	return s.repo.GetByID(ctx, id)
 }
 
+// GetByIDWithDetails returns a payment with all related entities and any refund entries
+func (s *PaymentService) GetByIDWithDetails(ctx context.Context, id uuid.UUID) (*models.Payment, []*models.Payment, error) {
+	return s.repo.GetByIDWithDetails(ctx, id)
+}
+
 func (s *PaymentService) GetByUserID(ctx context.Context, userID string) ([]*models.Payment, error) {
 	return s.repo.GetByUserID(ctx, userID)
 }
@@ -112,15 +117,7 @@ func (s *PaymentService) GetPaginatedByUserID(ctx context.Context, userID string
 
 func (s *PaymentService) GetPayments(ctx context.Context, queryOpts query.QueryOptions[GetPaymentsFilters]) ([]*models.Payment, int64, error) {
 	repoOpts := query.QueryOptions[repo.PaymentFilters]{
-		Filters: repo.PaymentFilters{
-			UserID:    queryOpts.Filters.UserID,
-			PriceID:   queryOpts.Filters.PriceID,
-			Processor: queryOpts.Filters.Processor,
-			StartDate: queryOpts.Filters.StartDate,
-			EndDate:   queryOpts.Filters.EndDate,
-			MinAmount: queryOpts.Filters.MinAmount,
-			MaxAmount: queryOpts.Filters.MaxAmount,
-		},
+		Filters:  queryOpts.Filters,
 		Limit:    queryOpts.Limit,
 		Offset:   queryOpts.Offset,
 		Page:     queryOpts.Page,

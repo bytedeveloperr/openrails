@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-
 	"github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
@@ -143,6 +143,7 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 	priceService := NewPriceService(dbb)
 	productService := NewProductService(dbb)
 	entitlementService := NewEntitlementService(dbb)
+	entitlementService.SetClock(s.Clock) // Propagate clock for testing
 	notificationService := NewNotificationQueueService(dbb)
 	subService := NewSubscriptionService(dbb, priceService, productService, notificationService, nil, nil, nil)
 
@@ -287,7 +288,7 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 
 		// Find subscription - use processor name for gateway lookup
 		provider := ""
-		if params.Processor == models.ProcessorNMI || params.Processor == models.ProcessorMobius {
+		if processors.IsNMIBackedProcessor(params.Processor) {
 			provider = strings.ToLower(string(params.Processor))
 			if provider == "nmi" {
 				provider = "mobius"
@@ -368,10 +369,11 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		notificationQueueService := NewNotificationQueueService(db)
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
+		entSvc.SetClock(s.Clock) // Propagate clock for testing
 
 		// Use processor name for gateway lookup
 		provider := ""
-		if params.Processor != nil && (*params.Processor == models.ProcessorNMI || *params.Processor == models.ProcessorMobius) {
+		if params.Processor != nil && processors.IsNMIBackedProcessor(*params.Processor) {
 			provider = strings.ToLower(string(*params.Processor))
 			if provider == "nmi" {
 				provider = "mobius"
@@ -487,6 +489,7 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 		notificationQueueService := NewNotificationQueueService(db)
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
+		entSvc.SetClock(s.Clock) // Propagate clock for testing
 
 		subscription, err := subService.GetByID(ctx, subscriptionID)
 		if err != nil {
@@ -545,10 +548,11 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 		notificationQueueService := NewNotificationQueueService(db)
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
+		entSvc.SetClock(s.Clock) // Propagate clock for testing
 
 		// Use processor name for gateway lookup
 		provider := ""
-		if params.Processor == models.ProcessorNMI || params.Processor == models.ProcessorMobius {
+		if processors.IsNMIBackedProcessor(params.Processor) {
 			provider = strings.ToLower(string(params.Processor))
 			if provider == "nmi" {
 				provider = "mobius"

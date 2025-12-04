@@ -58,7 +58,7 @@ func TestGetProductsEndpoint(t *testing.T) {
 		assert.Equal(t, "product", monthlyProduct.Object)
 		assert.True(t, monthlyProduct.Active)
 		require.Len(t, monthlyProduct.Prices, 1, "Should have 1 price")
-		assert.Equal(t, int64(999), monthlyProduct.Prices[0].UnitAmount, "Amount should be 999 cents")
+		assert.Equal(t, int64(999), monthlyProduct.Prices[0].Amount, "Amount should be 999 cents")
 		assert.Equal(t, "USD", monthlyProduct.Prices[0].Currency)
 		assert.Equal(t, "price", monthlyProduct.Prices[0].Object)
 	})
@@ -86,11 +86,10 @@ func TestGetProductsEndpoint(t *testing.T) {
 
 		require.NotNil(t, yearlyProduct, "Should find Premium Yearly product")
 		require.Len(t, yearlyProduct.Prices, 1, "Should have 1 price")
-		assert.Equal(t, int64(9999), yearlyProduct.Prices[0].UnitAmount, "Amount should be 9999 cents")
+		assert.Equal(t, int64(9999), yearlyProduct.Prices[0].Amount, "Amount should be 9999 cents")
 		assert.NotNil(t, yearlyProduct.Prices[0].Recurring, "Should have recurring info")
 		assert.Equal(t, "year", yearlyProduct.Prices[0].Recurring.Interval)
 		assert.Equal(t, 1, yearlyProduct.Prices[0].Recurring.IntervalCount)
-		assert.Equal(t, "recurring", yearlyProduct.Prices[0].Type)
 	})
 }
 

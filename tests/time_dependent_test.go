@@ -234,7 +234,7 @@ func TestCancelAccessAtPeriodEnd(t *testing.T) {
 		UserID:      userID,
 		PriceID:     priceID,
 		Status:      models.StatusActive,
-		Processor:   models.ProcessorNMI,
+		Processor:   models.ProcessorMobius,
 		PeriodStart: startTime,
 		PeriodEnd:   periodEnd,
 	})
@@ -348,7 +348,7 @@ func TestAdminRevokeAccess(t *testing.T) {
 		UserID:      userID,
 		PriceID:     priceID,
 		Status:      models.StatusActive,
-		Processor:   models.ProcessorNMI,
+		Processor:   models.ProcessorMobius,
 		PeriodStart: startTime,
 		PeriodEnd:   periodEnd,
 	})
@@ -445,7 +445,7 @@ func TestDunningRetrySchedule(t *testing.T) {
 		UserID:          userID,
 		PriceID:         priceID,
 		Status:          models.StatusPastDue,
-		Processor:       models.ProcessorNMI,
+		Processor:       models.ProcessorMobius,
 		ProcessorSubID:  processorSubID,
 		PeriodStart:     startTime.Add(-30 * 24 * time.Hour), // Started 30 days ago
 		PeriodEnd:       startTime.Add(-1 * time.Hour),       // Just expired
@@ -459,7 +459,7 @@ func TestDunningRetrySchedule(t *testing.T) {
 		var count int
 		err := suite.BunDB.NewSelect().
 			Model((*models.Subscription)(nil)).
-			Where("sub.processor = ?", models.ProcessorNMI).
+			Where("sub.processor = ?", models.ProcessorMobius).
 			Where("sub.status = ?", models.StatusPastDue).
 			Where("sub.next_retry_at IS NOT NULL AND sub.next_retry_at <= ?", clock.Now()).
 			ColumnExpr("COUNT(*)").
@@ -539,7 +539,7 @@ func TestDunningMaxRetriesFailsSubscription(t *testing.T) {
 		UserID:         userID,
 		PriceID:        priceID,
 		Status:         models.StatusPastDue,
-		Processor:      models.ProcessorNMI,
+		Processor:      models.ProcessorMobius,
 		ProcessorSubID: processorSubID,
 		PeriodStart:    startTime.Add(-30 * 24 * time.Hour),
 		PeriodEnd:      startTime.Add(-1 * time.Hour),
@@ -580,9 +580,8 @@ func TestDunningMaxRetriesFailsSubscription(t *testing.T) {
 		failureReason := "Card declined"
 		failureCode := "05"
 		err := lifecycleService.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorNMI,
+			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: processorSubID,
-			ProcessorProvider:       "mobius",
 			FailureReason:           &failureReason,
 			FailureCode:             &failureCode,
 		})
@@ -654,7 +653,7 @@ func TestDunningSuccessReactivates(t *testing.T) {
 		UserID:         userID,
 		PriceID:        priceID,
 		Status:         models.StatusPastDue,
-		Processor:      models.ProcessorNMI,
+		Processor:      models.ProcessorMobius,
 		ProcessorSubID: processorSubID,
 		PeriodStart:    startTime.Add(-30 * 24 * time.Hour),
 		PeriodEnd:      originalPeriodEnd,
@@ -678,9 +677,8 @@ func TestDunningSuccessReactivates(t *testing.T) {
 		// Simulate successful rebill via RenewMembership
 		// RenewMembership uses the mock clock for period calculations
 		err := lifecycleService.RenewMembership(ctx, &services.RenewMembershipParams{
-			Processor:               models.ProcessorNMI,
+			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: processorSubID,
-			ProcessorProvider:       "mobius",
 		})
 		require.NoError(t, err)
 
@@ -879,7 +877,7 @@ func TestSubscriptionRenewalWithMockClock(t *testing.T) {
 		UserID:         userID,
 		PriceID:        priceID,
 		Status:         models.StatusActive,
-		Processor:      models.ProcessorNMI,
+		Processor:      models.ProcessorMobius,
 		ProcessorSubID: processorSubID,
 		PeriodStart:    periodStart,
 		PeriodEnd:      periodEnd,
@@ -898,9 +896,8 @@ func TestSubscriptionRenewalWithMockClock(t *testing.T) {
 	t.Run("renewal extends period by billing cycle days", func(t *testing.T) {
 		// Simulate renewal webhook
 		err := lifecycleService.RenewMembership(ctx, &services.RenewMembershipParams{
-			Processor:               models.ProcessorNMI,
+			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: processorSubID,
-			ProcessorProvider:       "mobius",
 		})
 		require.NoError(t, err)
 

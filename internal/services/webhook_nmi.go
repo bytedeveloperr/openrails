@@ -222,7 +222,7 @@ func (s *NMIWebhookService) HandleNMIWebhook(ctx context.Context) error {
 			ctx,
 			s.Data.EventID,
 			s.Data.EventType,
-			models.ProcessorNMI,
+			models.Processor(s.Processor),
 			s.Data,
 			s.handleWebhook,
 		)
@@ -255,7 +255,7 @@ func (s *NMIWebhookService) handleWebhook(ctx context.Context) error {
 		if s.DeadLetterService != nil {
 			dataJSON, err := json.Marshal(s.Data)
 			if err == nil {
-				s.DeadLetterService.LogUnknownEvent(ctx, "nmi", s.Data.EventType, json.RawMessage(dataJSON), nil, "")
+				s.DeadLetterService.LogUnknownEvent(ctx, s.Processor, s.Data.EventType, json.RawMessage(dataJSON), nil, "")
 			}
 		}
 		return fmt.Errorf("unsupported event type: %s", s.Data.EventType)
@@ -297,7 +297,7 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 		return fmt.Errorf("failed to find price for NMI plan ID %s: %w", nmiPlanID, err)
 	}
 
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorNMI, provider, nmiSubID)
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
 	if err != nil {
 		return fmt.Errorf("failed to load subscription for processor ID %s: %w", nmiSubID, err)
 	}
@@ -378,7 +378,7 @@ func (s *NMIWebhookService) handleDeleteSubscription(ctx context.Context) error 
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription ID", map[string]interface{}{}, nil)
 	}
 
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorNMI), provider, nmiSubID)
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			log.WithContext(ctx).
@@ -445,7 +445,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		return nil
 	}
 
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorNMI, provider, nmiSubID)
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
 	if err != nil {
 		return fmt.Errorf("failed to load subscription for transaction event: %w", err)
 	}
@@ -489,7 +489,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 
 	// Persist payment record if available
 	if s.PaymentService != nil && txnID != "" {
-		existing, err := s.PaymentService.GetByTransactionID(ctx, models.ProcessorNMI, txnID)
+		existing, err := s.PaymentService.GetByTransactionID(ctx, models.Processor(s.Processor), txnID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fmt.Errorf("failed to check existing payment: %w", err)
 		}
@@ -588,7 +588,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			SubscriptionID: &subscription.ID,
 			UserID:         subscription.UserID,
 			EventType:      "charge_success",
-			Processor:      "nmi",
+			Processor:      s.Processor,
 			Amount:         amountPtr,
 			Currency:       currency,
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{}),
@@ -643,7 +643,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		fetchErr     error
 	)
 	if s.SubscriptionService != nil {
-		subscription, fetchErr = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, ProcessorNMI, provider, nmiSubID)
+		subscription, fetchErr = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
 		if fetchErr != nil && !errors.Is(fetchErr, sql.ErrNoRows) {
 			return fmt.Errorf("failed to load subscription for transaction event: %w", fetchErr)
 		}
@@ -673,7 +673,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 	}
 
 	if err := s.SubscriptionLifecycleService.FailMembership(ctx, &FailMembershipParams{
-		Processor:               models.ProcessorNMI,
+		Processor:               models.Processor(s.Processor),
 		ProcessorSubscriptionID: nmiSubID,
 		FailureReason:           failureReason,
 		FailureCode:             failureCode,
@@ -707,7 +707,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 			SubscriptionID: &subscription.ID,
 			UserID:         subscription.UserID,
 			EventType:      "charge_failure",
-			Processor:      "nmi",
+			Processor:      s.Processor,
 			Amount:         amountPtr,
 			Currency:       transactionCurrency(body),
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{}),
@@ -763,14 +763,14 @@ func (s *NMIWebhookService) handleChargebackComplete(ctx context.Context) error 
 	if s.BillingEventService != nil {
 		metadata := map[string]interface{}{
 			"batch_type":   "chargeback",
-			"event_source": "nmi",
+			"event_source": s.Processor,
 			"batch_status": "completed",
 		}
 
 		chargebackEventData := ChargebackEventData{
 			EventID:   uuid.New(),
 			EventType: "batch_processed",
-			Processor: "nmi",
+			Processor: s.Processor,
 			BatchID:   s.Data.EventID, // Use event ID as batch identifier
 			Status:    "completed",
 			Metadata:  CreateMetadataJSON(metadata),

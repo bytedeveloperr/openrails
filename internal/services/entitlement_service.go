@@ -97,6 +97,7 @@ func (s *EntitlementService) ListActiveEntitlements(ctx context.Context, userID 
 
 // GrantWindow creates a new entitlement window for a user
 func (s *EntitlementService) GrantWindow(ctx context.Context, userID, entitlement string, startAt time.Time, endAt *time.Time, sourceType models.EntitlementSourceType, sourceID *uuid.UUID) (*models.Entitlement, error) {
+	now := s.now()
 	ent := &models.Entitlement{
 		ID:          uuid.New(),
 		UserID:      userID,
@@ -105,8 +106,8 @@ func (s *EntitlementService) GrantWindow(ctx context.Context, userID, entitlemen
 		EndAt:       endAt,
 		SourceType:  sourceType,
 		SourceID:    sourceID,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 	if err := s.repo.Insert(ctx, ent); err != nil {
 		return nil, err
@@ -116,12 +117,14 @@ func (s *EntitlementService) GrantWindow(ctx context.Context, userID, entitlemen
 
 // EndActiveBySubscription ends active entitlements for a subscription at a given time
 func (s *EntitlementService) EndActiveBySubscription(ctx context.Context, subscriptionID uuid.UUID, endAt time.Time, reason *models.EntitlementRevokeReason) error {
-	return s.repo.EndActiveBySubscription(ctx, subscriptionID, endAt, reason)
+	now := s.now()
+	return s.repo.EndActiveBySubscription(ctx, subscriptionID, endAt, now, reason)
 }
 
 // EndActiveByPayment ends active entitlements for a one-off payment at a given time
 func (s *EntitlementService) EndActiveByPayment(ctx context.Context, paymentID uuid.UUID, endAt time.Time, reason *models.EntitlementRevokeReason) error {
-	return s.repo.EndActiveByPayment(ctx, paymentID, endAt, reason)
+	now := s.now()
+	return s.repo.EndActiveByPayment(ctx, paymentID, endAt, now, reason)
 }
 
 // GetByID retrieves an entitlement by its ID
@@ -131,7 +134,8 @@ func (s *EntitlementService) GetByID(ctx context.Context, id uuid.UUID) (*models
 
 // RevokeByID immediately revokes an entitlement by ID (admin action)
 func (s *EntitlementService) RevokeByID(ctx context.Context, id uuid.UUID, reason models.EntitlementRevokeReason) error {
-	return s.repo.RevokeByID(ctx, id, reason)
+	now := s.now()
+	return s.repo.RevokeByID(ctx, id, now, reason)
 }
 
 // GrantEntitlement creates a new entitlement for a user (admin action)

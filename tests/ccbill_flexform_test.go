@@ -4,6 +4,7 @@ package tests
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -282,7 +283,7 @@ func TestCCBillFlexFormPriceWithoutCCBill(t *testing.T) {
 		IsActive:         true,
 		// Processors intentionally does NOT include CCBill
 		Processors: map[string]map[string]string{
-			string(models.ProcessorNMI): {
+			string(models.ProcessorMobius): {
 				models.ProcessorKeyPlanID: "plan_no_ccbill",
 			},
 		},
@@ -317,5 +318,302 @@ func TestCCBillFlexFormPriceWithoutCCBill(t *testing.T) {
 		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 for price without CCBill config, got: %s", w.Body.String())
+	})
+}
+
+// ===========================
+// CCBill Upgrade URL Tests
+// ===========================
+
+// TestCCBillUpgradeURLRequiresAuth tests that upgrade URL endpoint requires authentication
+func TestCCBillUpgradeURLRequiresAuth(t *testing.T) {
+	suite := setupTestSuite(t)
+
+	t.Run("returns 401 without auth token", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"target_price_id": "22222222-2222-2222-2222-222222222222",
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/upgrade-url", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code, "Should return 401 Unauthorized")
+	})
+
+	t.Run("returns 401 with invalid token", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"target_price_id": "22222222-2222-2222-2222-222222222222",
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/upgrade-url", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer invalid-token")
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code, "Should return 401 Unauthorized")
+	})
+}
+
+// TestCCBillUpgradeURLValidation tests request validation for upgrade URL endpoint
+func TestCCBillUpgradeURLValidation(t *testing.T) {
+	suite, token, _ := setupTestSuiteWithAuth(t)
+
+	// Seed products so we have valid price IDs
+	suite.SeedProducts()
+
+	t.Run("returns 400 for missing target_price_id", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/upgrade-url", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request for missing target_price_id")
+	})
+
+	t.Run("returns 400 for invalid target_price_id format", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"target_price_id": "not-a-uuid",
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/upgrade-url", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request for invalid target_price_id")
+	})
+
+	t.Run("returns 400 for non-existent target_price_id", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"target_price_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/upgrade-url", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request for non-existent target_price_id")
+	})
+}
+
+// TestCCBillUpgradeURLRequiresActiveSubscription tests that upgrade requires an active CCBill subscription
+func TestCCBillUpgradeURLRequiresActiveSubscription(t *testing.T) {
+	suite, token, _ := setupTestSuiteWithAuth(t)
+
+	// Seed products so we have valid price IDs
+	products := suite.SeedProducts()
+	targetPriceID := products[0].Prices[0].ID.String()
+
+	t.Run("returns 400 when user has no subscription", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"target_price_id": targetPriceID,
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/upgrade-url", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 when user has no subscription")
+	})
+}
+
+// createCCBillSubscription is a helper to create a CCBill subscription for testing
+func createCCBillSubscription(ctx context.Context, suite *TestContainerSuite, userID string, priceID uuid.UUID) *models.Subscription {
+	now := time.Now()
+	periodEnd := now.Add(30 * 24 * time.Hour)
+
+	sub := &models.Subscription{
+		ID:                      uuid.New(),
+		UserID:                  userID,
+		PriceID:                 priceID,
+		Status:                  models.StatusActive,
+		Processor:               models.ProcessorCCBill,
+		ProcessorSubscriptionID: "ccbill_sub_" + uuid.New().String()[:8],
+		CurrentPeriodStartsAt:   &now,
+		CurrentPeriodEndsAt:     &periodEnd,
+		StartedAt:               now,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}
+
+	_, err := suite.BunDB.NewInsert().Model(sub).Exec(ctx)
+	if err != nil {
+		panic("failed to create test subscription: " + err.Error())
+	}
+
+	return sub
+}
+
+// TestCCBillUpgradeURLSuccess tests successful upgrade URL generation
+func TestCCBillUpgradeURLSuccess(t *testing.T) {
+	suite, token, userID := setupTestSuiteWithAuth(t)
+	ctx := suite.ctx
+
+	// Seed products with CCBill configuration (creates multiple products with prices)
+	products := suite.SeedProducts()
+	currentPriceID := products[0].Prices[0].ID
+	targetPriceID := products[1].Prices[0].ID // Upgrade to a different product's price
+
+	// Create a CCBill alias for the user first (mimics what happens during initial subscription)
+	alias := "ccbill_alias_" + userID[:8]
+	_, err := suite.BunDB.NewInsert().Model(&models.CCBillUsernameAlias{
+		UserID:    userID,
+		Alias:     alias,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}).Exec(ctx)
+	require.NoError(t, err)
+
+	// Create an active CCBill subscription for the user
+	_ = createCCBillSubscription(ctx, suite, userID, currentPriceID)
+
+	t.Run("generates upgrade URL successfully", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"target_price_id": targetPriceID.String(),
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/upgrade-url", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got: %s", w.Body.String())
+
+		var response ccbill.FlexFormResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		// Verify response contains expected fields
+		assert.NotEmpty(t, response.IFrameURL, "IFrameURL should not be empty")
+		assert.NotEmpty(t, response.Width, "Width should not be empty")
+		assert.NotEmpty(t, response.Height, "Height should not be empty")
+	})
+
+	t.Run("upgrade URL contains originalSubscriptionId", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"target_price_id": targetPriceID.String(),
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/upgrade-url", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
+
+		var response ccbill.FlexFormResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		// Verify URL contains the original subscription ID for CCBill to identify what to upgrade
+		assert.Contains(t, response.IFrameURL, "originalSubscriptionId=", "URL should contain originalSubscriptionId")
+		assert.Contains(t, response.IFrameURL, "username=", "URL should contain username (CCBill alias)")
+		assert.Contains(t, response.IFrameURL, "clientAccnum=", "URL should contain client account number")
+	})
+}
+
+// TestCCBillUpgradeURLRejectsSamePrice tests that upgrade rejects same price target
+func TestCCBillUpgradeURLRejectsSamePrice(t *testing.T) {
+	suite, token, userID := setupTestSuiteWithAuth(t)
+	ctx := suite.ctx
+
+	// Seed products with CCBill configuration
+	products := suite.SeedProducts()
+	currentPriceID := products[0].Prices[0].ID
+
+	// Create a CCBill alias for the user
+	alias := "ccbill_alias_" + userID[:8]
+	_, err := suite.BunDB.NewInsert().Model(&models.CCBillUsernameAlias{
+		UserID:    userID,
+		Alias:     alias,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}).Exec(ctx)
+	require.NoError(t, err)
+
+	// Create an active CCBill subscription for the user
+	_ = createCCBillSubscription(ctx, suite, userID, currentPriceID)
+
+	t.Run("returns 400 when target price is same as current", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"target_price_id": currentPriceID.String(), // Same as current subscription
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/upgrade-url", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 for same price upgrade, got: %s", w.Body.String())
+	})
+}
+
+// TestCCBillUpgradeURLRejectsNonCCBillSubscription tests that upgrade rejects non-CCBill subscriptions
+func TestCCBillUpgradeURLRejectsNonCCBillSubscription(t *testing.T) {
+	suite, token, userID := setupTestSuiteWithAuth(t)
+	ctx := suite.ctx
+
+	// Seed products
+	products := suite.SeedProducts()
+	currentPriceID := products[0].Prices[0].ID // Premium Monthly USD
+	targetPriceID := products[1].Prices[0].ID  // Pro Monthly USD (different product)
+
+	// Create a non-CCBill (e.g., NMI) subscription for the user
+	now := time.Now()
+	periodEnd := now.Add(30 * 24 * time.Hour)
+
+	sub := &models.Subscription{
+		ID:                      uuid.New(),
+		UserID:                  userID,
+		PriceID:                 currentPriceID,
+		Status:                  models.StatusActive,
+		Processor:               models.ProcessorMobius, // Not CCBill
+		ProcessorSubscriptionID: "nmi_sub_123",
+		CurrentPeriodStartsAt:   &now,
+		CurrentPeriodEndsAt:     &periodEnd,
+		StartedAt:               now,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}
+
+	_, err := suite.BunDB.NewInsert().Model(sub).Exec(ctx)
+	require.NoError(t, err)
+
+	t.Run("returns 400 for non-CCBill subscription", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"target_price_id": targetPriceID.String(),
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/upgrade-url", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 for non-CCBill subscription, got: %s", w.Body.String())
 	})
 }

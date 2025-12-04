@@ -207,12 +207,13 @@ func TestCleanupExpiredDataWorker(t *testing.T) {
 		// Insert an expired wallet challenge (expired 24 hours ago relative to mock time)
 		expiredAt := mockClock.Now().Add(-26 * time.Hour)
 		challenge := &models.SolanaWalletChallenge{
-			ID:            uuid.New(),
-			UserID:        uuid.New().String(),
-			WalletAddress: "TestWallet123",
-			Challenge:     "test-challenge",
-			ExpiresAt:     expiredAt,
-			CreatedAt:     now,
+			ID:        uuid.New(),
+			UserID:    uuid.New().String(),
+			Address:   "TestWallet123",
+			Message:   "test-message",
+			Nonce:     "test-nonce",
+			ExpiresAt: expiredAt,
+			CreatedAt: now,
 		}
 		_, err := suite.BunDB.NewInsert().Model(challenge).Exec(ctx)
 		require.NoError(t, err)
@@ -243,15 +244,18 @@ func TestCleanupExpiredDataWorker(t *testing.T) {
 		expiredAt := mockClock.Now().Add(-8 * 24 * time.Hour)
 		userID := uuid.New().String()
 		intent := &models.SolanaPaymentIntent{
-			ID:            uuid.New(),
-			UserID:        userID,
-			PriceID:       uuid.New(),
-			WalletAddress: "TestWallet456",
-			Amount:        1000,
-			TokenSymbol:   "SOL",
-			Status:        "pending",
-			ExpiresAt:     &expiredAt,
-			CreatedAt:     mockClock.Now().Add(-8 * 24 * time.Hour),
+			ID:              uuid.New(),
+			UserID:          userID,
+			PriceID:         uuid.New(),
+			FlowType:        "direct",
+			Token:           "SOL",
+			TokenMint:       "So11111111111111111111111111111111111111112",
+			Amount:          1000,
+			Currency:        "USD",
+			RecipientWallet: "TestWallet456",
+			Status:          "pending",
+			ExpiresAt:       &expiredAt,
+			CreatedAt:       mockClock.Now().Add(-8 * 24 * time.Hour),
 		}
 		_, err := suite.BunDB.NewInsert().Model(intent).Exec(ctx)
 		require.NoError(t, err)
@@ -313,12 +317,13 @@ func TestCleanupExpiredDataWorker(t *testing.T) {
 
 		// Insert recent wallet challenge (expires in 5 minutes)
 		challenge := &models.SolanaWalletChallenge{
-			ID:            uuid.New(),
-			UserID:        uuid.New().String(),
-			WalletAddress: "RecentWallet",
-			Challenge:     "recent-challenge",
-			ExpiresAt:     mockClock.Now().Add(5 * time.Minute),
-			CreatedAt:     mockClock.Now(),
+			ID:        uuid.New(),
+			UserID:    uuid.New().String(),
+			Address:   "RecentWallet",
+			Message:   "recent-message",
+			Nonce:     "recent-nonce",
+			ExpiresAt: mockClock.Now().Add(5 * time.Minute),
+			CreatedAt: mockClock.Now(),
 		}
 		_, err := suite.BunDB.NewInsert().Model(challenge).Exec(ctx)
 		require.NoError(t, err)
@@ -370,12 +375,13 @@ func TestCleanupExpiredDataWorker(t *testing.T) {
 		// Insert a challenge that expired 1 hour ago
 		expiredAt := mockClock.Now().Add(-1 * time.Hour)
 		challenge := &models.SolanaWalletChallenge{
-			ID:            uuid.New(),
-			UserID:        uuid.New().String(),
-			WalletAddress: "CustomRetentionWallet",
-			Challenge:     "custom-challenge",
-			ExpiresAt:     expiredAt,
-			CreatedAt:     now,
+			ID:        uuid.New(),
+			UserID:    uuid.New().String(),
+			Address:   "CustomRetentionWallet",
+			Message:   "custom-message",
+			Nonce:     "custom-nonce",
+			ExpiresAt: expiredAt,
+			CreatedAt: now,
 		}
 		_, err := suite.BunDB.NewInsert().Model(challenge).Exec(ctx)
 		require.NoError(t, err)

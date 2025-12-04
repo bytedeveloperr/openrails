@@ -14,6 +14,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -79,7 +80,8 @@ type PaymentProcessor = int
 
 const (
 	ProcessorCCBill = "ccbill"
-	ProcessorNMI    = "nmi"
+	// Deprecated: ProcessorNMI is deprecated. Use "mobius" or other NMI-backed processor names instead.
+	ProcessorNMI = "nmi"
 
 	CurrencyUSD = "USD"
 	CurrencyEUR = "EUR"
@@ -106,6 +108,7 @@ var (
 	PaymentProcessors = map[string]PaymentProcessor{
 		ProcessorCCBill: CCBill,
 		ProcessorNMI:    NMI,
+		"mobius":        NMI, // mobius uses NMI gateway
 	}
 )
 
@@ -204,8 +207,8 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				return nil, fmt.Errorf("unable to use saved payment method: %w", err)
 			}
 
-			if paymentMethod.Processor != models.ProcessorMobius && paymentMethod.Processor != models.ProcessorNMI {
-				return nil, errors.New("saved payment method is not compatible with mobius subscriptions")
+			if !processors.IsNMIBackedProcessor(paymentMethod.Processor) {
+				return nil, errors.New("saved payment method is not compatible with NMI-backed subscriptions")
 			}
 
 			customerVaultID = paymentMethod.VaultID

@@ -3,6 +3,9 @@ package handlers
 import (
 	"net/http"
 
+	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 )
 
@@ -48,5 +51,76 @@ func AdminRefundPayment(r *Request) {
 		return
 	}
 
-	r.Inner().JSON(http.StatusCreated, refund)
+	r.Inner().JSON(http.StatusCreated, PaymentToAPI(refund, nil))
+}
+
+// GetAdminPayments returns a paginated list of payments with filters
+// GET /v1/admin/payments
+func GetAdminPayments(r *Request) {
+	queryOpts := query.QueryOptions[services.GetPaymentsFilters]{
+		Limit:  50,
+		Offset: 0,
+	}
+
+	// Parse pagination parameters
+	if err := r.Inner().ShouldBindQuery(&queryOpts); err != nil {
+		r.ErrorJSON(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Parse filters from query params
+	var filters services.GetPaymentsFilters
+	if err := r.Inner().ShouldBindQuery(&filters); err != nil {
+		r.ErrorJSON(http.StatusBadRequest, err.Error())
+		return
+	}
+	queryOpts.Filters = filters
+
+	if r.State.PaymentService == nil {
+		r.ErrorJSON(http.StatusInternalServerError, "payment service unavailable")
+		return
+	}
+
+	payments, total, err := r.State.PaymentService.GetPayments(r.Request.Context(), queryOpts)
+	if err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Convert to PaymentObject list
+	paymentObjects := make([]api.PaymentObject, len(payments))
+	for i, p := range payments {
+		paymentObjects[i] = PaymentToAPI(p, nil)
+	}
+
+	r.SuccessJSONPaginated(paymentObjects, total, queryOpts.Limit, queryOpts.Offset)
+}
+
+// GetAdminPayment returns a single payment with full details including refunds
+// GET /v1/admin/payments/:id
+func GetAdminPayment(r *Request) {
+	var path PaymentPath
+	if err := r.Inner().ShouldBindUri(&path); err != nil {
+		r.ErrorJSON(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	paymentID, err := uuid.Parse(path.PaymentID)
+	if err != nil {
+		r.ErrorJSON(http.StatusBadRequest, "invalid payment ID")
+		return
+	}
+
+	if r.State.PaymentService == nil {
+		r.ErrorJSON(http.StatusInternalServerError, "payment service unavailable")
+		return
+	}
+
+	payment, refunds, err := r.State.PaymentService.GetByIDWithDetails(r.Request.Context(), paymentID)
+	if err != nil {
+		r.ErrorJSON(http.StatusNotFound, "payment not found")
+		return
+	}
+
+	r.SuccessJSON(PaymentToAPI(payment, refunds))
 }

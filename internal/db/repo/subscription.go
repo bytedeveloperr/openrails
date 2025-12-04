@@ -63,7 +63,6 @@ func (r *SubscriptionRepo) Update(ctx context.Context, s *models.Subscription) e
 			"current_period_starts_at",
 			"current_period_ends_at",
 			"processor",
-			"gateway",
 			"processor_subscription_id",
 			"user_email",
 			"payment_method_id",
@@ -161,16 +160,14 @@ func (r *SubscriptionRepo) GetActiveSubscription(ctx context.Context, userID str
 	return sub, nil
 }
 
-func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, processor, gateway, processorSubscriptionID string) (*models.Subscription, error) {
+// GetByProcessorSubscriptionID finds a subscription by processor and processor_subscription_id.
+// The provider parameter is kept for backwards compatibility but is no longer used for filtering
+// since the processor field already identifies the payment provider (mobius, ccbill, etc.).
+func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, processor, provider, processorSubscriptionID string) (*models.Subscription, error) {
 	sub := new(models.Subscription)
 	query := r.selectWithDetails(sub).
 		Where("sub.processor = ?", processor).
 		Where("sub.processor_subscription_id = ?", processorSubscriptionID)
-
-	// Optionally filter by gateway (e.g., "mobius" for NMI)
-	if gateway != "" {
-		query = query.Where("sub.gateway = ?", gateway)
-	}
 
 	err := query.Scan(ctx)
 	if err != nil {

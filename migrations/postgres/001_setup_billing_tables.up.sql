@@ -31,30 +31,29 @@ CREATE TABLE IF NOT EXISTS billing.subscriptions (
 
     -- Processor information (flattened: mobius/ccbill/solana/paypal/etc.)
     processor TEXT NOT NULL DEFAULT 'ccbill',
-    gateway TEXT, -- optional gateway (e.g., nmi)
     processor_subscription_id TEXT NOT NULL DEFAULT '',
     user_email TEXT,
     payment_method_id UUID, -- References payment_methods table (created later)
-    
+
     -- Billing period tracking
     current_period_starts_at TIMESTAMPTZ,
     current_period_ends_at TIMESTAMPTZ,
     started_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     ended_at TIMESTAMPTZ,
-    
+
     -- Retry fields for manual rebilling
     last_retry_at TIMESTAMPTZ,
     retry_attempts INTEGER DEFAULT 0,
     next_retry_at TIMESTAMPTZ,
-    
+
     -- Cancellation tracking
     cancelled_at TIMESTAMPTZ,
     cancel_type TEXT, -- 'user', 'admin', 'failed_payment', 'expired'
     cancel_feedback TEXT,
-    
+
     -- Metadata
     gateway_response JSONB,
-    
+
     -- Timestamps
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
@@ -66,7 +65,6 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_price_id ON billing.subscriptions(p
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON billing.subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_processor ON billing.subscriptions(processor);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_processor_subscription ON billing.subscriptions(processor, processor_subscription_id);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_gateway ON billing.subscriptions(gateway);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_next_retry_at ON billing.subscriptions(next_retry_at) WHERE next_retry_at IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_user_active ON billing.subscriptions(user_id) WHERE status = 'active';
 
@@ -100,16 +98,14 @@ CREATE TABLE IF NOT EXISTS billing.prices (
     amount BIGINT NOT NULL, -- Amount in cents (smallest currency unit)
     currency TEXT NOT NULL,
     billing_cycle_days INTEGER, -- 30 for monthly, 365 for yearly, NULL for one-time
-    nmi_plan_id TEXT, -- NMI processor plan ID
-    ccbill_price_id TEXT, -- CCBill processor price ID  
+    processors JSONB, -- Processor-specific config: {"mobius": {"plan_id": "xyz"}, "ccbill": {"price_id": "abc"}}
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
 );
 
 CREATE INDEX IF NOT EXISTS idx_prices_product_id ON billing.prices(product_id);
-CREATE INDEX IF NOT EXISTS idx_prices_nmi_plan_provider ON billing.prices(nmi_plan_id) WHERE nmi_plan_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_prices_ccbill_price_id ON billing.prices(ccbill_price_id) WHERE ccbill_price_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_prices_processors ON billing.prices USING GIN (processors);
 CREATE INDEX IF NOT EXISTS idx_prices_is_active ON billing.prices(is_active);
 
 ALTER TABLE billing.prices DROP CONSTRAINT IF EXISTS unique_prices_product_amount_cycle;
@@ -229,7 +225,6 @@ CREATE TABLE IF NOT EXISTS billing.payments (
     user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     price_id UUID NOT NULL REFERENCES billing.prices(id),
     processor billing.processor_type NOT NULL, -- flattened processor (mobius, ccbill, solana, paypal, etc.)
-    gateway TEXT, -- optional gateway (e.g., nmi)
     transaction_id TEXT NOT NULL,
     amount BIGINT NOT NULL, -- Amount in cents (smallest currency unit)
     currency TEXT NOT NULL DEFAULT 'USD',
@@ -248,7 +243,6 @@ CREATE INDEX IF NOT EXISTS idx_payments_refunded_payment_id ON billing.payments(
 CREATE INDEX IF NOT EXISTS idx_payments_user_id ON billing.payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_price_id ON billing.payments(price_id);
 CREATE INDEX IF NOT EXISTS idx_payments_processor ON billing.payments(processor);
-CREATE INDEX IF NOT EXISTS idx_payments_gateway ON billing.payments(gateway) WHERE gateway IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_payments_purchased_at ON billing.payments(purchased_at);
 CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON billing.payments(subscription_id);
 

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -123,8 +123,8 @@ func UpdatePaymentMethod(r *Request) {
 		}
 	}
 
-	if pm.Processor != models.ProcessorNMI {
-		r.ErrorJSON(http.StatusBadRequest, "Only NMI payment methods can be updated")
+	if !processors.IsNMIBackedProcessor(pm.Processor) {
+		r.ErrorJSON(http.StatusBadRequest, "Only NMI-backed payment methods can be updated")
 		return
 	}
 

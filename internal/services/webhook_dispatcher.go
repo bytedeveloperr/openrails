@@ -10,6 +10,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 )
 
 // WebhookDispatcher routes persisted webhook events to processor-specific handlers.
@@ -35,10 +36,10 @@ func (d *WebhookDispatcher) Process(ctx context.Context, event *models.WebhookEv
 		return fmt.Errorf("webhook event is required")
 	}
 	processor := strings.ToLower(strings.TrimSpace(event.Processor))
-	switch processor {
-	case "ccbill":
+	switch {
+	case processor == "ccbill":
 		return d.processCCBill(ctx, event)
-	case "nmi":
+	case processors.IsNMIBacked(processor):
 		return d.processNMI(ctx, event)
 	default:
 		return fmt.Errorf("unsupported webhook processor: %s", processor)

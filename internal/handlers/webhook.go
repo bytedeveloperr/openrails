@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/internal/app"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	ipverify "github.com/doujins-org/doujins-billing/internal/utils"
 )
@@ -23,10 +24,10 @@ func Webhook(r *Request) {
 	// Provider can be: mobius, ccbill, solana
 	// NMI is the gateway used by mobius, not a provider itself
 	provider := strings.Trim(strings.ToLower(r.Param("provider")), " /")
-	processor := provider
-	if provider == "mobius" || provider == "nmi" {
-		processor = services.ProcessorNMI
-		provider = "mobius" // normalize to mobius
+
+	// Normalize legacy "nmi" provider to "mobius"
+	if provider == "nmi" {
+		provider = "mobius"
 	}
 
 	// NOTE: Webhook authentication can be bypassed for testing by setting test_mode: true
@@ -49,7 +50,7 @@ func Webhook(r *Request) {
 	clientIP := r.GetClientIP()
 
 	log.WithFields(log.Fields{
-		"processor": processor,
+		"provider":  provider,
 		"client_ip": clientIP,
 	}).Debug("Received webhook")
 
@@ -60,7 +61,13 @@ func Webhook(r *Request) {
 		}
 	}
 
-	switch processor {
+	// Route based on provider - NMI-backed processors go to handleNMIWebhook
+	if processors.IsNMIBacked(provider) {
+		handleNMIWebhook(r, provider, headers, clientIP)
+		return
+	}
+
+	switch provider {
 	case services.ProcessorCCBill:
 		// Check if CCBill is in test mode - bypass authentication for testing
 		if !ccbillTestMode {
@@ -142,20 +149,16 @@ func Webhook(r *Request) {
 
 		r.SuccessJSON(map[string]string{"status": "accepted"})
 		return
-	case services.ProcessorNMI:
-		handleNMIWebhook(r, provider, headers, clientIP)
-		return
 	default:
 		webhookBody, readErr := readRequestBody(r.Request.Body)
 		if readErr != nil {
-			log.WithError(readErr).WithField("processor", processor).Warn("Failed to read body for unknown webhook processor")
+			log.WithError(readErr).WithField("provider", provider).Warn("Failed to read body for unknown webhook provider")
 		}
-		// Log unknown processor to dead letter queue
-		deadLetterService.LogUnknownEvent(context.Background(), processor, "unknown", json.RawMessage(webhookBody), headers, clientIP)
-		r.ErrorJSON(http.StatusBadRequest, "Invalid processor")
+		// Log unknown provider to dead letter queue
+		deadLetterService.LogUnknownEvent(context.Background(), provider, "unknown", json.RawMessage(webhookBody), headers, clientIP)
+		r.ErrorJSON(http.StatusBadRequest, "Invalid provider")
 		return
 	}
-
 }
 
 func handleNMIWebhook(r *Request, provider string, headers map[string]string, clientIP string) {
@@ -234,7 +237,7 @@ func handleNMIWebhook(r *Request, provider string, headers map[string]string, cl
 	}
 
 	params := services.CreateWebhookEventParams{
-		Processor:      services.ProcessorNMI,
+		Processor:      providerKey, // Use the actual processor name (e.g., "mobius")
 		EventID:        data.EventID,
 		EventType:      string(data.EventType),
 		Payload:        body,

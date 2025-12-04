@@ -233,7 +233,7 @@ func TestNMIWebhookReplay(t *testing.T) {
 
 	for _, et := range eventTypes {
 		t.Run(et.name, func(t *testing.T) {
-			filePath := filepath.Join("../testdata/webhooks/nmi", et.fileName)
+			filePath := filepath.Join("../testdata/webhooks/mobius", et.fileName)
 			if _, err := os.Stat(filePath); os.IsNotExist(err) {
 				t.Skipf("Test data file not found: %s", filePath)
 				return
@@ -253,7 +253,7 @@ func TestNMIWebhookReplay(t *testing.T) {
 			require.NoError(t, err)
 
 			// Count events before
-			eventsBefore := suite.CountWebhookEvents("nmi")
+			eventsBefore := suite.CountWebhookEvents("mobius")
 
 			w := httptest.NewRecorder()
 			req, err := http.NewRequest("POST",
@@ -269,13 +269,13 @@ func TestNMIWebhookReplay(t *testing.T) {
 			// In dev mode, may return 404 (provider not configured) or 401 (signature failure)
 			if w.Code == http.StatusOK {
 				// Verify webhook was stored
-				eventsAfter := suite.CountWebhookEvents("nmi")
+				eventsAfter := suite.CountWebhookEvents("mobius")
 				assert.Greater(t, eventsAfter, eventsBefore, "Webhook event should be stored")
 
-				event := suite.GetWebhookEventByEventType("nmi", et.eventType)
+				event := suite.GetWebhookEventByEventType("mobius", et.eventType)
 				assert.NotNil(t, event, "Should find webhook event")
 				if event != nil {
-					assert.Equal(t, "nmi", event.Processor)
+					assert.Equal(t, "mobius", event.Processor)
 				}
 			} else {
 				// Expected in dev mode without NMI config

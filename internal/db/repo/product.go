@@ -46,6 +46,14 @@ func (r *ProductRepo) GetActive(ctx context.Context) ([]*models.Product, error) 
 	return products, nil
 }
 
+func (r *ProductRepo) GetAll(ctx context.Context) ([]*models.Product, error) {
+	products := []*models.Product{}
+	if err := r.db.GetDB().NewSelect().Model(&products).Scan(ctx); err != nil {
+		return nil, err
+	}
+	return products, nil
+}
+
 func (r *ProductRepo) Update(ctx context.Context, product *models.Product) error {
 	res, err := r.db.GetDB().NewUpdate().Model(product).WherePK().Exec(ctx)
 	if err != nil {

@@ -9,7 +9,9 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/google/uuid"
+	"github.com/uptrace/bun"
 )
 
 type PaymentMethodRepo struct {
@@ -240,54 +242,82 @@ func (r *PaymentMethodRepo) ActivateByID(ctx context.Context, id uuid.UUID) erro
 	return nil
 }
 
+// GetAllNMIBacked returns all payment methods for NMI-backed processors
+func (r *PaymentMethodRepo) GetAllNMIBacked(ctx context.Context) ([]*models.PaymentMethod, error) {
+	nmiProcessors := processors.GetNMIBackedProcessorsList()
+	methods := []*models.PaymentMethod{}
+	err := r.db.GetDB().NewSelect().Model(&methods).
+		Where("pm.processor IN (?)", bun.In(nmiProcessors)).
+		OrderExpr("pm.created_at DESC").
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return methods, nil
+}
+
+// GetActiveNMIBacked returns all active payment methods for NMI-backed processors
+func (r *PaymentMethodRepo) GetActiveNMIBacked(ctx context.Context) ([]*models.PaymentMethod, error) {
+	nmiProcessors := processors.GetNMIBackedProcessorsList()
+	methods := []*models.PaymentMethod{}
+	err := r.db.GetDB().NewSelect().Model(&methods).
+		Where("pm.processor IN (?)", bun.In(nmiProcessors)).
+		Where("pm.is_active = ?", true).
+		OrderExpr("pm.created_at DESC").
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return methods, nil
+}
+
+// GetNMIBackedByUserID returns all payment methods for NMI-backed processors for a user
+func (r *PaymentMethodRepo) GetNMIBackedByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
+	nmiProcessors := processors.GetNMIBackedProcessorsList()
+	methods := []*models.PaymentMethod{}
+	if err := r.db.GetDB().NewSelect().Model(&methods).
+		Where("pm.user_id = ?", userID).
+		Where("pm.processor IN (?)", bun.In(nmiProcessors)).
+		OrderExpr("pm.created_at DESC").
+		Scan(ctx); err != nil {
+		return nil, err
+	}
+	return methods, nil
+}
+
+// GetActiveNMIBackedByUserID returns all active payment methods for NMI-backed processors for a user
+func (r *PaymentMethodRepo) GetActiveNMIBackedByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
+	nmiProcessors := processors.GetNMIBackedProcessorsList()
+	methods := []*models.PaymentMethod{}
+	if err := r.db.GetDB().NewSelect().Model(&methods).
+		Where("pm.user_id = ?", userID).
+		Where("pm.processor IN (?)", bun.In(nmiProcessors)).
+		Where("pm.is_active = ?", true).
+		OrderExpr("pm.created_at DESC").
+		Scan(ctx); err != nil {
+		return nil, err
+	}
+	return methods, nil
+}
+
+// Deprecated: GetAllNMI is deprecated. Use GetAllNMIBacked instead.
 func (r *PaymentMethodRepo) GetAllNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
-	methods := []*models.PaymentMethod{}
-	err := r.db.GetDB().NewSelect().Model(&methods).
-		Where("pm.processor = ?", models.ProcessorNMI).
-		OrderExpr("pm.created_at DESC").
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return methods, nil
+	return r.GetAllNMIBacked(ctx)
 }
 
+// Deprecated: GetActiveNMI is deprecated. Use GetActiveNMIBacked instead.
 func (r *PaymentMethodRepo) GetActiveNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
-	methods := []*models.PaymentMethod{}
-	err := r.db.GetDB().NewSelect().Model(&methods).
-		Where("pm.processor = ?", models.ProcessorNMI).
-		Where("pm.is_active = ?", true).
-		OrderExpr("pm.created_at DESC").
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return methods, nil
+	return r.GetActiveNMIBacked(ctx)
 }
 
+// Deprecated: GetNMIByUserID is deprecated. Use GetNMIBackedByUserID instead.
 func (r *PaymentMethodRepo) GetNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	methods := []*models.PaymentMethod{}
-	if err := r.db.GetDB().NewSelect().Model(&methods).
-		Where("pm.user_id = ?", userID).
-		Where("pm.processor = ?", models.ProcessorNMI).
-		OrderExpr("pm.created_at DESC").
-		Scan(ctx); err != nil {
-		return nil, err
-	}
-	return methods, nil
+	return r.GetNMIBackedByUserID(ctx, userID)
 }
 
+// Deprecated: GetActiveNMIByUserID is deprecated. Use GetActiveNMIBackedByUserID instead.
 func (r *PaymentMethodRepo) GetActiveNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	methods := []*models.PaymentMethod{}
-	if err := r.db.GetDB().NewSelect().Model(&methods).
-		Where("pm.user_id = ?", userID).
-		Where("pm.processor = ?", models.ProcessorNMI).
-		Where("pm.is_active = ?", true).
-		OrderExpr("pm.created_at DESC").
-		Scan(ctx); err != nil {
-		return nil, err
-	}
-	return methods, nil
+	return r.GetActiveNMIBackedByUserID(ctx, userID)
 }
 
 func (r *PaymentMethodRepo) ExistsForUser(ctx context.Context, id uuid.UUID, userID string) (bool, error) {

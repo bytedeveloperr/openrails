@@ -6,6 +6,8 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/processors"
+	"github.com/uptrace/bun"
 )
 
 type BillingAnalyticsRepo struct {
@@ -26,12 +28,14 @@ func (r *BillingAnalyticsRepo) CountActiveUsersWithoutAutoRenew(ctx context.Cont
 }
 
 func (r *BillingAnalyticsRepo) CountActiveUsersWithAutoRenew(ctx context.Context) (int64, error) {
+	// Auto-renew processors: CCBill and all NMI-backed processors (e.g., mobius)
+	autoRenewProcessors := append(processors.GetNMIBackedProcessorsList(), string(models.ProcessorCCBill))
 	var count int64
 	err := r.db.GetDB().NewSelect().
 		Model((*models.Subscription)(nil)).
 		ColumnExpr("COUNT(*)").
 		Where("sub.status = ?", models.StatusActive).
-		Where("sub.processor IN (?)", []string{string(models.ProcessorCCBill), string(models.ProcessorNMI)}).
+		Where("sub.processor IN (?)", bun.In(autoRenewProcessors)).
 		Scan(ctx, &count)
 	return count, err
 }

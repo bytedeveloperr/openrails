@@ -63,6 +63,14 @@ func (r *PriceRepo) GetAllActive(ctx context.Context) ([]*models.Price, error) {
 	return prices, nil
 }
 
+func (r *PriceRepo) GetAll(ctx context.Context) ([]*models.Price, error) {
+	prices := []*models.Price{}
+	if err := r.db.GetDB().NewSelect().Model(&prices).Relation("Product").OrderExpr("price.amount ASC").Scan(ctx); err != nil {
+		return nil, err
+	}
+	return prices, nil
+}
+
 func (r *PriceRepo) GetByNMIPlan(ctx context.Context, provider, nmiPlanID string) (*models.Price, error) {
 	price := new(models.Price)
 	provider = strings.TrimSpace(strings.ToLower(provider))
@@ -70,19 +78,13 @@ func (r *PriceRepo) GetByNMIPlan(ctx context.Context, provider, nmiPlanID string
 		provider = "mobius"
 	}
 
-	// Query using JSONB operators:
-	// processors->'nmi'->>'plan_id' = planID
-	// AND (processors->'nmi'->>'provider' = provider OR providers->'nmi'->>'provider' IS NULL for mobius default)
+	// Query using JSONB operators. Look for plan_id in either:
+	// 1. processors->'mobius'->>'plan_id' (new format)
+	// 2. processors->'nmi'->>'plan_id' (legacy format)
+	// The provider parameter determines which processor key to look up directly (e.g., "mobius", "acme")
 	query := r.db.GetDB().NewSelect().Model(price).
-		Where("price.processors->'nmi'->>'plan_id' = ?", nmiPlanID).
+		Where("(price.processors->?->>'plan_id' = ? OR price.processors->'nmi'->>'plan_id' = ?)", provider, nmiPlanID, nmiPlanID).
 		Where("price.is_active = ?", true)
-
-	if provider == "mobius" {
-		// For mobius, match either explicit mobius or missing provider (default)
-		query = query.Where("(price.processors->'nmi'->>'provider' = ? OR price.processors->'nmi'->>'provider' IS NULL)", provider)
-	} else {
-		query = query.Where("price.processors->'nmi'->>'provider' = ?", provider)
-	}
 
 	if err := query.Scan(ctx); err != nil {
 		return nil, err

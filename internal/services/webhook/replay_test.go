@@ -46,9 +46,9 @@ func TestReplayService_GetWebhookFilesPath(t *testing.T) {
 	_, err = os.Stat(ccbillPath)
 	assert.NoError(t, err, "ccbill directory should exist")
 
-	nmiPath := filepath.Join(webhookPath, "nmi")
+	nmiPath := filepath.Join(webhookPath, "mobius")
 	_, err = os.Stat(nmiPath)
-	assert.NoError(t, err, "nmi directory should exist")
+	assert.NoError(t, err, "mobius directory should exist")
 }
 
 // TestReplayService_LoadWebhookEvents tests loading webhook event files
@@ -71,7 +71,7 @@ func TestReplayService_LoadWebhookEvents(t *testing.T) {
 		},
 		{
 			name:        "Load all NMI events",
-			processor:   "nmi",
+			processor:   "mobius",
 			eventFilter: "all",
 			expectError: false,
 			minFiles:    1,
@@ -85,7 +85,7 @@ func TestReplayService_LoadWebhookEvents(t *testing.T) {
 		},
 		{
 			name:        "Load specific NMI event",
-			processor:   "nmi",
+			processor:   "mobius",
 			eventFilter: "recurring_subscription_add.json",
 			expectError: false,
 			minFiles:    1,
@@ -143,7 +143,7 @@ func TestReplayService_ValidateWebhookPayload(t *testing.T) {
 	assert.Empty(t, result.Error)
 
 	// Test NMI event validation
-	nmiFiles, err := rs.loadWebhookEvents("nmi", "recurring_subscription_add.json")
+	nmiFiles, err := rs.loadWebhookEvents("mobius", "recurring_subscription_add.json")
 	require.NoError(t, err)
 	require.NotEmpty(t, nmiFiles)
 
@@ -151,7 +151,7 @@ func TestReplayService_ValidateWebhookPayload(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, nmiResult.Success)
 	assert.Equal(t, "recurring_subscription_add.json", nmiResult.EventFile)
-	assert.Equal(t, "nmi", nmiResult.Processor)
+	assert.Equal(t, "mobius", nmiResult.Processor)
 	assert.NotEmpty(t, nmiResult.EventType, "NMI events should have event_type extracted")
 }
 

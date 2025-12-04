@@ -1,26 +1,21 @@
 -- 006_add_processors_jsonb.up.sql
--- Consolidates processor-specific columns into a single JSONB 'processors' field
--- This enables extensibility for future processors without schema changes
+-- This migration is now a no-op since the processors JSONB column
+-- was added in migration 001_setup_billing_tables.up.sql
+--
+-- Kept for migration history compatibility - if previously applied,
+-- these statements are idempotent (IF NOT EXISTS / IF EXISTS)
 
--- Add the new processors JSONB column
+-- Ensure processors column exists (no-op if already present)
 ALTER TABLE billing.prices ADD COLUMN IF NOT EXISTS processors JSONB;
 
--- Drop old processor-specific columns (no data migration needed for fresh start)
+-- Clean up any legacy columns that might exist from older schemas
 ALTER TABLE billing.prices DROP COLUMN IF EXISTS nmi_plan_id;
 ALTER TABLE billing.prices DROP COLUMN IF EXISTS nmi_provider;
 ALTER TABLE billing.prices DROP COLUMN IF EXISTS ccbill_price_id;
 
--- Drop old indexes on removed columns (if they exist)
+-- Drop old indexes if they exist
 DROP INDEX IF EXISTS billing.idx_prices_nmi_plan_provider;
 DROP INDEX IF EXISTS billing.idx_prices_ccbill_price_id;
 
--- Add GIN index for efficient JSONB queries
+-- Ensure GIN index exists for JSONB queries
 CREATE INDEX IF NOT EXISTS idx_prices_processors ON billing.prices USING GIN (processors);
-
--- Add specific indexes for common processor lookups
-CREATE INDEX IF NOT EXISTS idx_prices_nmi_plan_id ON billing.prices ((processors->'nmi'->>'plan_id'))
-    WHERE processors->'nmi'->>'plan_id' IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_prices_ccbill_price_id ON billing.prices ((processors->'ccbill'->>'price_id'))
-    WHERE processors->'ccbill'->>'price_id' IS NOT NULL;
-
-COMMENT ON COLUMN billing.prices.processors IS 'JSONB map of processor name -> processor config. Keys: nmi, ccbill, solana. Example: {"nmi": {"plan_id": "123", "provider": "mobius"}, "ccbill": {"price_id": "456"}}';

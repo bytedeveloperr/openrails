@@ -8,6 +8,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -114,26 +115,27 @@ func (s *BillingAnalyticsService) GetDailyMetrics(ctx context.Context, startDate
 func (s *BillingAnalyticsService) GetMetricsByProcessor(ctx context.Context) ([]ProcessorMetrics, error) {
 	var allMetrics []ProcessorMetrics
 
-	processors := []string{string(models.ProcessorNMI), string(models.ProcessorCCBill)}
+	// Include all NMI-backed processors and CCBill
+	processorList := append(processors.GetNMIBackedProcessorsList(), string(models.ProcessorCCBill))
 
-	for _, processor := range processors {
-		metrics := ProcessorMetrics{Processor: processor}
+	for _, proc := range processorList {
+		metrics := ProcessorMetrics{Processor: proc}
 
-		count, err := s.repo.CountActiveUsersWithoutAutoRenewByProcessor(ctx, processor)
+		count, err := s.repo.CountActiveUsersWithoutAutoRenewByProcessor(ctx, proc)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get active users without auto-renew for %s: %w", processor, err)
+			return nil, fmt.Errorf("failed to get active users without auto-renew for %s: %w", proc, err)
 		}
 		metrics.ActiveUsersWithoutAutoRenew = count
 
-		count, err = s.repo.CountActiveUsersWithAutoRenewByProcessor(ctx, processor)
+		count, err = s.repo.CountActiveUsersWithAutoRenewByProcessor(ctx, proc)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get active users with auto-renew for %s: %w", processor, err)
+			return nil, fmt.Errorf("failed to get active users with auto-renew for %s: %w", proc, err)
 		}
 		metrics.ActiveUsersWithAutoRenew = count
 
-		count, err = s.repo.CountActiveUsersWithFailingRebillByProcessor(ctx, processor)
+		count, err = s.repo.CountActiveUsersWithFailingRebillByProcessor(ctx, proc)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get active users with failing rebill for %s: %w", processor, err)
+			return nil, fmt.Errorf("failed to get active users with failing rebill for %s: %w", proc, err)
 		}
 		metrics.ActiveUsersWithFailingRebill = count
 

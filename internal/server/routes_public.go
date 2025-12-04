@@ -7,6 +7,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/handlers"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 )
 
 func (s *Server) registerPublicRoutes() {
@@ -31,11 +32,15 @@ func (s *Server) registerPublicRoutes() {
 
 	subscriptions.Use(middleware.AuthRequired(s.authVerifier))
 	// Processor routes for subscription creation
-	// mobius uses NMI gateway, ccbill and solana are self-contained processors
-	subscriptions.POST("/mobius", s.wrap(handlers.Subscribe))
+	// NMI-backed processors (mobius, etc.) use NMI gateway
+	// ccbill and solana are self-contained processors
+	for _, processor := range processors.GetNMIBackedProcessorsList() {
+		subscriptions.POST("/"+processor, s.wrap(handlers.Subscribe))
+	}
 	subscriptions.POST("/ccbill", s.wrap(handlers.GenerateFlexFormURL))
 	subscriptions.POST("/solana", s.wrap(handlers.Subscribe))
 	subscriptions.POST("/ccbill/flexform-url", s.wrap(handlers.GenerateFlexFormURL))
+	subscriptions.POST("/ccbill/upgrade-url", s.wrap(handlers.GenerateCCBillUpgradeURL))
 	subscriptions.POST("/cancel", s.wrap(handlers.CancelSubscription))
 	subscriptions.GET("/active", s.wrap(handlers.GetSubscription))
 	subscriptions.GET("/history", s.wrap(handlers.GetSubscriptionHistory))

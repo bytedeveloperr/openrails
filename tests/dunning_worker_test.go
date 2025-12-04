@@ -57,7 +57,7 @@ func TestDunningWorkerSkipsWithoutNMIClients(t *testing.T) {
 		UserID:          userID,
 		PriceID:         priceID,
 		Status:          models.StatusPastDue,
-		Processor:       models.ProcessorNMI,
+		Processor:       models.ProcessorMobius,
 		PaymentMethodID: &pm.ID,
 		RetryAttempts:   &retryAttempts,
 		NextRetryAt:     &pastTime,
@@ -144,7 +144,7 @@ func TestDunningWorkerQueryFilters(t *testing.T) {
 		UserID:          userID,
 		PriceID:         priceID,
 		Status:          models.StatusPastDue,
-		Processor:       models.ProcessorNMI,
+		Processor:       models.ProcessorMobius,
 		PaymentMethodID: &pm.ID,
 		RetryAttempts:   &retryAttempts,
 		NextRetryAt:     &pastTime,
@@ -155,7 +155,7 @@ func TestDunningWorkerQueryFilters(t *testing.T) {
 		UserID:          uuid.New().String(),
 		PriceID:         priceID,
 		Status:          models.StatusPastDue,
-		Processor:       models.ProcessorNMI,
+		Processor:       models.ProcessorMobius,
 		PaymentMethodID: &pm.ID,
 		RetryAttempts:   &retryAttempts,
 		NextRetryAt:     &futureTime,
@@ -166,7 +166,7 @@ func TestDunningWorkerQueryFilters(t *testing.T) {
 		UserID:          uuid.New().String(),
 		PriceID:         priceID,
 		Status:          models.StatusActive,
-		Processor:       models.ProcessorNMI,
+		Processor:       models.ProcessorMobius,
 		PaymentMethodID: &pm.ID,
 	})
 
@@ -175,7 +175,7 @@ func TestDunningWorkerQueryFilters(t *testing.T) {
 		UserID:    uuid.New().String(),
 		PriceID:   priceID,
 		Status:    models.StatusCancelled,
-		Processor: models.ProcessorNMI,
+		Processor: models.ProcessorMobius,
 	})
 
 	// Create worker (without NMI clients - won't actually try to rebill)
@@ -219,7 +219,7 @@ func TestDunningWorkerMissingPaymentMethod(t *testing.T) {
 		UserID:          userID,
 		PriceID:         priceID,
 		Status:          models.StatusPastDue,
-		Processor:       models.ProcessorNMI,
+		Processor:       models.ProcessorMobius,
 		PaymentMethodID: nil, // No payment method!
 		RetryAttempts:   &retryAttempts,
 		NextRetryAt:     &pastTime,
@@ -274,7 +274,7 @@ func TestDunningWorkerInactivePaymentMethod(t *testing.T) {
 		UserID:          userID,
 		PriceID:         priceID,
 		Status:          models.StatusPastDue,
-		Processor:       models.ProcessorNMI,
+		Processor:       models.ProcessorMobius,
 		PaymentMethodID: &pm.ID,
 		RetryAttempts:   &retryAttempts,
 		NextRetryAt:     &pastTime,
@@ -323,7 +323,7 @@ func TestDunningWorkerMultipleDueSubscriptions(t *testing.T) {
 			UserID:          userID,
 			PriceID:         priceID,
 			Status:          models.StatusPastDue,
-			Processor:       models.ProcessorNMI,
+			Processor:       models.ProcessorMobius,
 			PaymentMethodID: &pm.ID,
 			RetryAttempts:   &retryAttempts,
 			NextRetryAt:     &pastTime,

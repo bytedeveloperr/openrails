@@ -7,14 +7,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/internal/middleware"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 )
-
-// validProcessors lists the supported processor values
-var validProcessors = map[string]bool{
-	"mobius": true,
-	"ccbill": true,
-	"solana": true,
-}
 
 func Subscribe(r *Request) {
 	var req SubscribeRequest
@@ -30,7 +24,8 @@ func Subscribe(r *Request) {
 		parts := strings.Split(strings.TrimSuffix(path, "/"), "/")
 		if len(parts) > 0 {
 			processor := parts[len(parts)-1]
-			if validProcessors[processor] {
+			// Accept NMI-backed processors, ccbill, and solana
+			if processors.IsNMIBacked(processor) || processor == "ccbill" || processor == "solana" {
 				req.Processor = processor
 			}
 		}

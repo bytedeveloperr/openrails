@@ -10,16 +10,22 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
+	"github.com/uptrace/bun"
 )
 
 type PaymentFilters struct {
-	UserID    string
-	PriceID   uuid.UUID
-	Processor string
-	StartDate *time.Time
-	EndDate   *time.Time
-	MinAmount *int64
-	MaxAmount *int64
+	UserID         string     `form:"user_id"`
+	PriceID        uuid.UUID  `form:"price_id"`
+	SubscriptionID string     `form:"subscription_id"` // UUID string, parsed in handler
+	Processor      string     `form:"processor"`
+	TransactionID  string     `form:"transaction_id"`
+	StartDate      *time.Time `form:"created_after" time_format:"2006-01-02"`
+	EndDate        *time.Time `form:"created_before" time_format:"2006-01-02"`
+	MinAmount      *int64     `form:"min_amount"`
+	MaxAmount      *int64     `form:"max_amount"`
+	RefundsOnly    bool       `form:"refunds_only"`
+	SortBy         string     `form:"sort_by"`    // created_at (default), amount, purchased_at
+	SortOrder      string     `form:"sort_order"` // asc, desc (default)
 }
 
 type PaymentRepo struct {
@@ -49,6 +55,35 @@ func (r *PaymentRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Paymen
 		return nil, err
 	}
 	return payment, nil
+}
+
+// GetByIDWithDetails fetches a payment with all related entities (Price, Product, Subscription)
+// and also loads any refund entries linked to this payment
+func (r *PaymentRepo) GetByIDWithDetails(ctx context.Context, id uuid.UUID) (*models.Payment, []*models.Payment, error) {
+	payment := new(models.Payment)
+	err := r.db.GetDB().NewSelect().
+		Model(payment).
+		Relation("Price").
+		Relation("Price.Product").
+		Relation("Subscription").
+		Where("purch.id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Load any refund entries linked to this payment
+	refunds := []*models.Payment{}
+	err = r.db.GetDB().NewSelect().
+		Model(&refunds).
+		Where("refunded_payment_id = ?", id).
+		OrderExpr("created_at DESC").
+		Scan(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return payment, refunds, nil
 }
 
 func (r *PaymentRepo) GetByUserID(ctx context.Context, userID string) ([]*models.Payment, error) {
@@ -130,7 +165,7 @@ func (r *PaymentRepo) GetPayments(ctx context.Context, opts query.QueryOptions[P
 	payments := []*models.Payment{}
 	q := r.db.GetDB().NewSelect().Model(&payments)
 
-	q = q.Relation("Price").Relation("Price.Product")
+	q = q.Relation("Price").Relation("Price.Product").Relation("Subscription")
 
 	if opts.Filters.UserID != "" {
 		q = q.Where("purch.user_id = ?", opts.Filters.UserID)
@@ -138,8 +173,17 @@ func (r *PaymentRepo) GetPayments(ctx context.Context, opts query.QueryOptions[P
 	if opts.Filters.PriceID != uuid.Nil {
 		q = q.Where("purch.price_id = ?", opts.Filters.PriceID)
 	}
+	if opts.Filters.SubscriptionID != "" {
+		subID, err := uuid.Parse(opts.Filters.SubscriptionID)
+		if err == nil {
+			q = q.Where("purch.subscription_id = ?", subID)
+		}
+	}
 	if opts.Filters.Processor != "" {
 		q = q.Where("purch.processor = ?", opts.Filters.Processor)
+	}
+	if opts.Filters.TransactionID != "" {
+		q = q.Where("purch.transaction_id = ?", opts.Filters.TransactionID)
 	}
 	if opts.Filters.StartDate != nil {
 		q = q.Where("purch.purchased_at >= ?", opts.Filters.StartDate)
@@ -153,17 +197,43 @@ func (r *PaymentRepo) GetPayments(ctx context.Context, opts query.QueryOptions[P
 	if opts.Filters.MaxAmount != nil {
 		q = q.Where("purch.amount <= ?", opts.Filters.MaxAmount)
 	}
+	if opts.Filters.RefundsOnly {
+		q = q.Where("purch.refunded_payment_id IS NOT NULL")
+	}
 
 	total, err := q.Count(ctx)
 	if err != nil {
 		return nil, 0, err
 	}
 
-	q = q.Limit(opts.GetLimit()).Offset(opts.GetOffset()).OrderExpr("purch.purchased_at DESC")
+	// Apply sorting
+	q = applyPaymentSorting(q, opts.Filters.SortBy, opts.Filters.SortOrder)
+	q = q.Limit(opts.GetLimit()).Offset(opts.GetOffset())
 
 	if err := q.Scan(ctx); err != nil {
 		return nil, 0, err
 	}
 
 	return payments, int64(total), nil
+}
+
+func applyPaymentSorting(q *bun.SelectQuery, sortBy, sortOrder string) *bun.SelectQuery {
+	// Validate and map sort field
+	var column string
+	switch sortBy {
+	case "amount":
+		column = "purch.amount"
+	case "purchased_at":
+		column = "purch.purchased_at"
+	default:
+		column = "purch.created_at"
+	}
+
+	// Validate sort order
+	order := "DESC"
+	if sortOrder == "asc" {
+		order = "ASC"
+	}
+
+	return q.OrderExpr(column + " " + order)
 }

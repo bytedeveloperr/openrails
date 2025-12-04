@@ -136,8 +136,8 @@ func (rs *ReplayService) validateWebhookPayload(filePath string) (*ReplayResult,
 		return result, nil
 	}
 
-	// Extract event type for NMI webhooks
-	if result.Processor == "nmi" {
+	// Extract event type for NMI-backed processor webhooks (mobius, nmi, etc.)
+	if result.Processor == "nmi" || result.Processor == "mobius" {
 		// Handle both single event and array of events
 		if payloadArray, ok := payload.([]interface{}); ok && len(payloadArray) > 0 {
 			if firstEvent, ok := payloadArray[0].(map[string]interface{}); ok {
@@ -181,8 +181,8 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 		return result, nil
 	}
 
-	// Extract event type for NMI webhooks
-	if result.Processor == "nmi" {
+	// Extract event type for NMI-backed processor webhooks (mobius, nmi, etc.)
+	if result.Processor == "nmi" || result.Processor == "mobius" {
 		// Handle both single event and array of events
 		if payloadArray, ok := payload.([]interface{}); ok && len(payloadArray) > 0 {
 			if firstEvent, ok := payloadArray[0].(map[string]interface{}); ok {
@@ -398,7 +398,8 @@ func (rs *ReplayService) ReplayCCBillWebhooks(ctx context.Context, eventFilter s
 
 // ReplayNMIWebhooks replays NMI webhook events
 func (rs *ReplayService) ReplayNMIWebhooks(ctx context.Context, eventFilter string) (int, int, error) {
-	eventFiles, err := rs.loadWebhookEvents("nmi", eventFilter)
+	// Use "mobius" folder for NMI webhook test data (mobius is the processor, NMI is the gateway)
+	eventFiles, err := rs.loadWebhookEvents("mobius", eventFilter)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to load NMI webhook events: %w", err)
 	}
@@ -427,10 +428,10 @@ func ReplayEvent(ctx context.Context, processor, eventFile, targetURL string) er
 	switch processor {
 	case "ccbill":
 		_, failures, err = rs.ReplayCCBillWebhooks(ctx, eventFile)
-	case "nmi":
+	case "nmi", "mobius":
 		_, failures, err = rs.ReplayNMIWebhooks(ctx, eventFile)
 	default:
-		return fmt.Errorf("invalid processor '%s'. Must be: ccbill or nmi", processor)
+		return fmt.Errorf("invalid processor '%s'. Must be: ccbill, mobius, or nmi", processor)
 	}
 
 	if err != nil {
@@ -464,10 +465,10 @@ func ValidateEvent(processor, eventFile string) error {
 	switch processor {
 	case "ccbill":
 		_, failures, err = rs.ReplayCCBillWebhooks(context.Background(), eventFile)
-	case "nmi":
+	case "nmi", "mobius":
 		_, failures, err = rs.ReplayNMIWebhooks(context.Background(), eventFile)
 	default:
-		return fmt.Errorf("invalid processor '%s'. Must be: ccbill or nmi", processor)
+		return fmt.Errorf("invalid processor '%s'. Must be: ccbill, mobius, or nmi", processor)
 	}
 
 	if err != nil {

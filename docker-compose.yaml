@@ -236,9 +236,7 @@ services:
       clickhouse:
         condition: service_healthy
     ports:
-      - "2053:2053"  # Public API
-    expose:
-      - "8060"       # Private API (internal-only)
+      - "2053:2053"  # API (public endpoints + admin endpoints with JWT auth)
     environment:
       # Database connection (admin superuser)
       DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
