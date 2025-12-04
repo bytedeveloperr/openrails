@@ -189,6 +189,21 @@ func (suite *TestContainerSuite) initializeDatabaseConnections() {
 			Issuers:          []string{jwksIssuer},
 			ExpectedAudience: "test-app",
 		},
+		// CCBill config with test_mode enabled to bypass IP verification in webhook tests
+		// FormID and FormName match values from testdata/webhooks/ccbill/*.json
+		CCBill: &config.CCBillConfig{
+			TestMode:        true,
+			ClientAccNum:    "945280",
+			ClientSubAcc:    "0000",
+			Salt:            "test-salt",
+			FormID:          "75383d6a-41d4-4bd0-ac12-6c8c37fde5e5", // CCBillTestFlexID
+			FormName:        "211cc",                                // CCBillTestFormName
+			BaseFlexFormURL: "https://sandbox-api.ccbill.com/wap-frontflex/flexforms",
+			Language:        "en",
+			CurrencyCode:    "840", // USD
+		},
+		// Admin API key for testing admin endpoints
+		BillingAPIKey: "test-admin-api-key",
 	}
 
 	// Initialize Redis connection

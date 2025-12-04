@@ -15,4 +15,3 @@ func GetProducts(r *Request) {
 	response := NewGetProductsResponse(products)
 	r.SuccessJSON(response)
 }
-

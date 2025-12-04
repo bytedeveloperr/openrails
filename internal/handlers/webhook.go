@@ -11,11 +11,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/riverqueue/river"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/internal/app"
-	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	ipverify "github.com/doujins-org/doujins-billing/internal/utils"
 )
@@ -134,8 +132,8 @@ func Webhook(r *Request) {
 			return
 		}
 
-		if err := queueOrProcessWebhook(ctx, r.State, event.ID); err != nil {
-			log.WithError(err).Error("failed to enqueue CCBill webhook for processing")
+		if err := processWebhookSync(ctx, r.State, event.ID); err != nil {
+			log.WithError(err).Error("CCBill webhook processing failed")
 		}
 
 		r.SuccessJSON(map[string]string{"status": "accepted"})
@@ -246,8 +244,8 @@ func handleNMIWebhook(r *Request, provider string, headers map[string]string, cl
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to persist webhook event")
 		return
 	} else {
-		if err := queueOrProcessWebhook(ctx, r.State, event.ID); err != nil {
-			log.WithError(err).Error("failed to enqueue NMI webhook for processing")
+		if err := processWebhookSync(ctx, r.State, event.ID); err != nil {
+			log.WithError(err).Error("NMI webhook processing failed")
 		}
 	}
 
@@ -294,16 +292,12 @@ func copyHeaders(src map[string]string) map[string]string {
 	return dst
 }
 
-func queueOrProcessWebhook(ctx context.Context, runtime *app.Runtime, eventID uuid.UUID) error {
+// processWebhookSync processes a webhook event synchronously.
+// This is the preferred mode for webhook processing as it provides immediate feedback
+// to the payment processor and allows for simpler error handling and testing.
+func processWebhookSync(ctx context.Context, runtime *app.Runtime, eventID uuid.UUID) error {
 	if runtime == nil || runtime.WebhookProcessor == nil {
 		return fmt.Errorf("webhook processor unavailable")
-	}
-	if runtime.RiverClient != nil {
-		if _, err := runtime.RiverClient.Insert(ctx, riverjobs.WebhookProcessArgs{EventID: eventID}, &river.InsertOpts{Queue: riverjobs.QueueBilling}); err == nil {
-			return nil
-		} else {
-			log.WithError(err).Warn("Failed to enqueue webhook job; processing inline")
-		}
 	}
 	_, err := runtime.WebhookProcessor.Process(ctx, eventID)
 	return err

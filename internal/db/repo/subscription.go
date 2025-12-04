@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -44,7 +45,33 @@ func (r *SubscriptionRepo) Create(ctx context.Context, s *models.Subscription) e
 }
 
 func (r *SubscriptionRepo) Update(ctx context.Context, s *models.Subscription) error {
-	res, err := r.db.GetDB().NewUpdate().Model(s).WherePK().Exec(ctx)
+	// Note: We explicitly list all columns to ensure nil values are set correctly.
+	// Bun's default behavior with nullzero tags skips nil fields, which prevents
+	// clearing fields like CancelledAt, EndedAt when reactivating subscriptions.
+	s.UpdatedAt = time.Now()
+	res, err := r.db.GetDB().NewUpdate().Model(s).
+		Column(
+			"status",
+			"started_at",
+			"ended_at",
+			"current_period_starts_at",
+			"current_period_ends_at",
+			"processor",
+			"processor_provider",
+			"processor_subscription_id",
+			"user_email",
+			"payment_method_id",
+			"last_retry_at",
+			"retry_attempts",
+			"next_retry_at",
+			"cancel_feedback",
+			"cancel_type",
+			"cancelled_at",
+			"gateway_response",
+			"updated_at",
+		).
+		WherePK().
+		Exec(ctx)
 	if err != nil {
 		return err
 	}
@@ -81,7 +108,7 @@ func (r *SubscriptionRepo) Delete(ctx context.Context, id uuid.UUID) error {
 
 func (r *SubscriptionRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Subscription, error) {
 	sub := new(models.Subscription)
-	err := r.selectWithDetails(sub).Where("id = ?", id).Scan(ctx)
+	err := r.selectWithDetails(sub).Where("sub.id = ?", id).Scan(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -224,8 +251,8 @@ func (r *SubscriptionRepo) GetSubscriptionsWithDetailsForUser(ctx context.Contex
 
 	subs := []models.Subscription{}
 	dataQuery := r.selectWithDetails(&subs).
-		Where("user_id = ?", userID).
-		Order("created_at DESC").
+		Where("sub.user_id = ?", userID).
+		Order("sub.created_at DESC").
 		Limit(pageSize).
 		Offset(offset)
 

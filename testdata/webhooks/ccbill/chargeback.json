@@ -1,15 +1,14 @@
 {
-  "clientAccnum": 945280,
+  "clientAccnum": "945280",
   "clientSubacc": "0000",
   "subscriptionId": "0125217202000000017",
+  "transactionId": "0125217202000000022",
   "timestamp": "2025-08-05 09:12:45",
-  "chargebackAmount": 23.0,
-  "chargebackCurrency": "USD",
-  "chargebackCurrencyCode": 840,
-  "chargebackTransactionId": "0125217202000000022",
-  "originalTransactionId": "0125217202000000017",
-  "chargebackReason": "Unauthorized Transaction",
-  "chargebackDate": "2025-08-05",
-  "chargebackReasonCode": "4855",
-  "disputeId": "DISP-2025-0805-001"
+  "amount": "23.00",
+  "currency": "USD",
+  "currencyCode": 840,
+  "reason": "Unauthorized Transaction",
+  "accountingAmount": "23.00",
+  "accountingCurrency": "USD",
+  "accountingCurrencyCode": 840
 }

@@ -18,6 +18,27 @@ type TestProduct struct {
 	Prices  []*models.Price
 }
 
+// CCBill test data constants - these match values in testdata/webhooks/ccbill/*.json
+const (
+	// CCBillTestFlexID is the flexId from saved webhook payloads
+	CCBillTestFlexID = "75383d6a-41d4-4bd0-ac12-6c8c37fde5e5"
+	// CCBillTestFormName is the formName from saved webhook payloads
+	CCBillTestFormName = "211cc"
+	// CCBillTestUsername is the username from saved newsalesuccess.json webhook
+	CCBillTestUsername = "a9ab7b27-a31c-45cd-9bb5-8a38999afd7d"
+	// CCBillTestUsername2 is the username from other webhook files (upgrade, reactivation, etc.)
+	CCBillTestUsername2 = "test_user_8421"
+	// CCBillTestUserID is the user ID we map the first test username to (must be a valid UUID)
+	CCBillTestUserID = "cccccccc-cccc-cccc-cccc-cccccccc0001"
+	// CCBillTestUserID2 is the user ID we map the second test username to (must be a valid UUID)
+	// Note: ccbill_username_aliases has unique constraint on user_id, so each alias needs different user
+	CCBillTestUserID2 = "cccccccc-cccc-cccc-cccc-cccccccc0002"
+	// CCBillTestSubscriptionID is the subscriptionId from saved webhook payloads
+	CCBillTestSubscriptionID = "0125217202000000017"
+	// CCBillTestVoidSubscriptionID is from the void.json webhook (different subscription)
+	CCBillTestVoidSubscriptionID = "0125217202000000020"
+)
+
 // DefaultTestProducts returns the standard set of test products
 func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 	return []TestProduct{
@@ -41,8 +62,9 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					BillingCycleDays: intPtr(30),
 					NMIPlanID:        strPtr("plan_monthly_999"),
 					NMIProvider:      strPtr("mobius"),
-					CCBillPriceID:    strPtr("ccbill_monthly_999"),
-					IsActive:         true,
+					// CCBillPriceID matches flexId from testdata/webhooks/ccbill/newsalesuccess.json
+					CCBillPriceID: strPtr(CCBillTestFlexID),
+					IsActive:      true,
 				},
 			},
 		},
@@ -181,19 +203,19 @@ func (suite *TestContainerSuite) CreateTestSubscription(userID string, priceID u
 
 // CreateTestSubscriptionWithOptions creates a subscription with custom options
 type SubscriptionOptions struct {
-	UserID              string
-	PriceID             uuid.UUID
-	Status              models.SubscriptionStatus
-	Processor           models.Processor
-	ProcessorProvider   string
-	PeriodStart         time.Time
-	PeriodEnd           time.Time
-	PaymentMethodID     *uuid.UUID
-	CancelType          *models.CancelType
-	CancelFeedback      *string
-	ProcessorSubID      string
-	RetryAttempts       *int
-	NextRetryAt         *time.Time
+	UserID            string
+	PriceID           uuid.UUID
+	Status            models.SubscriptionStatus
+	Processor         models.Processor
+	ProcessorProvider string
+	PeriodStart       time.Time
+	PeriodEnd         time.Time
+	PaymentMethodID   *uuid.UUID
+	CancelType        *models.CancelType
+	CancelFeedback    *string
+	ProcessorSubID    string
+	RetryAttempts     *int
+	NextRetryAt       *time.Time
 }
 
 func (suite *TestContainerSuite) CreateTestSubscriptionWithOptions(opts SubscriptionOptions) *models.Subscription {
@@ -419,14 +441,21 @@ func (suite *TestContainerSuite) CreateTestEntitlement(userID string, entitlemen
 	suite.t.Helper()
 	ctx := context.Background()
 	now := time.Now()
-	endAt := now.Add(30 * 24 * time.Hour)
+
+	// For subscription-sourced entitlements, end_at should be NULL (indefinite while subscription is active)
+	// For other sources, we may want a finite window
+	var endAt *time.Time
+	if sourceType != models.EntitlementSourceSubscription {
+		end := now.Add(30 * 24 * time.Hour)
+		endAt = &end
+	}
 
 	ent := &models.Entitlement{
 		ID:          uuid.New(),
 		UserID:      userID,
 		Entitlement: entitlementName,
 		StartAt:     now,
-		EndAt:       &endAt,
+		EndAt:       endAt,
 		SourceID:    sourceID,
 		SourceType:  sourceType,
 		CreatedAt:   now,
@@ -470,7 +499,7 @@ func (suite *TestContainerSuite) GetSubscription(id uuid.UUID) *models.Subscript
 	var sub models.Subscription
 	err := suite.BunDB.NewSelect().
 		Model(&sub).
-		Where("id = ?", id).
+		Where("sub.id = ?", id).
 		Relation("Price").
 		Relation("PaymentMethod").
 		Scan(ctx)
@@ -647,6 +676,170 @@ func (suite *TestContainerSuite) CountWebhookEvents(processor string) int {
 	require.NoError(suite.t, err, "Failed to count webhook events for processor %s", processor)
 
 	return count
+}
+
+// WaitForWebhookProcessed waits for a webhook event to be processed (or fail)
+// Returns the webhook event status and any error
+func (suite *TestContainerSuite) WaitForWebhookProcessed(eventID uuid.UUID, timeout time.Duration) (string, error) {
+	suite.t.Helper()
+	ctx := context.Background()
+
+	deadline := time.Now().Add(timeout)
+	pollInterval := 100 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		var event models.WebhookEvent
+		err := suite.BunDB.NewSelect().
+			Model(&event).
+			Where("id = ?", eventID).
+			Scan(ctx)
+		if err != nil {
+			return "", err
+		}
+
+		// Check if processing is complete (processed, failed, or duplicate)
+		if event.Status != "pending" {
+			return event.Status, nil
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	return "", context.DeadlineExceeded
+}
+
+// WaitForLatestWebhookProcessed waits for the most recent webhook event of a type to be processed
+func (suite *TestContainerSuite) WaitForLatestWebhookProcessed(processor, eventType string, timeout time.Duration) (*models.WebhookEvent, error) {
+	suite.t.Helper()
+	ctx := context.Background()
+
+	deadline := time.Now().Add(timeout)
+	pollInterval := 100 * time.Millisecond
+
+	for time.Now().Before(deadline) {
+		var event models.WebhookEvent
+		err := suite.BunDB.NewSelect().
+			Model(&event).
+			Where("processor = ?", processor).
+			Where("event_type = ?", eventType).
+			Order("created_at DESC").
+			Limit(1).
+			Scan(ctx)
+		if err != nil {
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		// Check if processing is complete (final states: processed, failed, duplicate)
+		// Note: "pending" and "processing" are intermediate states
+		if event.Status == "processed" || event.Status == "failed" || event.Status == "duplicate" {
+			return &event, nil
+		}
+
+		time.Sleep(pollInterval)
+	}
+
+	return nil, context.DeadlineExceeded
+}
+
+// GetSubscriptionByProcessorID retrieves a subscription by processor subscription ID
+func (suite *TestContainerSuite) GetSubscriptionByProcessorID(processorSubID string) *models.Subscription {
+	suite.t.Helper()
+	ctx := context.Background()
+
+	var sub models.Subscription
+	err := suite.BunDB.NewSelect().
+		Model(&sub).
+		Where("processor_subscription_id = ?", processorSubID).
+		Relation("Price").
+		Scan(ctx)
+	if err != nil {
+		return nil
+	}
+
+	return &sub
+}
+
+// CreateCCBillAlias creates a CCBill username alias mapping for testing
+// This simulates what happens when a user starts the FlexForm checkout flow
+func (suite *TestContainerSuite) CreateCCBillAlias(alias string, userID string) *models.CCBillUsernameAlias {
+	suite.t.Helper()
+	ctx := context.Background()
+	now := time.Now()
+
+	aliasModel := &models.CCBillUsernameAlias{
+		Alias:     alias,
+		UserID:    userID,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	_, err := suite.BunDB.NewInsert().Model(aliasModel).
+		On("CONFLICT (alias) DO UPDATE").
+		Set("user_id = EXCLUDED.user_id").
+		Set("updated_at = EXCLUDED.updated_at").
+		Exec(ctx)
+	require.NoError(suite.t, err, "Failed to create CCBill alias")
+
+	return aliasModel
+}
+
+// SeedCCBillTestData seeds all data needed for CCBill webhook replay tests
+// This creates the alias mappings that connect webhook payloads to test users
+// Note: Each alias maps to a different user because ccbill_username_aliases has
+// a unique constraint on user_id (one alias per user)
+func (suite *TestContainerSuite) SeedCCBillTestData() {
+	suite.t.Helper()
+
+	// Create CCBill alias mappings (usernames from webhooks → test user IDs)
+	// CCBillTestUsername is used in newsalesuccess.json
+	suite.CreateCCBillAlias(CCBillTestUsername, CCBillTestUserID)
+	// CCBillTestUsername2 is used in other webhooks (upgrade, reactivation, billingdatechange, etc.)
+	suite.CreateCCBillAlias(CCBillTestUsername2, CCBillTestUserID2)
+}
+
+// SeedCCBillTestDataWithSubscription seeds CCBill test data including an active subscription
+// This is needed for tests that require an existing subscription (renewal, cancellation, etc.)
+func (suite *TestContainerSuite) SeedCCBillTestDataWithSubscription() *models.Subscription {
+	suite.t.Helper()
+
+	// First seed the basic test data
+	suite.SeedCCBillTestData()
+
+	// Get the monthly price (which has the CCBillTestFlexID)
+	products := suite.SeedProducts()
+	priceID := products[0].Prices[0].ID
+
+	// Create an active subscription with the processor subscription ID from saved webhooks
+	return suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+		UserID:         CCBillTestUserID,
+		PriceID:        priceID,
+		Status:         models.StatusActive,
+		Processor:      models.ProcessorCCBill,
+		ProcessorSubID: CCBillTestSubscriptionID,
+	})
+}
+
+// CleanupSubscriptionsForUser deletes all subscriptions for a user
+// Use this for test isolation when tests share the same suite
+func (suite *TestContainerSuite) CleanupSubscriptionsForUser(userID string) {
+	suite.t.Helper()
+	ctx := context.Background()
+
+	// Also delete entitlements for this user
+	_, _ = suite.BunDB.NewDelete().
+		Model((*models.Entitlement)(nil)).
+		Where("user_id = ?", userID).
+		Exec(ctx)
+
+	// Delete subscriptions
+	_, err := suite.BunDB.NewDelete().
+		Model((*models.Subscription)(nil)).
+		Where("user_id = ?", userID).
+		Exec(ctx)
+	if err != nil {
+		suite.t.Logf("Warning: failed to cleanup subscriptions for user %s: %v", userID, err)
+	}
 }
 
 // Helper functions for pointers
