@@ -17,7 +17,7 @@ type SolanaPaymentIntent struct {
 	FlowType               string     `bun:"flow_type,notnull" json:"flow_type"`
 	Token                  string     `bun:"token,notnull" json:"token"`
 	TokenMint              string     `bun:"token_mint,notnull" json:"token_mint"`
-	Amount                 float64    `bun:"amount,notnull,type:decimal(18,9)" json:"amount"`
+	Amount                 int64      `bun:"amount,notnull" json:"amount"` // Token amount in smallest unit (lamports)
 	Currency               string     `bun:"currency,notnull" json:"currency"`
 	ExpectedAmountLamports uint64     `bun:"expected_amount_lamports,notnull" json:"expected_amount_lamports"`
 	PayerWallet            *string    `bun:"payer_wallet" json:"payer_wallet,omitempty"`

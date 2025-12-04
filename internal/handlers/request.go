@@ -15,12 +15,14 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/message"
+	"github.com/jonboulle/clockwork"
 )
 
 type Request struct {
 	State   *app.Runtime
 	GinCtx  *gin.Context
 	Request *http.Request
+	Clock   clockwork.Clock
 }
 
 func NewRequest(ctx *gin.Context, runtime *app.Runtime) *Request {
@@ -28,6 +30,7 @@ func NewRequest(ctx *gin.Context, runtime *app.Runtime) *Request {
 		GinCtx:  ctx,
 		State:   runtime,
 		Request: ctx.Request,
+		Clock:   runtime.Clock,
 	}
 }
 

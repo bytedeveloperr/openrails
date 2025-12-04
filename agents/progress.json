@@ -1,172 +1,102 @@
 {
   "issues": [
     {
-      "name": "test-webhook-subscription-lifecycle",
-      "category": "testing",
-      "description": "Test webhook processing creates/updates subscriptions",
+      "name": "combine-dunning-workers",
+      "category": "refactor",
+      "description": "Combine DunningSweepWorker and DunningAttemptWorker into a single worker",
       "steps": [
-        "Seed products and prices with matching CCBill/NMI IDs",
-        "Send NewSaleSuccess webhook with test user ID",
-        "Assert subscription created in database with correct status",
-        "Send Cancellation webhook",
-        "Assert subscription status updated to cancelled"
+        "Create single DunningWorker that runs periodically (e.g., every few hours)",
+        "Query all past_due subscriptions where next_retry_at is in the past",
+        "Loop through each subscription and attempt rebill via NMI",
+        "Update database after each attempt for idempotency (in case of crash)",
+        "On success: renew subscription, create payment record, reset retry counter",
+        "On failure: increment retry count, schedule next retry, or mark failed if max retries",
+        "Remove old DunningSweepWorker and DunningAttemptWorker",
+        "Update River job registration"
       ],
       "passes": true
     },
     {
-      "name": "test-subscribe-endpoint",
+      "name": "test-dunning-worker",
       "category": "testing",
-      "description": "Test Subscribe endpoint processes new subscriptions",
-      "steps": [
-        "Seed products and prices",
-        "Test POST /v1/subscriptions/process/nmi with valid payment data",
-        "Mock NMI client response",
-        "Verify subscription created in database",
-        "Verify payment record created",
-        "Verify entitlements granted"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-cancel-subscription",
-      "category": "testing",
-      "description": "Test CancelSubscription actually cancels subscription",
-      "steps": [
-        "Seed products, prices, and create active test subscription",
-        "Call POST /v1/subscriptions/cancel with valid auth token",
-        "Assert response indicates success",
-        "Query database to verify subscription status changed to cancelled",
-        "Call GET /v1/subscriptions/active to verify no active subscription"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-access-status",
-      "category": "testing",
-      "description": "Test GetAccessStatus returns correct entitlements",
-      "steps": [
-        "Test user with no subscription returns no access",
-        "Create subscription with premium entitlement",
-        "Test GET /v1/access returns correct entitlements",
-        "Test expired subscription returns no access"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-dunning-attempt-worker",
-      "category": "testing",
-      "description": "Test DunningAttemptWorker processes failed payments",
-      "steps": [
-        "Create past_due subscription with valid payment method",
-        "Mock NMI client to return success/failure responses",
-        "Run DunningAttemptWorker",
-        "Verify subscription renewed on success, or failed on decline",
-        "Verify payment record created on successful rebill"
-      ],
-      "passes": null
-    },
-    {
-      "name": "test-dunning-sweep-worker",
-      "category": "testing",
-      "description": "Test DunningSweepWorker enqueues due attempts",
+      "description": "Test combined DunningWorker processes failed payments",
       "steps": [
         "Create multiple past_due subscriptions with next_retry_at in past",
-        "Run DunningSweepWorker",
-        "Verify DunningAttemptArgs jobs enqueued for each due subscription",
-        "Verify subscriptions not yet due are not enqueued"
+        "Mock NMI client to return success/failure responses",
+        "Run DunningWorker",
+        "Verify subscriptions renewed on success, or failed on decline",
+        "Verify payment records created for successful rebills",
+        "Verify subscriptions not yet due are not processed"
+      ],
+      "passes": true
+    },
+    {
+      "name": "stripe-like-api-structs",
+      "category": "refactor",
+      "description": "Create Stripe-like response envelopes (Object wrappers)",
+      "steps": [
+        "Create `pkg/api/response.go` defining standard response structs.",
+        "Define `ListResponse` struct with `object: list`, `url`, `has_more`, `data` fields.",
+        "Define wrappers for core resources: `ProductObject`, `PriceObject`, `SubscriptionObject`.",
+        "Define `PaymentIntentObject` and `NextActionObject` for handling redirects.",
+        "Update existing handlers to use these wrappers for JSON responses (starting with `GetProducts`).",
+        "Verify tests still pass or update them to expect new JSON structure."
+      ],
+      "passes": true
+    },
+    {
+      "name": "stripe-like-api-products",
+      "category": "refactor",
+      "description": "Refactor Product and Price endpoints to match Stripe patterns",
+      "steps": [
+        "Rename route `GET /v1/subscriptions/products` to `GET /v1/products`.",
+        "Add `GET /v1/prices` endpoint to list individual prices.",
+        "Update `GetProducts` handler to return `ListResponse` of `ProductObject`.",
+        "Update `GetProducts` handler to map internal models to new API structs.",
+        "Update tests to use new routes and validate new response format."
+      ],
+      "passes": true
+    },
+    {
+      "name": "stripe-like-api-subscriptions",
+      "category": "refactor",
+      "description": "Refactor Subscription creation and management to match Stripe patterns",
+      "steps": [
+        "Create `POST /v1/subscriptions` handler that accepts `items` (price_id) and `default_payment_method`.",
+        "Implement logic in `CreateSubscription` to look up the Price and determine the processor (NMI vs CCBill).",
+        "If NMI: Call NMI service to create subscription directly. Return `SubscriptionObject` with status='active' (or 'incomplete').",
+        "If CCBill: Generate FlexForm URL. Return `SubscriptionObject` with status='incomplete', containing `latest_invoice.payment_intent` with `status='requires_action'` and `next_action.redirect_to_url`.",
+        "Remove old `POST /v1/subscriptions/process/:processor` endpoint.",
+        "Remove old `POST /v1/subscriptions/ccbill/flexform-url` endpoint.",
+        "Consolidate `GET /v1/subscriptions/active` and `history` into `GET /v1/subscriptions` with query params (e.g., `status=active`, `limit=10`).",
+        "Update tests to use new endpoints and payloads."
       ],
       "passes": null
     },
     {
-      "name": "test-payment-methods-crud",
-      "category": "testing",
-      "description": "Test payment method CRUD operations",
+      "name": "stripe-like-api-rest",
+      "category": "refactor",
+      "description": "Standardize remaining endpoints to RESTful resources",
       "steps": [
-        "Test POST /v1/payment-methods creates new payment method",
-        "Test GET /v1/payment-methods lists user's payment methods",
-        "Test PUT /v1/payment-methods/:id updates payment method",
-        "Test PUT /v1/payment-methods/:id/activate sets as default",
-        "Test DELETE /v1/payment-methods/:id removes payment method"
+        "Rename `GET /v1/subscriptions/purchases` to `GET /v1/charges` (or `GET /v1/payment_intents` if we want to unify).",
+        "Rename `GET /v1/payment-methods` to `GET /v1/payment_methods` (snake_case).",
+        "Refactor Wallet endpoints to `/v1/wallets`. `GET /v1/wallets` lists them.",
+        "Refactor Solana endpoints to `/v1/payment_intents` structure. `POST /v1/payment_intents` creates intent (replacing `generate`). `POST /v1/payment_intents/:id/confirm` submits tx (replacing `submit`).",
+        "Update `GET /v1/me/status` to `GET /v1/customers/me` which returns the full customer object including expanded subscriptions and entitlements.",
+        "Update all corresponding tests."
       ],
-      "passes": true
+      "passes": null
     },
     {
-      "name": "test-notifications-crud",
-      "category": "testing",
-      "description": "Test notifications CRUD operations",
+      "name": "stripe-like-api-metadata",
+      "category": "refactor",
+      "description": "Ensure metadata support for major API resources (Subscription, Payment, Product)",
       "steps": [
-        "Seed test notifications for user",
-        "Test GET /v1/notifications returns user's notifications",
-        "Test GET /v1/notifications/unread-count returns correct count",
-        "Test POST /v1/notifications/:id/read marks notification as read",
-        "Verify unread count decrements after marking read"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-admin-subscription-mgmt",
-      "category": "testing",
-      "description": "Test admin subscription management endpoints",
-      "steps": [
-        "Seed subscription for test user",
-        "Test GET /v1/subscriptions/:id/details returns subscription",
-        "Test PUT /v1/subscriptions/:id/extend extends subscription period",
-        "Test POST /v1/subscriptions/:id/cancel cancels subscription",
-        "Verify database reflects admin changes"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-admin-metrics",
-      "category": "testing",
-      "description": "Test admin metrics endpoints",
-      "steps": [
-        "Seed multiple subscriptions with various statuses/dates",
-        "Test GET /v1/subscriptions/dashboard-metrics returns summary stats",
-        "Test GET /v1/subscriptions/daily-metrics returns daily breakdown",
-        "Test GET /v1/subscriptions/processor-metrics returns per-processor stats",
-        "Test GET /v1/users/:user_id/entitlements returns user entitlements"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-ccbill-flexform",
-      "category": "testing",
-      "description": "Test CCBill FlexForm URL generation",
-      "steps": [
-        "Seed products and prices with CCBill configuration",
-        "Test POST /v1/subscriptions/ccbill/flexform-url",
-        "Verify URL contains correct parameters",
-        "Verify user ID encoded in URL"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-solana-wallet-linking",
-      "category": "testing",
-      "description": "Test Solana wallet linking flow",
-      "steps": [
-        "Test POST /v1/wallet/solana/challenge generates valid challenge",
-        "Test POST /v1/wallet/solana/verify with valid signature links wallet",
-        "Test GET /v1/wallet/solana lists linked wallets",
-        "Test GET /v1/wallet/solana/linked returns primary wallet",
-        "Test DELETE /v1/wallet/solana unlinks wallet",
-        "Test duplicate wallet linking is rejected"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-solana-payment-flow",
-      "category": "testing",
-      "description": "Test Solana payment flow",
-      "steps": [
-        "Seed products and prices with Solana payment enabled",
-        "Test GET /v1/solana/tokens returns supported tokens",
-        "Test POST /v1/solana/generate creates payment request",
-        "Test POST /v1/solana/qr generates QR code for payment",
-        "Test GET /v1/solana/check returns pending status",
-        "Test POST /v1/solana/submit with valid tx signature",
-        "Verify subscription created after successful payment"
+        "Verify/Add `Metadata map[string]any` field to relevant internal models (e.g., `models.Product`, `models.Subscription`, `models.Payment`).",
+        "Ensure database schema supports JSONB/text field for metadata in corresponding tables.",
+        "Implement logic in handlers/services to correctly store and retrieve metadata from models.",
+        "Ensure API response objects (`ProductObject`, `SubscriptionObject`, etc.) correctly expose metadata.",
+        "Add tests to verify metadata can be set on creation/update and retrieved correctly."
       ],
       "passes": null
     },
@@ -182,7 +112,7 @@
         "Test subscription expiry: create sub expiring Nov 30, advance to Nov 30, verify expiry logic",
         "Test dunning/retry logic with time advancement"
       ],
-      "passes": null
+      "passes": true
     },
     {
       "name": "cleanup-worker",
@@ -212,7 +142,7 @@
         "Test dunning sweep enqueues dunning attempt jobs",
         "Gracefully stop workers in test cleanup"
       ],
-      "passes": null
+      "passes": true
     },
     {
       "name": "nmi-demo-integration",
@@ -227,20 +157,7 @@
         "Test declined payment (amount < $1.00) returns appropriate error",
         "Test dunning worker rebill with real NMI API"
       ],
-      "passes": null
-    },
-    {
-      "name": "stripe-like-api",
-      "category": "refactor",
-      "description": "Make API more Stripe-like with top-level resources",
-      "steps": [
-        "Move /v1/subscriptions/products to /v1/products (top-level resource)",
-        "Add /v1/prices endpoint to list prices (optionally filtered by product)",
-        "Change /v1/payment-methods to /v1/payment_methods (underscore convention)",
-        "Update tests to use new endpoint paths",
-        "Consider adding 'object' field to responses (e.g., 'object': 'product')"
-      ],
-      "passes": null
+      "passes": true
     },
     {
       "name": "amounts-in-cents",
@@ -278,48 +195,17 @@
       "passes": null
     },
     {
-      "name": "ccbill-all-event-types",
+      "name": "test-cancel-auth-boundaries",
       "category": "testing",
-      "description": "Expand CCBill webhook replay tests to cover all event types",
+      "description": "Add tests for cancel subscription authorization boundaries",
       "steps": [
-        "Add tests for all 15 saved webhook event types",
-        "Test newsalesuccess, cancellation, renewalsuccess, renewalfailure",
-        "Test refund, chargeback, void, expiration",
-        "Test userreactivation, upgradesuccess, upgradefailure",
-        "Test billingdatechange, customerdataupdate, newsalefailure",
-        "Verify each event type is parsed correctly and stored in database"
+        "Test that User A cannot cancel User B's subscription (should get 'no active subscription' error)",
+        "Test that admin can cancel any user's subscription by subscription ID",
+        "Test that admin can cancel any user's subscription by user ID",
+        "Verify database status changes to 'cancelled' after successful cancel",
+        "Verify entitlements are revoked after cancel"
       ],
       "passes": true
-    },
-    {
-      "name": "sync-webhook-processing",
-      "category": "refactor",
-      "description": "Process webhooks synchronously instead of async via River",
-      "steps": [
-        "Remove async webhook processing (WebhookProcessArgs River job)",
-        "Process webhook payloads synchronously in the webhook handler",
-        "Store webhook event record for idempotency (deduplication by processor + transaction ID)",
-        "Update webhook_events table to track processing status inline",
-        "Remove WaitForWebhookProcessed test helpers that depend on async processing",
-        "Update tests to verify results immediately after webhook handler returns",
-        "Keep dead letter queue for failed webhook processing"
-      ],
-      "passes": true
-    },
-    {
-      "name": "ccbill-datalink-api",
-      "category": "feature",
-      "description": "Implement CCBill DataLink API for subscription management",
-      "steps": [
-        "Add CCBill DataLink config (username, password, IP whitelist requirement)",
-        "Implement DataLink client with OAuth/basic auth as required",
-        "Add cancelSubscription API call to cancel subscriptions at CCBill",
-        "Add viewSubscriptionStatus API call to verify subscription status",
-        "Update CancelUserSubscription to call CCBill DataLink when processor is ccbill",
-        "Add mock DataLink client for testing",
-        "Write integration tests for DataLink API calls"
-      ],
-      "passes": null
     },
     {
       "name": "ccbill-upgrade-url",
@@ -350,5 +236,5 @@
       "passes": null
     }
   ],
-  "current_issue": 0
+  "current_issue": 5
 }

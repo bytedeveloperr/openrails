@@ -66,10 +66,6 @@ func (s *Server) registerPublicRoutes() {
 	solana.POST("/qr", s.wrap(handlers.GenerateSolanaPayQR))
 	solana.GET("/check", s.wrap(handlers.CheckSolanaPayment))
 
-	access := api.Group("/access")
-	access.Use(middleware.AuthRequired(s.authVerifier))
-	access.GET("", s.wrap(handlers.GetAccessStatus))
-
 	me := api.Group("/me")
 	me.Use(middleware.AuthRequired(s.authVerifier))
 	me.GET("/status", s.wrap(handlers.GetMyBillingStatus))

@@ -52,7 +52,7 @@ type TransactionRequest struct {
 type TransactionResponse struct {
 	Transaction       *solana.Transaction
 	TransactionBase64 string
-	Amount            float64
+	Amount            int64 // Amount in cents (smallest currency unit)
 	TokenAmount       uint64
 	TokenSymbol       string
 	ExpiresAt         time.Time
@@ -175,7 +175,7 @@ func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, 
 		"user_id":      userID,
 		"price_id":     priceID,
 		"token":        tokenSymbol,
-		"amount":       price.Amount,
+		"amount_cents": price.Amount,
 		"token_amount": tokenAmountDecimal,
 		"from_wallet":  userWallet,
 		"to_wallet":    merchantWallet,
@@ -188,7 +188,7 @@ func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, 
 		TokenAmount:       tokenAmount,
 		TokenSymbol:       tokenSymbol,
 		ExpiresAt:         expiresAt,
-		Instructions:      fmt.Sprintf("Sign this transaction to pay %.2f %s using %s", price.Amount, price.Currency, tokenSymbol),
+		Instructions:      fmt.Sprintf("Sign this transaction to pay %.2f %s using %s", float64(price.Amount)/100.0, price.Currency, tokenSymbol),
 	}, nil
 }
 

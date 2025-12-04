@@ -6,7 +6,6 @@ import (
 )
 
 type BillingStatusResponse struct {
-	IsPremium     bool       `json:"is_premium"`
 	Subscription  any        `json:"subscription,omitempty"`
 	NextRenewalAt *time.Time `json:"next_renewal_at,omitempty"`
 	Entitlements  any        `json:"entitlements,omitempty"`
@@ -17,17 +16,6 @@ func GetMyBillingStatus(r *Request) {
 	if user == nil {
 		r.ErrorJSON(http.StatusUnauthorized, "unauthorized")
 		return
-	}
-
-	now := time.Now()
-	isPremium := false
-	if r.State.EntitlementService != nil {
-		ok, err := r.State.EntitlementService.IsEntitled(r.Request.Context(), user.ID, "premium", now)
-		if err != nil {
-			r.ErrorJSON(http.StatusInternalServerError, err.Error())
-			return
-		}
-		isPremium = ok
 	}
 
 	// Subscription details
@@ -55,7 +43,6 @@ func GetMyBillingStatus(r *Request) {
 	}
 
 	r.SuccessJSON(BillingStatusResponse{
-		IsPremium:     isPremium,
 		Subscription:  sub,
 		NextRenewalAt: next,
 		Entitlements:  ents,

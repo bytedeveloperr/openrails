@@ -11,14 +11,29 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 )
 
 type EntitlementService struct {
-	repo *repo.EntitlementRepo
+	repo  *repo.EntitlementRepo
+	Clock clockwork.Clock
 }
 
 func NewEntitlementService(db *db.DB) *EntitlementService {
 	return &EntitlementService{repo: repo.NewEntitlementRepo(db)}
+}
+
+// SetClock sets the clock for this service. Used for testing.
+func (s *EntitlementService) SetClock(c clockwork.Clock) {
+	s.Clock = c
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *EntitlementService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 // IsEntitled returns true if the user currently has an active entitlement
@@ -52,7 +67,7 @@ func (s *EntitlementService) AppendEntitlementDays(ctx context.Context, userID, 
 	if days <= 0 {
 		return nil, fmt.Errorf("days must be > 0")
 	}
-	now := time.Now()
+	now := s.now()
 
 	exists, err := s.repo.HasActiveIndefinite(ctx, userID, entitlement, now)
 	if err != nil {

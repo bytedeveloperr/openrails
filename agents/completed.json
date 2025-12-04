@@ -1,0 +1,314 @@
+{
+  "completed": [
+    {
+      "name": "seed-data-helpers",
+      "category": "testing-infra",
+      "description": "Add seed data helpers to TestContainerSuite",
+      "steps": [
+        "Add SeedProducts() method to create test products in billing.products table",
+        "Add SeedPrices() method to create test prices linked to products",
+        "Add CreateTestSubscription(userID, priceID) method to create active subscriptions",
+        "Add CreateTestPaymentMethod(userID) method to create payment methods",
+        "Add CreateTestPayment(userID, subscriptionID) method to create payment records",
+        "Add helper methods to query seeded data for assertions"
+      ]
+    },
+    {
+      "name": "migrate-tests-to-seed-helpers",
+      "category": "testing-infra",
+      "description": "Update existing tests to use seed data helpers",
+      "steps": [
+        "Update subscription_test.go to seed products/prices before testing endpoints",
+        "Update subscription_test.go to create test subscriptions and verify responses contain real data",
+        "Update webhook_replay_test.go to seed products with matching CCBill/NMI plan IDs",
+        "Update webhook_replay_test.go to verify subscriptions are created in database after webhook",
+        "Add database assertions to verify state changes (not just HTTP status codes)",
+        "Remove tests that only check route existence (redundant with business logic tests)"
+      ]
+    },
+    {
+      "name": "test-billing-status",
+      "category": "testing",
+      "description": "Test GetMyBillingStatus returns correct premium status",
+      "steps": [
+        "Test with user without subscription - assert isPremium=false",
+        "Create active subscription with premium entitlement",
+        "Call GET /v1/me/status with valid auth token",
+        "Assert isPremium=true and subscription details present"
+      ]
+    },
+    {
+      "name": "test-get-products",
+      "category": "testing",
+      "description": "Test GetProducts endpoint returns seeded products",
+      "steps": [
+        "Seed products and prices in test setup",
+        "Call GET /v1/subscriptions/products",
+        "Assert response contains expected products with correct fields",
+        "Assert prices are correctly linked to products"
+      ]
+    },
+    {
+      "name": "test-get-subscription",
+      "category": "testing",
+      "description": "Test GetSubscription endpoint returns user's subscription",
+      "steps": [
+        "Seed products, prices, and create test subscription for user",
+        "Call GET /v1/subscriptions/active with valid auth token",
+        "Assert response contains subscription details",
+        "Assert subscription status, product, and price are correct"
+      ]
+    },
+    {
+      "name": "test-subscription-history",
+      "category": "testing",
+      "description": "Test GetSubscriptionHistory returns subscription history",
+      "steps": [
+        "Create multiple test subscriptions (active and cancelled) for user",
+        "Call GET /v1/subscriptions/history with valid auth token",
+        "Assert response contains all subscriptions in correct order",
+        "Assert each subscription has correct status and dates"
+      ]
+    },
+    {
+      "name": "test-payment-history",
+      "category": "testing",
+      "description": "Test GetUserPayments returns payment history",
+      "steps": [
+        "Seed products, prices, subscription, and create test payments",
+        "Call GET /v1/subscriptions/purchases with valid auth token",
+        "Assert response contains payment records",
+        "Assert payment amounts, dates, and statuses are correct"
+      ]
+    },
+    {
+      "name": "ccbill-test-mode",
+      "category": "testing-infra",
+      "description": "Enable CCBill test_mode in test suite to bypass IP verification",
+      "steps": [
+        "Add CCBill config to TestContainerSuite with test_mode: true",
+        "Create minimal CCBillRESTClient in test suite runtime",
+        "Verify webhook replay tests now return 200 instead of 403",
+        "Update webhook_replay_test.go to expect success responses"
+      ]
+    },
+    {
+      "name": "ccbill-webhook-db-assertions",
+      "category": "testing",
+      "description": "Add database assertions to CCBill webhook tests",
+      "steps": [
+        "After NewSaleSuccess webhook, verify subscription created in database",
+        "After Cancellation webhook, verify subscription status updated",
+        "After RenewalSuccess webhook, verify subscription period extended",
+        "After Refund webhook, verify refund record created",
+        "After Chargeback webhook, verify chargeback handling"
+      ]
+    },
+    {
+      "name": "async-webhook-wait-helper",
+      "category": "testing-infra",
+      "description": "Add helper to wait for async webhook processing in tests",
+      "steps": [
+        "Create WaitForWebhookProcessed(eventID) helper that polls job status",
+        "Integrate with River client to check job completion",
+        "Add timeout parameter to avoid hanging tests",
+        "Use helper in webhook tests to verify end-to-end processing"
+      ]
+    },
+    {
+      "name": "test-webhook-subscription-lifecycle",
+      "category": "testing",
+      "description": "Test webhook processing creates/updates subscriptions",
+      "steps": [
+        "Seed products and prices with matching CCBill/NMI IDs",
+        "Send NewSaleSuccess webhook with test user ID",
+        "Assert subscription created in database with correct status",
+        "Send Cancellation webhook",
+        "Assert subscription status updated to cancelled"
+      ]
+    },
+    {
+      "name": "test-subscribe-endpoint",
+      "category": "testing",
+      "description": "Test Subscribe endpoint processes new subscriptions",
+      "steps": [
+        "Seed products and prices",
+        "Test POST /v1/subscriptions/process/nmi with valid payment data",
+        "Mock NMI client response",
+        "Verify subscription created in database",
+        "Verify payment record created",
+        "Verify entitlements granted"
+      ]
+    },
+    {
+      "name": "test-cancel-subscription",
+      "category": "testing",
+      "description": "Test CancelSubscription actually cancels subscription",
+      "steps": [
+        "Seed products, prices, and create active test subscription",
+        "Call POST /v1/subscriptions/cancel with valid auth token",
+        "Assert response indicates success",
+        "Query database to verify subscription status changed to cancelled",
+        "Call GET /v1/subscriptions/active to verify no active subscription"
+      ]
+    },
+    {
+      "name": "test-access-status",
+      "category": "testing",
+      "description": "Test GetAccessStatus returns correct entitlements",
+      "steps": [
+        "Test user with no subscription returns no access",
+        "Create subscription with premium entitlement",
+        "Test GET /v1/access returns correct entitlements",
+        "Test expired subscription returns no access"
+      ]
+    },
+    {
+      "name": "test-payment-methods-crud",
+      "category": "testing",
+      "description": "Test payment method CRUD operations",
+      "steps": [
+        "Test POST /v1/payment-methods creates new payment method",
+        "Test GET /v1/payment-methods lists user's payment methods",
+        "Test PUT /v1/payment-methods/:id updates payment method",
+        "Test PUT /v1/payment-methods/:id/activate sets as default",
+        "Test DELETE /v1/payment-methods/:id removes payment method"
+      ]
+    },
+    {
+      "name": "test-notifications-crud",
+      "category": "testing",
+      "description": "Test notifications CRUD operations",
+      "steps": [
+        "Seed test notifications for user",
+        "Test GET /v1/notifications returns user's notifications",
+        "Test GET /v1/notifications/unread-count returns correct count",
+        "Test POST /v1/notifications/:id/read marks notification as read",
+        "Verify unread count decrements after marking read"
+      ]
+    },
+    {
+      "name": "test-admin-subscription-mgmt",
+      "category": "testing",
+      "description": "Test admin subscription management endpoints",
+      "steps": [
+        "Seed subscription for test user",
+        "Test GET /v1/subscriptions/:id/details returns subscription",
+        "Test PUT /v1/subscriptions/:id/extend extends subscription period",
+        "Test POST /v1/subscriptions/:id/cancel cancels subscription",
+        "Verify database reflects admin changes"
+      ]
+    },
+    {
+      "name": "test-admin-metrics",
+      "category": "testing",
+      "description": "Test admin metrics endpoints",
+      "steps": [
+        "Seed multiple subscriptions with various statuses/dates",
+        "Test GET /v1/subscriptions/dashboard-metrics returns summary stats",
+        "Test GET /v1/subscriptions/daily-metrics returns daily breakdown",
+        "Test GET /v1/subscriptions/processor-metrics returns per-processor stats",
+        "Test GET /v1/users/:user_id/entitlements returns user entitlements"
+      ]
+    },
+    {
+      "name": "test-ccbill-flexform",
+      "category": "testing",
+      "description": "Test CCBill FlexForm URL generation",
+      "steps": [
+        "Seed products and prices with CCBill configuration",
+        "Test POST /v1/subscriptions/ccbill/flexform-url",
+        "Verify URL contains correct parameters",
+        "Verify user ID encoded in URL"
+      ]
+    },
+    {
+      "name": "test-solana-wallet-linking",
+      "category": "testing",
+      "description": "Test Solana wallet linking flow",
+      "steps": [
+        "Test POST /v1/wallet/solana/challenge generates valid challenge",
+        "Test POST /v1/wallet/solana/verify with valid signature links wallet",
+        "Test GET /v1/wallet/solana lists linked wallets",
+        "Test GET /v1/wallet/solana/linked returns primary wallet",
+        "Test DELETE /v1/wallet/solana unlinks wallet",
+        "Test duplicate wallet linking is rejected"
+      ]
+    },
+    {
+      "name": "test-solana-payment-flow",
+      "category": "testing",
+      "description": "Test Solana payment flow",
+      "steps": [
+        "Seed products and prices with Solana payment enabled",
+        "Test GET /v1/solana/tokens returns supported tokens",
+        "Test POST /v1/solana/generate creates payment request",
+        "Test POST /v1/solana/qr generates QR code for payment",
+        "Test GET /v1/solana/check returns pending status",
+        "Test POST /v1/solana/submit with valid tx signature",
+        "Verify subscription created after successful payment"
+      ]
+    },
+    {
+      "name": "ccbill-all-event-types",
+      "category": "testing",
+      "description": "Expand CCBill webhook replay tests to cover all event types",
+      "steps": [
+        "Add tests for all 15 saved webhook event types",
+        "Test newsalesuccess, cancellation, renewalsuccess, renewalfailure",
+        "Test refund, chargeback, void, expiration",
+        "Test userreactivation, upgradesuccess, upgradefailure",
+        "Test billingdatechange, customerdataupdate, newsalefailure",
+        "Verify each event type is parsed correctly and stored in database"
+      ]
+    },
+    {
+      "name": "sync-webhook-processing",
+      "category": "refactor",
+      "description": "Process webhooks synchronously instead of async via River",
+      "steps": [
+        "Remove async webhook processing (WebhookProcessArgs River job)",
+        "Process webhook payloads synchronously in the webhook handler",
+        "Store webhook event record for idempotency (deduplication by processor + transaction ID)",
+        "Update webhook_events table to track processing status inline",
+        "Remove WaitForWebhookProcessed test helpers that depend on async processing",
+        "Update tests to verify results immediately after webhook handler returns",
+        "Keep dead letter queue for failed webhook processing"
+      ]
+    },
+    {
+      "name": "fix-nmi-cancel-wrong-param",
+      "category": "bug",
+      "description": "Fix user cancel passing wrong parameter to NMI API",
+      "steps": [
+        "In user_subscription_service.go CancelUserSubscription method",
+        "Change DeleteRecurringSubscription parameter from subscription.Price.NMIPlanID to subscription.ProcessorSubscriptionID",
+        "NMIPlanID is the plan template, ProcessorSubscriptionID is the actual user's subscription",
+        "Also fixed: function was not updating subscription status in database after NMI call"
+      ]
+    },
+    {
+      "name": "fix-admin-cancel-no-nmi-call",
+      "category": "bug",
+      "description": "Admin cancel subscription doesn't call NMI API",
+      "steps": [
+        "In admin_subscription_service.go CancelSubscription method",
+        "Add NMIClients dependency to AdminSubscriptionService",
+        "Call NMI DeleteRecurringSubscription when processor is NMI",
+        "Use subscription.ProcessorSubscriptionID (not plan ID)",
+        "Updated both CancelSubscription and CancelUserSubscription methods"
+      ]
+    },
+    {
+      "name": "ccbill-cancel-user-flow",
+      "category": "feature",
+      "description": "Improve CCBill cancellation user experience",
+      "steps": [
+        "CCBill does NOT have a public API for merchant-initiated cancellation",
+        "When user tries to cancel CCBill subscription, return helpful error with CCBill support URL",
+        "Returns JSON with support_url: https://support.ccbill.com and code: ccbill_cancel_required",
+        "Handler returns HTTP 422 Unprocessable Entity for CCBill cancellations"
+      ]
+    }
+  ]
+}

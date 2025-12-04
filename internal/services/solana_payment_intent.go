@@ -68,7 +68,7 @@ func (s *SolanaPaymentIntentService) CreateDirectIntent(ctx context.Context, use
 		return nil, fmt.Errorf("solana recipient wallet not configured")
 	}
 
-	tokenAmountUnits, tokenAmountDecimal, err := calculateTokenQuote(ctx, tokenCfg, price.Amount)
+	tokenAmountUnits, _, err := calculateTokenQuote(ctx, tokenCfg, price.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate token amount: %w", err)
 	}
@@ -81,7 +81,7 @@ func (s *SolanaPaymentIntentService) CreateDirectIntent(ctx context.Context, use
 		FlowType:               FlowTypeDirect,
 		Token:                  tokenSymbol,
 		TokenMint:              tokenCfg.Mint,
-		Amount:                 tokenAmountDecimal,
+		Amount:                 int64(tokenAmountUnits), // Token amount in smallest unit (lamports/base units)
 		Currency:               tokenSymbol,
 		ExpectedAmountLamports: tokenAmountUnits,
 		RecipientWallet:        merchantWallet,
@@ -125,7 +125,7 @@ func (s *SolanaPaymentIntentService) CreateSolanaPayIntent(ctx context.Context, 
 		return nil, fmt.Errorf("solana recipient wallet not configured")
 	}
 
-	tokenAmountUnits, tokenAmountDecimal, err := calculateTokenQuote(ctx, tokenCfg, price.Amount)
+	tokenAmountUnits, _, err := calculateTokenQuote(ctx, tokenCfg, price.Amount)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate token amount: %w", err)
 	}
@@ -144,7 +144,7 @@ func (s *SolanaPaymentIntentService) CreateSolanaPayIntent(ctx context.Context, 
 		FlowType:               FlowTypeSolanaPay,
 		Token:                  tokenSymbol,
 		TokenMint:              tokenCfg.Mint,
-		Amount:                 tokenAmountDecimal,
+		Amount:                 int64(tokenAmountUnits), // Token amount in smallest unit (lamports/base units)
 		Currency:               tokenSymbol,
 		ExpectedAmountLamports: tokenAmountUnits,
 		RecipientWallet:        merchantWallet,

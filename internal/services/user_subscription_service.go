@@ -12,6 +12,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -32,6 +33,20 @@ type UserSubscriptionService struct {
 	NotificationQueueService *NotificationQueueService
 	EntitlementService       *EntitlementService
 	NMIClients               map[string]*nmi.NMIClient
+	Clock                    clockwork.Clock
+}
+
+// SetClock sets the clock for this service. Used for testing.
+func (s *UserSubscriptionService) SetClock(c clockwork.Clock) {
+	s.Clock = c
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *UserSubscriptionService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 // UserSubscriptionResponse represents a user's subscription with enriched data
@@ -191,6 +206,17 @@ func (s *UserSubscriptionService) MarkNotificationRead(ctx context.Context, user
 	return s.NotificationQueueService.Update(ctx, notification)
 }
 
+// CCBillCancelError is returned when a user tries to cancel a CCBill subscription
+// CCBill does not have a public API for merchant-initiated cancellation
+type CCBillCancelError struct {
+	SupportURL string `json:"support_url"`
+	Message    string `json:"message"`
+}
+
+func (e *CCBillCancelError) Error() string {
+	return e.Message
+}
+
 // CancelUserSubscription cancels a user's subscription
 func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, userID string, feedback string) error {
 	subscription, err := s.SubscriptionService.GetActiveSubscription(ctx, userID)
@@ -198,21 +224,18 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 		return fmt.Errorf("%w: %w", ErrSubscriptionNotFound, err)
 	}
 
+	// CCBill doesn't have a public API for merchant-initiated cancellation
+	// Users must cancel through CCBill's consumer support portal
+	if subscription.Processor == models.ProcessorCCBill {
+		return &CCBillCancelError{
+			SupportURL: "https://support.ccbill.com",
+			Message:    "CCBill subscriptions cannot be cancelled through our system. Please visit the CCBill consumer support portal to manage your subscription. You will need the email address you used when subscribing.",
+		}
+	}
+
 	if subscription.Processor != models.ProcessorNMI {
 		return fmt.Errorf("unable to cancel subscription for processor %s", subscription.Processor)
 	}
-
-	// End entitlements for this subscription now
-	// if s.EntitlementService != nil {
-	// 	reason := models.EntitlementRevokeAdmin
-	// 	if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
-	// 		log.WithFields(log.Fields{
-	// 			"subscription_id": subscription.ID,
-	// 			"user_id":         userID,
-	// 			"error":           err.Error(),
-	// 		}).Error("Failed to end entitlements during subscription cancellation")
-	// 	}
-	// }
 
 	// Cancel subscription with NMI
 	if s.NMIClients != nil {
@@ -227,11 +250,25 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 			provider = "mobius"
 		}
 
-		if client, ok := s.NMIClients[provider]; ok && subscription.Price != nil && subscription.Price.NMIPlanID != nil {
-			if err := client.DeleteRecurringSubscription(*subscription.Price.NMIPlanID); err != nil {
+		if client, ok := s.NMIClients[provider]; ok && subscription.ProcessorSubscriptionID != "" {
+			if err := client.DeleteRecurringSubscription(subscription.ProcessorSubscriptionID); err != nil {
 				return fmt.Errorf("failed to cancel subscription with NMI provider '%s': %w", provider, err)
 			}
 		}
+	}
+
+	// Update subscription status in database
+	now := s.now()
+	cancelType := models.CancelTypeUser
+	subscription.Status = models.StatusCancelled
+	subscription.CancelledAt = &now
+	subscription.CancelType = &cancelType
+	if feedback != "" {
+		subscription.CancelFeedback = &feedback
+	}
+
+	if err := s.SubscriptionService.Update(ctx, subscription); err != nil {
+		return fmt.Errorf("failed to update subscription status: %w", err)
 	}
 
 	// Add notification
@@ -292,7 +329,7 @@ func (s *UserSubscriptionService) entitlementAccessGrants(ctx context.Context, u
 	if s.EntitlementService == nil {
 		return nil, nil
 	}
-	ents, err := s.EntitlementService.ListActiveRecords(ctx, userID, time.Now())
+	ents, err := s.EntitlementService.ListActiveRecords(ctx, userID, s.now())
 	if err != nil {
 		return nil, fmt.Errorf("failed to list entitlements: %w", err)
 	}

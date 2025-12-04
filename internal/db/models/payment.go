@@ -26,9 +26,9 @@ type Payment struct {
 	ProcessorProvider *string   `bun:"processor_provider,nullzero" json:"processor_provider"`
 	TransactionID     string    `bun:"transaction_id,notnull" json:"transaction_id"`
 
-	// Payment details
-	Amount   float64 `bun:"amount,notnull,type:numeric" json:"amount"`
-	Currency string  `bun:"currency,notnull,default:'USD'" json:"currency"`
+	// Payment details - amount in cents (smallest currency unit)
+	Amount   int64  `bun:"amount,notnull" json:"amount"`
+	Currency string `bun:"currency,notnull,default:'USD'" json:"currency"`
 
 	PurchasedAt time.Time `bun:"purchased_at,notnull,default:current_timestamp" json:"purchased_at"`
 	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`

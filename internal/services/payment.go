@@ -18,8 +18,6 @@ type PaymentService struct {
 	repo *repo.PaymentRepo
 }
 
-const refundEpsilon = 0.0001
-
 type GetPaymentsFilters = repo.PaymentFilters
 
 func NewPaymentService(db *db.DB) *PaymentService {
@@ -60,7 +58,8 @@ func (s *PaymentService) Delete(ctx context.Context, id uuid.UUID) error {
 
 // Refund records a refund as a negative payment entry linked by transaction ID
 // Note: Processors should handle the actual money movement; this persists the event.
-func (s *PaymentService) Refund(ctx context.Context, originalPaymentID uuid.UUID, refundTransactionID string, amount float64) (*models.Payment, error) {
+// amount is in cents (smallest currency unit)
+func (s *PaymentService) Refund(ctx context.Context, originalPaymentID uuid.UUID, refundTransactionID string, amount int64) (*models.Payment, error) {
 	orig, err := s.GetByID(ctx, originalPaymentID)
 	if err != nil {
 		return nil, err
@@ -80,8 +79,8 @@ func (s *PaymentService) Refund(ctx context.Context, originalPaymentID uuid.UUID
 		return nil, errors.New("refund amount cannot exceed original payment amount")
 	}
 	if refundedTotal > 0 {
-		if amount+refundedTotal-orig.Amount > refundEpsilon {
-			return nil, fmt.Errorf("refund total would exceed original payment (refunded %.2f of %.2f)", refundedTotal, orig.Amount)
+		if amount+refundedTotal > orig.Amount {
+			return nil, fmt.Errorf("refund total would exceed original payment (refunded %d of %d)", refundedTotal, orig.Amount)
 		}
 	}
 

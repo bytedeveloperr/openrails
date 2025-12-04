@@ -50,7 +50,8 @@ func (s *SolanaPaymentService) SetNotificationService(notification *Notification
 
 // Generate returns payment calculation for client-side transaction building.
 // userID: OIDC subject (string)
-func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, priceID uuid.UUID, tokenSymbol, userWallet string) (amount float64, currency string, tokenAmount uint64, expiresAt time.Time, err error) {
+// Returns amount in cents (smallest currency unit)
+func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, priceID uuid.UUID, tokenSymbol, userWallet string) (amount int64, currency string, tokenAmount uint64, expiresAt time.Time, err error) {
 	price, err := s.priceService.GetByID(ctx, priceID)
 	if err != nil {
 		return 0, "", 0, time.Time{}, fmt.Errorf("%w: %v", ErrPriceNotFound, err)

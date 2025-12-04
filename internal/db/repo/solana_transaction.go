@@ -13,7 +13,7 @@ type SolanaTransactionRepo struct {
 
 func NewSolanaTransactionRepo(d *db.DB) *SolanaTransactionRepo { return &SolanaTransactionRepo{db: d} }
 
-func (r *SolanaTransactionRepo) MarkConfirmedByUserAndAmount(ctx context.Context, userID string, amount float64, signature string) error {
+func (r *SolanaTransactionRepo) MarkConfirmedByUserAndAmount(ctx context.Context, userID string, amount int64, signature string) error {
 	_, err := r.db.GetDB().NewUpdate().
 		Model((*models.SolanaTransaction)(nil)).
 		Set("status = ?", "confirmed").

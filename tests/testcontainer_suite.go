@@ -15,6 +15,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/migrate"
 	"github.com/doujins-org/doujins-billing/internal/server"
 
+	"github.com/jonboulle/clockwork"
 	_ "github.com/lib/pq" // PostgreSQL driver for schema creation
 	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
@@ -202,8 +203,32 @@ func (suite *TestContainerSuite) initializeDatabaseConnections() {
 			Language:        "en",
 			CurrencyCode:    "840", // USD
 		},
+		// Solana config for testing Solana payment endpoints
+		Solana: &config.SolanaConfig{
+			RPCEndpoint:               "", // Empty for tests (no real RPC calls)
+			Network:                   "devnet",
+			RecipientWallet:           "DzGLHdTfgHCYh8v3qNGJHn85CyX7aeFmqoUdVRBYkWMh",
+			SupportedTokens:           config.DefaultDevnetTokens(),
+			TransactionTimeoutSeconds: 30,
+			ConfirmationBlocks:        1,
+			MaxTransactionFee:         0.01,
+		},
 		// Admin API key for testing admin endpoints
 		BillingAPIKey: "test-admin-api-key",
+		// NMI demo account for real API integration tests
+		// Uses the public NMI demo security key (test mode)
+		// See: https://docs.nmi.com/
+		NMI: &config.NMIConfig{
+			TestMode:      true,
+			DirectPostURL: "https://secure.networkmerchants.com/api/transact.php",
+			QueryURL:      "https://secure.networkmerchants.com/api/query.php",
+			Providers: map[string]*config.NMIProviderConfig{
+				"mobius": {
+					SecurityKey: "6457Thfj624V5r7WUwc5v6a68Zsd6YEm", // NMI demo key
+					TestMode:    boolPtr(true),
+				},
+			},
+		},
 	}
 
 	// Initialize Redis connection
@@ -377,5 +402,94 @@ func (suite *TestContainerSuite) ResetDatabase() {
 			// Log but don't fail - table might not exist
 			suite.t.Logf("Failed to truncate table %s: %v", table, err)
 		}
+	}
+}
+
+// SetMockClock replaces the runtime's clock with a mock clock and returns the mock.
+// This allows tests to control time for testing time-dependent logic.
+// It also updates the clock on services that use time-dependent logic.
+func (suite *TestContainerSuite) SetMockClock(t ...time.Time) clockwork.FakeClock {
+	suite.t.Helper()
+	var mockClock clockwork.FakeClock
+	if len(t) > 0 {
+		mockClock = clockwork.NewFakeClockAt(t[0])
+	} else {
+		// Default to a fixed time for reproducible tests
+		mockClock = clockwork.NewFakeClockAt(time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC))
+	}
+	suite.App.Runtime.Clock = mockClock
+	// Also set the clock on services that use time-dependent logic
+	if suite.App.Runtime.SubscriptionLifecycleService != nil {
+		suite.App.Runtime.SubscriptionLifecycleService.SetClock(mockClock)
+	}
+	return mockClock
+}
+
+// GetClock returns the current clock from the runtime (real or mock).
+func (suite *TestContainerSuite) GetClock() clockwork.Clock {
+	return suite.App.Runtime.Clock
+}
+
+// GetRiverClient returns the River client for job enqueueing and inspection.
+// Returns nil if River is not initialized.
+func (suite *TestContainerSuite) GetRiverClient() interface{} {
+	if suite.App == nil || suite.App.Runtime == nil {
+		return nil
+	}
+	return suite.App.Runtime.RiverClient
+}
+
+// WaitForJobCompletion waits for a specific number of jobs to complete in the billing queue.
+// This is useful for testing async job processing.
+// Returns true if the expected jobs completed, false if timeout.
+func (suite *TestContainerSuite) WaitForJobCompletion(expectedJobs int, timeout time.Duration) bool {
+	suite.t.Helper()
+
+	// Query the river_job table to check for completed jobs
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		var count int
+		err := suite.BunDB.QueryRowContext(suite.ctx,
+			"SELECT COUNT(*) FROM billing.river_job WHERE state = 'completed'").Scan(&count)
+		if err == nil && count >= expectedJobs {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
+}
+
+// GetPendingJobCount returns the number of pending jobs in the billing queue.
+func (suite *TestContainerSuite) GetPendingJobCount() int {
+	suite.t.Helper()
+	var count int
+	err := suite.BunDB.QueryRowContext(suite.ctx,
+		"SELECT COUNT(*) FROM billing.river_job WHERE state = 'available'").Scan(&count)
+	if err != nil {
+		suite.t.Logf("Error getting pending job count: %v", err)
+		return 0
+	}
+	return count
+}
+
+// GetCompletedJobCount returns the number of completed jobs in the billing queue.
+func (suite *TestContainerSuite) GetCompletedJobCount() int {
+	suite.t.Helper()
+	var count int
+	err := suite.BunDB.QueryRowContext(suite.ctx,
+		"SELECT COUNT(*) FROM billing.river_job WHERE state = 'completed'").Scan(&count)
+	if err != nil {
+		suite.t.Logf("Error getting completed job count: %v", err)
+		return 0
+	}
+	return count
+}
+
+// ClearJobQueue removes all jobs from the River queue for clean test state.
+func (suite *TestContainerSuite) ClearJobQueue() {
+	suite.t.Helper()
+	_, err := suite.BunDB.ExecContext(suite.ctx, "DELETE FROM billing.river_job")
+	if err != nil {
+		suite.t.Logf("Error clearing job queue: %v", err)
 	}
 }

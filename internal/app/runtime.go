@@ -15,6 +15,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/jonboulle/clockwork"
 )
 
 // Runtime aggregates infrastructure clients and application services.
@@ -22,6 +23,7 @@ type Runtime struct {
 	DB                 *db.DB
 	RedisClient        *redis.Client
 	Config             *config.Config
+	Clock              clockwork.Clock
 	CCBillClient       *ccbill.CCBillClient
 	CCBillRESTClient   *ccbill.RESTClient
 	CCBillDataLink     *ccbill.DataLinkClient

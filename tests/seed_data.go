@@ -389,7 +389,7 @@ type PaymentOptions struct {
 	Processor         models.Processor
 	ProcessorProvider string
 	TransactionID     string
-	Amount            float64
+	Amount            int64 // Amount in cents
 	Currency          string
 	PurchasedAt       time.Time
 }
@@ -856,4 +856,8 @@ func strPtrOrNil(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }

@@ -21,11 +21,16 @@ type EmailService struct {
 // OneOffPurchaseEmailData contains data for one-off purchase receipts
 type OneOffPurchaseEmailData struct {
 	UserEmail     string
-	Amount        float64
+	Amount        int64 // Amount in cents (smallest currency unit)
 	Currency      string
 	ProductName   string
 	PaymentMethod string
 	IsPremium     bool
+}
+
+// AmountDollars returns the amount converted to dollars for display
+func (d OneOffPurchaseEmailData) AmountDollars() float64 {
+	return float64(d.Amount) / 100.0
 }
 
 // NewEmailService wires the SendGrid SDK into the billing domain service.
@@ -104,9 +109,9 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 		productName = "Doujins premium content"
 	}
 
-	amountLine := fmt.Sprintf("%.2f %s", data.Amount, data.Currency)
+	amountLine := fmt.Sprintf("%.2f %s", data.AmountDollars(), data.Currency)
 	if data.Currency == "USD" {
-		amountLine = fmt.Sprintf("$%.2f %s", data.Amount, data.Currency)
+		amountLine = fmt.Sprintf("$%.2f %s", data.AmountDollars(), data.Currency)
 	}
 
 	issuedAt := time.Now().Format("Jan 2, 2006 15:04 MST")

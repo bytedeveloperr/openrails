@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -28,7 +31,22 @@ type AdminSubscriptionService struct {
 	EntitlementService       *EntitlementService
 	NotificationQueueService *NotificationQueueService
 	PaymentService           *PaymentService
+	NMIClients               map[string]*nmi.NMIClient
+	Clock                    clockwork.Clock
 	// No user directory enrichment; IdP subject is stored on subscription
+}
+
+// SetClock sets the clock for this service. Used for testing.
+func (s *AdminSubscriptionService) SetClock(c clockwork.Clock) {
+	s.Clock = c
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *AdminSubscriptionService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 // AdminSubscriptionResponse represents a subscription with enriched admin data
@@ -131,6 +149,43 @@ func (s *AdminSubscriptionService) UpdateSubscription(ctx context.Context, subsc
 	return nil
 }
 
+// cancelWithNMI cancels a subscription with NMI if applicable
+func (s *AdminSubscriptionService) cancelWithNMI(subscription *models.Subscription) error {
+	if subscription.Processor != models.ProcessorNMI {
+		return nil // Not an NMI subscription, nothing to do
+	}
+
+	if s.NMIClients == nil || subscription.ProcessorSubscriptionID == "" {
+		return nil // No NMI clients configured or no subscription ID
+	}
+
+	provider := ""
+	if subscription.ProcessorProvider != nil {
+		provider = strings.ToLower(strings.TrimSpace(*subscription.ProcessorProvider))
+	}
+	if provider == "" && subscription.Price != nil && subscription.Price.NMIProvider != nil {
+		provider = strings.ToLower(strings.TrimSpace(*subscription.Price.NMIProvider))
+	}
+	if provider == "" {
+		provider = "mobius"
+	}
+
+	client, ok := s.NMIClients[provider]
+	if !ok {
+		log.WithFields(log.Fields{
+			"subscription_id": subscription.ID,
+			"provider":        provider,
+		}).Warn("NMI provider not configured for admin cancel")
+		return nil // Log warning but don't fail the cancellation
+	}
+
+	if err := client.DeleteRecurringSubscription(subscription.ProcessorSubscriptionID); err != nil {
+		return fmt.Errorf("failed to cancel subscription with NMI provider '%s': %w", provider, err)
+	}
+
+	return nil
+}
+
 // CancelSubscription cancels a subscription (admin)
 func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subscriptionID uuid.UUID, reason string) error {
 	subscription, err := s.SubscriptionService.GetByID(ctx, subscriptionID)
@@ -142,7 +197,12 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 		return fmt.Errorf("subscription is not active")
 	}
 
-	now := time.Now()
+	// Cancel with payment processor first (NMI)
+	if err := s.cancelWithNMI(subscription); err != nil {
+		return err
+	}
+
+	now := s.now()
 	cancelType := models.CancelTypeMerchant
 	subscription.Status = models.StatusCancelled
 	subscription.CancelledAt = &now
@@ -197,7 +257,12 @@ func (s *AdminSubscriptionService) CancelUserSubscription(ctx context.Context, u
 		return ErrSubscriptionNotActive
 	}
 
-	now := time.Now()
+	// Cancel with payment processor first (NMI)
+	if err := s.cancelWithNMI(subscription); err != nil {
+		return err
+	}
+
+	now := s.now()
 	cancelType := models.CancelTypeMerchant // Admin cancellation
 	subscription.Status = models.StatusCancelled
 	subscription.CancelledAt = &now
@@ -259,10 +324,10 @@ func (s *AdminSubscriptionService) ExtendSubscription(ctx context.Context, subsc
 		newEndTime := subscription.CurrentPeriodEndsAt.Add(extension)
 		subscription.CurrentPeriodEndsAt = &newEndTime
 	} else {
-		newEndTime := time.Now().Add(extension)
+		now := s.now()
+		newEndTime := now.Add(extension)
 		subscription.CurrentPeriodEndsAt = &newEndTime
-		startTime := time.Now()
-		subscription.CurrentPeriodStartsAt = &startTime
+		subscription.CurrentPeriodStartsAt = &now
 	}
 
 	if err := s.SubscriptionService.Update(ctx, subscription); err != nil {
@@ -323,7 +388,7 @@ func (s *AdminSubscriptionService) CreateManualRoleGrant(ctx context.Context, us
 	if s.EntitlementService == nil {
 		return nil
 	}
-	now := time.Now()
+	now := s.now()
 	var endAt *time.Time
 	if durationDays != nil && *durationDays > 0 {
 		e := now.Add(time.Duration(*durationDays) * 24 * time.Hour)
@@ -371,9 +436,10 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
 		grants = append(grants, grantItem{"premium", 30})
 	}
 	// Disallow one-off if any relevant entitlement has an active indefinite window
+	now := s.now()
 	if s.EntitlementService != nil {
 		for _, g := range grants {
-			exists, err := s.EntitlementService.HasActiveIndefinite(ctx, userID, g.name, time.Now())
+			exists, err := s.EntitlementService.HasActiveIndefinite(ctx, userID, g.name, now)
 			if err != nil {
 				return fmt.Errorf("failed entitlement check: %w", err)
 			}
@@ -392,8 +458,8 @@ func (s *AdminSubscriptionService) VerifyPayPalPurchase(ctx context.Context, use
 		TransactionID: paypalTransactionID,
 		Amount:        price.Amount,
 		Currency:      price.Currency,
-		PurchasedAt:   time.Now(),
-		CreatedAt:     time.Now(),
+		PurchasedAt:   now,
+		CreatedAt:     now,
 	}
 	if err := s.PaymentService.Create(ctx, purchase); err != nil {
 		return fmt.Errorf("failed to create purchase record: %w", err)
@@ -456,6 +522,7 @@ func NewAdminSubscriptionService(
 	entitlementService *EntitlementService,
 	notificationQueueService *NotificationQueueService,
 	paymentService *PaymentService,
+	nmiClients map[string]*nmi.NMIClient,
 ) *AdminSubscriptionService {
 	return &AdminSubscriptionService{
 		SubscriptionService:      subscriptionService,
@@ -464,5 +531,6 @@ func NewAdminSubscriptionService(
 		EntitlementService:       entitlementService,
 		NotificationQueueService: notificationQueueService,
 		PaymentService:           paymentService,
+		NMIClients:               nmiClients,
 	}
 }

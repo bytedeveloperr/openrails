@@ -11,7 +11,8 @@ import (
 func (s *Server) registerAdminRoutes() {
 	api := s.adminHandler.Group("/v1")
 	api.PUT("/subscriptions/:id/extend", s.wrap(handlers.ExtendSubscription))
-	api.POST("/subscriptions/:id/cancel", s.wrap(handlers.CancelSubscription))
+	api.POST("/subscriptions/:id/cancel", s.wrap(handlers.AdminCancelSubscription))
+	api.POST("/users/:user_id/subscription/cancel", s.wrap(handlers.AdminCancelUserSubscription))
 	api.GET("/subscriptions/:id/details", s.wrap(handlers.GetSubscription))
 	api.GET("/subscriptions/dashboard-metrics", s.wrap(handlers.GetAdminDashboardMetrics))
 	api.GET("/subscriptions/daily-metrics", s.wrap(handlers.GetAdminDailyMetrics))

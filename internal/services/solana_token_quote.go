@@ -8,12 +8,14 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 )
 
-// calculateTokenQuote converts a fiat USD amount into token units/decimal amount based on live prices.
+// calculateTokenQuote converts a fiat USD amount (in cents) into token units/decimal amount based on live prices.
 // Returns the amount in the token's smallest unit (lamports for SOL) and as a human-readable decimal.
-func calculateTokenQuote(ctx context.Context, tokenCfg config.SolanaToken, amountUSD float64) (uint64, float64, error) {
-	if amountUSD <= 0 {
+func calculateTokenQuote(ctx context.Context, tokenCfg config.SolanaToken, amountCents int64) (uint64, float64, error) {
+	if amountCents <= 0 {
 		return 0, 0, nil
 	}
+	// Convert cents to dollars for price calculation
+	amountUSD := float64(amountCents) / 100.0
 
 	mint := tokenCfg.MainnetMint
 	if mint == "" {

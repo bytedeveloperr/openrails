@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS billing.prices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     product_id UUID NOT NULL REFERENCES billing.products(id) ON DELETE CASCADE,
     display_name TEXT NOT NULL,
-    amount DECIMAL(10,2) NOT NULL,
+    amount BIGINT NOT NULL, -- Amount in cents (smallest currency unit)
     currency TEXT NOT NULL,
     billing_cycle_days INTEGER, -- 30 for monthly, 365 for yearly, NULL for one-time
     nmi_plan_id TEXT, -- NMI processor plan ID
@@ -232,7 +232,7 @@ CREATE TABLE IF NOT EXISTS billing.payments (
     processor billing.processor_type NOT NULL,
     processor_provider TEXT,
     transaction_id TEXT NOT NULL,
-    amount DECIMAL(10,2) NOT NULL,
+    amount BIGINT NOT NULL, -- Amount in cents (smallest currency unit)
     currency TEXT NOT NULL DEFAULT 'USD',
     -- Overall lifecycle state for the payment record
     status billing.purchase_status NOT NULL DEFAULT 'completed',
@@ -263,7 +263,7 @@ CREATE TABLE IF NOT EXISTS billing.solana_payment_intents (
     flow_type TEXT NOT NULL, -- direct | solanapay
     token TEXT NOT NULL,
     token_mint TEXT NOT NULL,
-    amount DECIMAL(18,9) NOT NULL,
+    amount BIGINT NOT NULL, -- Token amount in smallest unit (lamports for SOL, base units for SPL tokens)
     currency TEXT NOT NULL,
     expected_amount_lamports BIGINT NOT NULL,
     payer_wallet TEXT,
@@ -292,8 +292,8 @@ CREATE TABLE IF NOT EXISTS billing.solana_transactions (
     signature TEXT, -- Solana transaction signature (set when confirmed)
     status TEXT NOT NULL, -- pending, confirmed, failed
 
-    -- Payment details
-    amount NUMERIC(18,9) NOT NULL,
+    -- Payment details - amount in smallest unit (lamports for SOL, base units for SPL tokens)
+    amount BIGINT NOT NULL,
     token TEXT NOT NULL, -- e.g., SOL, USDC
     token_mint TEXT NOT NULL, -- token mint address
 
@@ -310,7 +310,7 @@ CREATE TABLE IF NOT EXISTS billing.solana_transactions (
     block_time TIMESTAMPTZ,
     slot BIGINT,
     confirmations INTEGER NOT NULL DEFAULT 0,
-    transaction_fee NUMERIC(18,9),
+    transaction_fee BIGINT, -- Fee in lamports
 
     -- Processing metadata
     processing_result JSONB,

@@ -134,14 +134,14 @@ func (s *NotificationService) sendEmailNotification(ctx context.Context, notific
 			return nil
 		}
 
-		amount, _ := notification.Data["amount"].(float64)
+		amountFloat, _ := notification.Data["amount"].(float64) // JSON unmarshals numbers as float64
 		currency, _ := notification.Data["currency"].(string)
 		productName, _ := notification.Data["product_name"].(string)
 		paymentMethod, _ := notification.Data["payment_method"].(string)
 
 		return s.emailService.SendOneOffPurchaseReceipt(ctx, OneOffPurchaseEmailData{
 			UserEmail:     email,
-			Amount:        amount,
+			Amount:        int64(amountFloat), // Convert to cents (int64)
 			Currency:      currency,
 			ProductName:   productName,
 			PaymentMethod: paymentMethod,

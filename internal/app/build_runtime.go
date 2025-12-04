@@ -24,6 +24,7 @@ import (
 	clickhousemigrations "github.com/doujins-org/doujins-billing/migrations/clickhouse"
 	postgresmigrations "github.com/doujins-org/doujins-billing/migrations/postgres"
 	"github.com/doujins-org/migratekit"
+	"github.com/jonboulle/clockwork"
 )
 
 func buildRuntime(cfg *config.Config) (*Runtime, error) {
@@ -77,6 +78,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		DB:                 database,
 		RedisClient:        redisClient,
 		Config:             cfg,
+		Clock:              clockwork.NewRealClock(),
 		CCBillClient:       ccbillClient,
 		CCBillRESTClient:   ccbillRESTClient,
 		CCBillDataLink:     ccbillDataLinkClient,
@@ -354,6 +356,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		entitlementService,
 		notificationQueueService,
 		purchaseService,
+		nmiClients,
 	)
 
 	deduplicationService := services.NewDeduplicationService(database)

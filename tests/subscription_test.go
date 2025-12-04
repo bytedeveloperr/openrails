@@ -302,8 +302,16 @@ func TestGetMyBillingStatusEndpoint(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.False(t, response.IsPremium, "Should not be premium without subscription")
+		assert.Nil(t, response.Subscription, "Should have no subscription")
 		assert.Nil(t, response.NextRenewalAt, "Should have no renewal date")
+
+		// Check entitlements list is empty or nil
+		if response.Entitlements != nil {
+			ents, ok := response.Entitlements.([]interface{})
+			if ok {
+				assert.Empty(t, ents, "Should have no entitlements")
+			}
+		}
 	})
 
 	t.Run("returns premium status for user with active subscription", func(t *testing.T) {
@@ -325,8 +333,9 @@ func TestGetMyBillingStatusEndpoint(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.True(t, response.IsPremium, "Should be premium with active subscription and entitlement")
+		assert.NotNil(t, response.Subscription, "Should have active subscription")
 		assert.NotNil(t, response.NextRenewalAt, "Should have renewal date")
+		assert.NotNil(t, response.Entitlements, "Should have entitlements")
 	})
 
 	t.Run("requires authentication", func(t *testing.T) {

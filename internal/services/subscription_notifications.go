@@ -45,12 +45,17 @@ type SubscriptionEmailData struct {
 	UserEmail      string
 	Username       string
 	SubscriptionID uuid.UUID
-	Amount         float64
+	Amount         int64 // Amount in cents (smallest currency unit)
 	Currency       string
 	PeriodStart    time.Time
 	PeriodEnd      time.Time
 	PaymentMethod  string
 	TransactionID  string
+}
+
+// AmountDollars returns the amount converted to dollars for display
+func (d SubscriptionEmailData) AmountDollars() float64 {
+	return float64(d.Amount) / 100.0
 }
 
 // SendSubscriptionConfirmation sends a confirmation email when subscription is created
@@ -80,27 +85,27 @@ func (s *EmailService) SendSubscriptionConfirmation(ctx context.Context, data Su
 		
 		<p>Enjoy your premium experience!</p>
 		<p>The Doujins Team</p>
-	`, data.Username, data.SubscriptionID, data.Amount, data.Currency,
+	`, data.Username, data.SubscriptionID, data.AmountDollars(), data.Currency,
 		data.PeriodStart.Format("Jan 2, 2006"), data.PeriodEnd.Format("Jan 2, 2006"), data.PaymentMethod)
 
 	plainContent := fmt.Sprintf(`
 		Welcome to Doujins Premium!
-		
+
 		Hi %s,
-		
+
 		Your premium subscription has been successfully activated. Thank you for supporting Doujins!
-		
+
 		Subscription Details:
 		- Subscription ID: %s
 		- Amount: $%.2f %s
 		- Current Period: %s to %s
 		- Payment Method: %s
-		
+
 		You now have access to exclusive premium content, HD streaming, priority support, and ad-free browsing.
-		
+
 		Enjoy your premium experience!
 		The Doujins Team
-	`, data.Username, data.SubscriptionID, data.Amount, data.Currency,
+	`, data.Username, data.SubscriptionID, data.AmountDollars(), data.Currency,
 		data.PeriodStart.Format("Jan 2, 2006"), data.PeriodEnd.Format("Jan 2, 2006"), data.PaymentMethod)
 
 	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
@@ -125,26 +130,26 @@ func (s *EmailService) SendSubscriptionRenewal(ctx context.Context, data Subscri
 		
 		<p>Your premium access continues uninterrupted. Enjoy exclusive content and features!</p>
 		<p>The Doujins Team</p>
-	`, data.Username, data.SubscriptionID, data.Amount, data.Currency,
+	`, data.Username, data.SubscriptionID, data.AmountDollars(), data.Currency,
 		data.PeriodStart.Format("Jan 2, 2006"), data.PeriodEnd.Format("Jan 2, 2006"), data.TransactionID)
 
 	plainContent := fmt.Sprintf(`
 		Subscription Renewed Successfully
-		
+
 		Hi %s,
-		
+
 		Your Doujins Premium subscription has been automatically renewed. Thank you for continued support!
-		
+
 		Renewal Details:
 		- Subscription ID: %s
 		- Amount Charged: $%.2f %s
 		- New Period: %s to %s
 		- Transaction ID: %s
-		
+
 		Your premium access continues uninterrupted.
-		
+
 		The Doujins Team
-	`, data.Username, data.SubscriptionID, data.Amount, data.Currency,
+	`, data.Username, data.SubscriptionID, data.AmountDollars(), data.Currency,
 		data.PeriodStart.Format("Jan 2, 2006"), data.PeriodEnd.Format("Jan 2, 2006"), data.TransactionID)
 
 	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
@@ -235,7 +240,7 @@ func (s *EmailService) SendSubscriptionExpired(ctx context.Context, data Subscri
 
 // SendPaymentFailed sends notification when subscription payment fails
 func (s *EmailService) SendPaymentFailed(ctx context.Context, data SubscriptionEmailData) error {
-	amountLine := fmt.Sprintf("$%.2f %s", data.Amount, data.Currency)
+	amountLine := fmt.Sprintf("$%.2f %s", data.AmountDollars(), data.Currency)
 	subject := "We couldn’t renew your Doujins Premium subscription"
 
 	htmlContent := fmt.Sprintf(`

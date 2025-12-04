@@ -179,18 +179,19 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		return fmt.Errorf("failed to find price for CCBill price ID %s: %w", data.FlexID, err)
 	}
 
-	// Validate amount
-	expectedAmount := price.Amount
-	tolerance := expectedAmount * 0.02
-	if billedAmount < (expectedAmount-tolerance) || billedAmount > (expectedAmount+tolerance) {
+	// Validate amount - convert billedAmount (dollars) to cents for comparison
+	billedAmountCents := int64(billedAmount * 100)
+	expectedAmountCents := int64(price.Amount * 100)
+	tolerance := int64(float64(expectedAmountCents) * 0.02) // 2% tolerance
+	if billedAmountCents < (expectedAmountCents-tolerance) || billedAmountCents > (expectedAmountCents+tolerance) {
 		billingErr := newBillingError(ErrorTypeAmount,
 			"Billed amount does not match expected price",
 			map[string]interface{}{
-				"expected_amount": expectedAmount,
-				"billed_amount":   billedAmount,
-				"tolerance":       tolerance,
-				"price_id":        price.ID.String(),
-				"ccbill_price_id": price.CCBillPriceID,
+				"expected_amount_cents": expectedAmountCents,
+				"billed_amount_cents":   billedAmountCents,
+				"tolerance_cents":       tolerance,
+				"price_id":              price.ID.String(),
+				"ccbill_price_id":       price.CCBillPriceID,
 			}, nil)
 
 		s.logBillingError(ctx, billingErr, log.Fields{
@@ -388,16 +389,17 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 			return fmt.Errorf("failed to find new price for CCBill price ID %s: %w", data.FlexID, err)
 		}
 
-		// Validate the billed amount matches the new price
-		expectedAmount := newPrice.Amount
-		tolerance := expectedAmount * 0.02
-		if billedAmount < (expectedAmount-tolerance) || billedAmount > (expectedAmount+tolerance) {
+		// Validate the billed amount matches the new price - convert dollars to cents
+		billedAmountCents := int64(billedAmount * 100)
+		expectedAmountCents := int64(newPrice.Amount * 100)
+		tolerance := int64(float64(expectedAmountCents) * 0.02) // 2% tolerance
+		if billedAmountCents < (expectedAmountCents-tolerance) || billedAmountCents > (expectedAmountCents+tolerance) {
 			billingErr := newBillingError(ErrorTypeAmount,
 				"Upgrade billed amount does not match expected price",
 				map[string]interface{}{
-					"expected_amount":          expectedAmount,
-					"billed_amount":            billedAmount,
-					"tolerance":                tolerance,
+					"expected_amount_cents":    expectedAmountCents,
+					"billed_amount_cents":      billedAmountCents,
+					"tolerance_cents":          tolerance,
 					"new_price_id":             newPrice.ID.String(),
 					"new_flex_id":              flexID,
 					"original_subscription_id": originalSubscriptionID,
@@ -917,9 +919,13 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 		shouldTerminate := false
 		// Determine if we should terminate the subscription based on refund amount
 		// If refund amount is significant relative to the subscription price, terminate
-		if sub.Price != nil {
-			refundPercentage := refundAmount / sub.Price.Amount
-			if refundPercentage >= 0.8 { // If refund is 80%+ of price, terminate
+		if sub.Price != nil && sub.Price.Amount > 0 {
+			// refundAmount is float64 (dollars from CCBill), sub.Price.Amount is int64 (cents)
+			// Convert refundAmount to cents for comparison
+			refundAmountCents := int64(refundAmount * 100)
+			// Use integer math: percentage = (refundCents * 100) / priceAmount
+			refundPercentage := (refundAmountCents * 100) / sub.Price.Amount
+			if refundPercentage >= 80 { // If refund is 80%+ of price, terminate
 				shouldTerminate = true
 			}
 		}

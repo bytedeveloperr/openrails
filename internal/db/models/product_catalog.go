@@ -37,7 +37,7 @@ type Price struct {
 	ProductID   uuid.UUID `bun:"product_id,notnull" json:"product_id"`
 	DisplayName string    `bun:"display_name,notnull" json:"display_name"`
 	IsActive    bool      `bun:"is_active,notnull,default:true" json:"is_active"`
-	Amount      float64   `bun:"amount,notnull,type:decimal" json:"amount"`
+	Amount      int64     `bun:"amount,notnull" json:"amount"`
 	Currency    string    `bun:"currency,notnull" json:"currency"`
 
 	// Billing interval in days (nullable for one-time purchases)

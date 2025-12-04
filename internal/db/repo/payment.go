@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"math"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -19,8 +18,8 @@ type PaymentFilters struct {
 	Processor string
 	StartDate *time.Time
 	EndDate   *time.Time
-	MinAmount *float64
-	MaxAmount *float64
+	MinAmount *int64
+	MaxAmount *int64
 }
 
 type PaymentRepo struct {
@@ -99,16 +98,16 @@ func (r *PaymentRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (r *PaymentRepo) GetRefundTotalByPaymentID(ctx context.Context, paymentID uuid.UUID) (float64, error) {
-	var total sql.NullFloat64
+func (r *PaymentRepo) GetRefundTotalByPaymentID(ctx context.Context, paymentID uuid.UUID) (int64, error) {
+	var total sql.NullInt64
 	if err := r.db.GetDB().NewSelect().
 		Model((*models.Payment)(nil)).
-		ColumnExpr("COALESCE(SUM(purch.amount), 0)").
+		ColumnExpr("COALESCE(SUM(ABS(purch.amount)), 0)").
 		Where("purch.refunded_payment_id = ?", paymentID).
 		Scan(ctx, &total); err != nil {
 		return 0, err
 	}
-	return math.Abs(total.Float64), nil
+	return total.Int64, nil
 }
 
 func (r *PaymentRepo) GetPaginatedByUserID(ctx context.Context, userID string, page, pageSize int) ([]*models.Payment, int, error) {

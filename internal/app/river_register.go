@@ -6,31 +6,15 @@ import (
 	"time"
 
 	"github.com/riverqueue/river"
-	"github.com/riverqueue/river/rivertype"
 
 	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 )
 
-type riverClientJobInserter struct {
-	runtime *Runtime
-}
-
-func (i riverClientJobInserter) Insert(ctx context.Context, args river.JobArgs, opts *river.InsertOpts) (*rivertype.JobInsertResult, error) {
-	if i.runtime == nil || i.runtime.RiverClient == nil {
-		return nil, fmt.Errorf("river client is not initialised")
-	}
-	return i.runtime.RiverClient.Insert(ctx, args, opts)
-}
-
 // buildRiverWorkers constructs the worker registry for River.
 func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error) {
 	workers := river.NewWorkers()
-	if err := river.AddWorkerSafely(workers, &riverjobs.DunningAttemptWorker{DB: r.DB, NMIClients: r.NMIClients}); err != nil {
-		return nil, fmt.Errorf("add dunning attempt worker: %w", err)
-	}
-	sweepWorker := &riverjobs.DunningSweepWorker{DB: r.DB, Inserter: riverClientJobInserter{runtime: r}}
-	if err := river.AddWorkerSafely(workers, sweepWorker); err != nil {
-		return nil, fmt.Errorf("add dunning sweep worker: %w", err)
+	if err := river.AddWorkerSafely(workers, &riverjobs.DunningWorker{DB: r.DB, NMIClients: r.NMIClients}); err != nil {
+		return nil, fmt.Errorf("add dunning worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.IdempotencyCleanupWorker{DB: r.DB}); err != nil {
 		return nil, fmt.Errorf("add idempotency cleanup worker: %w", err)
@@ -51,11 +35,11 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 func (r *Runtime) buildRiverPeriodicJobs(ctx context.Context) ([]*river.PeriodicJob, error) {
 	var jobs []*river.PeriodicJob
 
-	// Every minute: run DunningSweep
+	// Every 4 hours: run Dunning worker to process past_due subscriptions
 	jobs = append(jobs, river.NewPeriodicJob(
-		river.PeriodicInterval(time.Minute),
+		river.PeriodicInterval(4*time.Hour),
 		func() (river.JobArgs, *river.InsertOpts) {
-			return riverjobs.DunningSweepArgs{}, &river.InsertOpts{
+			return riverjobs.DunningArgs{}, &river.InsertOpts{
 				Queue: riverjobs.QueueBilling,
 			}
 		},

@@ -12,6 +12,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 )
@@ -20,6 +21,7 @@ import (
 // including membership creation, renewal, cancellation, and expiration
 type SubscriptionLifecycleService struct {
 	DB                       *db.DB
+	Clock                    clockwork.Clock
 	ProductService           *ProductService
 	PriceService             *PriceService
 	EntitlementService       *EntitlementService
@@ -64,12 +66,26 @@ type FailMembershipParams struct {
 func NewSubscriptionLifecycleService(db *db.DB, productService *ProductService, priceService *PriceService, entitlementService *EntitlementService, notificationService *NotificationQueueService) *SubscriptionLifecycleService {
 	return &SubscriptionLifecycleService{
 		DB:                       db,
+		Clock:                    clockwork.NewRealClock(), // Default to real clock, can be overridden for tests
 		ProductService:           productService,
 		PriceService:             priceService,
 		EntitlementService:       entitlementService,
 		NotificationQueueService: notificationService,
 		notificationService:      nil,
 	}
+}
+
+// SetClock allows replacing the clock for testing
+func (s *SubscriptionLifecycleService) SetClock(c clockwork.Clock) {
+	s.Clock = c
+}
+
+// now returns the current time from the service's clock
+func (s *SubscriptionLifecycleService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 // SetNotificationService allows notification dispatch to run post-transaction
@@ -144,7 +160,7 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 		return nil, nil, fmt.Errorf("user already has an active subscription")
 	}
 
-	now := time.Now()
+	now := s.now()
 	periodStartsAt := now
 	var periodEndsAt time.Time
 	if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
@@ -316,7 +332,7 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 			periodStartsAt = *subscription.CurrentPeriodEndsAt
 			periodEndsAt = periodStartsAt.Add(time.Duration(*price.BillingCycleDays) * 24 * time.Hour)
 		} else {
-			now := time.Now()
+			now := s.now()
 			periodStartsAt = now
 			periodEndsAt = now.Add(time.Duration(*price.BillingCycleDays) * 24 * time.Hour)
 		}
@@ -402,7 +418,7 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		}
 
 		// Update subscription status
-		now := time.Now()
+		now := s.now()
 		subscription.Status = models.StatusCancelled
 		subscription.CancelledAt = &now
 		subscription.CancelType = &params.CancelType
@@ -491,7 +507,7 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 		}
 
 		// Update subscription status - Wave 18: expired = cancelled (never rebill again)
-		now := time.Now()
+		now := s.now()
 		subscription.Status = models.StatusCancelled
 		subscription.EndedAt = &now
 
@@ -566,7 +582,7 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 
 		// Dunning policy (Mobius): try every 3 days, up to 5 failures total
 		// Example timeline (D = day of initial failure): D+3, D+6, D+9, D+12, D+15
-		now := time.Now()
+		now := s.now()
 		subscription.LastRetryAt = &now
 		if subscription.RetryAttempts == nil {
 			attempts := 1

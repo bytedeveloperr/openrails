@@ -200,7 +200,7 @@ func SubmitPayment(r *Request) {
 		UserID:      &userIDCopy,
 		Signature:   &signature,
 		Status:      "confirmed",
-		Amount:      pay.Amount,
+		Amount:      intent.Amount, // Token amount in smallest unit (lamports/base units)
 		Token:       txDetails.Token,
 		TokenMint:   txDetails.TokenMint,
 		FromAddress: txDetails.FromAddress,

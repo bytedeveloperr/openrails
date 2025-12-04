@@ -245,7 +245,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				Country:   data.Country,
 			},
 			PlanID:     strings.TrimSpace(*price.NMIPlanID),
-			Amount:     price.Amount,
+			Amount:     float64(price.Amount) / 100.0, // Convert cents to dollars for NMI API
 			Currency:   price.Currency,
 			Email:      email,
 			OrderID:    subscriptionID.String(),

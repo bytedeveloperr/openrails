@@ -504,20 +504,23 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 					"subscription_id": subscription.ID,
 				}).Debug("NMI payment already recorded; skipping duplicate entry")
 		} else {
-			amountValue := amount
+			// Convert dollars to cents for storage
+			var amountCents int64
 			if amountErr != nil {
 				log.WithContext(ctx).
 					WithField("transaction_id", txnID).
 					WithError(amountErr).
 					Warn("Failed to parse NMI transaction amount; falling back to price amount")
 				if subscription.Price != nil && subscription.Price.Amount > 0 {
-					amountValue = subscription.Price.Amount
+					amountCents = subscription.Price.Amount
 				} else {
-					amountValue = 0
+					amountCents = 0
 				}
+			} else {
+				amountCents = int64(amount * 100) // Convert dollars to cents
 			}
 
-			if amountValue > 0 {
+			if amountCents > 0 {
 				currencyValue := currency
 				if strings.TrimSpace(currencyValue) == "" {
 					if subscription.Price != nil && strings.TrimSpace(subscription.Price.Currency) != "" {
@@ -541,7 +544,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 					Processor:         models.ProcessorNMI,
 					ProcessorProvider: providerPtr,
 					TransactionID:     txnID,
-					Amount:            amountValue,
+					Amount:            amountCents,
 					Currency:          currencyValue,
 					PurchasedAt:       time.Now().UTC(),
 					CreatedAt:         time.Now().UTC(),

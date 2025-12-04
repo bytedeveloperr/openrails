@@ -20,14 +20,14 @@ func NewGetProductsResponse(products []*services.PublicProductResponse) GetProdu
 
 // GeneratePaymentResponse represents a generated on-chain transaction with helper info
 type GeneratePaymentResponse struct {
-	Transaction  string  `json:"transaction"`            // base64-encoded tx (placeholder if not available)
-	Amount       float64 `json:"amount"`                 // fiat price amount
-	Currency     string  `json:"currency"`               // fiat currency (e.g., USD)
-	TokenAmount  uint64  `json:"token_amount"`           // smallest unit amount
-	TokenSymbol  string  `json:"token_symbol"`           // SOL/USDC/etc.
-	ExpiresAt    int64   `json:"expires_at"`             // unix epoch expiry
-	Instructions string  `json:"instructions,omitempty"` // human-readable instructions
-	IntentID     string  `json:"intent_id"`
+	Transaction  string `json:"transaction"`            // base64-encoded tx (placeholder if not available)
+	Amount       int64  `json:"amount"`                 // fiat price amount in cents
+	Currency     string `json:"currency"`               // fiat currency (e.g., USD)
+	TokenAmount  uint64 `json:"token_amount"`           // smallest unit amount
+	TokenSymbol  string `json:"token_symbol"`           // SOL/USDC/etc.
+	ExpiresAt    int64  `json:"expires_at"`             // unix epoch expiry
+	Instructions string `json:"instructions,omitempty"` // human-readable instructions
+	IntentID     string `json:"intent_id"`
 }
 
 // SubmitPaymentResponse represents the result of submitting a signed transaction
@@ -35,7 +35,7 @@ type SubmitPaymentResponse struct {
 	PurchaseID    string    `json:"purchase_id"`
 	TransactionID string    `json:"transaction_id"`
 	Status        string    `json:"status"`
-	Amount        float64   `json:"amount"`
+	Amount        int64     `json:"amount"` // Amount in cents
 	Currency      string    `json:"currency"`
 	ProcessedAt   time.Time `json:"processed_at"`
 	Message       string    `json:"message"`
@@ -47,7 +47,7 @@ type PaymentStatusResponse struct {
 	PurchaseID    string     `json:"purchase_id"`
 	TransactionID string     `json:"transaction_id"`
 	Status        string     `json:"status"`
-	Amount        float64    `json:"amount"`
+	Amount        int64      `json:"amount"` // Amount in cents
 	Currency      string     `json:"currency"`
 	CreatedAt     time.Time  `json:"created_at"`
 	ConfirmedAt   *time.Time `json:"confirmed_at,omitempty"`
@@ -61,15 +61,15 @@ type ErrorResponse struct {
 
 // SolanaPayQRResponse contains the Solana Pay URL metadata
 type SolanaPayQRResponse struct {
-	URL         string  `json:"url"`          // Solana Pay URL for QR code
-	Amount      float64 `json:"amount"`       // USD amount
-	TokenAmount string  `json:"token_amount"` // human-readable token amount
-	TokenSymbol string  `json:"token_symbol"` // SOL, USDC, etc.
-	Label       string  `json:"label"`        // Merchant label
-	Message     string  `json:"message"`      // Payment message
-	ExpiresAt   int64   `json:"expires_at"`   // Unix timestamp when QR expires
-	Reference   string  `json:"reference"`
-	IntentID    string  `json:"intent_id"`
+	URL         string `json:"url"`          // Solana Pay URL for QR code
+	Amount      int64  `json:"amount"`       // USD amount in cents
+	TokenAmount string `json:"token_amount"` // human-readable token amount
+	TokenSymbol string `json:"token_symbol"` // SOL, USDC, etc.
+	Label       string `json:"label"`        // Merchant label
+	Message     string `json:"message"`      // Payment message
+	ExpiresAt   int64  `json:"expires_at"`   // Unix timestamp when QR expires
+	Reference   string `json:"reference"`
+	IntentID    string `json:"intent_id"`
 }
 
 // CheckSolanaPaymentResponse contains the payment check result
@@ -95,11 +95,11 @@ type TokenInfo struct {
 }
 
 type PublicPriceResponse struct {
-	ID               string  `json:"id"`
-	Name             string  `json:"name"`
-	Amount           float64 `json:"amount"`
-	Currency         string  `json:"currency"`
-	BillingCycleDays int     `json:"billing_cycle_days"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Amount           int64  `json:"amount"` // Amount in cents
+	Currency         string `json:"currency"`
+	BillingCycleDays int    `json:"billing_cycle_days"`
 }
 
 // (Removed) NMI setup response and nonce: no longer needed because
@@ -142,11 +142,11 @@ type SubscriptionHistoryItem struct {
 
 // PriceInfo represents price information for billing history
 type PriceInfo struct {
-	ID               string  `json:"id"`
-	Name             string  `json:"name"`
-	Amount           float64 `json:"amount"`
-	Currency         string  `json:"currency"`
-	BillingCycleDays int     `json:"billing_cycle_days"`
+	ID               string `json:"id"`
+	Name             string `json:"name"`
+	Amount           int64  `json:"amount"` // Amount in cents
+	Currency         string `json:"currency"`
+	BillingCycleDays int    `json:"billing_cycle_days"`
 }
 
 // PaymentMethodInfo represents payment method information for billing history
@@ -162,7 +162,7 @@ type PaymentItem struct {
 	SubscriptionID *string    `json:"subscription_id,omitempty"`
 	Processor      string     `json:"processor"`
 	TransactionID  string     `json:"transaction_id"`
-	Amount         float64    `json:"amount"`
+	Amount         int64      `json:"amount"` // Amount in cents
 	Currency       string     `json:"currency"`
 	Price          *PriceInfo `json:"price,omitempty"`
 	PurchasedAt    time.Time  `json:"purchased_at"`
@@ -175,7 +175,7 @@ type PaymentEventItem struct {
 	EventType              string                 `json:"event_type"`
 	Processor              string                 `json:"processor"`
 	ProcessorTransactionID *string                `json:"processor_transaction_id,omitempty"`
-	Amount                 *float64               `json:"amount,omitempty"`
+	Amount                 *int64                 `json:"amount,omitempty"` // Amount in cents
 	Currency               string                 `json:"currency"`
 	BillingInfo            map[string]interface{} `json:"billing_info,omitempty"`
 	WebhookSource          *string                `json:"webhook_source,omitempty"`
@@ -192,7 +192,7 @@ type SubscriptionEventItem struct {
 	Processor               string                 `json:"processor"`
 	ProcessorSubscriptionID *string                `json:"processor_subscription_id,omitempty"`
 	ProcessorTransactionID  *string                `json:"processor_transaction_id,omitempty"`
-	Amount                  *float64               `json:"amount,omitempty"`
+	Amount                  *int64                 `json:"amount,omitempty"` // Amount in cents
 	Currency                string                 `json:"currency"`
 	Metadata                map[string]interface{} `json:"metadata,omitempty"`
 	Timestamp               time.Time              `json:"timestamp"`
@@ -201,12 +201,12 @@ type SubscriptionEventItem struct {
 
 // BillingHistoryStats represents aggregated billing statistics
 type BillingHistoryStats struct {
-	TotalCharged       float64                       `json:"total_charged"`
+	TotalCharged       int64                         `json:"total_charged"` // Total in cents
 	TotalCharges       int                           `json:"total_charges"`
 	SuccessfulCharges  int                           `json:"successful_charges"`
 	FailedCharges      int                           `json:"failed_charges"`
 	Refunds            int                           `json:"refunds"`
-	TotalRefunded      float64                       `json:"total_refunded"`
+	TotalRefunded      int64                         `json:"total_refunded"` // Total in cents
 	FirstChargeDate    *time.Time                    `json:"first_charge_date,omitempty"`
 	LastChargeDate     *time.Time                    `json:"last_charge_date,omitempty"`
 	ProcessorBreakdown map[string]ProcessorStatsInfo `json:"processor_breakdown"`
@@ -214,10 +214,10 @@ type BillingHistoryStats struct {
 
 // ProcessorStatsInfo represents statistics for a specific payment processor
 type ProcessorStatsInfo struct {
-	TotalCharged      float64 `json:"total_charged"`
-	TotalCharges      int     `json:"total_charges"`
-	SuccessfulCharges int     `json:"successful_charges"`
-	FailedCharges     int     `json:"failed_charges"`
+	TotalCharged      int64 `json:"total_charged"` // Total in cents
+	TotalCharges      int   `json:"total_charges"`
+	SuccessfulCharges int   `json:"successful_charges"`
+	FailedCharges     int   `json:"failed_charges"`
 }
 
 // GetBillingHistoryResponse represents the enhanced billing history response

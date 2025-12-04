@@ -61,10 +61,10 @@ type SolanaTransaction struct {
 	Signature *string `bun:"" json:"signature,omitempty"` // Solana transaction signature
 	Status    string  `bun:",notnull" json:"status"`      // pending, confirmed, failed
 
-	// Payment details
-	Amount    float64 `bun:",type:decimal(18,9),notnull" json:"amount"`
-	Token     string  `bun:",notnull" json:"token"`      // SOL, USDC, PYUSD
-	TokenMint string  `bun:",notnull" json:"token_mint"` // Token mint address
+	// Payment details - amount in smallest unit (lamports for SOL, base units for SPL tokens)
+	Amount    int64  `bun:",notnull" json:"amount"`
+	Token     string `bun:",notnull" json:"token"`      // SOL, USDC, PYUSD
+	TokenMint string `bun:",notnull" json:"token_mint"` // Token mint address
 
 	// Addresses
 	FromAddress string     `bun:",notnull" json:"from_address"` // Payer address
@@ -79,7 +79,7 @@ type SolanaTransaction struct {
 	BlockTime      *time.Time `bun:",nullzero" json:"block_time,omitempty"`
 	Slot           *int64     `bun:"" json:"slot,omitempty"`
 	Confirmations  int        `bun:",default:0" json:"confirmations"`
-	TransactionFee *float64   `bun:",type:decimal(18,9)" json:"transaction_fee,omitempty"`
+	TransactionFee *int64     `bun:"" json:"transaction_fee,omitempty"` // Fee in lamports
 
 	// Processing metadata
 	ProcessingResult map[string]interface{} `bun:",type:jsonb" json:"processing_result,omitempty"`
