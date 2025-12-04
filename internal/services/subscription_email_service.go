@@ -13,6 +13,7 @@ import (
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 )
 
 var errUserEmailUnavailable = errors.New("user email unavailable")
@@ -25,6 +26,15 @@ type SubscriptionEmailService struct {
 	productService      *ProductService
 	priceService        *PriceService
 	profiles            *repo.ProfileRepo
+	Clock               clockwork.Clock
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *SubscriptionEmailService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 // NewSubscriptionEmailService creates a new subscription email service
@@ -196,8 +206,8 @@ func (s *SubscriptionEmailService) getEmailData(ctx context.Context, userID stri
 	}
 
 	// Calculate billing period based on subscription and price interval
-	periodStart := time.Now()
-	periodEnd := time.Now()
+	periodStart := s.now()
+	periodEnd := s.now()
 	if subscription.CurrentPeriodStartsAt != nil {
 		periodStart = *subscription.CurrentPeriodStartsAt
 		if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {

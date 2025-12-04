@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -49,10 +50,57 @@ func (s *PriceService) GetAll(ctx context.Context) ([]*models.Price, error) {
 	return s.repo.GetAll(ctx)
 }
 
+// Update is not supported - prices are immutable to preserve historical payment accuracy.
+// To change pricing, create a new price and deactivate the old one.
+// Use UpdateDisplayName() or UpdateProcessors() for non-financial fields.
 func (s *PriceService) Update(ctx context.Context, price *models.Price) error {
+	return errors.New("prices are immutable; use UpdateDisplayName(), UpdateProcessors(), or Deactivate() for allowed changes")
+}
+
+// Delete is not supported - prices are immutable to preserve historical payment accuracy.
+// To retire a price, set is_active = false via Deactivate().
+func (s *PriceService) Delete(ctx context.Context, id uuid.UUID) error {
+	return errors.New("prices cannot be deleted; use Deactivate() instead to preserve historical data")
+}
+
+// Deactivate marks a price as inactive so it won't appear in product listings.
+// Existing subscriptions and payments referencing this price are unaffected.
+func (s *PriceService) Deactivate(ctx context.Context, id uuid.UUID) error {
+	price, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	price.IsActive = false
 	return s.repo.Update(ctx, price)
 }
 
-func (s *PriceService) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Delete(ctx, id)
+// Activate marks a price as active so it appears in product listings.
+func (s *PriceService) Activate(ctx context.Context, id uuid.UUID) error {
+	price, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	price.IsActive = true
+	return s.repo.Update(ctx, price)
+}
+
+// UpdateDisplayName updates only the display name (cosmetic, does not affect historical data).
+func (s *PriceService) UpdateDisplayName(ctx context.Context, id uuid.UUID, displayName string) error {
+	price, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	price.DisplayName = displayName
+	return s.repo.Update(ctx, price)
+}
+
+// UpdateProcessors updates the processor mappings (external IDs, does not affect historical data).
+// This is useful when adding new processors or updating external price/plan IDs.
+func (s *PriceService) UpdateProcessors(ctx context.Context, id uuid.UUID, processors map[string]map[string]string) error {
+	price, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	price.Processors = processors
+	return s.repo.Update(ctx, price)
 }

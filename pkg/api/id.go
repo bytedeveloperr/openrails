@@ -14,11 +14,10 @@ const (
 	PrefixPrice         = "price_"
 	PrefixSubscription  = "sub_"
 	PrefixPayment       = "pay_"
-	PrefixCharge        = "ch_" // Stripe-like charge prefix (alias for payment)
 	PrefixPaymentMethod = "pm_"
 	PrefixPaymentIntent = "pi_"
 	PrefixInvoice       = "inv_"
-	PrefixCustomer      = "cus_"
+	PrefixUser          = "usr_"
 	PrefixEvent         = "evt_"
 )
 
@@ -42,12 +41,6 @@ func FormatPaymentID(id uuid.UUID) string {
 	return PrefixPayment + id.String()
 }
 
-// FormatChargeID formats a UUID as a Stripe-like charge ID (ch_xxx)
-// This is used for external API compatibility with Stripe's naming conventions.
-func FormatChargeID(id uuid.UUID) string {
-	return PrefixCharge + id.String()
-}
-
 // FormatPaymentMethodID formats a UUID as a payment method ID (pm_xxx)
 func FormatPaymentMethodID(id uuid.UUID) string {
 	return PrefixPaymentMethod + id.String()
@@ -63,10 +56,10 @@ func FormatInvoiceID(id uuid.UUID) string {
 	return PrefixInvoice + id.String()
 }
 
-// FormatCustomerID formats a user ID as a customer ID (cus_xxx)
+// FormatUserID formats a user ID with the usr_ prefix
 // Note: User IDs may not be UUIDs, so this accepts a string
-func FormatCustomerID(id string) string {
-	return PrefixCustomer + id
+func FormatUserID(id string) string {
+	return PrefixUser + id
 }
 
 // FormatEventID formats a UUID as an event ID (evt_xxx)
@@ -94,11 +87,6 @@ func ParsePaymentID(id string) (uuid.UUID, error) {
 	return parseID(id, PrefixPayment, "payment")
 }
 
-// ParseChargeID parses a Stripe-like prefixed charge ID (ch_xxx) and returns the UUID
-func ParseChargeID(id string) (uuid.UUID, error) {
-	return parseID(id, PrefixCharge, "charge")
-}
-
 // ParsePaymentMethodID parses a prefixed payment method ID and returns the UUID
 func ParsePaymentMethodID(id string) (uuid.UUID, error) {
 	return parseID(id, PrefixPaymentMethod, "payment_method")
@@ -114,12 +102,12 @@ func ParseInvoiceID(id string) (uuid.UUID, error) {
 	return parseID(id, PrefixInvoice, "invoice")
 }
 
-// ParseCustomerID parses a prefixed customer ID and returns the raw ID string
-func ParseCustomerID(id string) (string, error) {
-	if !strings.HasPrefix(id, PrefixCustomer) {
-		return "", fmt.Errorf("invalid customer ID: expected prefix '%s'", PrefixCustomer)
+// ParseUserID parses a prefixed user ID and returns the raw ID string
+func ParseUserID(id string) (string, error) {
+	if !strings.HasPrefix(id, PrefixUser) {
+		return "", fmt.Errorf("invalid user ID: expected prefix '%s'", PrefixUser)
 	}
-	return strings.TrimPrefix(id, PrefixCustomer), nil
+	return strings.TrimPrefix(id, PrefixUser), nil
 }
 
 // ParseEventID parses a prefixed event ID and returns the UUID
@@ -147,8 +135,8 @@ func TryParseID(id string) (uuid.UUID, bool, error) {
 	// Check for known prefixes
 	prefixes := []string{
 		PrefixProduct, PrefixPrice, PrefixSubscription,
-		PrefixPayment, PrefixCharge, PrefixPaymentMethod, PrefixPaymentIntent,
-		PrefixInvoice, PrefixCustomer, PrefixEvent,
+		PrefixPayment, PrefixPaymentMethod, PrefixPaymentIntent,
+		PrefixInvoice, PrefixUser, PrefixEvent,
 	}
 
 	for _, prefix := range prefixes {

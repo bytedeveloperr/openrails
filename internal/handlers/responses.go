@@ -77,7 +77,7 @@ func PaymentToAPI(p *models.Payment, refunds []*models.Payment) api.PaymentObjec
 		Amount:         p.Amount,
 		AmountRefunded: amountRefunded,
 		Currency:       p.Currency,
-		Customer:       api.FormatCustomerID(p.UserID),
+		User:           api.FormatUserID(p.UserID),
 		Subscription:   subID,
 		Processor:      string(p.Processor),
 		TransactionID:  p.TransactionID,

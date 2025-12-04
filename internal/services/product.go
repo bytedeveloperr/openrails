@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -33,14 +34,59 @@ func (s *ProductService) GetAll(ctx context.Context) ([]*models.Product, error) 
 	return s.repo.GetAll(ctx)
 }
 
+// Update is not supported for arbitrary changes - products should be treated as mostly immutable.
+// Use UpdateDisplayName(), UpdateDescription(), or Deactivate() for allowed changes.
 func (s *ProductService) Update(ctx context.Context, product *models.Product) error {
-	return s.repo.Update(ctx, product)
+	return errors.New("products are mostly immutable; use UpdateDisplayName(), UpdateDescription(), or Deactivate() for allowed changes")
 }
 
+// Delete is not supported - products cannot be deleted to preserve historical data integrity.
+// Use Deactivate() instead to hide a product from listings.
 func (s *ProductService) Delete(ctx context.Context, id uuid.UUID) error {
-	return s.repo.Delete(ctx, id)
+	return errors.New("products cannot be deleted; use Deactivate() instead to preserve historical data")
 }
 
 func (s *ProductService) GetBySlug(ctx context.Context, slug string) (*models.Product, error) {
 	return s.repo.GetBySlug(ctx, slug)
+}
+
+// Deactivate marks a product as inactive so it won't appear in product listings.
+// Existing subscriptions and payments referencing this product's prices are unaffected.
+func (s *ProductService) Deactivate(ctx context.Context, id uuid.UUID) error {
+	product, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	product.IsActive = false
+	return s.repo.Update(ctx, product)
+}
+
+// Activate marks a product as active so it appears in product listings.
+func (s *ProductService) Activate(ctx context.Context, id uuid.UUID) error {
+	product, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	product.IsActive = true
+	return s.repo.Update(ctx, product)
+}
+
+// UpdateDisplayName updates only the display name (cosmetic, does not affect historical data).
+func (s *ProductService) UpdateDisplayName(ctx context.Context, id uuid.UUID, displayName string) error {
+	product, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	product.DisplayName = displayName
+	return s.repo.Update(ctx, product)
+}
+
+// UpdateDescription updates only the description (cosmetic, does not affect historical data).
+func (s *ProductService) UpdateDescription(ctx context.Context, id uuid.UUID, description string) error {
+	product, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	product.Description = description
+	return s.repo.Update(ctx, product)
 }

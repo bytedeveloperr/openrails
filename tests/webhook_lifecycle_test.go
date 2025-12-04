@@ -31,6 +31,9 @@ func TestWebhookSubscriptionLifecycle(t *testing.T) {
 	suite.SeedProducts()
 	suite.SeedCCBillTestData()
 
+	// Set up mock clock BEFORE creating subscription so all timestamps use the mock clock
+	mockClock := suite.SetMockClock()
+
 	// Step 1: Send NewSaleSuccess webhook - should create subscription
 	t.Run("NewSaleSuccess creates subscription", func(t *testing.T) {
 		filePath := filepath.Join("../testdata/webhooks/ccbill", "newsalesuccess.json")
@@ -73,8 +76,7 @@ func TestWebhookSubscriptionLifecycle(t *testing.T) {
 		assert.NotEmpty(t, entitlements, "Should have entitlements after subscription created")
 	})
 
-	// Set up mock clock and advance it to ensure end_at > start_at when webhook revokes entitlements
-	mockClock := suite.SetMockClock()
+	// Advance clock to ensure end_at > start_at when webhook revokes entitlements
 	mockClock.Advance(1 * time.Hour)
 
 	// Step 2: Send Cancellation webhook - should cancel subscription
@@ -240,6 +242,9 @@ func TestWebhookExpirationFlow(t *testing.T) {
 	suite.SeedProducts()
 	suite.SeedCCBillTestData()
 
+	// Set up mock clock BEFORE creating test data so all timestamps use the mock clock
+	mockClock := suite.SetMockClock()
+
 	// Create an existing active subscription
 	products := suite.DefaultTestProducts()
 	priceID := products[0].Prices[0].ID
@@ -256,8 +261,7 @@ func TestWebhookExpirationFlow(t *testing.T) {
 	sub := suite.GetSubscriptionByProcessorID(CCBillTestSubscriptionID)
 	suite.CreateTestEntitlement(CCBillTestUserID, "premium", &sub.ID, models.EntitlementSourceSubscription)
 
-	// Set up mock clock and advance it to ensure end_at > start_at when webhook revokes entitlements
-	mockClock := suite.SetMockClock()
+	// Advance clock to ensure end_at > start_at when webhook revokes entitlements
 	mockClock.Advance(1 * time.Hour)
 
 	t.Run("Expiration cancels subscription and revokes entitlements", func(t *testing.T) {
@@ -308,6 +312,9 @@ func TestWebhookChargebackTerminatesSubscription(t *testing.T) {
 	suite.SeedProducts()
 	suite.SeedCCBillTestData()
 
+	// Set up mock clock BEFORE creating test data so all timestamps use the mock clock
+	mockClock := suite.SetMockClock()
+
 	// Create an existing active subscription
 	products := suite.DefaultTestProducts()
 	priceID := products[0].Prices[0].ID
@@ -324,8 +331,7 @@ func TestWebhookChargebackTerminatesSubscription(t *testing.T) {
 	sub := suite.GetSubscriptionByProcessorID(CCBillTestSubscriptionID)
 	suite.CreateTestEntitlement(CCBillTestUserID, "premium", &sub.ID, models.EntitlementSourceSubscription)
 
-	// Set up mock clock and advance it to ensure end_at > start_at when webhook revokes entitlements
-	mockClock := suite.SetMockClock()
+	// Advance clock to ensure end_at > start_at when webhook revokes entitlements
 	mockClock.Advance(1 * time.Hour)
 
 	t.Run("Chargeback immediately terminates subscription", func(t *testing.T) {

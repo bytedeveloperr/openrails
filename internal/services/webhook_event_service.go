@@ -10,6 +10,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	"github.com/uptrace/bun"
 )
 
@@ -25,6 +26,15 @@ const (
 type WebhookEventService struct {
 	db    *db.DB
 	retry config.WebhookRetryConfig
+	Clock clockwork.Clock
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *WebhookEventService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 // NewWebhookEventService constructs a new persistence service.
@@ -61,7 +71,7 @@ func (s *WebhookEventService) Create(ctx context.Context, params CreateWebhookEv
 		return nil, fmt.Errorf("ip address is required")
 	}
 
-	nextAttempt := time.Now()
+	nextAttempt := s.now()
 	event := &models.WebhookEvent{
 		Processor:          processor,
 		EventID:            nilIfEmpty(params.EventID),
@@ -99,7 +109,7 @@ func (s *WebhookEventService) BeginProcessing(ctx context.Context, id uuid.UUID)
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("webhook event service not initialised")
 	}
-	now := time.Now()
+	now := s.now()
 	event := new(models.WebhookEvent)
 	err := s.db.GetDB().NewUpdate().Model(event).
 		Set("status = ?", WebhookStatusProcessing).
@@ -122,7 +132,7 @@ func (s *WebhookEventService) MarkProcessed(ctx context.Context, id uuid.UUID) e
 	if s == nil || s.db == nil {
 		return fmt.Errorf("webhook event service not initialised")
 	}
-	now := time.Now()
+	now := s.now()
 	_, err := s.db.GetDB().NewUpdate().Model((*models.WebhookEvent)(nil)).
 		Set("status = ?", WebhookStatusProcessed).
 		Set("processed_at = ?", now).
@@ -149,7 +159,7 @@ func (s *WebhookEventService) MarkFailure(ctx context.Context, event *models.Web
 	shouldRetry := attempts < s.retry.MaxAttempts
 	status := WebhookStatusFailed
 	var nextAttempt *time.Time
-	now := time.Now()
+	now := s.now()
 	if shouldRetry {
 		backoff := s.nextBackoff(attempts)
 		scheduled := now.Add(backoff)
@@ -181,9 +191,10 @@ func (s *WebhookEventService) ListRetryable(ctx context.Context, limit int) ([]m
 		limit = s.retry.BatchSize
 	}
 	events := []models.WebhookEvent{}
+	now := s.now()
 	query := s.db.GetDB().NewSelect().Model(&events).
 		Where("status IN (?)", bun.In([]string{WebhookStatusPending, WebhookStatusFailed})).
-		Where("next_attempt_at IS NULL OR next_attempt_at <= now()").
+		Where("next_attempt_at IS NULL OR next_attempt_at <= ?", now).
 		OrderExpr("received_at ASC").
 		Limit(limit)
 	if err := query.Scan(ctx); err != nil {

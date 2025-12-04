@@ -12,6 +12,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 )
@@ -24,11 +25,20 @@ var (
 type SolanaPaymentService struct {
 	db                 *db.DB
 	cfg                *config.Config
+	Clock              clockwork.Clock
 	priceService       *PriceService
 	paymentSvc         *PaymentService
 	productService     *ProductService
 	entitlementService *EntitlementService
 	notificationSvc    *NotificationService
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *SolanaPaymentService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 func NewSolanaPaymentService(db *db.DB, cfg *config.Config, price *PriceService, payment *PaymentService, product *ProductService, entitlement *EntitlementService, notification *NotificationService) *SolanaPaymentService {
@@ -87,11 +97,11 @@ func (s *SolanaPaymentService) Generate(ctx context.Context, userID string, pric
 	if err != nil {
 		return 0, "", 0, time.Time{}, err
 	}
-	exp := time.Now().Add(10 * time.Minute)
+	exp := s.now().Add(10 * time.Minute)
 
 	// Disallow one-off if a subscription entitlement is already active (indefinite)
 	if userID != "" && s.entitlementService != nil {
-		exists, err := s.entitlementService.HasActiveIndefinite(ctx, userID, "premium", time.Now())
+		exists, err := s.entitlementService.HasActiveIndefinite(ctx, userID, "premium", s.now())
 		if err != nil {
 			return 0, "", 0, time.Time{}, fmt.Errorf("failed entitlement check: %w", err)
 		}
@@ -110,6 +120,9 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intent
 	var payment *models.Payment
 	var queuedNotifications []*models.NotificationQueue
 
+	// Capture current time before transaction
+	now := s.now()
+
 	err := s.db.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		// Create transactional services
 		txDB := db.NewWithTx(tx)
@@ -117,6 +130,7 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intent
 		paymentService := NewPaymentService(txDB)
 		productService := NewProductService(txDB)
 		entitlementService := NewEntitlementService(txDB)
+		entitlementService.SetClock(s.Clock) // Propagate clock for testing
 		solanaTxnRepo := repo.NewSolanaTransactionRepo(txDB)
 		notificationQueueService := NewNotificationQueueService(txDB)
 
@@ -126,7 +140,7 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intent
 		}
 
 		if userID != "" {
-			exists, err := entitlementService.HasActiveIndefinite(ctx, userID, "premium", time.Now())
+			exists, err := entitlementService.HasActiveIndefinite(ctx, userID, "premium", now)
 			if err != nil {
 				return fmt.Errorf("failed entitlement check: %w", err)
 			}
@@ -134,8 +148,6 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intent
 				return fmt.Errorf("one-off purchase not allowed while subscription entitlement is active")
 			}
 		}
-
-		now := time.Now()
 		payment = &models.Payment{
 			ID:            uuid.New(),
 			UserID:        userID,

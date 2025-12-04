@@ -52,7 +52,7 @@ type SubscriptionObject struct {
 	ID                 string                   `json:"id"`
 	Object             string                   `json:"object"` // Always "subscription"
 	Status             string                   `json:"status"`
-	Customer           string                   `json:"customer"`
+	User               string                   `json:"user"`  // User ID with usr_ prefix
 	Items              []SubscriptionItemObject `json:"items"` // Subscription items (typically just one)
 	StartDate          int64                    `json:"start_date"`
 	CurrentPeriodStart int64                    `json:"current_period_start"`
@@ -136,7 +136,7 @@ type PaymentObject struct {
 	Amount          int64               `json:"amount"` // Amount in cents (positive for payments, negative for refunds)
 	AmountRefunded  int64               `json:"amount_refunded"`
 	Currency        string              `json:"currency"`
-	Customer        string              `json:"customer"`                      // User ID with cus_ prefix
+	User            string              `json:"user"`                          // User ID with usr_ prefix
 	Subscription    *string             `json:"subscription,omitempty"`        // Subscription ID if linked
 	Processor       string              `json:"processor"`                     // mobius, ccbill, solana
 	TransactionID   string              `json:"transaction_id"`                // Processor's transaction identifier

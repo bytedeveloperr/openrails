@@ -8,6 +8,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -15,6 +16,15 @@ import (
 type DeadLetterService struct {
 	DB                       *db.DB
 	NotificationQueueService *NotificationQueueService
+	Clock                    clockwork.Clock
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *DeadLetterService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 // WebhookDeadLetter represents a failed or unexpected webhook event
@@ -45,7 +55,7 @@ func (s *DeadLetterService) LogDeadLetter(ctx context.Context, params LogDeadLet
 		ProcessingError:  params.ProcessingError,
 		Headers:          params.Headers,
 		ClientIP:         params.ClientIP,
-		CreatedAt:        time.Now(),
+		CreatedAt:        s.now(),
 		RetryAttempts:    0,
 		ProcessingStatus: params.ProcessingStatus,
 	}

@@ -416,16 +416,66 @@ func (suite *TestContainerSuite) SetMockClock(t ...time.Time) *clockwork.FakeClo
 		mockClock = clockwork.NewFakeClockAt(time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC))
 	}
 	suite.App.Runtime.Clock = mockClock
-	// Also set the clock on services that use time-dependent logic
-	if suite.App.Runtime.SubscriptionLifecycleService != nil {
-		suite.App.Runtime.SubscriptionLifecycleService.SetClock(mockClock)
+
+	// Set the clock on all services that use time-dependent logic
+	rt := suite.App.Runtime
+
+	// High priority services (core billing logic)
+	if rt.SubscriptionLifecycleService != nil {
+		rt.SubscriptionLifecycleService.SetClock(mockClock)
 	}
-	if suite.App.Runtime.SolanaPaymentIntentService != nil {
-		suite.App.Runtime.SolanaPaymentIntentService.SetClock(mockClock)
+	if rt.SubscriptionService != nil {
+		rt.SubscriptionService.Clock = mockClock
 	}
-	if suite.App.Runtime.SolanaVerificationService != nil {
-		suite.App.Runtime.SolanaVerificationService.SetClock(mockClock)
+	if rt.EntitlementService != nil {
+		rt.EntitlementService.Clock = mockClock
 	}
+	if rt.PaymentService != nil {
+		rt.PaymentService.Clock = mockClock
+	}
+
+	// Solana services
+	if rt.SolanaPaymentIntentService != nil {
+		rt.SolanaPaymentIntentService.SetClock(mockClock)
+	}
+	if rt.SolanaVerificationService != nil {
+		rt.SolanaVerificationService.SetClock(mockClock)
+	}
+	if rt.SolanaPaymentService != nil {
+		rt.SolanaPaymentService.Clock = mockClock
+	}
+	if rt.SolanaWalletService != nil {
+		rt.SolanaWalletService.Clock = mockClock
+	}
+
+	// Vault and payment method services
+	if rt.VaultService != nil {
+		rt.VaultService.Clock = mockClock
+	}
+
+	// Webhook services
+	if rt.WebhookEventService != nil {
+		rt.WebhookEventService.Clock = mockClock
+	}
+	if rt.WebhookDispatcher != nil {
+		rt.WebhookDispatcher.Clock = mockClock
+	}
+
+	// CCBill alias service
+	if rt.CCBillAliasService != nil {
+		rt.CCBillAliasService.Clock = mockClock
+	}
+
+	// Email service (if it has a clock)
+	if rt.SubscriptionEmailService != nil {
+		rt.SubscriptionEmailService.Clock = mockClock
+	}
+
+	// Billing event service (analytics)
+	if rt.BillingEventService != nil {
+		rt.BillingEventService.Clock = mockClock
+	}
+
 	return mockClock
 }
 

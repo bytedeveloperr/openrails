@@ -11,6 +11,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -19,6 +20,15 @@ type VaultService struct {
 	SubscriptionService  *SubscriptionService
 	NMIClients           map[string]*nmi.NMIClient
 	DB                   *db.DB
+	Clock                clockwork.Clock
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *VaultService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 type CreateVaultRequest struct {
@@ -100,8 +110,8 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 		VaultID:              nmiResponse.CustomerVaultID,
 		InitialTransactionID: "",
 		IsActive:             true,
-		CreatedAt:            time.Now(),
-		UpdatedAt:            time.Now(),
+		CreatedAt:            s.now(),
+		UpdatedAt:            s.now(),
 	}
 
 	if err := s.PaymentMethodService.Create(ctx, pm); err != nil {
@@ -178,7 +188,7 @@ func (s *VaultService) UpdateVault(ctx context.Context, pm *models.PaymentMethod
 
 	pm.IsActive = true
 	pm.FailureReason = nil
-	pm.UpdatedAt = time.Now()
+	pm.UpdatedAt = s.now()
 	if err := s.PaymentMethodService.Update(ctx, pm); err != nil {
 		log.WithError(err).WithField("vault_id", pm.VaultID).Error("Failed to update local vault record")
 		return nil, fmt.Errorf("failed to update local vault record: %w", err)
@@ -224,7 +234,7 @@ func (s *VaultService) DeleteVault(ctx context.Context, pm *models.PaymentMethod
 	}
 
 	pm.IsActive = false
-	pm.UpdatedAt = time.Now()
+	pm.UpdatedAt = s.now()
 	if err := s.PaymentMethodService.Update(ctx, pm); err != nil {
 		log.WithError(err).WithField("vault_id", pm.VaultID).Error("Failed to deactivate vault locally")
 		return fmt.Errorf("failed to deactivate local vault record: %w", err)

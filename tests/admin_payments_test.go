@@ -107,7 +107,7 @@ func TestAdminListPayments(t *testing.T) {
 		assert.Equal(t, "payment", payment["object"], "Object should be 'payment'")
 		assert.NotNil(t, payment["amount"], "Should have amount")
 		assert.NotNil(t, payment["currency"], "Should have currency")
-		assert.True(t, strings.HasPrefix(payment["customer"].(string), "cus_"), "Customer should have cus_ prefix")
+		assert.True(t, strings.HasPrefix(payment["user"].(string), "usr_"), "User should have usr_ prefix")
 		assert.NotNil(t, payment["processor"], "Should have processor")
 		assert.NotNil(t, payment["transaction_id"], "Should have transaction_id")
 		assert.NotNil(t, payment["created"], "Should have created (unix timestamp)")
@@ -136,11 +136,11 @@ func TestAdminListPayments(t *testing.T) {
 		data := response["data"].([]interface{})
 		require.Len(t, data, 2, "Should return exactly 2 payments for this user")
 
-		// All payments should belong to the user (customer field has cus_ prefix)
-		expectedCustomer := api.FormatCustomerID(userID)
+		// All payments should belong to the user (user field has usr_ prefix)
+		expectedUser := api.FormatUserID(userID)
 		for _, p := range data {
 			payment := p.(map[string]interface{})
-			assert.Equal(t, expectedCustomer, payment["customer"], "Payment should belong to filtered user")
+			assert.Equal(t, expectedUser, payment["user"], "Payment should belong to filtered user")
 		}
 	})
 
@@ -332,7 +332,7 @@ func TestAdminGetPayment(t *testing.T) {
 		assert.Equal(t, "payment", response["object"], "Object should be 'payment'")
 		assert.Equal(t, float64(999), response["amount"], "Amount should match")
 		assert.Equal(t, "USD", response["currency"], "Currency should match")
-		assert.Equal(t, api.FormatCustomerID(userID), response["customer"], "Customer should have cus_ prefix")
+		assert.Equal(t, api.FormatUserID(userID), response["user"], "User should have usr_ prefix")
 		assert.Equal(t, "mobius", response["processor"], "Processor should match")
 		assert.NotNil(t, response["subscription"], "Should include subscription ID")
 		assert.Equal(t, false, response["refunded"], "Should not be refunded")

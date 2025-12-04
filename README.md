@@ -109,6 +109,8 @@ Error types: `invalid_request_error`, `authentication_error`, `authorization_err
 }
 ```
 
+> **Note:** Products cannot be deleted. Set `active: false` to hide from listings. Only `display_name`, `description`, and `is_active` can be updated.
+
 **Price Object:**
 ```json
 {
@@ -123,6 +125,8 @@ Error types: `invalid_request_error`, `authentication_error`, `authorization_err
   "created": 1704067200
 }
 ```
+
+> **Note:** Prices are mostly immutable. Each price belongs to exactly one product. Financial fields (`amount`, `currency`, `billing_cycle_days`) cannot be changed after creation to preserve historical payment accuracy. To change pricing, create a new price and deactivate the old one. Only `display_name`, `processors`, and `is_active` can be updated.
 
 ---
 
@@ -153,7 +157,7 @@ Error types: `invalid_request_error`, `authentication_error`, `authorization_err
   "id": "sub_<uuid>",
   "object": "subscription",
   "status": "active",
-  "customer": "<user_uuid>",
+  "user": "usr_<uuid>",
   "items": [{
     "id": "si_<uuid>",
     "object": "subscription_item",

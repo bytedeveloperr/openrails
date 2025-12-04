@@ -33,6 +33,9 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	// This ensures IsNMIBacked() works correctly for all configured processors
 	processors.InitNMIBackedProcessors(cfg)
 
+	// Create clock early so it can be passed to services
+	clock := clockwork.NewRealClock()
+
 	database, err := createDatabase(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db: %w", err)
@@ -51,7 +54,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		return nil, fmt.Errorf("failed to create nmi clients: %w", err)
 	}
 
-	serviceInstances := createServices(database, cfg, ccbillRESTClient, nmiClients)
+	serviceInstances := createServices(database, cfg, ccbillRESTClient, nmiClients, clock)
 
 	var emailService *services.EmailService
 	var subscriptionEmailService *services.SubscriptionEmailService
@@ -83,7 +86,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		DB:                 database,
 		RedisClient:        redisClient,
 		Config:             cfg,
-		Clock:              clockwork.NewRealClock(),
+		Clock:              clock,
 		CCBillClient:       ccbillClient,
 		CCBillRESTClient:   ccbillRESTClient,
 		CCBillDataLink:     ccbillDataLinkClient,
@@ -306,17 +309,22 @@ type servicesInstances struct {
 	WebhookDispatcher            *services.WebhookDispatcher
 }
 
-func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, nmiClients map[string]*nmi.NMIClient) *servicesInstances {
+func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, nmiClients map[string]*nmi.NMIClient, clock clockwork.Clock) *servicesInstances {
 	userService := services.NewUserService(database)
 	productService := services.NewProductService(database)
 	priceService := services.NewPriceService(database)
 	notificationQueueService := services.NewNotificationQueueService(database)
 	paymentMethodService := services.NewPaymentMethodService(database)
 	purchaseService := services.NewPaymentService(database)
+	purchaseService.Clock = clock
 	entitlementService := services.NewEntitlementService(database)
+	entitlementService.Clock = clock
 	aliasService := services.NewCCBillAliasService(database)
+	aliasService.Clock = clock
 	solanaWalletService := services.NewSolanaWalletService(database)
+	solanaWalletService.Clock = clock
 	solanaPaymentService := services.NewSolanaPaymentService(database, cfg, priceService, purchaseService, productService, entitlementService, nil)
+	solanaPaymentService.Clock = clock
 	solanaPaymentIntentService := services.NewSolanaPaymentIntentService(database, cfg, priceService)
 	solanaVerificationService := services.NewSolanaVerificationService(database, solanaWalletService)
 
@@ -327,6 +335,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		entitlementService,
 		notificationQueueService,
 	)
+	subscriptionLifecycleService.Clock = clock
 
 	subscriptionService := services.NewSubscriptionService(
 		database,
@@ -337,8 +346,10 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		nmiClients,
 		paymentMethodService,
 	)
+	subscriptionService.Clock = clock
 
 	vaultService := services.NewVaultService(paymentMethodService, subscriptionService, nmiClients, database)
+	vaultService.Clock = clock
 	subscriptionService.VaultService = vaultService
 	subscriptionService.IdempotencyService = services.NewIdempotencyService(database)
 
@@ -369,8 +380,10 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 
 	deduplicationService := services.NewDeduplicationService(database)
 	webhookEventService := services.NewWebhookEventService(database, cfg.GetWebhookRetryConfig())
+	webhookEventService.Clock = clock
 	webhookDispatcher := &services.WebhookDispatcher{
 		DB:                           database,
+		Clock:                        clock,
 		PriceService:                 priceService,
 		ProductService:               productService,
 		NotificationQueueService:     notificationQueueService,

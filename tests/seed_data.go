@@ -358,10 +358,9 @@ func (suite *TestContainerSuite) SeedProducts() []TestProduct {
 			price.CreatedAt = now
 			price.UpdatedAt = now
 
+			// Prices are immutable - use DO NOTHING to preserve existing records
 			_, err := suite.BunDB.NewInsert().Model(price).
-				On("CONFLICT (id) DO UPDATE").
-				Set("display_name = EXCLUDED.display_name").
-				Set("updated_at = EXCLUDED.updated_at").
+				On("CONFLICT (id) DO NOTHING").
 				Exec(ctx)
 			require.NoError(suite.t, err, "Failed to seed price %s", price.DisplayName)
 		}
@@ -455,7 +454,7 @@ type SubscriptionOptions struct {
 func (suite *TestContainerSuite) CreateTestSubscriptionWithOptions(opts SubscriptionOptions) *models.Subscription {
 	suite.t.Helper()
 	ctx := context.Background()
-	now := time.Now()
+	now := suite.GetClock().Now()
 
 	if opts.PeriodStart.IsZero() {
 		opts.PeriodStart = now

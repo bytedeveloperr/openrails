@@ -15,6 +15,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -22,6 +23,7 @@ const NMIProcessorName string = "NMI"
 
 type NMIWebhookService struct {
 	DB                           *db.DB
+	Clock                        clockwork.Clock
 	PriceService                 *PriceService
 	ProductService               *ProductService
 	Data                         NMIWebhookEvent
@@ -34,6 +36,14 @@ type NMIWebhookService struct {
 	DeduplicationService         *DeduplicationService
 	NotificationQueueService     *NotificationQueueService
 	SubscriptionLifecycleService *SubscriptionLifecycleService
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *NMIWebhookService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 type NMIWebhookEventType = string
@@ -535,8 +545,8 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 					TransactionID:  txnID,
 					Amount:         amountCents,
 					Currency:       currencyValue,
-					PurchasedAt:    time.Now().UTC(),
-					CreatedAt:      time.Now().UTC(),
+					PurchasedAt:    s.now().UTC(),
+					CreatedAt:      s.now().UTC(),
 				}
 
 				if err := s.PaymentService.Create(ctx, payment); err != nil {
@@ -594,7 +604,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{}),
 			WebhookSource:  "webhook",
 			Metadata:       CreateMetadataJSON(metadata),
-			Timestamp:      time.Now().UTC(),
+			Timestamp:      s.now().UTC(),
 		}
 		if txnID != "" {
 			paymentEvent.ProcessorTransactionID = &txnID
@@ -713,7 +723,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{}),
 			WebhookSource:  "webhook",
 			Metadata:       CreateMetadataJSON(metadata),
-			Timestamp:      time.Now().UTC(),
+			Timestamp:      s.now().UTC(),
 		}
 		if txnID := body.TransactionID.Trimmed(); txnID != "" {
 			paymentEvent.ProcessorTransactionID = &txnID
@@ -774,7 +784,7 @@ func (s *NMIWebhookService) handleChargebackComplete(ctx context.Context) error 
 			BatchID:   s.Data.EventID, // Use event ID as batch identifier
 			Status:    "completed",
 			Metadata:  CreateMetadataJSON(metadata),
-			Timestamp: time.Now(),
+			Timestamp: s.now(),
 		}
 
 		if err := s.BillingEventService.LogChargebackEvent(ctx, chargebackEventData); err != nil {

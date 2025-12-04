@@ -165,7 +165,7 @@ func CheckSolanaPayment(r *Request) {
 
 	resp := CheckSolanaPaymentResponse{
 		Status:      "confirmed",
-		PaymentID:   api.FormatChargeID(pay.ID),
+		PaymentID:   api.FormatPaymentID(pay.ID),
 		IntentID:    api.FormatPaymentIntentID(intent.ID),
 		Transaction: signatureStr,
 	}

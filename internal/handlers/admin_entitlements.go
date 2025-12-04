@@ -46,7 +46,11 @@ func GrantAdminEntitlement(r *Request) {
 	// Calculate end time if days specified
 	var endAt *time.Time
 	if req.Days != nil && *req.Days > 0 {
-		end := time.Now().Add(time.Duration(*req.Days) * 24 * time.Hour)
+		now := time.Now()
+		if r.State.Clock != nil {
+			now = r.State.Clock.Now()
+		}
+		end := now.Add(time.Duration(*req.Days) * 24 * time.Hour)
 		endAt = &end
 	}
 

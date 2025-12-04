@@ -17,6 +17,7 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/pkg/spool"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -25,6 +26,15 @@ type BillingEventService struct {
 	clickhouseConn driver.Conn
 	config         *config.ClickHouseConfig
 	spool          *spool.Spool
+	Clock          clockwork.Clock
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *BillingEventService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 // NewBillingEventService creates a new billing event service
@@ -155,7 +165,7 @@ func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
 				d.EventID = uuid.New()
 			}
 			if d.Timestamp.IsZero() {
-				d.Timestamp = time.Now().UTC()
+				d.Timestamp = s.now().UTC()
 			}
 			subs = append(subs, d)
 			subsFiles = append(subsFiles, fileRec{p})
@@ -170,7 +180,7 @@ func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
 				d.EventID = uuid.New()
 			}
 			if d.Timestamp.IsZero() {
-				d.Timestamp = time.Now().UTC()
+				d.Timestamp = s.now().UTC()
 			}
 			if d.Currency == "" {
 				d.Currency = "USD"
@@ -188,7 +198,7 @@ func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
 				d.EventID = uuid.New()
 			}
 			if d.Timestamp.IsZero() {
-				d.Timestamp = time.Now().UTC()
+				d.Timestamp = s.now().UTC()
 			}
 			if d.Currency == "" {
 				d.Currency = "USD"
@@ -224,7 +234,7 @@ func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
 				d.EventID = uuid.New()
 			}
 			if d.Timestamp.IsZero() {
-				d.Timestamp = time.Now().UTC()
+				d.Timestamp = s.now().UTC()
 			}
 			acus = append(acus, d)
 			acusFiles = append(acusFiles, fileRec{p})
@@ -239,7 +249,7 @@ func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
 				d.EventID = uuid.New()
 			}
 			if d.Timestamp.IsZero() {
-				d.Timestamp = time.Now().UTC()
+				d.Timestamp = s.now().UTC()
 			}
 			if d.Currency == "" {
 				d.Currency = "USD"
@@ -446,7 +456,7 @@ func (s *BillingEventService) LogSubscriptionEvent(ctx context.Context, data Sub
 		data.EventID = uuid.New()
 	}
 	if data.Timestamp.IsZero() {
-		data.Timestamp = time.Now().UTC()
+		data.Timestamp = s.now().UTC()
 	}
 
 	err := s.insertSubscription(ctx, data)
@@ -483,7 +493,7 @@ func (s *BillingEventService) LogPaymentEvent(ctx context.Context, data PaymentE
 		data.EventID = uuid.New()
 	}
 	if data.Timestamp.IsZero() {
-		data.Timestamp = time.Now().UTC()
+		data.Timestamp = s.now().UTC()
 	}
 	if data.Currency == "" {
 		data.Currency = "USD"
@@ -524,7 +534,7 @@ func (s *BillingEventService) LogTransactionEvent(ctx context.Context, data Tran
 		data.EventID = uuid.New()
 	}
 	if data.Timestamp.IsZero() {
-		data.Timestamp = time.Now().UTC()
+		data.Timestamp = s.now().UTC()
 	}
 	if data.Currency == "" {
 		data.Currency = "USD"
@@ -582,7 +592,7 @@ func (s *BillingEventService) LogACUEvent(ctx context.Context, data ACUEventData
 		data.EventID = uuid.New()
 	}
 	if data.Timestamp.IsZero() {
-		data.Timestamp = time.Now().UTC()
+		data.Timestamp = s.now().UTC()
 	}
 
 	// Redact card_info (writer must not store PANs); keep last4 only if present
@@ -644,7 +654,7 @@ func (s *BillingEventService) LogChargebackEvent(ctx context.Context, data Charg
 		data.EventID = uuid.New()
 	}
 	if data.Timestamp.IsZero() {
-		data.Timestamp = time.Now().UTC()
+		data.Timestamp = s.now().UTC()
 	}
 	if data.Currency == "" {
 		data.Currency = "USD"

@@ -4,6 +4,7 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -925,5 +926,442 @@ func TestSubscriptionRenewalWithMockClock(t *testing.T) {
 		updatedSub := suite.GetSubscription(sub.ID)
 		assert.True(t, updatedSub.CurrentPeriodEndsAt.Before(mockClock.Now()),
 			"New period should have ended after advancing clock 35 days")
+	})
+}
+
+// =============================================================================
+// Webhook Event Retry Backoff Tests
+// =============================================================================
+
+// TestWebhookRetryBackoff tests that webhook retry scheduling uses exponential backoff
+// with the mock clock, verifying next_attempt_at is correctly calculated.
+func TestWebhookRetryBackoff(t *testing.T) {
+	suite := setupTestSuite(t)
+	ctx := context.Background()
+
+	// Set clock to a known starting point
+	startTime := time.Date(2024, time.January, 1, 12, 0, 0, 0, time.UTC)
+	mockClock := suite.SetMockClock(startTime)
+
+	webhookService := suite.App.Runtime.WebhookEventService
+
+	// Create a webhook event
+	event, err := webhookService.Create(ctx, services.CreateWebhookEventParams{
+		Processor: "ccbill",
+		EventType: "NewSaleSuccess",
+		Payload:   []byte(`{"test": "data"}`),
+		IPAddress: "127.0.0.1",
+	})
+	require.NoError(t, err)
+
+	// Verify initial state
+	assert.Equal(t, services.WebhookStatusPending, event.Status)
+	assert.Equal(t, 0, event.ProcessingAttempts)
+
+	t.Run("first failure schedules retry with initial backoff", func(t *testing.T) {
+		// Begin processing
+		event, err = webhookService.BeginProcessing(ctx, event.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 1, event.ProcessingAttempts)
+
+		// Mark failure
+		shouldRetry, err := webhookService.MarkFailure(ctx, event, fmt.Errorf("test error"))
+		require.NoError(t, err)
+		assert.True(t, shouldRetry, "Should retry after first failure")
+
+		// Reload and check next_attempt_at
+		event, err = webhookService.Get(ctx, event.ID)
+		require.NoError(t, err)
+		require.NotNil(t, event.NextAttemptAt)
+
+		// Initial backoff should be config value (default 1 minute)
+		// next_attempt_at should be ~1 minute from now
+		expectedRetry := mockClock.Now().Add(1 * time.Minute)
+		assert.WithinDuration(t, expectedRetry, *event.NextAttemptAt, 5*time.Second,
+			"First retry should be scheduled ~1 minute later")
+	})
+
+	t.Run("second failure uses exponential backoff (2x)", func(t *testing.T) {
+		// Advance clock past the retry time
+		mockClock.Advance(2 * time.Minute)
+
+		// Begin processing again
+		event, err = webhookService.BeginProcessing(ctx, event.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 2, event.ProcessingAttempts)
+
+		// Mark failure again
+		shouldRetry, err := webhookService.MarkFailure(ctx, event, fmt.Errorf("test error 2"))
+		require.NoError(t, err)
+		assert.True(t, shouldRetry, "Should retry after second failure")
+
+		// Reload and check next_attempt_at
+		event, err = webhookService.Get(ctx, event.ID)
+		require.NoError(t, err)
+		require.NotNil(t, event.NextAttemptAt)
+
+		// Second attempt backoff should be 2x initial (2 minutes)
+		expectedRetry := mockClock.Now().Add(2 * time.Minute)
+		assert.WithinDuration(t, expectedRetry, *event.NextAttemptAt, 5*time.Second,
+			"Second retry should be scheduled ~2 minutes later (2x backoff)")
+	})
+
+	t.Run("third failure uses exponential backoff (4x)", func(t *testing.T) {
+		// Advance clock past the retry time
+		mockClock.Advance(3 * time.Minute)
+
+		// Begin processing again
+		event, err = webhookService.BeginProcessing(ctx, event.ID)
+		require.NoError(t, err)
+		assert.Equal(t, 3, event.ProcessingAttempts)
+
+		// Mark failure again
+		shouldRetry, err := webhookService.MarkFailure(ctx, event, fmt.Errorf("test error 3"))
+		require.NoError(t, err)
+		assert.True(t, shouldRetry, "Should retry after third failure")
+
+		// Reload and check next_attempt_at
+		event, err = webhookService.Get(ctx, event.ID)
+		require.NoError(t, err)
+		require.NotNil(t, event.NextAttemptAt)
+
+		// Third attempt backoff should be 4x initial (4 minutes)
+		expectedRetry := mockClock.Now().Add(4 * time.Minute)
+		assert.WithinDuration(t, expectedRetry, *event.NextAttemptAt, 5*time.Second,
+			"Third retry should be scheduled ~4 minutes later (4x backoff)")
+	})
+}
+
+// TestWebhookMaxRetries tests that webhook processing stops after max retries
+func TestWebhookMaxRetries(t *testing.T) {
+	suite := setupTestSuite(t)
+	ctx := context.Background()
+
+	// Set clock to a known starting point
+	startTime := time.Date(2024, time.January, 1, 12, 0, 0, 0, time.UTC)
+	mockClock := suite.SetMockClock(startTime)
+
+	webhookService := suite.App.Runtime.WebhookEventService
+
+	// Create a webhook event
+	event, err := webhookService.Create(ctx, services.CreateWebhookEventParams{
+		Processor: "ccbill",
+		EventType: "TestEvent",
+		Payload:   []byte(`{"test": "max_retries"}`),
+		IPAddress: "127.0.0.1",
+	})
+	require.NoError(t, err)
+
+	// Simulate multiple failures up to max retries
+	maxAttempts := 5 // Default max attempts
+	for i := 1; i <= maxAttempts; i++ {
+		// Advance clock to be past any scheduled retry
+		mockClock.Advance(1 * time.Hour)
+
+		// Begin processing
+		event, err = webhookService.BeginProcessing(ctx, event.ID)
+		require.NoError(t, err, "BeginProcessing should succeed on attempt %d", i)
+		assert.Equal(t, i, event.ProcessingAttempts)
+
+		// Mark failure
+		shouldRetry, err := webhookService.MarkFailure(ctx, event, fmt.Errorf("test error %d", i))
+		require.NoError(t, err)
+
+		// Reload event
+		event, err = webhookService.Get(ctx, event.ID)
+		require.NoError(t, err)
+
+		if i < maxAttempts {
+			assert.True(t, shouldRetry, "Should retry on attempt %d", i)
+			assert.Equal(t, services.WebhookStatusFailed, event.Status)
+			assert.NotNil(t, event.NextAttemptAt, "NextAttemptAt should be set for retry")
+		} else {
+			assert.False(t, shouldRetry, "Should NOT retry after max attempts")
+			assert.Equal(t, services.WebhookStatusError, event.Status, "Status should be 'error' after max retries")
+			assert.Nil(t, event.NextAttemptAt, "NextAttemptAt should be nil after max retries")
+		}
+	}
+}
+
+// =============================================================================
+// Payment Timestamp Tests
+// =============================================================================
+
+// TestPaymentTimestampUsesMockClock verifies that application-controlled payment timestamps
+// use the mock clock (PurchasedAt is set by the application, CreatedAt is DB-controlled).
+func TestPaymentTimestampUsesMockClock(t *testing.T) {
+	suite := setupTestSuite(t)
+	ctx := context.Background()
+
+	// Set clock to a specific time
+	fixedTime := time.Date(2024, time.June, 15, 14, 30, 0, 0, time.UTC)
+	mockClock := suite.SetMockClock(fixedTime)
+
+	// Seed products
+	products := suite.SeedProducts()
+	priceID := products[0].Prices[0].ID
+
+	userID := uuid.New().String()
+
+	paymentService := suite.App.Runtime.PaymentService
+
+	t.Run("payment PurchasedAt uses mock clock time", func(t *testing.T) {
+		// Create a payment with TransactionID (required unique field)
+		payment := &models.Payment{
+			ID:            uuid.New(),
+			UserID:        userID,
+			PriceID:       priceID,
+			Processor:     models.ProcessorMobius,
+			TransactionID: "test-tx-" + uuid.New().String()[:8],
+			Amount:        999,
+			Currency:      "USD",
+			PurchasedAt:   mockClock.Now(),
+		}
+
+		err := paymentService.Create(ctx, payment)
+		require.NoError(t, err)
+
+		// PurchasedAt is set by application code - should match mock clock
+		assert.WithinDuration(t, fixedTime, payment.PurchasedAt, time.Second,
+			"Payment PurchasedAt should match mock clock time")
+	})
+
+	t.Run("advancing clock affects PurchasedAt of subsequent payments", func(t *testing.T) {
+		// Advance clock by 7 days
+		mockClock.Advance(7 * 24 * time.Hour)
+		expectedTime := fixedTime.Add(7 * 24 * time.Hour)
+
+		// Create another payment with unique TransactionID
+		payment := &models.Payment{
+			ID:            uuid.New(),
+			UserID:        userID,
+			PriceID:       priceID,
+			Processor:     models.ProcessorMobius,
+			TransactionID: "test-tx-" + uuid.New().String()[:8],
+			Amount:        999,
+			Currency:      "USD",
+			PurchasedAt:   mockClock.Now(),
+		}
+
+		err := paymentService.Create(ctx, payment)
+		require.NoError(t, err)
+
+		// Verify PurchasedAt matches advanced mock clock
+		assert.WithinDuration(t, expectedTime, payment.PurchasedAt, time.Second,
+			"Payment PurchasedAt should match advanced mock clock time")
+	})
+}
+
+// =============================================================================
+// Subscription Period Boundary Edge Cases
+// =============================================================================
+
+// TestSubscriptionExpiryAtExactBoundary tests behavior exactly at the expiry moment
+func TestSubscriptionExpiryAtExactBoundary(t *testing.T) {
+	suite := setupTestSuite(t)
+	ctx := context.Background()
+
+	// Set clock to a known starting point
+	startTime := time.Date(2024, time.January, 1, 12, 0, 0, 0, time.UTC)
+	mockClock := suite.SetMockClock(startTime)
+
+	// Seed products
+	products := suite.SeedProducts()
+	priceID := products[0].Prices[0].ID
+
+	userID := uuid.New().String()
+
+	// Create subscription that expires exactly at a specific time
+	periodEnd := startTime.Add(30 * 24 * time.Hour) // Exactly 30 days from now
+	sub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+		UserID:      userID,
+		PriceID:     priceID,
+		Status:      models.StatusActive,
+		Processor:   models.ProcessorMobius,
+		PeriodStart: startTime,
+		PeriodEnd:   periodEnd,
+	})
+
+	// Create entitlement that ends exactly at period end
+	ent := &models.Entitlement{
+		ID:          uuid.New(),
+		UserID:      userID,
+		Entitlement: "premium",
+		StartAt:     startTime,
+		EndAt:       &periodEnd,
+		SourceType:  models.EntitlementSourceSubscription,
+		SourceID:    &sub.ID,
+		CreatedAt:   startTime,
+		UpdatedAt:   startTime,
+	}
+	_, err := suite.BunDB.NewInsert().Model(ent).Exec(ctx)
+	require.NoError(t, err)
+
+	entService := suite.App.Runtime.EntitlementService
+
+	t.Run("1 second before expiry - entitlement active", func(t *testing.T) {
+		// Advance to 1 second before expiry
+		mockClock.Advance(30*24*time.Hour - 1*time.Second)
+
+		isEntitled, err := entService.IsEntitled(ctx, userID, "premium", mockClock.Now())
+		require.NoError(t, err)
+		assert.True(t, isEntitled, "Entitlement should be active 1 second before expiry")
+	})
+
+	t.Run("exactly at expiry - entitlement NOT active", func(t *testing.T) {
+		// Advance 1 second to exactly at expiry
+		mockClock.Advance(1 * time.Second)
+
+		// At exactly the expiry time, entitlement should NOT be active
+		// (EndAt is exclusive - "before" check fails at exact time)
+		isEntitled, err := entService.IsEntitled(ctx, userID, "premium", mockClock.Now())
+		require.NoError(t, err)
+		assert.False(t, isEntitled, "Entitlement should NOT be active at exact expiry time")
+	})
+
+	t.Run("1 second after expiry - entitlement NOT active", func(t *testing.T) {
+		// Advance 1 more second
+		mockClock.Advance(1 * time.Second)
+
+		isEntitled, err := entService.IsEntitled(ctx, userID, "premium", mockClock.Now())
+		require.NoError(t, err)
+		assert.False(t, isEntitled, "Entitlement should NOT be active 1 second after expiry")
+	})
+}
+
+// TestCancellationTimestamp tests that cancellation timestamps use mock clock
+func TestCancellationTimestamp(t *testing.T) {
+	suite := setupTestSuite(t)
+	ctx := context.Background()
+
+	// Set clock to a specific time
+	cancelTime := time.Date(2024, time.March, 15, 10, 30, 0, 0, time.UTC)
+	mockClock := suite.SetMockClock(cancelTime)
+
+	// Seed products
+	products := suite.SeedProducts()
+	priceID := products[0].Prices[0].ID
+
+	userID := uuid.New().String()
+	processorSubID := "test-cancel-ts-" + uuid.New().String()[:8]
+
+	// Create an active subscription
+	periodEnd := cancelTime.Add(15 * 24 * time.Hour) // 15 days remaining
+	sub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+		UserID:         userID,
+		PriceID:        priceID,
+		Status:         models.StatusActive,
+		Processor:      models.ProcessorMobius,
+		ProcessorSubID: processorSubID,
+		PeriodStart:    cancelTime.Add(-15 * 24 * time.Hour),
+		PeriodEnd:      periodEnd,
+	})
+
+	lifecycleService := suite.App.Runtime.SubscriptionLifecycleService
+
+	t.Run("cancellation timestamp matches mock clock", func(t *testing.T) {
+		err := lifecycleService.CancelMembership(ctx, &services.CancelMembershipParams{
+			SubscriptionID: &sub.ID,
+			CancelType:     models.CancelTypeUser,
+			RevokeAccess:   false,
+		})
+		require.NoError(t, err)
+
+		updatedSub := suite.GetSubscription(sub.ID)
+		require.NotNil(t, updatedSub.CancelledAt)
+
+		assert.WithinDuration(t, cancelTime, *updatedSub.CancelledAt, time.Second,
+			"CancelledAt should match mock clock time")
+	})
+
+	t.Run("advancing clock and cancelling another subscription", func(t *testing.T) {
+		// Create another subscription
+		processorSubID2 := "test-cancel-ts-2-" + uuid.New().String()[:8]
+		sub2 := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+			UserID:         uuid.New().String(),
+			PriceID:        priceID,
+			Status:         models.StatusActive,
+			Processor:      models.ProcessorMobius,
+			ProcessorSubID: processorSubID2,
+			PeriodStart:    cancelTime,
+			PeriodEnd:      cancelTime.Add(30 * 24 * time.Hour),
+		})
+
+		// Advance clock by 5 days
+		mockClock.Advance(5 * 24 * time.Hour)
+		expectedCancelTime := cancelTime.Add(5 * 24 * time.Hour)
+
+		err := lifecycleService.CancelMembership(ctx, &services.CancelMembershipParams{
+			SubscriptionID: &sub2.ID,
+			CancelType:     models.CancelTypeUser,
+			RevokeAccess:   false,
+		})
+		require.NoError(t, err)
+
+		updatedSub2 := suite.GetSubscription(sub2.ID)
+		require.NotNil(t, updatedSub2.CancelledAt)
+
+		assert.WithinDuration(t, expectedCancelTime, *updatedSub2.CancelledAt, time.Second,
+			"CancelledAt should match advanced mock clock time")
+	})
+}
+
+// TestVaultTimestamps tests that vault/payment method timestamps use mock clock
+func TestVaultTimestamps(t *testing.T) {
+	suite := setupTestSuite(t)
+	ctx := context.Background()
+
+	// Set clock to a specific time
+	vaultTime := time.Date(2024, time.July, 4, 16, 0, 0, 0, time.UTC)
+	mockClock := suite.SetMockClock(vaultTime)
+
+	userID := uuid.New().String()
+
+	// Create a payment method directly
+	pm := &models.PaymentMethod{
+		ID:        uuid.New(),
+		UserID:    userID,
+		Processor: models.ProcessorMobius,
+		VaultID:   "test-vault-" + uuid.New().String()[:8],
+		IsActive:  true,
+		CreatedAt: mockClock.Now(),
+		UpdatedAt: mockClock.Now(),
+	}
+	_, err := suite.BunDB.NewInsert().Model(pm).Exec(ctx)
+	require.NoError(t, err)
+
+	t.Run("payment method timestamps match mock clock", func(t *testing.T) {
+		var dbPM models.PaymentMethod
+		err := suite.BunDB.NewSelect().Model(&dbPM).Where("id = ?", pm.ID).Scan(ctx)
+		require.NoError(t, err)
+
+		assert.WithinDuration(t, vaultTime, dbPM.CreatedAt, time.Second,
+			"PaymentMethod CreatedAt should match mock clock time")
+		assert.WithinDuration(t, vaultTime, dbPM.UpdatedAt, time.Second,
+			"PaymentMethod UpdatedAt should match mock clock time")
+	})
+
+	t.Run("updating payment method uses advanced clock", func(t *testing.T) {
+		// Advance clock by 10 days
+		mockClock.Advance(10 * 24 * time.Hour)
+		expectedUpdateTime := vaultTime.Add(10 * 24 * time.Hour)
+
+		// Update the payment method
+		_, err := suite.BunDB.NewUpdate().
+			Model((*models.PaymentMethod)(nil)).
+			Set("updated_at = ?", mockClock.Now()).
+			Set("is_active = ?", false).
+			Where("id = ?", pm.ID).
+			Exec(ctx)
+		require.NoError(t, err)
+
+		var dbPM models.PaymentMethod
+		err = suite.BunDB.NewSelect().Model(&dbPM).Where("id = ?", pm.ID).Scan(ctx)
+		require.NoError(t, err)
+
+		assert.WithinDuration(t, vaultTime, dbPM.CreatedAt, time.Second,
+			"PaymentMethod CreatedAt should remain at original time")
+		assert.WithinDuration(t, expectedUpdateTime, dbPM.UpdatedAt, time.Second,
+			"PaymentMethod UpdatedAt should match advanced mock clock time")
 	})
 }

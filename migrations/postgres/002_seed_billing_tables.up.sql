@@ -46,18 +46,14 @@ BEGIN
     -- Insert pricing tiers with fixed IDs linked to the deterministic product IDs
     -- Note: amount is in cents (smallest currency unit), e.g., 499 = $4.99
     -- processors JSONB contains processor-specific config keyed by processor name
+    -- Prices are IMMUTABLE - DO NOTHING on conflict to preserve historical payment accuracy
     INSERT INTO billing.prices (id, product_id, display_name, amount, currency, billing_cycle_days, processors, is_active)
     VALUES
         (basic_price_id, basic_product_id, 'Basic Monthly', 499, 'USD', 30,
          '{"mobius": {"plan_id": "basic_monthly"}, "ccbill": {"price_id": "681cb38f-afb9-4665-931f-2b896072178a"}}'::jsonb, true),
         (premium_price_id, premium_product_id, 'Premium Monthly', 999, 'USD', 30,
          '{"mobius": {"plan_id": "premium_monthly"}, "ccbill": {"price_id": "681cb38f-afb9-4665-931f-2b896072178a"}}'::jsonb, true)
-    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO UPDATE SET
-        id = EXCLUDED.id,
-        display_name = EXCLUDED.display_name,
-        is_active = EXCLUDED.is_active,
-        processors = EXCLUDED.processors,
-        updated_at = current_timestamp;
+    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 END$$;
 
 -- Add helpful comments for operators

@@ -14,9 +14,10 @@ import (
 
 // Subscription helper functions (moved from db model to service layer)
 
-// IsExpired checks if a subscription has expired
-func IsExpired(s *models.Subscription) bool {
-	return s.CurrentPeriodEndsAt != nil && s.CurrentPeriodEndsAt.Before(time.Now())
+// IsExpired checks if a subscription has expired at the given time.
+// Pass time.Now() for current state, or a mock time for testing.
+func IsExpired(s *models.Subscription, at time.Time) bool {
+	return s.CurrentPeriodEndsAt != nil && s.CurrentPeriodEndsAt.Before(at)
 }
 
 // -------------------------------- Utility Types --------------------------------
@@ -964,8 +965,8 @@ func (e CCBillVoidEvent) GetTimestamp() string             { return e.Timestamp 
 
 // Legacy grantRole helpers removed; entitlement logic lives in lifecycle/webhook services.
 
-func validateSubscription(sub *models.Subscription, newStatus models.SubscriptionStatus, amount float64) error {
-	if sub.CurrentPeriodEndsAt != nil && sub.CurrentPeriodEndsAt.Before(time.Now()) {
+func validateSubscription(sub *models.Subscription, newStatus models.SubscriptionStatus, amount float64, at time.Time) error {
+	if sub.CurrentPeriodEndsAt != nil && sub.CurrentPeriodEndsAt.Before(at) {
 		if newStatus == models.StatusActive {
 			return fmt.Errorf("cannot activate expired subscription without proper renewal")
 		}

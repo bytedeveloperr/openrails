@@ -16,6 +16,7 @@ import (
 	"github.com/doujins-org/solana-go/programs/token"
 	"github.com/doujins-org/solana-go/rpc"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -26,6 +27,15 @@ type SolanaTransactionService struct {
 	cfg          *config.Config
 	priceService *PriceService
 	paymentSvc   *PaymentService
+	Clock        clockwork.Clock
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *SolanaTransactionService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 // NewSolanaTransactionService creates a new transaction service
@@ -169,7 +179,7 @@ func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, 
 		return nil, fmt.Errorf("failed to serialize transaction: %w", err)
 	}
 
-	expiresAt := time.Now().Add(10 * time.Minute)
+	expiresAt := s.now().Add(10 * time.Minute)
 
 	log.WithFields(log.Fields{
 		"user_id":      userID,

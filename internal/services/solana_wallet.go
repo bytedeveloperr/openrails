@@ -12,6 +12,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/utils/solana"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 )
 
 var (
@@ -20,7 +21,18 @@ var (
 )
 
 // SolanaWalletService provides DB-backed operations for user wallets
-type SolanaWalletService struct{ repo *repo.SolanaWalletRepo }
+type SolanaWalletService struct {
+	repo  *repo.SolanaWalletRepo
+	Clock clockwork.Clock
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *SolanaWalletService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
+}
 
 func NewSolanaWalletService(db *db.DB) *SolanaWalletService {
 	return &SolanaWalletService{repo: repo.NewSolanaWalletRepo(db)}
@@ -43,7 +55,7 @@ func (s *SolanaWalletService) Link(ctx context.Context, userID, address string) 
 		return nil, fmt.Errorf("failed to check existing wallet: %w", err)
 	}
 
-	now := time.Now()
+	now := s.now()
 	wallet := &models.SolanaWallet{
 		ID:         uuid.New(),
 		UserID:     userID,
@@ -84,7 +96,7 @@ func (s *SolanaWalletService) Verify(ctx context.Context, userID, address string
 		return fmt.Errorf("address validation failed: %w", err)
 	}
 
-	now := time.Now()
+	now := s.now()
 	rows, err := s.repo.MarkVerified(ctx, userID, address, now)
 	if err != nil {
 		return fmt.Errorf("failed to verify wallet %s for user %s: %w", address, userID, err)

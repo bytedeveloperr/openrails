@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
+	"github.com/jonboulle/clockwork"
 )
 
 const (
@@ -22,7 +24,16 @@ const (
 var base32NoPadding = base32.StdEncoding.WithPadding(base32.NoPadding)
 
 type CCBillAliasService struct {
-	repo *repo.CCBillUsernameAliasRepo
+	repo  *repo.CCBillUsernameAliasRepo
+	Clock clockwork.Clock
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *CCBillAliasService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 func NewCCBillAliasService(db *db.DB) *CCBillAliasService {
@@ -49,7 +60,7 @@ func (s *CCBillAliasService) GetOrCreate(ctx context.Context, userID string) (st
 			UserID: userID,
 		}
 
-		if err := s.repo.Create(ctx, model); err != nil {
+		if err := s.repo.Create(ctx, model, s.now()); err != nil {
 			if errors.Is(err, repo.ErrCCBillAliasConflict) {
 				// Retry with a new candidate or fetch existing record if user already has one
 				if alias, aliasErr := s.repo.GetByUserID(ctx, userID); aliasErr == nil {

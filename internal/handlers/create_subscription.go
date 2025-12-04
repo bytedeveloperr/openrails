@@ -35,7 +35,7 @@ func CreateSubscription(r *Request) {
 		ID:                 "sub_dummy_id",
 		Object:             "subscription",
 		Status:             "pending",
-		Customer:           user.ID,
+		User:               api.FormatUserID(user.ID),
 		StartDate:          api.ToUnix(now),
 		CurrentPeriodStart: api.ToUnix(now),
 		CurrentPeriodEnd:   api.ToUnix(now.AddDate(0, 1, 0)), // 1 month from now

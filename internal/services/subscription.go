@@ -17,6 +17,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -51,6 +52,7 @@ type GetSubscriptionsFilters struct {
 
 type SubscriptionService struct {
 	subscriptionRepo         *repo.SubscriptionRepo
+	Clock                    clockwork.Clock
 	PriceService             *PriceService
 	ProductService           *ProductService
 	NotificationQueueService *NotificationQueueService
@@ -59,6 +61,14 @@ type SubscriptionService struct {
 	PaymentMethodService     *PaymentMethodService
 	VaultService             *VaultService
 	IdempotencyService       *IdempotencyService
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *SubscriptionService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 func (s *SubscriptionService) nmiClientForProcessor(provider string) (*nmi.NMIClient, error) {
@@ -382,7 +392,7 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 		return errors.New("subscription is not active")
 	}
 
-	now := time.Now()
+	now := s.now()
 	cancelType := models.CancelTypeUser
 	subscription.Status = models.StatusCancelled
 	subscription.CancelledAt = &now

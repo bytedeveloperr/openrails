@@ -37,8 +37,10 @@ func (r *CCBillUsernameAliasRepo) GetByAlias(ctx context.Context, aliasValue str
 	return alias, nil
 }
 
-func (r *CCBillUsernameAliasRepo) Create(ctx context.Context, alias *models.CCBillUsernameAlias) error {
-	now := time.Now().UTC()
+func (r *CCBillUsernameAliasRepo) Create(ctx context.Context, alias *models.CCBillUsernameAlias, now time.Time) error {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 	if alias.CreatedAt.IsZero() {
 		alias.CreatedAt = now
 	}
@@ -56,9 +58,12 @@ func (r *CCBillUsernameAliasRepo) Create(ctx context.Context, alias *models.CCBi
 	return nil
 }
 
-func (r *CCBillUsernameAliasRepo) Touch(ctx context.Context, aliasValue string) error {
+func (r *CCBillUsernameAliasRepo) Touch(ctx context.Context, aliasValue string, now time.Time) error {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 	_, err := r.db.GetDB().NewUpdate().Model((*models.CCBillUsernameAlias)(nil)).
-		Set("updated_at = ?", time.Now().UTC()).
+		Set("updated_at = ?", now).
 		Where("alias = ?", aliasValue).
 		Exec(ctx)
 	return err

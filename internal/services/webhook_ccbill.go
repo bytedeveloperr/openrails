@@ -15,6 +15,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 )
@@ -22,6 +23,7 @@ import (
 type CCBillWebhookService struct {
 	Data                         CCBillWebhookEvent
 	DB                           *db.DB
+	Clock                        clockwork.Clock
 	CCBillClient                 *ccbill.RESTClient
 	ProductService               *ProductService
 	PriceService                 *PriceService
@@ -32,6 +34,14 @@ type CCBillWebhookService struct {
 	SubscriptionService          *SubscriptionService
 	SubscriptionLifecycleService *SubscriptionLifecycleService
 	CCBillAliasService           *CCBillAliasService
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *CCBillWebhookService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 func (s *CCBillWebhookService) resolveUserID(ctx context.Context, alias string) (string, error) {
@@ -240,7 +250,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			WebhookSource:  "webhook",
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{}), // No billing info from webhook
 			Metadata:       CreateMetadataJSON(metadata),
-			Timestamp:      time.Now().UTC(),
+			Timestamp:      s.now().UTC(),
 		}
 
 		if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
@@ -312,7 +322,7 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 				BillingInfo:   CreateMetadataJSON(map[string]interface{}{"initial_signup": true}),
 				WebhookSource: "webhook",
 				Metadata:      CreateMetadataJSON(metadata),
-				Timestamp:     time.Now().UTC(),
+				Timestamp:     s.now().UTC(),
 			}
 
 			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
@@ -464,7 +474,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"upgrade": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
-				Timestamp:      time.Now().UTC(),
+				Timestamp:      s.now().UTC(),
 			}
 
 			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
@@ -556,7 +566,7 @@ func (s *CCBillWebhookService) updateEntitlementsForUpgrade(
 		newEntitlements["premium"] = true // default entitlement
 	}
 
-	now := time.Now()
+	now := s.now()
 
 	// Revoke entitlements that are no longer in the new product (downgrade case)
 	for oldEnt := range oldEntitlements {
@@ -657,7 +667,7 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 				BillingInfo:   CreateMetadataJSON(map[string]interface{}{"upgrade_failure": true}),
 				WebhookSource: "webhook",
 				Metadata:      CreateMetadataJSON(metadata),
-				Timestamp:     time.Now().UTC(),
+				Timestamp:     s.now().UTC(),
 			}
 
 			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
@@ -759,7 +769,7 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 				Processor:               "ccbill",
 				ProcessorSubscriptionID: &pSubscriptionID,
 				Metadata:                CreateMetadataJSON(metadata),
-				Timestamp:               time.Now(),
+				Timestamp:               s.now(),
 			}
 
 			if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
@@ -844,7 +854,7 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 				Processor:               "ccbill",
 				ProcessorSubscriptionID: &pSubscriptionID,
 				Metadata:                CreateMetadataJSON(metadata),
-				Timestamp:               time.Now(),
+				Timestamp:               s.now(),
 			}
 
 			if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
@@ -916,7 +926,7 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 		}
 
 		// Reactivate subscription
-		now := time.Now()
+		now := s.now()
 		sub.Status = models.StatusActive
 		sub.CancelledAt = nil
 		sub.CancelType = nil
@@ -953,7 +963,7 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 				Processor:               "ccbill",
 				ProcessorSubscriptionID: &pSubscriptionID,
 				Metadata:                CreateMetadataJSON(metadata),
-				Timestamp:               time.Now(),
+				Timestamp:               s.now(),
 			}
 
 			if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
@@ -1048,7 +1058,7 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 			}
 		}
 
-		now := time.Now()
+		now := s.now()
 
 		if shouldTerminate {
 			// Terminate the subscription
@@ -1122,7 +1132,7 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"refund": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
-				Timestamp:      time.Now().UTC(),
+				Timestamp:      s.now().UTC(),
 			}
 
 			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
@@ -1216,7 +1226,7 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 						BillingInfo:   CreateMetadataJSON(map[string]interface{}{"void": true}),
 						WebhookSource: "webhook",
 						Metadata:      CreateMetadataJSON(metadata),
-						Timestamp:     time.Now().UTC(),
+						Timestamp:     s.now().UTC(),
 					}
 
 					if err = s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
@@ -1265,7 +1275,7 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"void": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
-				Timestamp:      time.Now().UTC(),
+				Timestamp:      s.now().UTC(),
 			}
 
 			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
@@ -1361,7 +1371,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 						BillingInfo:   CreateMetadataJSON(map[string]interface{}{"chargeback": true, "fraud_flag": true}),
 						WebhookSource: "webhook",
 						Metadata:      CreateMetadataJSON(metadata),
-						Timestamp:     time.Now().UTC(),
+						Timestamp:     s.now().UTC(),
 					}
 
 					if err = s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
@@ -1376,7 +1386,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 
 		// No external user lookup (IdP-managed ID already on subscription)
 
-		now := time.Now()
+		now := s.now()
 
 		// IMMEDIATE TERMINATION - chargebacks are the most serious type of dispute
 		if err := sub.ResetCurrentPeriods(); err != nil {
@@ -1441,7 +1451,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"chargeback": true, "fraud_flag": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
-				Timestamp:      time.Now().UTC(),
+				Timestamp:      s.now().UTC(),
 			}
 
 			if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
@@ -1541,7 +1551,7 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{"renewal": true}),
 			WebhookSource:  "webhook",
 			Metadata:       CreateMetadataJSON(metadata),
-			Timestamp:      time.Now().UTC(),
+			Timestamp:      s.now().UTC(),
 		}
 
 		if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEventData); err != nil {
@@ -1665,7 +1675,7 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 			Processor:               "ccbill",
 			ProcessorSubscriptionID: &ccBillSubID,
 			Metadata:                CreateMetadataJSON(metadata),
-			Timestamp:               time.Now(),
+			Timestamp:               s.now(),
 		}
 
 		if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
@@ -1739,7 +1749,7 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 			Processor:               "ccbill",
 			ProcessorSubscriptionID: &ccBillSubID,
 			Metadata:                CreateMetadataJSON(metadata),
-			Timestamp:               time.Now(),
+			Timestamp:               s.now(),
 		}
 
 		if err := s.BillingEventService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {

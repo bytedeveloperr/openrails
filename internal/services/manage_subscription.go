@@ -8,12 +8,22 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
 )
 
 type ManageSubscriptionService struct {
 	SubscriptionService      *SubscriptionService
 	NotificationQueueService *NotificationQueueService
+	Clock                    clockwork.Clock
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *ManageSubscriptionService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 var ErrInvalidSubscriptionID = errors.New("invalid subscription id")
@@ -52,12 +62,12 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 
 	// oldValue := subscription.Status  // Unused in Wave 18
 	subscription.Status = params.Status
-	subscription.UpdatedAt = time.Now()
+	subscription.UpdatedAt = s.now()
 
 	switch params.Status {
 	case models.StatusActive:
 		if subscription.StartedAt.IsZero() {
-			subscription.StartedAt = time.Now()
+			subscription.StartedAt = s.now()
 		}
 	case models.StatusPastDue:
 		// Note: FailureReason and FailureCode events should be logged separately
@@ -69,7 +79,7 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 		if params.CancelType != "" {
 			subscription.CancelType = &params.CancelType
 		}
-		cancelledAt := time.Now()
+		cancelledAt := s.now()
 		subscription.CancelledAt = &cancelledAt
 		// For cancelled subscriptions, also set EndedAt
 		subscription.EndedAt = &cancelledAt
@@ -121,16 +131,16 @@ func (s *ManageSubscriptionService) ExtendSubscription(ctx context.Context, para
 	}
 
 	// oldEndTime := subscription.CurrentPeriodEndsAt  // Unused in Wave 18
-	// extendedAt := time.Now()
+	// extendedAt := s.now()
 	// subscription.ManuallyExtendedAt = &extendedAt  // Field removed in Wave 18
 
 	if subscription.CurrentPeriodEndsAt != nil {
 		newEndTime := subscription.CurrentPeriodEndsAt.Add(params.Duration)
 		subscription.CurrentPeriodEndsAt = &newEndTime
 	} else {
-		newEndTime := time.Now().Add(params.Duration)
+		newEndTime := s.now().Add(params.Duration)
 		subscription.CurrentPeriodEndsAt = &newEndTime
-		startTime := time.Now()
+		startTime := s.now()
 		subscription.CurrentPeriodStartsAt = &startTime
 	}
 

@@ -105,35 +105,92 @@
       "passes": true
     },
     {
-      "name": "direct-card-endpoints",
+      "name": "update-subscription-payment-method",
       "category": "feature",
-      "description": "Public endpoints for users to submit card info directly to billing server (alternative to NMI token flow)",
+      "description": "Allow users to change which stored payment method their NMI subscription uses",
       "steps": [
-        "POST /v1/me/payment-methods - save card to vault (no subscription)",
-        "  - Request: card_number, exp_month, exp_year, cvv, billing address",
-        "  - Tokenize with NMI, store vault token as PaymentMethod",
-        "  - Return payment_method_id for future use",
-        "PUT /v1/me/payment-methods/:id - update existing saved card",
-        "  - Replace card details in NMI vault",
-        "  - Keep same payment_method_id",
-        "POST /v1/me/subscriptions - create subscription with card",
-        "  - Request: price_id, card details OR payment_method_id",
-        "  - If card details: tokenize first, then create subscription",
-        "  - If payment_method_id: use existing vault token",
-        "  - Create NMI recurring subscription, store in DB, grant entitlements",
-        "PUT /v1/me/subscriptions/:id/payment-method - update subscription payment method",
-        "  - Request: card details OR payment_method_id",
-        "  - Update NMI subscription's payment source",
-        "Security:",
-        "  - Require HTTPS (enforce in middleware)",
-        "  - Never log card numbers (mask in any error messages)",
-        "  - Rate limit card submissions (prevent card testing attacks)",
-        "  - Consider 3DS/SCA integration for EU compliance",
-        "PCI considerations:",
-        "  - Server becomes in-scope for PCI DSS (SAQ D vs SAQ A)",
-        "  - Document data flow and ensure no card data persisted",
-        "  - NMI tokenization happens immediately, raw card data not stored",
-        "Write tests (use test card numbers from NMI docs)"
+        "NMI Client:",
+        "  - Add UpdateSubscriptionPaymentSource(subscriptionID, newVaultID string) to internal/integrations/nmi/nmi.go",
+        "  - NMI API: recurring=update_subscription, subscription_id=X, customer_vault_id=Y",
+        "Handler:",
+        "  - Add PUT /v1/me/subscriptions/payment-method endpoint",
+        "  - Request: { payment_method_id: 'uuid' }",
+        "  - Validate user owns the subscription (from JWT)",
+        "  - Validate user owns the target payment method",
+        "  - Validate payment method is active and NMI-backed",
+        "  - Validate subscription is NMI-backed (not CCBill/Solana)",
+        "  - Call NMI to update subscription's customer_vault_id",
+        "  - Update local Subscription.PaymentMethodID in database",
+        "  - Return updated subscription",
+        "Write tests for payment method swap flow"
+      ],
+      "passes": false
+    },
+    {
+      "name": "unified-checkout-one-time-purchases",
+      "category": "feature",
+      "description": "Unified checkout endpoint that handles both subscriptions and one-time purchases based on Price.BillingCycleDays",
+      "steps": [
+        "NMI Client:",
+        "  - Add RunSale(vaultID, amount int64, currency, description string) to internal/integrations/nmi/nmi.go",
+        "  - NMI API: type=sale, customer_vault_id=X, amount=Y, order_description=Z",
+        "  - Return transaction_id on success",
+        "  - Update AddRecurringSubscription to accept optional start_date parameter for delayed-start subscriptions",
+        "Unified Checkout Handler:",
+        "  - Create POST /v1/me/checkout endpoint (or extend existing subscribe flow)",
+        "  - Request: { price_id, payment_method_id } OR { price_id, payment_token }",
+        "  - Look up Price and check BillingCycleDays:",
+        "  - If BillingCycleDays != nil → subscription flow (see deduplication below)",
+        "  - If BillingCycleDays == nil → one-time purchase flow",
+        "Deduplication Logic (CRITICAL - check BOTH subscriptions AND entitlements):",
+        "  - Get user's active entitlements for the Product (from any source: subscription, one-off, admin)",
+        "  - Get user's active subscriptions for the Product",
+        "  - Determine 'coverage_end_date' = latest of (subscription.current_period_ends_at, entitlement.end_at)",
+        "  - If coverage_end_date is far in future (not expiring soon) → Block: 'You already have active access'",
+        "  - If coverage_end_date is soon (expiring within X days) → Allow purchase with delayed start",
+        "  - If no active coverage → Allow immediate purchase",
+        "Processor-Specific Handling for Delayed Start:",
+        "  - CCBill: BLOCK if user has existing coverage - CCBill API cannot schedule future start dates",
+        "  - NMI subscription: Create with start_date = coverage_end_date, status=pending, charged on start_date",
+        "  - Solana/one-off: Charge immediately, but create entitlement with start_at = coverage_end_date",
+        "NMI Subscription Flow:",
+        "  - If immediate: create NMI subscription with no start_date (charges now)",
+        "  - If delayed: create NMI subscription with start_date = coverage_end_date",
+        "  - Store locally with status=pending until webhook confirms first charge",
+        "  - Webhook handler activates subscription and grants entitlements",
+        "One-Off Purchase Flow (Solana, NMI RunSale):",
+        "  - Charge user immediately (Solana tx or NMI sale)",
+        "  - Create Payment record with purchased_at = now",
+        "  - If delayed start needed:",
+        "    - Create entitlement with start_at = coverage_end_date, end_at = start_at + duration_days",
+        "    - Example: User has sub ending 12/20, buys 30-day pass on 12/05",
+        "    - Payment: created 12/05, Entitlement: start_at=12/20, end_at=01/19",
+        "  - If immediate start:",
+        "    - Create entitlement with start_at = now, end_at = now + duration_days",
+        "Entitlement Duration for One-Time:",
+        "  - Product.EntitlementsSpec has { entitlement_name: duration_days }",
+        "  - Example: { 'premium': 30 } grants 30 days of premium",
+        "Cross-Processor Scenarios:",
+        "  - User has NMI sub expiring → buys Solana one-off → Solana entitlement starts when NMI ends",
+        "  - User has Solana entitlement expiring → creates NMI sub → NMI sub starts when Solana ends",
+        "  - User has CCBill sub expiring → buys NMI sub → NMI starts when CCBill ends",
+        "  - User has any coverage → tries CCBill → BLOCKED (CCBill limitation)",
+        "Goals:",
+        "  - No gaps: new coverage starts exactly when old coverage ends",
+        "  - No overlap: user doesn't get double time",
+        "  - No double-charging: NMI delayed charges on start_date, Solana charges once for fixed duration",
+        "Pending Subscription Handling:",
+        "  - User can cancel pending subscription before start_date → call NMI delete_subscription, remove record",
+        "  - If card declines on start_date → webhook marks as past_due, dunning flow kicks in",
+        "Write tests for:",
+        "  - One-time purchase (immediate)",
+        "  - One-time purchase (delayed start due to existing coverage)",
+        "  - NMI subscription (immediate)",
+        "  - NMI subscription (delayed start due to existing coverage)",
+        "  - CCBill blocked when existing coverage",
+        "  - Cross-processor scenarios (Solana → NMI, NMI → Solana)",
+        "  - Deduplication blocking (active coverage, not expiring)",
+        "Update frontend to use unified checkout endpoint"
       ],
       "passes": false
     },
@@ -487,17 +544,21 @@
       "category": "bug",
       "description": "Webhook lifecycle tests fail due to PostgreSQL tstzrange constraint when entitlement start_at equals end_at",
       "steps": [
-        "CURRENT: CreateTestEntitlement sets start_at = now, then webhook processes instantly setting end_at = now",
-        "PROBLEM: PostgreSQL tstzrange(start_at, end_at, '[)') requires start_at < end_at, throws 'range lower bound must be less than or equal to range upper bound'",
-        "OPTION 1: Update CreateTestEntitlement to set start_at in the past (e.g., now - 1 hour)",
-        "OPTION 2: Update EndActiveBySubscription to ensure end_at is at least start_at + 1 second",
-        "OPTION 3: Change tstzrange constraint to allow empty ranges '[]' instead of '[)'",
-        "Affected tests:",
+        "[DONE] PROBLEM: PostgreSQL tstzrange(start_at, end_at, '[)') requires start_at < end_at, throws 'range lower bound must be less than or equal to range upper bound'",
+        "[DONE] ROOT CAUSE: Tests created entitlements at real time, but mock clock was set to past, causing end_at < start_at",
+        "[DONE] FIX 1: Updated entitlement service/repo to use injected mock clock instead of time.Now()",
+        "[DONE] FIX 2: Updated SubscriptionLifecycleService to propagate clock to EntitlementService instances",
+        "[DONE] FIX 3: Updated entitlement repo methods (EndActiveBySubscription, EndActiveByPayment, RevokeByID) to accept 'now' parameter",
+        "[DONE] FIX 4: Updated test helpers (CreateTestEntitlement, CreateTestSubscriptionWithOptions) to use suite.GetClock().Now()",
+        "[DONE] FIX 5: Updated webhook lifecycle tests to set mock clock BEFORE creating test data, then advance clock before revocation",
+        "[DONE] Added validation in entitlement Insert() to reject entitlements with end_at <= start_at",
+        "[DONE] Added validation in EndActiveBySubscription/Payment to error if revocation would create invalid date ranges",
+        "All affected tests now pass:",
         "  - TestWebhookSubscriptionLifecycle/Cancellation_cancels_subscription",
         "  - TestWebhookExpirationFlow/Expiration_cancels_subscription_and_revokes_entitlements",
         "  - TestWebhookChargebackTerminatesSubscription"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "name": "simplify-solana-pay-architecture",
@@ -599,6 +660,409 @@
           "Easier to reason about and debug"
         ]
       },
+      "passes": false
+    },
+    {
+      "name": "mock-clock-test-updates",
+      "category": "testing",
+      "description": "Update tests to take advantage of the new uniform mock clock infrastructure",
+      "rationale": [
+        "The uniform-mock-clock-usage refactor added Clock fields to all services",
+        "Tests should leverage these clocks for deterministic time-based testing",
+        "Some tests may need updating to work with the new clock patterns"
+      ],
+      "status": "EXISTING TESTS ALREADY USE MOCK CLOCK - this is for future enhancements only",
+      "existing_coverage": [
+        "time_dependent_test.go - comprehensive entitlement/subscription expiry tests with Advance()",
+        "webhook_lifecycle_test.go - webhook processing with time advancement",
+        "river_worker_test.go - dunning worker tests (48h, 8 days, 100 days)",
+        "clock_test.go - direct clock functionality tests"
+      ],
+      "test_categories": [
+        {
+          "category": "Subscription expiry tests",
+          "status": "COVERED in time_dependent_test.go",
+          "tests_to_update": [
+            "TestWebhookSubscriptionLifecycle - verify expiry at exact time boundaries",
+            "TestWebhookExpirationFlow - test subscription expiration flow with controlled time"
+          ],
+          "benefits": "Can test edge cases like 'expires in exactly 30 days' or 'expires at midnight'"
+        },
+        {
+          "category": "Entitlement lifecycle tests",
+          "status": "COVERED in time_dependent_test.go (TestEntitlementExpiry, TestEntitlementMultipleSources, etc.)",
+          "tests_to_update": [
+            "Tests that grant entitlements with duration",
+            "Tests that revoke entitlements and verify timing"
+          ],
+          "benefits": "Verify entitlement windows work correctly, test grace periods"
+        },
+        {
+          "category": "Payment retry tests",
+          "status": "COVERED in river_worker_test.go",
+          "tests_to_update": [
+            "TestWebhookPaymentFailure - test retry timing",
+            "Dunning worker tests - test backoff timing"
+          ],
+          "benefits": "Can test exponential backoff without waiting"
+        },
+        {
+          "category": "Solana payment tests",
+          "status": "COVERED in time_dependent_test.go (TestSolanaPaymentIntentExpiry)",
+          "tests_to_update": [
+            "Payment intent expiry tests",
+            "Wallet verification challenge expiry tests"
+          ],
+          "benefits": "Test 15-minute payment windows deterministically"
+        }
+      ],
+      "steps": [
+        "[DONE] Review existing tests that use SetMockClock()",
+        "[N/A] Identify tests that use time.Sleep() or real time delays - remaining are for async polling",
+        "[N/A] Update tests to use clock.Advance() instead of time.Sleep() - not applicable",
+        "[DONE] Add new edge case tests for time boundaries (exactly at expiry, 1ms before/after)",
+        "Add tests for period calculations across DST boundaries (OPTIONAL - low priority)",
+        "[DONE] Verify all webhook lifecycle tests use mock clock consistently",
+        "[DONE] TestWebhookRetryBackoff - tests exponential backoff scheduling (1min, 2min, 4min)",
+        "[DONE] TestWebhookMaxRetries - tests max retry limit and status transition to 'error'",
+        "[DONE] TestPaymentTimestampUsesMockClock - verifies payment PurchasedAt uses mock clock",
+        "[DONE] TestSubscriptionExpiryAtExactBoundary - tests behavior at exact expiry moment",
+        "[DONE] TestCancellationTimestamp - verifies cancellation timestamps use mock clock",
+        "[DONE] TestVaultTimestamps - verifies payment method timestamps use mock clock"
+      ],
+      "passes": true
+    },
+    {
+      "name": "uniform-mock-clock-usage",
+      "category": "refactor",
+      "description": "Replace all time.Now() usages with injectable mock clock for consistent time-dependent testing",
+      "rationale": [
+        "Currently only some services use mock clock (SubscriptionLifecycleService, EntitlementService, etc.)",
+        "Other services use time.Now() directly, causing timestamp mismatches in tests",
+        "Time-dependent logic (expiry, retry windows, period calculations) cannot be reliably tested",
+        "Edge cases like 'exactly at expiry time' are impossible to test deterministically"
+      ],
+      "pattern": {
+        "add_to_service": "Clock clockwork.Clock field",
+        "add_helper": "func (s *Service) now() time.Time { if s.Clock != nil { return s.Clock.Now() }; return time.Now() }",
+        "replace": "time.Now() -> s.now()",
+        "propagate": "Pass clock from runtime to services at startup",
+        "test_setup": "Update SetMockClock() to set clock on all services"
+      },
+      "files_to_update": [
+        {
+          "file": "internal/services/webhook_ccbill.go",
+          "lines": [243, 315, 467, 559, 660, 762, 847, 919, 956, 1051, 1125, 1219, 1268, 1364, 1379, 1444, 1544, 1668, 1742],
+          "usages": "Timestamp fields on billing events, 'now' for subscription/entitlement operations",
+          "priority": "high"
+        },
+        {
+          "file": "internal/services/webhook_nmi.go",
+          "lines": [538, 539, 597, 716, 777],
+          "usages": "PurchasedAt, CreatedAt, Timestamp on payments and events",
+          "priority": "high"
+        },
+        {
+          "file": "internal/services/manage_subscription.go",
+          "lines": [55, 60, 72, 131, 133],
+          "usages": "UpdatedAt, StartedAt, CancelledAt, period end calculations",
+          "priority": "high"
+        },
+        {
+          "file": "internal/services/solana_payment.go",
+          "lines": [90, 94, 129, 138],
+          "usages": "Payment intent expiry, entitlement checks with time comparison",
+          "priority": "high"
+        },
+        {
+          "file": "internal/services/vault_service.go",
+          "lines": [103, 104, 181, 227],
+          "usages": "CreatedAt, UpdatedAt for payment methods",
+          "priority": "medium"
+        },
+        {
+          "file": "internal/services/payment.go",
+          "lines": [105, 106],
+          "usages": "PurchasedAt, CreatedAt for new payments",
+          "priority": "high"
+        },
+        {
+          "file": "internal/services/subscription.go",
+          "lines": [385],
+          "usages": "Time comparison for subscription state",
+          "priority": "high"
+        },
+        {
+          "file": "internal/services/types.go",
+          "lines": [19, 968],
+          "usages": "IsPeriodExpired() comparisons - critical for subscription state",
+          "priority": "high"
+        },
+        {
+          "file": "internal/handlers/admin_entitlements.go",
+          "lines": [49],
+          "usages": "Calculating end time for admin-granted entitlements",
+          "priority": "medium"
+        },
+        {
+          "file": "internal/services/solana_wallet.go",
+          "lines": [46, 87],
+          "usages": "Wallet challenge timestamps and expiry",
+          "priority": "medium"
+        },
+        {
+          "file": "internal/services/webhook_event_service.go",
+          "lines": [64, 102, 125, 152],
+          "usages": "Webhook retry timestamps and scheduling",
+          "priority": "medium"
+        },
+        {
+          "file": "internal/services/billing_event_service.go",
+          "lines": [158, 173, 191, 227, 242, 449, 486, 527, 585, 647],
+          "usages": "Event timestamps for ClickHouse analytics",
+          "priority": "low"
+        },
+        {
+          "file": "internal/handlers/admin_users.go",
+          "lines": [36],
+          "usages": "Time for admin user lookup response",
+          "priority": "low"
+        },
+        {
+          "file": "internal/services/solana_transaction.go",
+          "lines": [172],
+          "usages": "Transaction expiry calculation",
+          "priority": "medium"
+        },
+        {
+          "file": "internal/db/repo/ccbill_username_alias.go",
+          "lines": [41, 61],
+          "usages": "CreatedAt, UpdatedAt for alias records",
+          "priority": "low"
+        },
+        {
+          "file": "internal/services/subscription_email_service.go",
+          "lines": [199, 200],
+          "usages": "Period start/end for email templates",
+          "priority": "low"
+        },
+        {
+          "file": "internal/services/dead_letter_service.go",
+          "lines": [48],
+          "usages": "CreatedAt for dead letter records",
+          "priority": "low"
+        }
+      ],
+      "files_ok_to_skip": [
+        {
+          "file": "internal/middleware/logging.go",
+          "reason": "Request timing for observability - not business logic"
+        },
+        {
+          "file": "internal/middleware/ratelimit.go",
+          "reason": "Rate limit headers - infrastructure concern"
+        },
+        {
+          "file": "internal/oidc/jwks.go",
+          "reason": "JWKS cache refresh - external auth infrastructure"
+        },
+        {
+          "file": "internal/services/webhook/replay_service.go",
+          "reason": "Performance timing measurement"
+        }
+      ],
+      "steps": [
+        "[DONE] Add Clock field and now() helper to CCBillWebhookService",
+        "[DONE] Add Clock field and now() helper to NMIWebhookService",
+        "[DONE] Add Clock field and now() helper to ManageSubscriptionService",
+        "[DONE] Add Clock field and now() helper to SolanaPaymentService",
+        "[DONE] Add Clock field and now() helper to VaultService",
+        "[DONE] Add Clock field and now() helper to PaymentService",
+        "[DONE] Add Clock field and now() helper to SubscriptionService",
+        "[DONE] Update types.go IsPeriodExpired() and validateSubscription() to accept time parameter",
+        "[DONE] Add Clock to admin_entitlements handler (uses runtime.Clock)",
+        "[DONE] Add Clock field and now() helper to SolanaWalletService",
+        "[DONE] Add Clock field and now() helper to WebhookEventService",
+        "[DONE] Add Clock field and now() helper to BillingEventService",
+        "[DONE] Add Clock field and now() helper to CCBillAliasService",
+        "[DONE] Add Clock field and now() helper to SubscriptionEmailService",
+        "[DONE] Add Clock field and now() helper to DeadLetterService",
+        "[DONE] Add Clock field and now() helper to SolanaTransactionService",
+        "[DONE] Add Clock field to WebhookDispatcher",
+        "[DONE] Update ccbill_username_alias repo to accept time parameter",
+        "[DONE] Update build_runtime.go to propagate clock to all services",
+        "[DONE] Update testcontainer_suite.go SetMockClock() to set clock on all services",
+        "Write tests that exercise time-dependent logic with mock clock (see mock-clock-test-updates issue)"
+      ],
+      "passes": true
+    },
+    {
+      "name": "admin-grants-and-offline-purchases",
+      "category": "design",
+      "description": "Design and implement admin-granted entitlements and offline/manual payments (cash, comps, partnerships)",
+      "questions_to_answer": [
+        "What's the difference between an admin-granted entitlement and a one-off purchase?",
+        "Should admin grants create a Payment record or just an Entitlement?",
+        "How do we track the 'source' of an entitlement (subscription, one-off payment, admin grant, partnership)?",
+        "Should there be a 'reason' field for admin grants (comp, refund compensation, partnership, contest winner)?",
+        "How do offline payments (cash, check, wire) get recorded?",
+        "Do offline payments need a 'processor' value? (e.g., 'manual', 'cash', 'wire')",
+        "How does the CLI orphan-entitlements checker know an admin grant is intentional vs orphaned?"
+      ],
+      "key_insight": {
+        "problem": "Current admin grant endpoint grants raw entitlement names - admin must know internal entitlement strings",
+        "solution": "Admin should grant PRODUCTS (or prices), and the system derives entitlements from Product.EntitlementsSpec",
+        "benefits": [
+          "Admin doesn't need to know entitlement internals",
+          "If product's entitlements change, grants automatically use new spec",
+          "Consistent with how subscriptions and payments work",
+          "Audit trail shows 'granted Premium product' not 'granted premium_access entitlement'"
+        ],
+        "current_flow": "POST /v1/admin/users/:id/entitlements { entitlement: 'premium_access', days: 30 }",
+        "proposed_flow": "POST /v1/admin/users/:id/grants { product_id: 'prod_xxx', days: 30, reason: 'comp' }"
+      },
+      "current_state": {
+        "admin_grant_entitlement": "POST /v1/admin/users/:user_id/entitlements grants entitlement with optional duration_days",
+        "entitlement_source_type": "Entitlement has SourceType field: 'subscription', 'one_off', 'admin'",
+        "no_payment_for_admin": "Admin grants create Entitlement only, no Payment record",
+        "no_offline_payment_flow": "No way to record a cash/manual payment that grants entitlements"
+      },
+      "proposed_design": {
+        "entitlement_sources": [
+          "subscription - linked to active subscription, revoked when subscription ends",
+          "payment - linked to one-off Payment record (online or offline)",
+          "admin - manually granted, optional reason, no payment linkage",
+          "partnership - external deal, tracked separately"
+        ],
+        "offline_payment_endpoint": {
+          "endpoint": "POST /v1/admin/payments/manual",
+          "request": "{ user_id, price_id, amount, currency, payment_method: 'cash'|'wire'|'check'|'comp', notes }",
+          "behavior": [
+            "Create Payment record with processor='manual', no external transaction_id",
+            "Grant entitlements from the Price's Product.EntitlementsSpec",
+            "Return payment_id for audit trail"
+          ]
+        },
+        "admin_grant_vs_manual_payment": {
+          "admin_grant": "Quick entitlement grant without payment trail - for comps, bug compensation, testing",
+          "manual_payment": "Full payment record for offline money received - for cash, wire, partnerships with money"
+        }
+      },
+      "steps": [
+        "Decide: should admin grants require a reason/category?",
+        "Add 'manual' as valid processor for offline payments",
+        "Create POST /v1/admin/payments/manual endpoint",
+        "Update Payment model to allow nil transaction_id for manual payments",
+        "Ensure entitlement SourceType correctly distinguishes subscription vs payment vs admin",
+        "Update CLI orphan checker to handle admin/manual sources correctly",
+        "Write tests for manual payment flow",
+        "Document when to use admin grant vs manual payment"
+      ],
+      "passes": false
+    },
+    {
+      "name": "prorated-upgrades-downgrades",
+      "category": "design",
+      "description": "Design proration logic for subscription upgrades and downgrades between products/tiers",
+      "scenarios": {
+        "upgrade": {
+          "example": "User on Basic ($5/mo, 15 days left) upgrades to Premium ($15/mo)",
+          "questions": [
+            "Do we charge the price difference immediately? ($10 prorated for 15 days = $5)",
+            "Or do we charge full Premium price and credit unused Basic time?",
+            "Does the billing cycle reset or continue from original date?",
+            "What happens to entitlements? Immediate upgrade or wait for next cycle?"
+          ]
+        },
+        "downgrade": {
+          "example": "User on Premium ($15/mo, 15 days left) downgrades to Basic ($5/mo)",
+          "questions": [
+            "Does downgrade take effect immediately or at end of current period?",
+            "If immediate, do we credit/refund the price difference?",
+            "If end-of-period, do they keep Premium entitlements until then?",
+            "What's the UX? 'You'll be downgraded on [date]' vs immediate switch"
+          ]
+        },
+        "mid_cycle_cancel_resubscribe": {
+          "example": "User cancels Premium, then resubscribes 10 days later to Basic",
+          "questions": [
+            "Is this a 'downgrade' or a fresh subscription?",
+            "Do we credit any remaining time from cancelled subscription?",
+            "How do we track the relationship between old and new subscription?"
+          ]
+        }
+      },
+      "processor_considerations": {
+        "ccbill": {
+          "behavior": "CCBill handles upgrades via Package Upgrade flow",
+          "proration": "CCBill may handle proration internally - need to verify",
+          "our_role": "We receive webhook and update entitlements accordingly"
+        },
+        "nmi": {
+          "behavior": "NMI is just a gateway - we control subscription logic",
+          "proration": "We must calculate and charge proration ourselves",
+          "options": [
+            "Cancel old subscription, create new one (simple but loses history)",
+            "Update existing subscription amount (keeps continuity)",
+            "Charge one-time proration amount + update recurring"
+          ]
+        },
+        "solana": {
+          "behavior": "One-time payments, no recurring",
+          "proration": "Not applicable - each payment is independent",
+          "upgrade_path": "User just buys the higher tier product"
+        }
+      },
+      "common_approaches": {
+        "stripe_model": {
+          "upgrade": "Charge prorated difference immediately, new price on next cycle",
+          "downgrade": "Credit applied, new price on next cycle, keeps current access until then",
+          "billing_anchor": "Can reset billing date or keep original"
+        },
+        "simple_model": {
+          "upgrade": "Immediate switch, charge full new price, credit remaining time",
+          "downgrade": "Takes effect at end of period, no refund",
+          "billing_anchor": "Always reset on change"
+        },
+        "generous_model": {
+          "upgrade": "Immediate access to new tier, charge difference at next renewal",
+          "downgrade": "Keep current tier until period ends, then switch",
+          "billing_anchor": "Keep original date"
+        }
+      },
+      "entitlement_handling": {
+        "upgrade": [
+          "Option A: Immediately grant new tier entitlements, revoke old tier-specific ones",
+          "Option B: Keep both until period end, then switch",
+          "Recommendation: Immediate - user paid for upgrade, give it to them"
+        ],
+        "downgrade": [
+          "Option A: Immediate revocation of higher-tier entitlements",
+          "Option B: Keep higher tier until period ends (more user-friendly)",
+          "Recommendation: End-of-period - they paid for this period already"
+        ]
+      },
+      "questions_to_decide": [
+        "What proration model do we want? (Stripe-like, simple, generous)",
+        "Should upgrades be immediate or end-of-period?",
+        "Should downgrades be immediate or end-of-period?",
+        "Do we reset billing date on plan changes?",
+        "How do we handle partial refunds for downgrades (if at all)?",
+        "Do we need a 'pending_downgrade' state on subscriptions?",
+        "How does this interact with CCBill's built-in upgrade flow?"
+      ],
+      "steps": [
+        "Decide on proration model for our system",
+        "Document expected behavior for upgrade/downgrade scenarios",
+        "Implement proration calculation logic",
+        "Add upgrade/downgrade endpoints or extend existing subscribe flow",
+        "Handle NMI subscription updates (amount change, one-time charge)",
+        "Ensure CCBill upgrade webhooks work with our model",
+        "Update entitlement logic to handle mid-period tier changes",
+        "Add 'scheduled_change' field to Subscription for pending downgrades",
+        "Write tests for proration calculations",
+        "Write tests for upgrade/downgrade flows"
+      ],
       "passes": false
     }
   ]

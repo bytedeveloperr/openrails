@@ -12,10 +12,20 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
 )
 
 type PaymentService struct {
-	repo *repo.PaymentRepo
+	repo  *repo.PaymentRepo
+	Clock clockwork.Clock
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *PaymentService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 type GetPaymentsFilters = repo.PaymentFilters
@@ -102,8 +112,8 @@ func (s *PaymentService) Refund(ctx context.Context, originalPaymentID uuid.UUID
 		TransactionID: refundTransactionID,
 		Amount:        -amount,
 		Currency:      orig.Currency,
-		PurchasedAt:   time.Now(),
-		CreatedAt:     time.Now(),
+		PurchasedAt:   s.now(),
+		CreatedAt:     s.now(),
 	}
 	if err := s.Create(ctx, refund); err != nil {
 		return nil, err

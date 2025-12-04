@@ -11,11 +11,13 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/processors"
+	"github.com/jonboulle/clockwork"
 )
 
 // WebhookDispatcher routes persisted webhook events to processor-specific handlers.
 type WebhookDispatcher struct {
 	DB                           *db.DB
+	Clock                        clockwork.Clock
 	PriceService                 *PriceService
 	ProductService               *ProductService
 	NotificationQueueService     *NotificationQueueService

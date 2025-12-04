@@ -93,7 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_products_is_active ON billing.products(is_active)
 -- 2.2: Create prices table
 CREATE TABLE IF NOT EXISTS billing.prices (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    product_id UUID NOT NULL REFERENCES billing.products(id) ON DELETE CASCADE,
+    product_id UUID NOT NULL REFERENCES billing.products(id) ON DELETE RESTRICT,
     display_name TEXT NOT NULL,
     amount BIGINT NOT NULL, -- Amount in cents (smallest currency unit)
     currency TEXT NOT NULL,
