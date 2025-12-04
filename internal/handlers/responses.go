@@ -105,12 +105,6 @@ type PublicPriceResponse struct {
 // (Removed) NMI setup response and nonce: no longer needed because
 // the Collect.js tokenization key is injected into the frontend template.
 
-type GetSubscribePageDataResponse = map[string]any
-
-func NewGetSubscribePageDataResponse(data map[string]any) GetSubscribePageDataResponse {
-	return GetSubscribePageDataResponse(data)
-}
-
 type CancelSubscriptionResponse struct {
 	Message string `json:"message"`
 	Success bool   `json:"success"`

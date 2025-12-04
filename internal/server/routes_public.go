@@ -23,7 +23,6 @@ func (s *Server) registerPublicRoutes() {
 
 	subscriptions := api.Group("/subscriptions")
 	subscriptions.GET("/products", s.wrap(handlers.GetProducts))
-	subscriptions.GET("/page-data", s.wrap(handlers.GetSubscribePageData))
 
 	subscriptions.Use(middleware.AuthRequired(s.authVerifier))
 	subscriptions.POST("/process/:processor", s.wrap(handlers.Subscribe))

@@ -83,12 +83,6 @@ type GetProductsRequest struct {
 	BaseRequest
 }
 
-// -------------------------------- GetSubscribePageData Request --------------------------------
-
-type GetSubscribePageDataRequest struct {
-	BaseRequest
-}
-
 // -------------------------------- CancelSubscription Request --------------------------------
 
 type CancelSubscriptionBodyParams struct {

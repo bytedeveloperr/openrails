@@ -3,13 +3,16 @@
 package tests
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http/httptest"
 	"sync"
 	"testing"
 
 	authtesting "github.com/PaulFidika/authkit/testing"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/doujins-org/doujins-billing/internal/server"
 )
@@ -76,12 +79,30 @@ func setupTestServer(t *testing.T) *server.Server {
 	return suite.Server
 }
 
+// setupTestSuite returns the shared test suite for tests that need direct database access.
+// Use this when you need to seed data or query the database directly.
+func setupTestSuite(t *testing.T) *TestContainerSuite {
+	return getSharedTestSuite(t)
+}
+
 // setupTestServerWithAuth creates a test server with a valid JWT token.
 // The token is signed by the test issuer and will validate against the JWKS endpoint.
 func setupTestServerWithAuth(t *testing.T) (*server.Server, string) {
 	srv := setupTestServer(t)
 	token := getTestIssuer().CreateToken("test-user-billing-12345", "test@billing.example.com")
 	return srv, token
+}
+
+// setupTestSuiteWithAuth returns the shared test suite with a valid JWT token and user ID.
+// Use this when you need to seed data and make authenticated requests.
+// The userID is a valid UUID string that can be used in database columns expecting UUID format.
+func setupTestSuiteWithAuth(t *testing.T) (*TestContainerSuite, string, string) {
+	suite := getSharedTestSuite(t)
+	// Generate a valid UUID for the user ID (required by database schema)
+	userID := uuid.New().String()
+	email := "test-" + t.Name() + "@test.example.com"
+	token := getTestIssuer().CreateToken(userID, email)
+	return suite, token, userID
 }
 
 // setupTestServerWithRSAuth creates a test server with RS256-authenticated JWT token.
@@ -102,4 +123,9 @@ func CleanupSharedSuite() {
 	if testIssuer != nil {
 		testIssuer.Close()
 	}
+}
+
+// newRequestBody creates an io.ReadCloser from a byte slice for HTTP request bodies.
+func newRequestBody(data []byte) io.ReadCloser {
+	return io.NopCloser(bytes.NewReader(data))
 }

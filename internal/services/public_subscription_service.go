@@ -50,30 +50,6 @@ func (s *PublicSubscriptionService) GetAvailableProducts(ctx context.Context) ([
 	return responses, nil
 }
 
-// GetSubscriptionPageData returns data needed for the subscription page
-func (s *PublicSubscriptionService) GetSubscriptionPageData(ctx context.Context) (map[string]any, error) {
-	products, err := s.GetAvailableProducts(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get products: %w", err)
-	}
-
-	// Build subscription page data
-	data := map[string]any{
-		"products": products,
-		"features": map[string]any{
-			"premium": []string{
-				"Access to premium content",
-				"HD quality downloads",
-				"Priority support",
-				"No advertisements",
-			},
-		},
-		"currency": "USD", // Currently USD only, future enhancement will support multiple currencies
-	}
-
-	return data, nil
-}
-
 // NewPublicSubscriptionService creates a new PublicSubscriptionService
 func NewPublicSubscriptionService(
 	productService *ProductService,

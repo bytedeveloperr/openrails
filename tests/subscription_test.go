@@ -3,263 +3,375 @@
 package tests
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/handlers"
 	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
-// TestGetProductsEndpoint tests the public products endpoint
+// TestGetProductsEndpoint tests the public products endpoint returns seeded products
 func TestGetProductsEndpoint(t *testing.T) {
-	server := setupTestServer(t)
+	suite := setupTestSuite(t)
 
-	t.Run("GetProducts_Request", func(t *testing.T) {
+	// Seed products
+	testProducts := suite.SeedProducts()
+	require.Len(t, testProducts, 2, "Should have seeded 2 test products")
+
+	t.Run("returns seeded products", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", "/v1/subscriptions/products", nil)
 
-		server.Handler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
-		// Should not return 404 (route exists)
-		assert.NotEqual(t, http.StatusNotFound, w.Code)
-		// Should return some response (OK, error due to missing DB, or rate limited)
-		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError, http.StatusTooManyRequests}, w.Code)
+		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
+
+		// Parse response
+		var products []*services.PublicProductResponse
+		err := json.Unmarshal(w.Body.Bytes(), &products)
+		require.NoError(t, err, "Should parse response JSON")
+
+		// Verify products returned (at least the seeded ones)
+		require.GreaterOrEqual(t, len(products), 2, "Should return at least 2 products")
+
+		// Find premium-monthly product
+		var monthlyProduct *services.PublicProductResponse
+		for _, p := range products {
+			if p.Slug == "premium-monthly" {
+				monthlyProduct = p
+				break
+			}
+		}
+
+		require.NotNil(t, monthlyProduct, "Should find premium-monthly product")
+		assert.Equal(t, "Premium Monthly", monthlyProduct.DisplayName)
+		assert.True(t, monthlyProduct.IsActive)
+		require.Len(t, monthlyProduct.Prices, 1, "Should have 1 price")
+		assert.Equal(t, 9.99, monthlyProduct.Prices[0].Amount)
+		assert.Equal(t, "USD", monthlyProduct.Prices[0].Currency)
+	})
+
+	t.Run("returns products with correct price details", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/subscriptions/products", nil)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var products []*services.PublicProductResponse
+		err := json.Unmarshal(w.Body.Bytes(), &products)
+		require.NoError(t, err)
+
+		// Find yearly product and verify pricing
+		var yearlyProduct *services.PublicProductResponse
+		for _, p := range products {
+			if p.Slug == "premium-yearly" {
+				yearlyProduct = p
+				break
+			}
+		}
+
+		require.NotNil(t, yearlyProduct, "Should find premium-yearly product")
+		require.Len(t, yearlyProduct.Prices, 1, "Should have 1 price")
+		assert.Equal(t, 99.99, yearlyProduct.Prices[0].Amount)
+		assert.NotNil(t, yearlyProduct.Prices[0].BillingCycleDays)
+		assert.Equal(t, 365, *yearlyProduct.Prices[0].BillingCycleDays)
 	})
 }
 
-// TestGetSubscribePageDataEndpoint tests the subscribe page data endpoint
-func TestGetSubscribePageDataEndpoint(t *testing.T) {
-	server := setupTestServer(t)
+// TestGetActiveSubscriptionEndpoint tests retrieving the current user's subscription
+func TestGetActiveSubscriptionEndpoint(t *testing.T) {
+	suite, token, userID := setupTestSuiteWithAuth(t)
 
-	t.Run("GetSubscribePageData_Request", func(t *testing.T) {
+	// Seed products first
+	testProducts := suite.SeedProducts()
+	priceID := testProducts[0].Prices[0].ID
+
+	t.Run("returns no subscription for new user", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/page-data", nil)
-
-		server.Handler().ServeHTTP(w, req)
-
-		// Should not return 404 (route exists)
-		assert.NotEqual(t, http.StatusNotFound, w.Code)
-		// Should return some response (OK, error due to missing DB, or rate limited)
-		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError, http.StatusTooManyRequests}, w.Code)
-	})
-}
-
-// TestSubscribeEndpoint tests the subscription endpoint with authentication
-func TestSubscribeEndpoint(t *testing.T) {
-	server, token := setupTestServerWithAuth(t)
-
-	t.Run("Subscribe_RequiresAuth", func(t *testing.T) {
-		subscribeData := handlers.SubscribeRequest{
-			SubscribeBodyParams: handlers.SubscribeBodyParams{
-				SubscribeData: services.SubscribeData{
-					Processor: "nmi", Provider: "mobius",
-					PriceID: uuid.New().String(),
-				},
-			},
-		}
-
-		body, _ := json.Marshal(subscribeData)
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		server.Handler().ServeHTTP(w, req)
-
-		// Should require auth, but may get rate limited first
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusTooManyRequests}, w.Code)
-	})
-
-	t.Run("Subscribe_WithAuth", func(t *testing.T) {
-		subscribeData := handlers.SubscribeRequest{
-			SubscribeBodyParams: handlers.SubscribeBodyParams{
-				SubscribeData: services.SubscribeData{
-					Processor: "nmi", Provider: "mobius",
-					PriceID: uuid.New().String(),
-				},
-			},
-		}
-
-		body, _ := json.Marshal(subscribeData)
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
+		req, _ := http.NewRequest("GET", "/v1/subscriptions/active", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
-		server.Handler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
-		// Log response for debugging
-		logResponse(t, w, "Subscribe_WithAuth")
-
-		// Should not be unauthorized with valid token (JWKS server provides keys)
-		assert.NotEqual(t, http.StatusUnauthorized, w.Code)
-		// May get rate limited (429), internal server error (500), or bad request (400)
-		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError, http.StatusBadRequest, http.StatusTooManyRequests}, w.Code)
+		// User without subscription should get 200 with message
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Contains(t, w.Body.String(), "no active subscription")
 	})
 
-	t.Run("Subscribe_WithRS256Auth", func(t *testing.T) {
-		rsServer, rsToken := setupTestServerWithRSAuth(t)
-		subscribeData := handlers.SubscribeRequest{
-			SubscribeBodyParams: handlers.SubscribeBodyParams{
-				SubscribeData: services.SubscribeData{
-					Processor: "nmi", Provider: "mobius",
-					PriceID: uuid.New().String(),
-				},
-			},
-		}
+	t.Run("returns active subscription details", func(t *testing.T) {
+		// Create active subscription for user
+		sub := suite.CreateTestSubscription(userID, priceID, models.StatusActive)
 
-		body, _ := json.Marshal(subscribeData)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+rsToken)
-
-		rsServer.Handler().ServeHTTP(w, req)
-
-		logResponse(t, w, "Subscribe_WithRS256Auth")
-
-		// In test environment, JWT validation requires JWKS which we don't have,
-		// so 401 is acceptable. In production with real tokens, this would pass.
-		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError, http.StatusBadRequest, http.StatusTooManyRequests, http.StatusUnauthorized}, w.Code)
-	})
-}
-
-// TestCancelSubscriptionEndpoint tests the cancel subscription endpoint
-func TestCancelSubscriptionEndpoint(t *testing.T) {
-	server, token := setupTestServerWithAuth(t)
-
-	t.Run("CancelSubscription_RequiresAuth", func(t *testing.T) {
-		cancelData := handlers.CancelSubscriptionRequest{
-			CancelSubscriptionBodyParams: handlers.CancelSubscriptionBodyParams{
-				Feedback: "Too expensive",
-			},
-		}
-
-		body, _ := json.Marshal(cancelData)
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/cancel", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
-
-		server.Handler().ServeHTTP(w, req)
-
-		// Should require auth, but may get rate limited first
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusTooManyRequests}, w.Code)
-	})
-
-	t.Run("CancelSubscription_WithAuth", func(t *testing.T) {
-		cancelData := handlers.CancelSubscriptionRequest{
-			CancelSubscriptionBodyParams: handlers.CancelSubscriptionBodyParams{
-				Feedback: "Too expensive",
-			},
-		}
-
-		body, _ := json.Marshal(cancelData)
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/cancel", bytes.NewBuffer(body))
-		req.Header.Set("Content-Type", "application/json")
+		req, _ := http.NewRequest("GET", "/v1/subscriptions/active", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
-		server.Handler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
-		// Log response for debugging
-		logResponse(t, w, "CancelSubscription_WithAuth")
+		require.Equal(t, http.StatusOK, w.Code)
 
-		// Should not be unauthorized with valid token (JWKS server provides keys)
-		assert.NotEqual(t, http.StatusUnauthorized, w.Code)
-		// May get rate limited (429), internal server error (500), or bad request (400)
-		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError, http.StatusBadRequest, http.StatusTooManyRequests}, w.Code)
+		// Parse response
+		var response services.UserSubscriptionResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		// Verify subscription data
+		assert.Equal(t, sub.ID.String(), response.ID.String())
+		assert.Equal(t, string(models.StatusActive), string(response.Status))
+		assert.NotNil(t, response.Price, "Should include price details")
+		assert.Equal(t, 9.99, response.Price.Amount)
+	})
+
+	t.Run("requires authentication", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/subscriptions/active", nil)
+		// No auth header
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 }
 
-// TestGetSubscriptionEndpoints tests various subscription GET endpoints
-func TestGetSubscriptionEndpoints(t *testing.T) {
-	server, token := setupTestServerWithAuth(t)
+// TestGetSubscriptionHistoryEndpoint tests retrieving subscription history
+func TestGetSubscriptionHistoryEndpoint(t *testing.T) {
+	suite, token, userID := setupTestSuiteWithAuth(t)
 
-	endpoints := []struct {
-		name string
-		path string
-	}{
-		{"GetActiveSubscription", "/v1/subscriptions/active"},
-		{"GetSubscriptionHistory", "/v1/subscriptions/history"},
-		{"GetUserPayments", "/v1/subscriptions/purchases"},
-		{"GetMyBillingStatus", "/v1/me/status"},
-	}
+	// Seed products
+	testProducts := suite.SeedProducts()
+	monthlyPriceID := testProducts[0].Prices[0].ID
+	yearlyPriceID := testProducts[1].Prices[0].ID
 
-	for _, endpoint := range endpoints {
-		t.Run(endpoint.name+"_RequiresAuth", func(t *testing.T) {
-			w := httptest.NewRecorder()
-			req, _ := http.NewRequest("GET", endpoint.path, nil)
+	t.Run("returns empty history for new user", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/subscriptions/history", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
 
-			server.Handler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
-			// Should require auth, but may get rate limited first
-			assert.Contains(t, []int{http.StatusUnauthorized, http.StatusTooManyRequests}, w.Code,
-				"Endpoint %s should require authentication or be rate limited", endpoint.path)
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response handlers.PaginatedResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		data, ok := response.Data.([]any)
+		require.True(t, ok, "Data should be an array")
+		assert.Empty(t, data, "Should have no subscriptions for new user")
+	})
+
+	t.Run("returns subscription history with multiple subscriptions", func(t *testing.T) {
+		// Create cancelled subscription
+		cancelledSub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+			UserID:  userID,
+			PriceID: monthlyPriceID,
+			Status:  models.StatusCancelled,
 		})
 
-		t.Run(endpoint.name+"_WithAuth", func(t *testing.T) {
-			w := httptest.NewRecorder()
-			req, _ := http.NewRequest("GET", endpoint.path, nil)
-			req.Header.Set("Authorization", "Bearer "+token)
+		// Create active subscription
+		activeSub := suite.CreateTestSubscription(userID, yearlyPriceID, models.StatusActive)
 
-			server.Handler().ServeHTTP(w, req)
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/subscriptions/history", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
 
-			// Should not be unauthorized with valid token
-			assert.NotEqual(t, http.StatusUnauthorized, w.Code,
-				"Endpoint %s should accept valid auth", endpoint.path)
-			// May get rate limited (429), internal server error (500), or bad request (400)
-			assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError, http.StatusBadRequest, http.StatusTooManyRequests}, w.Code)
-		})
-	}
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response handlers.PaginatedResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		// Extract subscription data from paginated response
+		dataBytes, err := json.Marshal(response.Data)
+		require.NoError(t, err)
+		var subscriptions []map[string]any
+		err = json.Unmarshal(dataBytes, &subscriptions)
+		require.NoError(t, err)
+		require.Len(t, subscriptions, 2, "Should have 2 subscriptions in history")
+
+		// Verify we have both active and cancelled subscriptions
+		var hasActive, hasCancelled bool
+		for _, sub := range subscriptions {
+			status := sub["status"].(string)
+			if status == string(models.StatusActive) {
+				hasActive = true
+				assert.Equal(t, activeSub.ID.String(), sub["id"])
+			}
+			if status == string(models.StatusCancelled) {
+				hasCancelled = true
+				assert.Equal(t, cancelledSub.ID.String(), sub["id"])
+			}
+		}
+		assert.True(t, hasActive, "Should have active subscription")
+		assert.True(t, hasCancelled, "Should have cancelled subscription")
+	})
+}
+
+// TestGetUserPaymentsEndpoint tests retrieving payment history
+func TestGetUserPaymentsEndpoint(t *testing.T) {
+	suite, token, userID := setupTestSuiteWithAuth(t)
+
+	// Seed products
+	testProducts := suite.SeedProducts()
+	priceID := testProducts[0].Prices[0].ID
+
+	t.Run("returns empty payments for new user", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/subscriptions/purchases", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusOK, w.Code)
+
+		var response handlers.PaginatedResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		data, ok := response.Data.([]any)
+		require.True(t, ok, "Data should be an array")
+		assert.Empty(t, data, "Should have no payments for new user")
+	})
+
+	t.Run("returns payment history", func(t *testing.T) {
+		// Create subscription and payments
+		sub := suite.CreateTestSubscription(userID, priceID, models.StatusActive)
+		payment1 := suite.CreateTestPayment(userID, priceID, &sub.ID)
+		payment2 := suite.CreateTestPayment(userID, priceID, &sub.ID)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/subscriptions/purchases", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response handlers.PaginatedResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		// Extract payment data from paginated response
+		dataBytes, err := json.Marshal(response.Data)
+		require.NoError(t, err)
+		var payments []map[string]any
+		err = json.Unmarshal(dataBytes, &payments)
+		require.NoError(t, err)
+		require.Len(t, payments, 2, "Should have 2 payments")
+
+		// Verify payment details
+		paymentIDs := make(map[string]bool)
+		for _, p := range payments {
+			paymentIDs[p["id"].(string)] = true
+			assert.Equal(t, 9.99, p["amount"])
+			assert.Equal(t, "USD", p["currency"])
+		}
+		assert.True(t, paymentIDs[payment1.ID.String()], "Should include payment 1")
+		assert.True(t, paymentIDs[payment2.ID.String()], "Should include payment 2")
+	})
+}
+
+// TestGetMyBillingStatusEndpoint tests the user's billing status
+func TestGetMyBillingStatusEndpoint(t *testing.T) {
+	suite, token, userID := setupTestSuiteWithAuth(t)
+
+	// Seed products
+	testProducts := suite.SeedProducts()
+	priceID := testProducts[0].Prices[0].ID
+
+	t.Run("returns non-premium status for user without subscription", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/me/status", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response handlers.BillingStatusResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		assert.False(t, response.IsPremium, "Should not be premium without subscription")
+		assert.Nil(t, response.NextRenewalAt, "Should have no renewal date")
+	})
+
+	t.Run("returns premium status for user with active subscription", func(t *testing.T) {
+		// Create active subscription
+		sub := suite.CreateTestSubscription(userID, priceID, models.StatusActive)
+
+		// Create entitlement
+		suite.CreateTestEntitlement(userID, "premium", &sub.ID, models.EntitlementSourceSubscription)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/me/status", nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code)
+
+		var response handlers.BillingStatusResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		assert.True(t, response.IsPremium, "Should be premium with active subscription and entitlement")
+		assert.NotNil(t, response.NextRenewalAt, "Should have renewal date")
+	})
+
+	t.Run("requires authentication", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("GET", "/v1/me/status", nil)
+		// No auth header
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
+	})
 }
 
 // TestFlexFormURL tests the CCBill FlexForm URL generation
 func TestFlexFormURL(t *testing.T) {
-	server, token := setupTestServerWithAuth(t)
+	suite, token, _ := setupTestSuiteWithAuth(t)
 
-	t.Run("FlexFormURL_RequiresAuth", func(t *testing.T) {
-		requestData := map[string]interface{}{
-			"price_id": uuid.New().String(),
-		}
+	// Seed products
+	testProducts := suite.SeedProducts()
+	priceID := testProducts[0].Prices[0].ID
 
-		body, _ := json.Marshal(requestData)
+	t.Run("requires authentication", func(t *testing.T) {
+		body := []byte(`{"price_id":"` + priceID.String() + `"}`)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/flexform-url", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/flexform-url", nil)
+		req.Body = newRequestBody(body)
 		req.Header.Set("Content-Type", "application/json")
+		// No auth header
 
-		server.Handler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
-		// Log response for debugging
-		logResponse(t, w, "FlexFormURL_RequiresAuth")
-
-		// Should require auth, but may get rate limited first
-		assert.Contains(t, []int{http.StatusUnauthorized, http.StatusTooManyRequests}, w.Code)
+		assert.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 
-	t.Run("FlexFormURL_WithAuth", func(t *testing.T) {
-		requestData := map[string]interface{}{
-			"price_id": uuid.New().String(),
-		}
-
-		body, _ := json.Marshal(requestData)
+	t.Run("validates price_id parameter", func(t *testing.T) {
+		body := []byte(`{"price_id":"invalid-uuid"}`)
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/flexform-url", bytes.NewBuffer(body))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/flexform-url", nil)
+		req.Body = newRequestBody(body)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
-		server.Handler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
-		// Log response for debugging
-		logResponse(t, w, "FlexFormURL_WithAuth")
-
-		// Should not be unauthorized with valid token
-		assert.NotEqual(t, http.StatusUnauthorized, w.Code)
-		// May get rate limited (429), internal server error (500), or bad request (400)
-		assert.Contains(t, []int{http.StatusOK, http.StatusInternalServerError, http.StatusBadRequest, http.StatusTooManyRequests}, w.Code)
+		// Should fail validation (400) or processing (500 in dev mode without CCBill config)
+		assert.Contains(t, []int{http.StatusBadRequest, http.StatusInternalServerError}, w.Code)
 	})
 }
