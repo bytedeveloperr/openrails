@@ -44,22 +44,21 @@ const EnvDev string = "dev"
 const ConfigContextKey string = "config"
 
 type Config struct {
-	Env           string            `koanf:"env,omitempty"`
-	Port          FlexiblePort      `koanf:"port,omitempty"`
-	Host          string            `koanf:"host,omitempty"`
-	NMI           *NMIConfig        `koanf:"nmi,omitempty"`
-	CCBill        *CCBillConfig     `koanf:"ccbill,omitempty"`
-	Webhooks      *WebhookConfig    `koanf:"webhooks,omitempty"`
-	Solana        *SolanaConfig     `koanf:"solana,omitempty"`
-	DB            *DBConfig         `koanf:"db,omitempty"`
-	Redis         *RedisConfig      `koanf:"redis,omitempty"`
-	Auth          *AuthConfig       `koanf:"auth,omitempty"`
-	ClickHouse    *ClickHouseConfig `koanf:"clickhouse,omitempty"`
-	Logger        *LoggerConfig     `koanf:"logger,omitempty"`
-	SendGrid      *SendGridConfig   `koanf:"sendgrid,omitempty"`
-	CorsOrigins   []string          `koanf:"cors_origins,omitempty"`
-	RateLimits    *RateLimitsConfig `koanf:"rate_limits,omitempty"`
-	BillingAPIKey string            `koanf:"billing_api_key,omitempty"`
+	Env         string            `koanf:"env,omitempty"`
+	Port        FlexiblePort      `koanf:"port,omitempty"`
+	Host        string            `koanf:"host,omitempty"`
+	NMI         *NMIConfig        `koanf:"nmi,omitempty"`
+	CCBill      *CCBillConfig     `koanf:"ccbill,omitempty"`
+	Webhooks    *WebhookConfig    `koanf:"webhooks,omitempty"`
+	Solana      *SolanaConfig     `koanf:"solana,omitempty"`
+	DB          *DBConfig         `koanf:"db,omitempty"`
+	Redis       *RedisConfig      `koanf:"redis,omitempty"`
+	Auth        *AuthConfig       `koanf:"auth,omitempty"`
+	ClickHouse  *ClickHouseConfig `koanf:"clickhouse,omitempty"`
+	Logger      *LoggerConfig     `koanf:"logger,omitempty"`
+	SendGrid    *SendGridConfig   `koanf:"sendgrid,omitempty"`
+	CorsOrigins []string          `koanf:"cors_origins,omitempty"`
+	RateLimits  *RateLimitsConfig `koanf:"rate_limits,omitempty"`
 }
 
 // DBConfig holds database configuration.
@@ -586,7 +585,6 @@ func GetDefaultBillingConfig() *Config {
 			Password:   "analytics_password", // Match docker-compose CLICKHOUSE_PASSWORD
 			Cluster:    "doujins",            // Match docker-compose cluster name
 		},
-		BillingAPIKey: "change-me-in-dev", // Override via env BILLING_API_KEY in prod
 		Logger: &LoggerConfig{
 			Level: "info", // Default to info level (options: debug, info, warn, error, fatal, panic)
 		},
@@ -673,11 +671,6 @@ func Load(configPath string) (*Config, error) {
 		// Special case: ENVIRONMENT -> env
 		if s == "environment" {
 			return "env"
-		}
-
-		// Special case: BILLING_API_KEY stays as billing_api_key (no nesting)
-		if s == "billing_api_key" {
-			return "billing_api_key"
 		}
 
 		// Special case: NMI_PROVIDERS_<PROVIDER>_<KEY> -> nmi.providers.<provider>.<key>

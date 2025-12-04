@@ -13,6 +13,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
 // CheckSolanaPayment checks if a Solana Pay transfer has been completed on-chain
@@ -67,7 +68,7 @@ func CheckSolanaPayment(r *Request) {
 	}
 
 	if intent.Status == services.IntentStatusConfirmed {
-		resp := CheckSolanaPaymentResponse{Status: "confirmed", IntentID: intent.ID.String()}
+		resp := CheckSolanaPaymentResponse{Status: "confirmed", IntentID: api.FormatPaymentIntentID(intent.ID)}
 		if intent.TransactionSignature != nil {
 			resp.Transaction = *intent.TransactionSignature
 		}
@@ -77,7 +78,7 @@ func CheckSolanaPayment(r *Request) {
 
 	if r.State.SolanaPaymentIntentService.IsExpired(intent) {
 		_ = r.State.SolanaPaymentIntentService.MarkFailed(ctx, intent.ID, "intent expired")
-		r.SuccessJSON(CheckSolanaPaymentResponse{Status: "failed", IntentID: intent.ID.String(), ErrorMessage: "Intent expired"})
+		r.SuccessJSON(CheckSolanaPaymentResponse{Status: "failed", IntentID: api.FormatPaymentIntentID(intent.ID), ErrorMessage: "Intent expired"})
 		return
 	}
 
@@ -101,7 +102,7 @@ func CheckSolanaPayment(r *Request) {
 	}
 
 	if len(signatures) == 0 {
-		r.SuccessJSON(CheckSolanaPaymentResponse{Status: "pending", IntentID: intent.ID.String()})
+		r.SuccessJSON(CheckSolanaPaymentResponse{Status: "pending", IntentID: api.FormatPaymentIntentID(intent.ID)})
 		return
 	}
 
@@ -112,7 +113,7 @@ func CheckSolanaPayment(r *Request) {
 	if err != nil {
 		log.WithError(err).Error("Transaction verification for Solana Pay intent failed")
 		_ = r.State.SolanaPaymentIntentService.MarkFailed(ctx, intent.ID, err.Error())
-		r.SuccessJSON(CheckSolanaPaymentResponse{Status: "failed", IntentID: intent.ID.String(), ErrorMessage: "Transaction verification failed"})
+		r.SuccessJSON(CheckSolanaPaymentResponse{Status: "failed", IntentID: api.FormatPaymentIntentID(intent.ID), ErrorMessage: "Transaction verification failed"})
 		return
 	}
 
@@ -164,8 +165,8 @@ func CheckSolanaPayment(r *Request) {
 
 	resp := CheckSolanaPaymentResponse{
 		Status:      "confirmed",
-		PaymentID:   pay.ID.String(),
-		IntentID:    intent.ID.String(),
+		PaymentID:   api.FormatPaymentID(pay.ID),
+		IntentID:    api.FormatPaymentIntentID(intent.ID),
 		Transaction: signatureStr,
 	}
 	r.SuccessJSON(resp)

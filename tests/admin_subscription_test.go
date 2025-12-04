@@ -18,59 +18,62 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 )
 
-const testAdminAPIKey = "test-admin-api-key"
-
-// setupAdminTestSuite sets up the test suite for admin tests
-// The BillingAPIKey is set in testcontainer_suite.go config
-func setupAdminTestSuite(t *testing.T) *TestContainerSuite {
-	return getSharedTestSuite(t)
+// setupAdminTestSuite sets up the test suite for admin tests.
+// Admin endpoints require JWT with "admin" role (via AuthRequired + AdminRequired middleware).
+func setupAdminTestSuite(t *testing.T) (*TestContainerSuite, string) {
+	suite, token, _ := setupTestSuiteWithAdminAuth(t)
+	return suite, token
 }
 
-// TestAdminEndpointsRequireAPIKey tests that admin endpoints require X-API-KEY header
-func TestAdminEndpointsRequireAPIKey(t *testing.T) {
-	suite := setupAdminTestSuite(t)
+// TestAdminEndpointsRequireAuth tests that admin endpoints require JWT with admin role
+func TestAdminEndpointsRequireAuth(t *testing.T) {
+	suite, _ := setupAdminTestSuite(t)
 
-	t.Run("PUT extend subscription returns 401 without API key", func(t *testing.T) {
+	t.Run("PUT extend subscription returns 401 without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", "/v1/subscriptions/"+uuid.New().String()+"/extend", nil)
+		req, _ := http.NewRequest("PUT", "/v1/admin/subscriptions/"+uuid.New().String()+"/extend", nil)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusUnauthorized, w.Code, "Should return 401 Unauthorized")
 	})
 
-	t.Run("GET dashboard metrics returns 401 without API key", func(t *testing.T) {
+	t.Run("GET dashboard metrics returns 401 without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/dashboard-metrics", nil)
+		req, _ := http.NewRequest("GET", "/v1/admin/subscriptions/dashboard-metrics", nil)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusUnauthorized, w.Code, "Should return 401 Unauthorized")
 	})
 
-	t.Run("GET user entitlements returns 401 without API key", func(t *testing.T) {
+	t.Run("GET user entitlements returns 401 without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/users/"+uuid.New().String()+"/entitlements", nil)
+		req, _ := http.NewRequest("GET", "/v1/admin/users/"+uuid.New().String()+"/entitlements", nil)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusUnauthorized, w.Code, "Should return 401 Unauthorized")
 	})
 
-	t.Run("returns 401 with invalid API key", func(t *testing.T) {
+	t.Run("returns 403 with non-admin JWT", func(t *testing.T) {
+		// Create a regular user token (no admin role)
+		userID := uuid.New().String()
+		userToken := CreateUserToken(t, userID)
+
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/dashboard-metrics", nil)
-		req.Header.Set("X-API-KEY", "invalid-key")
+		req, _ := http.NewRequest("GET", "/v1/admin/subscriptions/dashboard-metrics", nil)
+		req.Header.Set("Authorization", "Bearer "+userToken)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusUnauthorized, w.Code, "Should return 401 Unauthorized")
+		assert.Equal(t, http.StatusForbidden, w.Code, "Should return 403 Forbidden for non-admin user")
 	})
 }
 
 // TestAdminExtendSubscription tests the PUT extend subscription endpoint
 func TestAdminExtendSubscription(t *testing.T) {
-	suite := setupAdminTestSuite(t)
+	suite, adminToken := setupAdminTestSuite(t)
 
 	// Create test products and subscription
 	products := suite.SeedProducts()
@@ -99,11 +102,11 @@ func TestAdminExtendSubscription(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/subscriptions/%s/extend", sub.ID.String()), bytes.NewReader(body))
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/admin/subscriptions/%s/extend", sub.ID.String()), bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 		req.Header.Set("Content-Type", "application/json")
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got: %s", w.Body.String())
 
@@ -133,11 +136,11 @@ func TestAdminExtendSubscription(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/subscriptions/%s/extend", cancelledSub.ID.String()), bytes.NewReader(body))
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/admin/subscriptions/%s/extend", cancelledSub.ID.String()), bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 		req.Header.Set("Content-Type", "application/json")
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusInternalServerError, w.Code, "Should fail for cancelled subscription")
 	})
@@ -145,16 +148,16 @@ func TestAdminExtendSubscription(t *testing.T) {
 
 // TestAdminGetUserEntitlements tests the GET user entitlements endpoint
 func TestAdminGetUserEntitlements(t *testing.T) {
-	suite := setupAdminTestSuite(t)
+	suite, adminToken := setupAdminTestSuite(t)
 
 	t.Run("returns empty list for user with no entitlements", func(t *testing.T) {
 		userID := uuid.New().String()
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/users/%s/entitlements", userID), nil)
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/admin/users/%s/entitlements", userID), nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
 
@@ -172,10 +175,10 @@ func TestAdminGetUserEntitlements(t *testing.T) {
 		ent := suite.CreateTestEntitlement(userID, "premium", nil, models.EntitlementSourceAdmin)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/users/%s/entitlements", userID), nil)
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/admin/users/%s/entitlements", userID), nil)
+		req.Header.Set("Authorization", "Bearer "+adminToken)
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
 
@@ -189,16 +192,16 @@ func TestAdminGetUserEntitlements(t *testing.T) {
 	})
 }
 
-// TestAdminHealth tests the admin health endpoint
+// TestAdminHealth tests the health endpoint (public, no auth required)
 func TestAdminHealth(t *testing.T) {
-	suite := setupAdminTestSuite(t)
+	suite, _ := setupAdminTestSuite(t)
 
-	t.Run("health endpoint returns ok", func(t *testing.T) {
+	t.Run("health endpoint returns ok without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", "/health", nil)
-		req.Header.Set("X-API-KEY", testAdminAPIKey)
+		// No auth header - health endpoint should be public
 
-		suite.Server.AdminHandler().ServeHTTP(w, req)
+		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
 
@@ -207,6 +210,6 @@ func TestAdminHealth(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.Equal(t, "ok", response["status"], "Status should be ok")
-		assert.Equal(t, "billing-admin", response["service"], "Service should be billing-admin")
+		assert.Equal(t, "billing", response["service"], "Service should be billing")
 	})
 }

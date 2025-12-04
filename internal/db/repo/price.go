@@ -55,6 +55,14 @@ func (r *PriceRepo) GetActiveByProductID(ctx context.Context, productID uuid.UUI
 	return prices, nil
 }
 
+func (r *PriceRepo) GetAllActive(ctx context.Context) ([]*models.Price, error) {
+	prices := []*models.Price{}
+	if err := r.db.GetDB().NewSelect().Model(&prices).Relation("Product").Where("price.is_active = ?", true).OrderExpr("price.amount ASC").Scan(ctx); err != nil {
+		return nil, err
+	}
+	return prices, nil
+}
+
 func (r *PriceRepo) GetByNMIPlan(ctx context.Context, provider, nmiPlanID string) (*models.Price, error) {
 	price := new(models.Price)
 	provider = strings.TrimSpace(strings.ToLower(provider))
@@ -62,14 +70,18 @@ func (r *PriceRepo) GetByNMIPlan(ctx context.Context, provider, nmiPlanID string
 		provider = "mobius"
 	}
 
+	// Query using JSONB operators:
+	// processors->'nmi'->>'plan_id' = planID
+	// AND (processors->'nmi'->>'provider' = provider OR providers->'nmi'->>'provider' IS NULL for mobius default)
 	query := r.db.GetDB().NewSelect().Model(price).
-		Where("price.nmi_plan_id = ?", nmiPlanID).
+		Where("price.processors->'nmi'->>'plan_id' = ?", nmiPlanID).
 		Where("price.is_active = ?", true)
 
 	if provider == "mobius" {
-		query = query.Where("(price.nmi_provider = ? OR price.nmi_provider IS NULL OR price.nmi_provider = '')", provider)
+		// For mobius, match either explicit mobius or missing provider (default)
+		query = query.Where("(price.processors->'nmi'->>'provider' = ? OR price.processors->'nmi'->>'provider' IS NULL)", provider)
 	} else {
-		query = query.Where("price.nmi_provider = ?", provider)
+		query = query.Where("price.processors->'nmi'->>'provider' = ?", provider)
 	}
 
 	if err := query.Scan(ctx); err != nil {
@@ -80,7 +92,11 @@ func (r *PriceRepo) GetByNMIPlan(ctx context.Context, provider, nmiPlanID string
 
 func (r *PriceRepo) GetByCCBillPriceID(ctx context.Context, ccbillPriceID string) (*models.Price, error) {
 	price := new(models.Price)
-	if err := r.db.GetDB().NewSelect().Model(price).Relation("Product").Where("price.ccbill_price_id = ?", ccbillPriceID).Where("price.is_active = ?", true).Scan(ctx); err != nil {
+	// Query using JSONB: processors->'ccbill'->>'price_id' = priceID
+	if err := r.db.GetDB().NewSelect().Model(price).Relation("Product").
+		Where("price.processors->'ccbill'->>'price_id' = ?", ccbillPriceID).
+		Where("price.is_active = ?", true).
+		Scan(ctx); err != nil {
 		return nil, err
 	}
 	return price, nil

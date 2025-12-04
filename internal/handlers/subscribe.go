@@ -2,11 +2,19 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 )
+
+// validProcessors lists the supported processor values
+var validProcessors = map[string]bool{
+	"mobius": true,
+	"ccbill": true,
+	"solana": true,
+}
 
 func Subscribe(r *Request) {
 	var req SubscribeRequest
@@ -14,8 +22,18 @@ func Subscribe(r *Request) {
 		return
 	}
 
+	// Infer processor from route path if not set in body
+	// Routes: /subscriptions/mobius, /subscriptions/ccbill, /subscriptions/solana
 	if req.Processor == "" {
-		req.Processor = r.Param("processor")
+		// Extract processor from path (e.g., /subscriptions/mobius -> mobius)
+		path := r.Request.URL.Path
+		parts := strings.Split(strings.TrimSuffix(path, "/"), "/")
+		if len(parts) > 0 {
+			processor := parts[len(parts)-1]
+			if validProcessors[processor] {
+				req.Processor = processor
+			}
+		}
 	}
 
 	userCtx := middleware.GetUserContext(r.GinCtx)

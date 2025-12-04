@@ -22,7 +22,7 @@ func TestNotificationsRequiresAuth(t *testing.T) {
 
 	t.Run("GET notifications returns 401 without auth token", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/notifications", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/notifications", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -31,7 +31,7 @@ func TestNotificationsRequiresAuth(t *testing.T) {
 
 	t.Run("GET unread-count returns 401 without auth token", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/notifications/unread-count", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/notifications/unread-count", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -40,7 +40,7 @@ func TestNotificationsRequiresAuth(t *testing.T) {
 
 	t.Run("POST mark read returns 401 without auth token", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/notifications/"+uuid.New().String()+"/read", nil)
+		req, _ := http.NewRequest("POST", "/v1/me/notifications/"+uuid.New().String()+"/read", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -54,7 +54,7 @@ func TestGetNotificationsEmpty(t *testing.T) {
 
 	t.Run("returns empty list for user with no notifications", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/notifications", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/notifications", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -89,7 +89,7 @@ func TestGetNotifications(t *testing.T) {
 
 	t.Run("returns notifications for user", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/notifications", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/notifications", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -118,7 +118,7 @@ func TestGetNotifications(t *testing.T) {
 
 	t.Run("filters by seen=false", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/notifications?seen=false", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/notifications?seen=false", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -135,7 +135,7 @@ func TestGetNotifications(t *testing.T) {
 
 	t.Run("supports pagination", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/notifications?page=1&page_size=1", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/notifications?page=1&page_size=1", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -159,7 +159,7 @@ func TestGetUnreadNotificationCount(t *testing.T) {
 
 	t.Run("returns 0 for user with no notifications", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/notifications/unread-count", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/notifications/unread-count", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -179,7 +179,7 @@ func TestGetUnreadNotificationCount(t *testing.T) {
 
 	t.Run("returns correct unread count", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/notifications/unread-count", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/notifications/unread-count", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -210,7 +210,7 @@ func TestMarkNotificationRead(t *testing.T) {
 
 		// Mark as read
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/notifications/%s/read", notif.ID.String()), nil)
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/me/notifications/%s/read", notif.ID.String()), nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -226,7 +226,7 @@ func TestMarkNotificationRead(t *testing.T) {
 
 	t.Run("returns error for invalid notification ID", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/notifications/not-a-uuid/read", nil)
+		req, _ := http.NewRequest("POST", "/v1/me/notifications/not-a-uuid/read", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -236,7 +236,7 @@ func TestMarkNotificationRead(t *testing.T) {
 
 	t.Run("returns error for non-existent notification", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/notifications/%s/read", uuid.New().String()), nil)
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/me/notifications/%s/read", uuid.New().String()), nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -263,7 +263,7 @@ func TestNotificationsIsolation(t *testing.T) {
 
 	t.Run("user cannot see other user's notifications", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/notifications", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/notifications", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -286,7 +286,7 @@ func TestNotificationsIsolation(t *testing.T) {
 
 	t.Run("user cannot mark other user's notification as read", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/notifications/%s/read", otherNotif.ID.String()), nil)
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/me/notifications/%s/read", otherNotif.ID.String()), nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)

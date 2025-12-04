@@ -180,16 +180,6 @@ func runServer(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	// Start private admin listener (internal-only via compose network)
-	adminAddr := ":8060"
-	adminSrv := &http.Server{Addr: adminAddr, Handler: billingServer.AdminHandler()}
-	go func() {
-		log.Infof("Starting billing admin server on %s", adminAddr)
-		if err := adminSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.WithError(err).Error("Admin server failed")
-		}
-	}()
-
 	// Wait for interrupt signal to gracefully shutdown the server
 	<-sigChan
 	log.Info("Shutdown signal received, shutting down server...")
@@ -199,9 +189,6 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.WithError(err).Error("Server forced to shutdown")
-	}
-	if err := adminSrv.Shutdown(shutdownCtx); err != nil {
-		log.WithError(err).Error("Admin server forced to shutdown")
 	}
 
 	if err := billingServer.Close(shutdownCtx); err != nil {

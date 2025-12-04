@@ -213,8 +213,6 @@ func (suite *TestContainerSuite) initializeDatabaseConnections() {
 			ConfirmationBlocks:        1,
 			MaxTransactionFee:         0.01,
 		},
-		// Admin API key for testing admin endpoints
-		BillingAPIKey: "test-admin-api-key",
 		// NMI demo account for real API integration tests
 		// Uses the public NMI demo security key (test mode)
 		// See: https://docs.nmi.com/

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jonboulle/clockwork"
 	"github.com/riverqueue/river"
 
 	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
@@ -27,6 +28,17 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.WebhookRetryWorker{Events: r.WebhookEventService, Processor: r.WebhookProcessor}); err != nil {
 		return nil, fmt.Errorf("add webhook retry worker: %w", err)
+	}
+	clock := r.Clock
+	if clock == nil {
+		clock = clockwork.NewRealClock()
+	}
+	if err := river.AddWorkerSafely(workers, &riverjobs.CleanupExpiredDataWorker{
+		DB:     r.DB,
+		Clock:  clock,
+		Config: riverjobs.DefaultCleanupConfig(),
+	}); err != nil {
+		return nil, fmt.Errorf("add cleanup expired data worker: %w", err)
 	}
 	return workers, nil
 }
@@ -77,6 +89,17 @@ func (r *Runtime) buildRiverPeriodicJobs(ctx context.Context) ([]*river.Periodic
 			}
 		},
 		&river.PeriodicJobOpts{RunOnStart: true},
+	))
+
+	// Every hour: cleanup expired data (wallet challenges, payment intents, etc.)
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(time.Hour),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return riverjobs.CleanupExpiredDataArgs{}, &river.InsertOpts{
+				Queue: riverjobs.QueueBilling,
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: false},
 	))
 
 	return jobs, nil

@@ -23,7 +23,7 @@ func TestPaymentMethodsRequiresAuth(t *testing.T) {
 
 	t.Run("LIST returns 401 without auth token", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/payment-methods", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/payment-methods", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -44,7 +44,7 @@ func TestPaymentMethodsRequiresAuth(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/payment-methods", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/me/payment-methods", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -54,7 +54,7 @@ func TestPaymentMethodsRequiresAuth(t *testing.T) {
 
 	t.Run("DELETE returns 401 without auth token", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/v1/payment-methods/"+uuid.New().String(), nil)
+		req, _ := http.NewRequest("DELETE", "/v1/me/payment-methods/"+uuid.New().String(), nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -63,7 +63,7 @@ func TestPaymentMethodsRequiresAuth(t *testing.T) {
 
 	t.Run("ACTIVATE returns 401 without auth token", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", "/v1/payment-methods/"+uuid.New().String()+"/activate", nil)
+		req, _ := http.NewRequest("PUT", "/v1/me/payment-methods/"+uuid.New().String()+"/activate", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -77,7 +77,7 @@ func TestListPaymentMethodsEmpty(t *testing.T) {
 
 	t.Run("returns empty list for user with no payment methods", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/payment-methods", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/payment-methods", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -124,7 +124,7 @@ func TestListPaymentMethods(t *testing.T) {
 
 	t.Run("returns payment methods for user", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/payment-methods", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/payment-methods", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -155,7 +155,7 @@ func TestListPaymentMethods(t *testing.T) {
 
 	t.Run("supports pagination parameters", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/payment-methods?page=1", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/payment-methods?page=1", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -201,7 +201,7 @@ func TestCreatePaymentMethod(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/payment-methods", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/me/payment-methods", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -227,7 +227,7 @@ func TestCreatePaymentMethod(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/payment-methods", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/me/payment-methods", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -251,7 +251,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/v1/payment-methods/"+pm.ID.String(), nil)
+		req, _ := http.NewRequest("DELETE", "/v1/me/payment-methods/"+pm.ID.String(), nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -274,7 +274,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 
 	t.Run("returns 404 for non-existent payment method", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/v1/payment-methods/"+uuid.New().String(), nil)
+		req, _ := http.NewRequest("DELETE", "/v1/me/payment-methods/"+uuid.New().String(), nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -293,7 +293,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/v1/payment-methods/"+pm.ID.String(), nil)
+		req, _ := http.NewRequest("DELETE", "/v1/me/payment-methods/"+pm.ID.String(), nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -303,7 +303,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 
 	t.Run("returns 400 for invalid UUID", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/v1/payment-methods/not-a-uuid", nil)
+		req, _ := http.NewRequest("DELETE", "/v1/me/payment-methods/not-a-uuid", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -329,7 +329,7 @@ func TestActivatePaymentMethod(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/payment-methods/%s/activate", pm.ID.String()), nil)
+		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", pm.ID.String()), nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -345,7 +345,7 @@ func TestActivatePaymentMethod(t *testing.T) {
 
 	t.Run("returns 404 for non-existent payment method", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/payment-methods/%s/activate", uuid.New().String()), nil)
+		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", uuid.New().String()), nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -364,7 +364,7 @@ func TestActivatePaymentMethod(t *testing.T) {
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/payment-methods/%s/activate", pm.ID.String()), nil)
+		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", pm.ID.String()), nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -401,7 +401,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/payment-methods/%s", pm.ID.String()), bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s", pm.ID.String()), bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -431,7 +431,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/payment-methods/%s", pm.ID.String()), bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s", pm.ID.String()), bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -447,7 +447,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/payment-methods/%s", uuid.New().String()), bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s", uuid.New().String()), bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -472,7 +472,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/payment-methods/%s", pm.ID.String()), bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s", pm.ID.String()), bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 

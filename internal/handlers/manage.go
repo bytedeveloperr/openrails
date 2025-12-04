@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"context"
+	"errors"
 	"net/http"
 
 	"github.com/doujins-org/doujins-billing/internal/services"
@@ -19,7 +19,11 @@ func UpdateStatus(r *Request) {
 		r.State.NotificationQueueService,
 	)
 
-	if err := service.UpdateStatus(context.Background(), &data); err != nil {
+	if err := service.UpdateStatus(r.Request.Context(), &data); err != nil {
+		if errors.Is(err, services.ErrInvalidSubscriptionID) {
+			r.ErrorJSON(http.StatusBadRequest, "invalid subscription id")
+			return
+		}
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -39,7 +43,11 @@ func ExtendSubscription(r *Request) {
 		r.State.NotificationQueueService,
 	)
 
-	if err := service.ExtendSubscription(context.Background(), &data); err != nil {
+	if err := service.ExtendSubscription(r.Request.Context(), &data); err != nil {
+		if errors.Is(err, services.ErrInvalidSubscriptionID) {
+			r.ErrorJSON(http.StatusBadRequest, "invalid subscription id")
+			return
+		}
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
 		return
 	}

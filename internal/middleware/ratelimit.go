@@ -183,7 +183,7 @@ func resolveRateLimitPolicy(cfg *config.RateLimitsConfig, req *http.Request) (*c
 func classifyBucket(path, method string) string {
 	method = strings.ToUpper(method)
 	switch {
-	case strings.HasPrefix(path, "/v1/subscriptions/webhook"):
+	case strings.HasPrefix(path, "/v1/webhooks"):
 		return "webhook"
 	case strings.HasPrefix(path, "/v1/payment-methods"):
 		return "payment-methods"

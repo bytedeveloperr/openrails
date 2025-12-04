@@ -270,7 +270,7 @@ func TestCCBillFlexFormPriceWithoutCCBill(t *testing.T) {
 	product := products[0].Product
 	now := time.Now()
 
-	// Create a new price without CCBillPriceID using the models.Price type
+	// Create a new price without CCBill processor configured
 	billingCycleDays := 30
 	priceWithoutCCBill := &models.Price{
 		ID:               uuid.MustParse("99999999-9999-9999-9999-999999999999"),
@@ -280,7 +280,12 @@ func TestCCBillFlexFormPriceWithoutCCBill(t *testing.T) {
 		Currency:         "USD",
 		BillingCycleDays: &billingCycleDays,
 		IsActive:         true,
-		// CCBillPriceID intentionally nil
+		// Processors intentionally does NOT include CCBill
+		Processors: map[string]map[string]string{
+			string(models.ProcessorNMI): {
+				models.ProcessorKeyPlanID: "plan_no_ccbill",
+			},
+		},
 		CreatedAt: now,
 		UpdatedAt: now,
 	}

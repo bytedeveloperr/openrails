@@ -233,7 +233,7 @@ func TestReplayService_WebhookReplay(t *testing.T) {
 
 	ccbillRequest := receivedRequests[0]
 	assert.Equal(t, "POST", ccbillRequest.Method)
-	assert.Contains(t, ccbillRequest.URL, "/v1/subscriptions/webhook/ccbill")
+	assert.Contains(t, ccbillRequest.URL, "/v1/webhooks/ccbill")
 	assert.Equal(t, "application/x-www-form-urlencoded", ccbillRequest.ContentType)
 	assert.NotEmpty(t, ccbillRequest.Body)
 
@@ -251,7 +251,7 @@ func TestReplayService_WebhookReplay(t *testing.T) {
 
 	nmiRequest := receivedRequests[0]
 	assert.Equal(t, "POST", nmiRequest.Method)
-	assert.Contains(t, nmiRequest.URL, "/v1/subscriptions/webhook/nmi")
+	assert.Contains(t, nmiRequest.URL, "/v1/webhooks/mobius")
 	assert.Equal(t, "application/json", nmiRequest.ContentType)
 	assert.NotEmpty(t, nmiRequest.Body)
 

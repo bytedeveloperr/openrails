@@ -174,3 +174,40 @@ func (r *EntitlementRepo) ListByUser(ctx context.Context, userID string) ([]mode
 	}
 	return ents, nil
 }
+
+// GetByID retrieves an entitlement by its ID
+func (r *EntitlementRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.Entitlement, error) {
+	var ent models.Entitlement
+	err := r.db.GetDB().NewSelect().
+		Model(&ent).
+		Where("ent.id = ?", id).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &ent, nil
+}
+
+// RevokeByID immediately revokes an entitlement by setting revoked_at and revoke_reason
+func (r *EntitlementRepo) RevokeByID(ctx context.Context, id uuid.UUID, reason models.EntitlementRevokeReason) error {
+	now := time.Now()
+	res, err := r.db.GetDB().NewUpdate().
+		Model((*models.Entitlement)(nil)).
+		Set("revoked_at = ?", now).
+		Set("revoke_reason = ?", reason).
+		Set("updated_at = ?", now).
+		Where("ent.id = ?", id).
+		Where("ent.revoked_at IS NULL"). // Only revoke if not already revoked
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return errors.New("entitlement not found or already revoked")
+	}
+	return nil
+}

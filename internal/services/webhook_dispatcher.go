@@ -75,7 +75,7 @@ func (d *WebhookDispatcher) processNMI(ctx context.Context, event *models.Webhoo
 	if err := json.Unmarshal([]byte(event.RawPayload), &payload); err != nil {
 		return fmt.Errorf("parse nmi webhook payload: %w", err)
 	}
-	provider := strings.ToLower(strings.TrimSpace(extractProvider(event.Headers)))
+	provider := strings.ToLower(strings.TrimSpace(extractProcessor(event.Headers)))
 	if provider == "" {
 		provider = "mobius"
 	}
@@ -89,7 +89,7 @@ func (d *WebhookDispatcher) processNMI(ctx context.Context, event *models.Webhoo
 		PriceService:                 d.PriceService,
 		ProductService:               d.ProductService,
 		Data:                         payload,
-		Provider:                     provider,
+		Processor:                    provider,
 		DeadLetterService:            &DeadLetterService{DB: d.DB, NotificationQueueService: d.NotificationQueueService},
 		NMIClient:                    client,
 		BillingEventService:          d.BillingEventService,
@@ -102,14 +102,14 @@ func (d *WebhookDispatcher) processNMI(ctx context.Context, event *models.Webhoo
 	return service.HandleNMIWebhook(ctx)
 }
 
-func extractProvider(headers map[string]string) string {
+func extractProcessor(headers map[string]string) string {
 	if headers == nil {
 		return ""
 	}
-	if provider, ok := headers["x-internal-provider"]; ok {
+	if provider, ok := headers["x-internal-processor"]; ok {
 		return provider
 	}
-	if provider, ok := headers["provider"]; ok {
+	if provider, ok := headers["processor"]; ok {
 		return provider
 	}
 	return ""

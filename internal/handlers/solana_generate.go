@@ -11,6 +11,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
 // GeneratePayment handles generating Solana payment transactions (scaffold)
@@ -102,7 +103,7 @@ func GeneratePayment(r *Request) {
 		TokenSymbol:  txResp.TokenSymbol,
 		ExpiresAt:    expiresAt.Unix(),
 		Instructions: txResp.Instructions,
-		IntentID:     intent.ID.String(),
+		IntentID:     api.FormatPaymentIntentID(intent.ID),
 	}
 
 	r.SuccessJSON(response)

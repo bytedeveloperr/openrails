@@ -41,6 +41,10 @@ func (s *PriceService) GetActiveByProductID(ctx context.Context, productID uuid.
 	return s.repo.GetActiveByProductID(ctx, productID)
 }
 
+func (s *PriceService) GetAllActive(ctx context.Context) ([]*models.Price, error) {
+	return s.repo.GetAllActive(ctx)
+}
+
 func (s *PriceService) Update(ctx context.Context, price *models.Price) error {
 	return s.repo.Update(ctx, price)
 }

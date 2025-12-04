@@ -1,0 +1,159 @@
+package api
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/google/uuid"
+)
+
+// ID prefixes for different resource types (Stripe-like pattern).
+// These prefixes only appear in the API layer - database stores plain UUIDs.
+const (
+	PrefixProduct       = "prod_"
+	PrefixPrice         = "price_"
+	PrefixSubscription  = "sub_"
+	PrefixPayment       = "pay_"
+	PrefixPaymentMethod = "pm_"
+	PrefixPaymentIntent = "pi_"
+	PrefixInvoice       = "inv_"
+	PrefixCustomer      = "cus_"
+	PrefixEvent         = "evt_"
+)
+
+// FormatProductID formats a UUID as a product ID (prod_xxx)
+func FormatProductID(id uuid.UUID) string {
+	return PrefixProduct + id.String()
+}
+
+// FormatPriceID formats a UUID as a price ID (price_xxx)
+func FormatPriceID(id uuid.UUID) string {
+	return PrefixPrice + id.String()
+}
+
+// FormatSubscriptionID formats a UUID as a subscription ID (sub_xxx)
+func FormatSubscriptionID(id uuid.UUID) string {
+	return PrefixSubscription + id.String()
+}
+
+// FormatPaymentID formats a UUID as a payment ID (pay_xxx)
+func FormatPaymentID(id uuid.UUID) string {
+	return PrefixPayment + id.String()
+}
+
+// FormatPaymentMethodID formats a UUID as a payment method ID (pm_xxx)
+func FormatPaymentMethodID(id uuid.UUID) string {
+	return PrefixPaymentMethod + id.String()
+}
+
+// FormatPaymentIntentID formats a UUID as a payment intent ID (pi_xxx)
+func FormatPaymentIntentID(id uuid.UUID) string {
+	return PrefixPaymentIntent + id.String()
+}
+
+// FormatInvoiceID formats a UUID as an invoice ID (inv_xxx)
+func FormatInvoiceID(id uuid.UUID) string {
+	return PrefixInvoice + id.String()
+}
+
+// FormatCustomerID formats a user ID as a customer ID (cus_xxx)
+// Note: User IDs may not be UUIDs, so this accepts a string
+func FormatCustomerID(id string) string {
+	return PrefixCustomer + id
+}
+
+// FormatEventID formats a UUID as an event ID (evt_xxx)
+func FormatEventID(id uuid.UUID) string {
+	return PrefixEvent + id.String()
+}
+
+// ParseProductID parses a prefixed product ID and returns the UUID
+func ParseProductID(id string) (uuid.UUID, error) {
+	return parseID(id, PrefixProduct, "product")
+}
+
+// ParsePriceID parses a prefixed price ID and returns the UUID
+func ParsePriceID(id string) (uuid.UUID, error) {
+	return parseID(id, PrefixPrice, "price")
+}
+
+// ParseSubscriptionID parses a prefixed subscription ID and returns the UUID
+func ParseSubscriptionID(id string) (uuid.UUID, error) {
+	return parseID(id, PrefixSubscription, "subscription")
+}
+
+// ParsePaymentID parses a prefixed payment ID and returns the UUID
+func ParsePaymentID(id string) (uuid.UUID, error) {
+	return parseID(id, PrefixPayment, "payment")
+}
+
+// ParsePaymentMethodID parses a prefixed payment method ID and returns the UUID
+func ParsePaymentMethodID(id string) (uuid.UUID, error) {
+	return parseID(id, PrefixPaymentMethod, "payment_method")
+}
+
+// ParsePaymentIntentID parses a prefixed payment intent ID and returns the UUID
+func ParsePaymentIntentID(id string) (uuid.UUID, error) {
+	return parseID(id, PrefixPaymentIntent, "payment_intent")
+}
+
+// ParseInvoiceID parses a prefixed invoice ID and returns the UUID
+func ParseInvoiceID(id string) (uuid.UUID, error) {
+	return parseID(id, PrefixInvoice, "invoice")
+}
+
+// ParseCustomerID parses a prefixed customer ID and returns the raw ID string
+func ParseCustomerID(id string) (string, error) {
+	if !strings.HasPrefix(id, PrefixCustomer) {
+		return "", fmt.Errorf("invalid customer ID: expected prefix '%s'", PrefixCustomer)
+	}
+	return strings.TrimPrefix(id, PrefixCustomer), nil
+}
+
+// ParseEventID parses a prefixed event ID and returns the UUID
+func ParseEventID(id string) (uuid.UUID, error) {
+	return parseID(id, PrefixEvent, "event")
+}
+
+// parseID is a helper that parses a prefixed ID string into a UUID
+func parseID(id, prefix, resourceType string) (uuid.UUID, error) {
+	if !strings.HasPrefix(id, prefix) {
+		return uuid.Nil, fmt.Errorf("invalid %s ID: expected prefix '%s'", resourceType, prefix)
+	}
+	rawID := strings.TrimPrefix(id, prefix)
+	parsed, err := uuid.Parse(rawID)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid %s ID: %w", resourceType, err)
+	}
+	return parsed, nil
+}
+
+// TryParseID attempts to parse an ID that may or may not have a prefix.
+// This is useful for backwards compatibility during migration.
+// Returns the UUID and whether a prefix was found.
+func TryParseID(id string) (uuid.UUID, bool, error) {
+	// Check for known prefixes
+	prefixes := []string{
+		PrefixProduct, PrefixPrice, PrefixSubscription,
+		PrefixPayment, PrefixPaymentMethod, PrefixPaymentIntent,
+		PrefixInvoice, PrefixCustomer, PrefixEvent,
+	}
+
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(id, prefix) {
+			rawID := strings.TrimPrefix(id, prefix)
+			parsed, err := uuid.Parse(rawID)
+			if err != nil {
+				return uuid.Nil, true, fmt.Errorf("invalid ID after prefix '%s': %w", prefix, err)
+			}
+			return parsed, true, nil
+		}
+	}
+
+	// No prefix found, try to parse as raw UUID
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return uuid.Nil, false, fmt.Errorf("invalid ID: %w", err)
+	}
+	return parsed, false, nil
+}

@@ -1,28 +1,32 @@
 package server
 
 import (
-	"net/http"
-
-	"github.com/gin-gonic/gin"
-
 	"github.com/doujins-org/doujins-billing/internal/handlers"
+	"github.com/doujins-org/doujins-billing/internal/middleware"
 )
 
 func (s *Server) registerAdminRoutes() {
-	api := s.adminHandler.Group("/v1")
-	api.PUT("/subscriptions/:id/extend", s.wrap(handlers.ExtendSubscription))
-	api.POST("/subscriptions/:id/cancel", s.wrap(handlers.AdminCancelSubscription))
-	api.POST("/users/:user_id/subscription/cancel", s.wrap(handlers.AdminCancelUserSubscription))
-	api.GET("/subscriptions/:id/details", s.wrap(handlers.GetSubscription))
-	api.GET("/subscriptions/dashboard-metrics", s.wrap(handlers.GetAdminDashboardMetrics))
-	api.GET("/subscriptions/daily-metrics", s.wrap(handlers.GetAdminDailyMetrics))
-	api.GET("/subscriptions/processor-metrics", s.wrap(handlers.GetAdminProcessorMetrics))
-	api.GET("/users/:user_id/entitlements", s.wrap(handlers.GetAdminActiveEntitlements))
+	// Admin routes are protected by JWT authentication + admin role requirement
+	// These routes were previously on a separate port with API key auth.
+	// Now they're unified on the main server with proper JWT-based authorization.
+	admin := s.publicHandler.Group("/v1/admin")
+	admin.Use(middleware.AuthRequired(s.authVerifier))
+	admin.Use(middleware.AdminRequired())
 
-	s.adminHandler.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing-admin"})
-	})
-	s.adminHandler.HEAD("/health", func(c *gin.Context) {
-		c.Status(http.StatusOK)
-	})
+	// Subscription management
+	admin.GET("/subscriptions", s.wrap(handlers.GetAdminSubscriptions))
+	admin.GET("/subscriptions/:id", s.wrap(handlers.GetAdminSubscription))
+	admin.PUT("/subscriptions/:id/extend", s.wrap(handlers.ExtendSubscription))
+	admin.POST("/subscriptions/:id/cancel", s.wrap(handlers.AdminCancelSubscription))
+
+	// Payment management
+	admin.POST("/payments/:id/refund", s.wrap(handlers.AdminRefundPayment))
+
+	// User management
+	admin.GET("/users/:user_id", s.wrap(handlers.GetAdminUserBillingProfile))
+	admin.POST("/users/:user_id/entitlements", s.wrap(handlers.GrantAdminEntitlement))
+	admin.DELETE("/users/:user_id/entitlements/:id", s.wrap(handlers.RevokeAdminEntitlement))
+
+	// Metrics: GET /v1/admin/metrics?type=dashboard|daily|processor
+	admin.GET("/metrics", s.wrap(handlers.GetAdminMetrics))
 }

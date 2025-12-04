@@ -202,11 +202,12 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 	}
 
 	// Build webhook URL
-	pathParts := []string{"api", "v1", "subscriptions", "webhook", result.Processor}
-	if result.Processor == "nmi" {
-		pathParts = append(pathParts, "mobius")
+	// For NMI webhooks, use "mobius" as the route (processor name, not gateway)
+	provider := result.Processor
+	if provider == "nmi" {
+		provider = "mobius"
 	}
-	webhookURL, err := url.JoinPath(rs.TargetEndpoint, pathParts...)
+	webhookURL, err := url.JoinPath(rs.TargetEndpoint, "v1", "webhooks", provider)
 	if err != nil {
 		result.Error = fmt.Sprintf("Failed to build webhook URL: %v", err)
 		return result, nil

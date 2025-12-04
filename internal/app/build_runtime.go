@@ -222,7 +222,7 @@ func createRedisClient(cfg *config.Config) (*redis.Client, error) {
 		Addr: cfg.Redis.Addr,
 		DB:   cfg.Redis.DB,
 	}
-	if cfg.Redis.Password != "" && cfg.Env == config.EnvProd {
+	if cfg.Redis.Password != "" {
 		redisOpts.Password = cfg.Redis.Password
 		log.Info("Redis authentication enabled")
 	} else {

@@ -123,3 +123,20 @@ func (s *EntitlementService) EndActiveBySubscription(ctx context.Context, subscr
 func (s *EntitlementService) EndActiveByPayment(ctx context.Context, paymentID uuid.UUID, endAt time.Time, reason *models.EntitlementRevokeReason) error {
 	return s.repo.EndActiveByPayment(ctx, paymentID, endAt, reason)
 }
+
+// GetByID retrieves an entitlement by its ID
+func (s *EntitlementService) GetByID(ctx context.Context, id uuid.UUID) (*models.Entitlement, error) {
+	return s.repo.GetByID(ctx, id)
+}
+
+// RevokeByID immediately revokes an entitlement by ID (admin action)
+func (s *EntitlementService) RevokeByID(ctx context.Context, id uuid.UUID, reason models.EntitlementRevokeReason) error {
+	return s.repo.RevokeByID(ctx, id, reason)
+}
+
+// GrantEntitlement creates a new entitlement for a user (admin action)
+// If endAt is nil, the entitlement is indefinite (until manually revoked)
+func (s *EntitlementService) GrantEntitlement(ctx context.Context, userID, entitlement string, endAt *time.Time) (*models.Entitlement, error) {
+	now := s.now()
+	return s.GrantWindow(ctx, userID, entitlement, now, endAt, models.EntitlementSourceAdmin, nil)
+}

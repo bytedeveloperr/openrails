@@ -14,6 +14,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/app"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/doujins-org/doujins-billing/pkg/message"
 	"github.com/jonboulle/clockwork"
 )
@@ -34,14 +35,28 @@ func NewRequest(ctx *gin.Context, runtime *app.Runtime) *Request {
 	}
 }
 
-func (r *Request) AbortJSON(code int, message string) {
-	logrus.Error(message)
-	r.GinCtx.AbortWithStatusJSON(code, message)
+func (r *Request) AbortJSON(code int, msg string) {
+	logrus.Error(msg)
+	r.GinCtx.AbortWithStatusJSON(code, api.SimpleErrorResponse(code, msg))
 }
 
+// ErrorJSON sends a structured error response in Stripe's format
+// The error type is inferred from the HTTP status code
 func (r *Request) ErrorJSON(code int, msg string) {
 	logrus.Error(msg)
-	r.GinCtx.JSON(code, message.Message(msg))
+	r.GinCtx.JSON(code, api.SimpleErrorResponse(code, msg))
+}
+
+// APIError sends a structured error response with full error details
+// Example: r.APIError(api.InvalidParamError("price_id", "Price ID must be a valid UUID"))
+func (r *Request) APIError(err *api.APIError) {
+	logrus.WithFields(logrus.Fields{
+		"type":   err.Type,
+		"code":   err.Code,
+		"param":  err.Param,
+		"status": err.HTTPStatus,
+	}).Error(err.Message)
+	r.GinCtx.JSON(err.HTTPStatus, err.ToResponse())
 }
 
 func (r *Request) SuccessJSON(data any) {
@@ -51,6 +66,15 @@ func (r *Request) SuccessJSON(data any) {
 func (r *Request) SuccessJSONMessage(msg string) {
 	r.GinCtx.JSON(http.StatusOK, message.Json{
 		"message": msg,
+	})
+}
+
+func (r *Request) SuccessJSONPaginated(data any, total int64, limit, offset int) {
+	r.GinCtx.JSON(http.StatusOK, message.Json{
+		"data":   data,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
 	})
 }
 

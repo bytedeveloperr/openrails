@@ -1,103 +1,32 @@
 {
   "issues": [
     {
-      "name": "combine-dunning-workers",
-      "category": "refactor",
-      "description": "Combine DunningSweepWorker and DunningAttemptWorker into a single worker",
-      "steps": [
-        "Create single DunningWorker that runs periodically (e.g., every few hours)",
-        "Query all past_due subscriptions where next_retry_at is in the past",
-        "Loop through each subscription and attempt rebill via NMI",
-        "Update database after each attempt for idempotency (in case of crash)",
-        "On success: renew subscription, create payment record, reset retry counter",
-        "On failure: increment retry count, schedule next retry, or mark failed if max retries",
-        "Remove old DunningSweepWorker and DunningAttemptWorker",
-        "Update River job registration"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-dunning-worker",
-      "category": "testing",
-      "description": "Test combined DunningWorker processes failed payments",
-      "steps": [
-        "Create multiple past_due subscriptions with next_retry_at in past",
-        "Mock NMI client to return success/failure responses",
-        "Run DunningWorker",
-        "Verify subscriptions renewed on success, or failed on decline",
-        "Verify payment records created for successful rebills",
-        "Verify subscriptions not yet due are not processed"
-      ],
-      "passes": true
-    },
-    {
-      "name": "stripe-like-api-structs",
-      "category": "refactor",
-      "description": "Create Stripe-like response envelopes (Object wrappers) with our pagination system",
-      "steps": [
-        "Create `pkg/api/response.go` defining standard response structs.",
-        "Define `ListResponse` struct with `object: list`, `data`, `total_items`, `page`, `page_size`, `total_pages` fields (NOT Stripe's has_more - we prefer explicit pagination).",
-        "Define wrappers for core resources: `ProductObject`, `PriceObject`, `SubscriptionObject`.",
-        "Define `PaymentIntentObject` and `NextActionObject` for handling redirects.",
-        "Update existing handlers to use these wrappers for JSON responses (starting with `GetProducts`).",
-        "Verify tests still pass or update them to expect new JSON structure."
-      ],
-      "passes": true
-    },
-    {
       "name": "stripe-like-api-products",
       "category": "refactor",
       "description": "Refactor Product and Price endpoints to match Stripe patterns",
       "steps": [
-        "Rename route `GET /v1/subscriptions/products` to `GET /v1/products`.",
-        "Add `GET /v1/prices` endpoint to list individual prices.",
-        "Update `GetProducts` handler to return `ListResponse` of `ProductObject`.",
-        "Update `GetProducts` handler to map internal models to new API structs.",
-        "Update tests to use new routes and validate new response format."
+        "[DONE] Rename route `GET /v1/subscriptions/products` to `GET /v1/products`.",
+        "[DONE] Add `GET /v1/prices` endpoint to list individual prices.",
+        "[DONE] Update `GetProducts` handler to return `ListResponse` of `ProductObject`.",
+        "[DONE] Update `GetProducts` handler to map internal models to new API structs.",
+        "[DONE] Update tests to use new routes and validate new response format."
       ],
-      "passes": null
-    },
-    {
-      "name": "stripe-like-api-subscriptions",
-      "category": "refactor",
-      "description": "Refactor Subscription creation endpoints to cleaner RESTful patterns",
-      "steps": [
-        "Change `POST /v1/subscriptions/process/:processor` to `POST /v1/subscriptions/:provider` (e.g., /mobius, /ccbill, /solana).",
-        "Register explicit routes for each provider rather than using a dynamic :provider param to avoid collision with :id.",
-        "Move `POST /v1/subscriptions/ccbill/flexform-url` to `POST /v1/subscriptions/ccbill` (same endpoint, just generates FlexForm URL).",
-        "Simplify webhooks: `POST /v1/webhooks/:provider` instead of `/v1/subscriptions/webhook/:processor/:provider` (e.g., /webhooks/mobius, /webhooks/ccbill).",
-        "Update tests to use new endpoint paths."
-      ],
-      "passes": null
+      "passes": true
     },
     {
       "name": "stripe-like-api-rest",
       "category": "refactor",
       "description": "Consolidate user-scoped endpoints under /v1/me/ and standardize RESTful patterns",
       "steps": [
-        "CURRENT: Only `GET /v1/me/status` exists under /v1/me/",
-        "Move `GET /v1/subscriptions/active` + `GET /v1/subscriptions/history` → `GET /v1/me/subscriptions` with query params (?status=active, ?status=all)",
-        "Move `GET /v1/subscriptions/purchases` → `GET /v1/me/payments`",
-        "Move `POST /v1/subscriptions/cancel` → `POST /v1/me/subscriptions/cancel`",
-        "Move `GET /v1/payment-methods` → `GET /v1/me/payment-methods` (also POST, PUT, DELETE)",
-        "Move `GET /v1/wallet/solana/*` → `GET /v1/me/wallets/*` (all wallet endpoints)",
-        "Move `GET /v1/notifications/*` → `GET /v1/me/notifications/*` (all notification endpoints)",
-        "Refactor Solana payment endpoints: `POST /v1/solana/generate` → `POST /v1/payment-intents`, `POST /v1/solana/submit` → `POST /v1/payment-intents/:id/confirm`, etc.",
-        "Update all corresponding tests."
-      ],
-      "passes": null
-    },
-    {
-      "name": "time-mocking",
-      "category": "testing-infra",
-      "description": "Add time-mocking capability for testing time-dependent logic",
-      "steps": [
-        "Research options: benbjohnson/clock, jonboulle/clockwork, or custom solution",
-        "Create Clock interface that wraps time.Now() and can be injected",
-        "Update services/handlers to use Clock interface instead of time.Now() directly",
-        "Add SetTime() or Advance() methods to test clock for controlling time in tests",
-        "Test subscription expiry: create sub expiring Nov 30, advance to Nov 30, verify expiry logic",
-        "Test dunning/retry logic with time advancement"
+        "[DONE] Move `GET /v1/subscriptions/active` + `GET /v1/subscriptions/history` → `GET /v1/me/subscriptions` with query params (?status=active, ?status=all)",
+        "[DONE] Move `GET /v1/subscriptions/purchases` → `GET /v1/me/payments`",
+        "[DONE] Move `POST /v1/subscriptions/cancel` → `POST /v1/me/subscriptions/cancel`",
+        "[DONE] Move `GET /v1/payment-methods` → `GET /v1/me/payment-methods` (also POST, PUT, DELETE)",
+        "[DONE] Move `GET /v1/wallet/solana/*` → `GET /v1/me/wallets/*` (all wallet endpoints)",
+        "[DONE] Move `GET /v1/notifications/*` → `GET /v1/me/notifications/*` (all notification endpoints)",
+        "[DONE] Refactor Solana payment endpoints: `POST /v1/solana/generate` → `POST /v1/payment-intents`, `POST /v1/solana/submit` → `POST /v1/payment-intents/:id/confirm`, `GET /v1/solana/check` → `GET /v1/payment-intents/:id`, `POST /v1/solana/qr` → `POST /v1/payment-intents/qr`",
+        "[DONE] Keep legacy routes for backwards compatibility",
+        "[DONE] Update all corresponding tests."
       ],
       "passes": true
     },
@@ -106,59 +35,13 @@
       "category": "feature",
       "description": "Add cleanup worker for expired temporary data",
       "steps": [
-        "Identify all temporary tables/records that need cleanup (wallet challenges, pending payments, etc.)",
-        "Create River job for periodic cleanup (e.g., CleanupExpiredDataArgs)",
-        "Implement cleanup logic: delete expired wallet challenges, pending Solana payments, stale sessions",
-        "Add configurable retention periods for each data type",
-        "Schedule worker to run periodically (e.g., every hour or daily)",
-        "Add metrics/logging for cleanup operations",
-        "Write tests to verify expired data is cleaned up correctly"
-      ],
-      "passes": null
-    },
-    {
-      "name": "river-workers-in-tests",
-      "category": "testing-infra",
-      "description": "Start River workers in test suite for async job testing",
-      "steps": [
-        "Initialize River client in TestContainerSuite setup",
-        "Register all worker types (WebhookProcess, DunningAttempt, DunningSweep, etc.)",
-        "Start River workers in background during test setup",
-        "Add helper to wait for job completion in tests",
-        "Test webhook processing flow end-to-end (webhook -> job -> subscription created)",
-        "Test dunning sweep enqueues dunning attempt jobs",
-        "Gracefully stop workers in test cleanup"
-      ],
-      "passes": true
-    },
-    {
-      "name": "nmi-demo-integration",
-      "category": "testing-infra",
-      "description": "Add NMI demo account to test suite for real API integration tests",
-      "steps": [
-        "Configure testcontainer suite with NMI demo credentials (security key: 6457Thfj624V5r7WUwc5v6a68Zsd6YEm)",
-        "Add NMI config to TestContainerSuite with test_mode enabled",
-        "Create test for Subscribe endpoint with real NMI API calls",
-        "Use test card number 4111111111111111 with expiry 10/25",
-        "Test successful payment creates subscription and payment record",
-        "Test declined payment (amount < $1.00) returns appropriate error",
-        "Test dunning worker rebill with real NMI API"
-      ],
-      "passes": true
-    },
-    {
-      "name": "amounts-in-cents",
-      "category": "refactor",
-      "description": "Store amounts in cents (integers) instead of floats",
-      "steps": [
-        "Change Price.Amount from float64 to int64 (cents)",
-        "Change Payment.Amount from float64 to int64 (cents)",
-        "Create migration to convert existing amounts (multiply by 100)",
-        "Update all services to work with cents internally",
-        "Update API responses to return amount in cents (Stripe convention)",
-        "Update API requests to accept amount in cents",
-        "Add helper functions for cents <-> dollars conversion if needed for display",
-        "Update seed data and tests to use cent amounts"
+        "[DONE] Identify all temporary tables/records that need cleanup (wallet challenges, payment intents, notifications, etc.)",
+        "[DONE] Create River job for periodic cleanup (CleanupExpiredDataArgs)",
+        "[DONE] Implement cleanup logic: delete expired wallet challenges, payment intents, solana transactions, notifications, idempotency requests, webhook events",
+        "[DONE] Add configurable retention periods for each data type (CleanupConfig struct with defaults)",
+        "[DONE] Schedule worker to run periodically (every hour via River PeriodicJob)",
+        "[DONE] Add metrics/logging for cleanup operations (logs deleted counts per table)",
+        "[DONE] Write tests to verify expired data is cleaned up correctly"
       ],
       "passes": true
     },
@@ -167,30 +50,16 @@
       "category": "refactor",
       "description": "Consolidate processor config on Price model into single JSONB 'processors' field",
       "steps": [
-        "Add 'processors' JSONB field to Price model (map[string]string)",
-        "Create migration to add processors column",
-        "Migrate existing nmi_plan_id/nmi_provider/ccbill_price_id data to new processors field",
-        "Update PriceService to read/write from new processors field",
-        "Update Subscribe handler to check processors map for processor availability",
-        "Update Solana payment service to check processors map for 'solana' key",
-        "Update CCBill handler to check processors map for 'ccbill' key",
-        "Update webhook handlers to lookup prices by processor key",
-        "Remove old nmi_plan_id, nmi_provider, ccbill_price_id columns",
-        "Update seed data helpers to use new processors format",
-        "Update tests to verify processor-specific price filtering"
-      ],
-      "passes": null
-    },
-    {
-      "name": "test-cancel-auth-boundaries",
-      "category": "testing",
-      "description": "Add tests for cancel subscription authorization boundaries",
-      "steps": [
-        "Test that User A cannot cancel User B's subscription (should get 'no active subscription' error)",
-        "Test that admin can cancel any user's subscription by subscription ID",
-        "Test that admin can cancel any user's subscription by user ID",
-        "Verify database status changes to 'cancelled' after successful cancel",
-        "Verify entitlements are revoked after cancel"
+        "[DONE] Add 'processors' JSONB field to Price model (map[string]map[string]string)",
+        "[DONE] Create migration to add processors column and remove old columns (006_add_processors_jsonb.up.sql)",
+        "[SKIP] Data migration not needed - starting fresh with no existing data",
+        "[DONE] Update PriceRepo to use JSONB queries (GetByNMIPlan, GetByCCBillPriceID)",
+        "[DONE] Update Subscribe handler to use price.GetNMIConfig() for NMI processor availability",
+        "[DONE] Update GenerateFlexFormURL handler to use price.GetCCBillConfig() for CCBill",
+        "[DONE] Update webhook handlers to use JSONB lookups for processor keys",
+        "[DONE] Remove old nmi_plan_id, nmi_provider, ccbill_price_id columns from Price model",
+        "[DONE] Update seed data helpers to use new processors format",
+        "[DONE] Add helper methods: GetNMIConfig(), GetCCBillConfig(), GetSolanaConfig(), SetNMIConfig(), etc."
       ],
       "passes": true
     },
@@ -206,7 +75,7 @@
         "Document CCBill Admin setup requirements (Package ID, Package Upgrade Allowed)",
         "Write tests for upgrade URL generation"
       ],
-      "passes": null
+      "passes": false
     },
     {
       "name": "ccbill-upgrade-entitlements",
@@ -220,260 +89,120 @@
         "Write tests for entitlement updates on tier upgrade",
         "Handle edge case: same entitlements in both tiers (extend end dates)"
       ],
-      "passes": null
-    },
-    {
-      "name": "test-subscription-renewal-webhook",
-      "category": "testing",
-      "description": "Test that renewal webhook extends subscription period",
-      "steps": [
-        "Create active subscription with period ending soon",
-        "Simulate renewal webhook from processor (NMI or CCBill)",
-        "Verify CurrentPeriodEndsAt moved forward by billing cycle days",
-        "Verify payment record created for the renewal"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-failed-payment-webhook",
-      "category": "testing",
-      "description": "Test that failed payment webhook sets subscription to past_due",
-      "steps": [
-        "Create active subscription",
-        "Simulate failed payment webhook from processor",
-        "Verify subscription status becomes past_due",
-        "Verify next_retry_at is scheduled for dunning"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-cancel-access-at-period-end",
-      "category": "testing",
-      "description": "Test user cancellation keeps access until period end, then revokes",
-      "steps": [
-        "Create active subscription with entitlements",
-        "User cancels (RevokeAccess: false)",
-        "Verify user still has entitlements immediately after cancel",
-        "Advance clock to period end",
-        "Trigger period-end processing",
-        "Verify entitlements are revoked after period ends"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-admin-revoke-access",
-      "category": "testing",
-      "description": "Test admin revocation removes access immediately",
-      "steps": [
-        "Create active subscription with entitlements",
-        "Admin revokes access (RevokeAccess: true)",
-        "Verify entitlements are revoked immediately",
-        "Verify subscription status is cancelled"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-dunning-retry-schedule",
-      "category": "testing",
-      "description": "Test dunning worker respects retry schedule with clock advancement",
-      "steps": [
-        "Create past_due subscription with next_retry_at in future",
-        "Run dunning worker - verify no attempt made (not yet due)",
-        "Advance clock past next_retry_at",
-        "Run dunning worker - verify rebill attempt made",
-        "On failure, verify next_retry_at incremented correctly (+1 day, +3 days, etc.)",
-        "Verify retry_count incremented"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-dunning-max-retries",
-      "category": "testing",
-      "description": "Test subscription fails after max dunning attempts",
-      "steps": [
-        "Create past_due subscription near max retries",
-        "Mock NMI to return decline",
-        "Advance clock and run dunning worker for final attempt",
-        "Verify subscription status becomes failed",
-        "Verify entitlements are revoked"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-dunning-success-reactivates",
-      "category": "testing",
-      "description": "Test successful dunning reactivates subscription",
-      "steps": [
-        "Create past_due subscription",
-        "Mock NMI to return success",
-        "Advance clock and run dunning worker",
-        "Verify subscription status becomes active",
-        "Verify new period dates set correctly",
-        "Verify payment record created"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-entitlement-expiry",
-      "category": "testing",
-      "description": "Test time-limited entitlements expire correctly",
-      "steps": [
-        "Grant 15-day entitlement to user",
-        "Verify entitlement is active immediately",
-        "Advance clock 14 days - verify still active",
-        "Advance clock 1 more day (15 total) - verify no longer active"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-entitlement-stacking",
-      "category": "testing",
-      "description": "Test entitlement stacking extends expiry",
-      "steps": [
-        "Grant 15-day entitlement to user",
-        "Grant another 15-day entitlement of same type",
-        "Verify expires_at is 30 days from original grant",
-        "Advance clock 20 days - verify still active",
-        "Advance clock 10 more days - verify no longer active"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-indefinite-entitlement",
-      "category": "testing",
-      "description": "Test indefinite entitlements never expire",
-      "steps": [
-        "Grant entitlement with null duration (indefinite)",
-        "Verify entitlement is active",
-        "Advance clock 1 year",
-        "Verify entitlement is still active"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-payment-intent-expiry",
-      "category": "testing",
-      "description": "Test expired Solana payment intents are rejected",
-      "steps": [
-        "Create Solana payment intent with 10-minute expiry",
-        "Verify intent is valid immediately",
-        "Advance clock 15 minutes",
-        "Attempt to submit payment - verify rejected as expired"
-      ],
-      "passes": true
-    },
-    {
-      "name": "test-wallet-challenge-expiry",
-      "category": "testing",
-      "description": "Test wallet verification challenges expire",
-      "steps": [
-        "Create wallet challenge with expiry",
-        "Advance clock past expiry",
-        "Attempt to verify challenge - verify rejected as expired"
-      ],
-      "passes": true
-    },
-    {
-      "name": "fix-test-cancel-access-at-period-end",
-      "category": "testing",
-      "description": "Fix TestCancelAccessAtPeriodEnd to properly test period-end revocation with mock clock",
-      "steps": [
-        "Current test uses indefinite entitlement (EndAt: nil) which never expires regardless of time",
-        "Need to either: (a) create a period-end worker that revokes entitlements, or (b) create entitlement with EndAt set to period end",
-        "If using period-end worker: inject mock clock into worker, run worker after advancing clock past period end",
-        "If setting EndAt: set entitlement EndAt = subscription period end, then verify IsEntitled returns false after advancing clock",
-        "Ensure test actually verifies entitlements are revoked at period end, not just that subscription is cancelled"
-      ],
-      "passes": true
-    },
-    {
-      "name": "fix-test-dunning-retry-schedule",
-      "category": "testing",
-      "description": "Fix TestDunningRetrySchedule to actually run the dunning worker with mock clock",
-      "steps": [
-        "Current test only checks timestamps, doesn't run the actual dunning worker",
-        "Inject mock clock into DunningWorker",
-        "Run DunningWorker when clock is before next_retry_at - verify NO rebill attempt made",
-        "Advance clock past next_retry_at",
-        "Run DunningWorker again - verify rebill attempt IS made",
-        "This requires DunningWorker to use injected clock for time comparisons"
-      ],
-      "passes": true
-    },
-    {
-      "name": "fix-test-dunning-max-retries",
-      "category": "testing",
-      "description": "Fix TestDunningMaxRetriesFailsSubscription to use mock clock and run dunning worker",
-      "steps": [
-        "Current test never advances mock clock and calls FailMembership directly instead of running worker",
-        "Inject mock clock into DunningWorker",
-        "Create subscription with retry_count at max-1",
-        "Run DunningWorker (with mocked NMI returning decline)",
-        "Verify subscription is cancelled and entitlements revoked",
-        "This tests the actual dunning flow, not just the FailMembership service method"
-      ],
-      "passes": true
-    },
-    {
-      "name": "fix-test-dunning-success-reactivates",
-      "category": "testing",
-      "description": "Fix TestDunningSuccessReactivates to use mock clock and run dunning worker",
-      "steps": [
-        "Current test advances clock but doesn't use it - calls RenewMembership directly",
-        "Inject mock clock into DunningWorker",
-        "Create past_due subscription with next_retry_at in the past (relative to mock clock)",
-        "Run DunningWorker (with mocked NMI returning success)",
-        "Verify subscription is reactivated with correct period dates",
-        "This tests the actual dunning flow, not just the RenewMembership service method"
-      ],
-      "passes": true
-    },
-    {
-      "name": "fix-test-payment-intent-expiry",
-      "category": "testing",
-      "description": "Fix TestPaymentIntentExpiry to use mock clock instead of time.Now()",
-      "steps": [
-        "Current test uses time.Now() directly - Solana handlers don't use mock clock",
-        "Add Clock field to SolanaPaymentIntentService or relevant handlers",
-        "Update expiry check to use injected clock instead of time.Now()",
-        "Create payment intent with ExpiresAt = mockClock.Now() + 10 minutes",
-        "Verify intent is valid at mockClock.Now()",
-        "Advance mock clock 15 minutes",
-        "Attempt to check/submit - verify rejected as expired (using mock clock time)"
-      ],
-      "passes": true
-    },
-    {
-      "name": "fix-test-wallet-challenge-expiry",
-      "category": "testing",
-      "description": "Fix TestWalletChallengeExpiry to use mock clock instead of time.Now()",
-      "steps": [
-        "Current test uses time.Now() directly - SolanaVerificationService uses time.Now()",
-        "Add Clock field to SolanaVerificationService",
-        "Update expiry check in VerifyChallenge to use s.Clock.Now() instead of time.Now()",
-        "Create challenge with ExpiresAt = mockClock.Now() + 10 minutes",
-        "Verify challenge is valid at mockClock.Now()",
-        "Advance mock clock past ExpiresAt",
-        "Attempt to verify - verify rejected as expired (using mock clock time)"
-      ],
-      "passes": true
+      "passes": false
     },
     {
       "name": "unify-admin-auth",
       "category": "refactor",
       "description": "Remove separate admin port and API key, use JWT with admin role claims instead",
       "steps": [
-        "CURRENT: Admin API runs on separate port with API key authentication",
-        "PROBLEM: API key is a shared secret - if stolen, attacker has full admin access with no audit trail",
-        "Add admin role/claims check to existing JWT validation middleware (e.g., middleware.AdminRequired)",
-        "Move admin routes from separate adminHandler to publicHandler, protected by AdminRequired middleware",
-        "Remove BillingAPIKey from config",
-        "Remove separate admin server/port setup",
-        "Update admin route paths if needed (currently /v1/subscriptions/:id/extend, /v1/users/:user_id/entitlements, etc.)",
-        "Update api-server to pass through JWT instead of using API key",
+        "[DONE] CURRENT: Admin API runs on separate port with API key authentication",
+        "[DONE] PROBLEM: API key is a shared secret - if stolen, attacker has full admin access with no audit trail",
+        "[DONE] Add admin role/claims check to existing JWT validation middleware (e.g., middleware.AdminRequired)",
+        "[DONE] Move admin routes from separate adminHandler to publicHandler, protected by AdminRequired middleware",
+        "[DONE] Remove BillingAPIKey from config",
+        "[DONE] Remove separate admin server/port setup",
+        "[DONE] Update admin route paths (now /v1/admin/subscriptions/:id/extend, /v1/admin/users/:user_id/entitlements, etc.)",
+        "[DONE] Update tests to use JWT Bearer tokens with admin role instead of X-API-KEY",
         "BENEFIT: Each admin request tied to user identity, full audit trail, no shared secrets"
       ],
-      "passes": null
+      "passes": true
+    },
+    {
+      "name": "admin-api-enhancements",
+      "category": "feature",
+      "description": "Add admin API endpoints for user lookup, subscription management, refunds, and entitlement management",
+      "steps": [
+        "[DONE] User lookup by ID:",
+        "[DONE]   - GET /v1/admin/users/:user_id - get user's subscription + entitlements + payments in one call",
+        "[DONE] Subscription listing:",
+        "[DONE]   - GET /v1/admin/subscriptions - list/search subscriptions with filters (status, processor, user_id, date range, pagination)",
+        "[DONE]   - GET /v1/admin/subscriptions/:id/payments - payment history for a subscription",
+        "[DONE] Refunds:",
+        "[DONE]   - POST /v1/admin/payments/:id/refund - issue refund (creates negative payment entry for audit trail)",
+        "[DONE]   - Track refund status and amount in payments table (via RefundedPaymentID linkage)",
+        "[DONE] Entitlement management:",
+        "[DONE]   - POST /v1/admin/users/:user_id/entitlements - grant entitlement manually (with optional days for end_at)",
+        "[DONE]   - DELETE /v1/admin/users/:user_id/entitlements/:id - revoke entitlement immediately (sets revoked_at, revoke_reason)",
+        "Write tests for all new endpoints"
+      ],
+      "passes": true
+    },
+    {
+      "name": "cli-duplicate-detection",
+      "category": "tooling",
+      "description": "CLI command to detect duplicate charges and multiple active subscriptions for the same user",
+      "steps": [
+        "Create cmd/billing-cli/main.go with cobra CLI framework",
+        "Add 'duplicates' command with subcommands:",
+        "  - 'billing-cli duplicates charges' - find users charged twice in same billing period",
+        "    - Query payments grouped by user_id, price_id, month",
+        "    - Flag any user with >1 successful payment for same price in same 30-day window",
+        "    - Output: user_id, payment_ids, amounts, dates, recommendation (refund which one)",
+        "  - 'billing-cli duplicates subscriptions' - find users with multiple active subscriptions",
+        "    - Query subscriptions WHERE status='active' GROUP BY user_id HAVING count > 1",
+        "    - Output: user_id, subscription_ids, prices, start_dates, recommendation (cancel which one)",
+        "Add --format flag for output (table, json, csv)",
+        "Add --dry-run flag (default) vs --fix flag for auto-remediation (with confirmation prompt)",
+        "Add date range filters (--since, --until) to limit search scope",
+        "Write tests for duplicate detection logic"
+      ],
+      "passes": false
+    },
+    {
+      "name": "cli-orphan-entitlements",
+      "category": "tooling",
+      "description": "CLI command to detect users with active entitlements that should have expired",
+      "steps": [
+        "Add 'orphans' command to billing-cli:",
+        "  - 'billing-cli orphans entitlements' - find users with premium but no valid source",
+        "Query logic:",
+        "  - Get all users with active entitlements (end_at IS NULL OR end_at > now, revoked_at IS NULL)",
+        "  - For each, check if they have a valid source:",
+        "    - source_type='subscription' → verify subscription is still active and not expired",
+        "    - source_type='one_off' → verify payment exists and end_at hasn't passed",
+        "    - source_type='admin' → SKIP (intentionally granted, don't flag)",
+        "  - Flag entitlements where source is invalid/expired but entitlement still active",
+        "Output columns:",
+        "  - user_id, entitlement_id, entitlement_name, source_type, source_id",
+        "  - source_status (e.g., 'subscription_cancelled', 'subscription_expired', 'payment_refunded')",
+        "  - entitlement_start, expected_end, recommendation",
+        "Add --include-admin flag to also audit admin-granted entitlements (off by default)",
+        "Add --format flag (table, json, csv)",
+        "Add --fix flag to auto-revoke orphaned entitlements (with confirmation prompt)",
+        "Write tests for orphan detection logic"
+      ],
+      "passes": false
+    },
+    {
+      "name": "admin-user-search",
+      "category": "feature",
+      "description": "Sophisticated user search for admin dashboard",
+      "steps": [
+        "Design search API:",
+        "  - GET /v1/admin/users?q=...&filters... - search users with billing data",
+        "Search fields:",
+        "  - email (partial match from subscriptions/payments)",
+        "  - user_id (exact match)",
+        "  - processor_subscription_id (exact match for support lookups)",
+        "  - transaction_id (exact match for payment support)",
+        "Filters:",
+        "  - has_subscription=true/false",
+        "  - subscription_status=active/cancelled/past_due/etc",
+        "  - processor=nmi/ccbill/solana",
+        "  - has_entitlement=premium/etc",
+        "  - created_after, created_before (date range)",
+        "Sorting:",
+        "  - sort_by=newest/oldest/last_payment/subscription_start",
+        "Pagination:",
+        "  - page, page_size, cursor-based pagination for large results",
+        "Performance:",
+        "  - Add database indexes for search fields",
+        "  - Consider full-text search for email",
+        "  - Rate limit search queries",
+        "NOTE: Billing service searches its own data. Full user profile search (username, etc) lives in main doujins API."
+      ],
+      "passes": false
     },
     {
       "name": "admin-rate-limiting",
@@ -491,23 +220,7 @@
         "Log all rate limit events for security audit",
         "BENEFIT: Limits blast radius - attacker can only affect ~5-10 users before getting locked out"
       ],
-      "passes": null
-    },
-    {
-      "name": "unix-epoch-timestamps",
-      "category": "refactor",
-      "description": "Standardize all API response timestamps to unix epochs (like Stripe)",
-      "steps": [
-        "Audit all response structs in internal/handlers/responses.go for time.Time fields",
-        "Audit pkg/api/response.go - already uses int64 unix epochs (good)",
-        "Convert time.Time fields to int64 unix epochs in: SubmitPaymentResponse, PaymentStatusResponse, GeneratePaymentResponse, SolanaPaymentQRResponse, etc.",
-        "Use existing api.ToUnix() and api.ToUnixPtr() helpers for conversions",
-        "Update any handlers that return time.Time directly to use unix epochs",
-        "Ensure webhook event timestamps also use unix epochs",
-        "Update tests to expect int64 timestamps instead of time.Time strings",
-        "Document in API that all timestamps are unix epoch seconds (like Stripe)"
-      ],
-      "passes": null
+      "passes": false
     },
     {
       "name": "prefixed-resource-ids",
@@ -524,7 +237,7 @@
         "Update tests to use prefixed IDs in requests and expect them in responses",
         "BENEFIT: Easier debugging, self-documenting IDs, matches Stripe pattern"
       ],
-      "passes": null
+      "passes": true
     },
     {
       "name": "structured-error-responses",
@@ -542,8 +255,262 @@
         "Update tests to expect structured error format",
         "BENEFIT: Clients can programmatically handle errors by type/code, better UX"
       ],
-      "passes": null
+      "passes": true
+    },
+    {
+      "name": "solana-devnet-integration-tests",
+      "category": "testing-infra",
+      "description": "Add real Solana devnet integration tests that move test SOL/tokens on-chain",
+      "steps": [
+        "SETUP COMPLEXITY: Medium-high. Requires funded devnet wallet and handling rate limits/faucet availability.",
+        "Create test wallet keypair specifically for integration tests (store in config or env)",
+        "Fund test wallet via Solana devnet faucet (solana airdrop) - may need retry logic due to rate limits",
+        "Create test for full payment flow: generate intent -> sign transaction -> submit -> verify on-chain",
+        "Use devnet RPC endpoint (https://api.devnet.solana.com or Helius/QuickNode devnet)",
+        "Test SOL transfer: create intent for X lamports, sign with test wallet, submit, verify balance changes",
+        "Test SPL token transfer: create test SPL token on devnet, test token payment flow",
+        "Handle devnet instability: add retries, longer timeouts, skip tests if devnet unavailable",
+        "Consider using localnet (solana-test-validator) for faster/more reliable tests as alternative",
+        "Add -tags=devnet build tag to separate from unit tests (expensive/slow to run)",
+        "Document devnet wallet setup and faucet requirements in README"
+      ],
+      "passes": false
+    },
+    {
+      "name": "manage-subscription-uuid-panic",
+      "category": "bug",
+      "description": "Admin manage endpoints call uuid.MustParse on request payloads; malformed UUIDs crash the server instead of returning an error.",
+      "steps": [
+        "Update ManageSubscriptionService to validate UUID inputs with Parse + error handling (no MustParse).",
+        "Propagate user-friendly 400/422 errors from handlers for bad UUIDs.",
+        "Add tests covering malformed subscription IDs for update/extend admin routes to ensure no panic."
+      ],
+      "passes": true
+    },
+    {
+      "name": "payment-method-pagination-reset",
+      "category": "bug",
+      "description": "ListPaymentMethods sets defaults after parsing user-supplied page/page_size, overriding client pagination.",
+      "steps": [
+        "Reorder pagination handling so defaults are applied before parsing query params (or only when absent).",
+        "Simplify BindQuery usage to avoid manual overrides and duplicate validation.",
+        "Add handler tests confirming user-provided page/page_size are honored."
+      ],
+      "passes": true
+    },
+    {
+      "name": "redis-password-ignored-nonprod",
+      "category": "bug",
+      "description": "Redis client only sets password in production; staging/dev with protected Redis fail and rate limiting silently falls back to in-memory.",
+      "steps": [
+        "Always apply Redis password when provided, regardless of env.",
+        "Adjust log messaging to reflect actual auth usage and warn on failed connections.",
+        "Add tests (or injectable opts) to ensure password is respected outside prod."
+      ],
+      "passes": true
+    },
+    {
+      "name": "admin-actions-ignore-request-context",
+      "category": "refactor",
+      "description": "Admin status/extend handlers run with context.Background(), so work continues after client disconnects and ignores request timeouts.",
+      "steps": [
+        "Use r.Request.Context() (or a derived timeout) in manage handlers instead of context.Background().",
+        "Audit ManageSubscriptionService entry points to propagate the provided context to DB calls.",
+        "Add tests ensuring cancellation/timeout on request context stops handler work."
+      ],
+      "passes": true
+    },
+    {
+      "name": "remove-wallet-verification-requirement",
+      "category": "refactor",
+      "description": "Remove mandatory wallet verification before Solana payments - it's unnecessary since transaction signatures already prove ownership",
+      "steps": [
+        "CURRENT: User must link+verify wallet via challenge/sign before making a payment",
+        "PROBLEM: This is an unnecessary step - the transaction signature itself proves wallet ownership",
+        "Update CreatePaymentIntent to accept any wallet address (not just verified ones)",
+        "Update ConfirmPaymentIntent to verify the signed transaction's fee payer matches the claimed wallet",
+        "Keep wallet linking endpoints for optional UX convenience (remember wallets) but don't require verification for payments",
+        "Update GeneratePayment handler similarly",
+        "Remove isVerified checks from payment flows",
+        "Update tests to reflect new behavior (payments work without pre-verification)",
+        "BENEFIT: Simpler UX - users can pay immediately without linking wallet first"
+      ],
+      "passes": false
+    },
+    {
+      "name": "solana-pay-transaction-request",
+      "category": "feature",
+      "description": "Implement Solana Pay Transaction Request spec (server-built transactions via HTTPS endpoint)",
+      "steps": [
+        "CURRENT: We only support Transfer Requests (solana:<recipient>?amount=X) where wallet builds the transaction",
+        "TARGET: Also support Transaction Requests (solana:https://api.example.com/pay) where server builds the transaction",
+        "Create GET /v1/solana-pay/:intent_id endpoint returning { label, icon } per spec",
+        "Create POST /v1/solana-pay/:intent_id endpoint accepting { account } and returning { transaction, message? }",
+        "Server builds the transaction with the user's account as signer (not fee payer if we want sponsored txs)",
+        "Return base64-encoded serialized transaction for wallet to sign and broadcast",
+        "Update CreatePaymentIntentQR to optionally return transaction request URL instead of transfer request URL",
+        "Add config option to choose between transfer vs transaction request mode",
+        "BENEFIT: Enables complex transactions (swaps, multi-instruction), sponsored fees, and server-side transaction building",
+        "Write tests for transaction request flow"
+      ],
+      "passes": false
+    },
+    {
+      "name": "solana-sponsored-transactions",
+      "category": "feature",
+      "description": "Allow merchant to pay Solana transaction fees so users don't need SOL in their wallet",
+      "steps": [
+        "CURRENT: User is fee payer - must have SOL for transaction fees (~0.000005 SOL)",
+        "TARGET: Merchant pays fees - users can pay with just USDC/tokens, no SOL needed",
+        "Create separate 'fee payer' wallet (distinct from recipient wallet to limit blast radius)",
+        "Add fee_payer_wallet and fee_payer_private_key to Solana config (or use KMS reference)",
+        "Integrate with AWS KMS or GCP Cloud HSM for secure private key storage (never store raw key in config)",
+        "Update BuildPaymentTransaction to set merchant as fee payer (account[0])",
+        "Server signs transaction first with fee payer key, then returns partially-signed tx to user",
+        "User signs as token sender, transaction now has both signatures",
+        "Add rate limiting specifically for sponsored transactions to prevent abuse/draining",
+        "Add monitoring/alerting for fee payer wallet balance (alert when low)",
+        "Add config flag to enable/disable sponsored transactions (default off)",
+        "Consider using Helius or Jito for fee sponsorship as simpler alternative to self-managed keys",
+        "TRADEOFF: Adds complexity and security burden (private key on server) but improves UX significantly",
+        "Write tests for sponsored transaction flow"
+      ],
+      "passes": false
+    },
+    {
+      "name": "remove-nmi-from-codebase",
+      "category": "refactor",
+      "description": "Remove 'nmi' references from codebase - NMI should be an invisible implementation detail, not visible in API/routes/database",
+      "steps": [
+        "Create NMI-backed processors set in one central place (config or constants)",
+        "  - Define var NMIBackedProcessors = map[string]bool{'mobius': true} or load from config",
+        "  - This is the ONLY place that knows which processors use NMI gateway",
+        "  - Adding 'acme' processor = add config block + add to this set, zero code changes",
+        "Remove ProcessorNMI constant usage from switch statements",
+        "  - Replace `case ProcessorNMI:` with `case isNMIBacked(processor)` or similar",
+        "  - subscription.go Subscribe() should switch on 'mobius', 'ccbill', 'solana' directly",
+        "Update webhook routing to check NMIBackedProcessors set",
+        "  - `/webhooks/mobius` and `/webhooks/acme` both route to handleNMIWebhook",
+        "  - Check `if NMIBackedProcessors[provider]` instead of `if provider == 'nmi'`",
+        "Remove 'nmi' as valid webhook route - only accept processor names (mobius, ccbill, solana)",
+        "Audit database: processor column should store 'mobius' not 'nmi'",
+        "  - If any records have processor='nmi', migrate them to 'mobius'",
+        "Consider removing Gateway field from models entirely",
+        "  - Currently stores 'nmi' for mobius subscriptions - but this is redundant",
+        "  - If processor='mobius', we KNOW gateway=nmi, no need to store it",
+        "  - Or repurpose Gateway for multi-tenant config (e.g., different NMI merchant accounts)",
+        "Update NMI client map to be keyed by processor name",
+        "  - Already done: NMIClients['mobius'] returns the NMI client for mobius",
+        "Update config structure for clarity",
+        "  - config.nmi.mobius.api_key, config.nmi.acme.api_key etc.",
+        "  - Each processor that uses NMI has its own config block under 'nmi'",
+        "Remove testdata/webhooks/nmi folder - rename to testdata/webhooks/mobius",
+        "Update replay service to use processor names not 'nmi'",
+        "Update documentation to clarify terminology",
+        "GOAL: 'nmi' appears ONLY in internal NMI client code, never in routes/API/database/config keys"
+      ],
+      "passes": false
+    },
+    {
+      "name": "simplify-solana-pay-architecture",
+      "category": "refactor",
+      "description": "Simplify Solana Pay to use Redis for pending state, server-side polling, and eliminate the SolanaPaymentIntent model",
+      "spec": {
+        "overview": "Replace the complex SolanaPaymentIntent state machine with a simpler architecture: Redis for ephemeral pending payments, a background goroutine that polls Solana every 500ms for confirmations, and Postgres only for confirmed payments.",
+        "current_problems": [
+          "SolanaPaymentIntent table mirrors blockchain state unnecessarily",
+          "Complex state machine (pending → processing → confirmed/failed/expired)",
+          "Multiple endpoints for what should be simple operations",
+          "Frontend polling triggers blockchain checks (fragile if frontend disconnects)"
+        ],
+        "endpoints": {
+          "POST /v1/solana/pay": {
+            "request": "{ price_id, token }",
+            "response": "{ url, reference, amount, token_amount, token, expires_at }",
+            "behavior": [
+              "Generate random 32-byte reference (base58 encoded)",
+              "Calculate token amount from price using current quote",
+              "Build solana: Transfer Request URL with reference",
+              "Store in Redis HASH: solana_pay:{ref} → { user_id, price_id, amount, token, recipient, created_at } with 15min TTL",
+              "Add reference to Redis SET 'pending_solana_payments'",
+              "Return URL for frontend to display as QR"
+            ]
+          },
+          "GET /v1/solana/pay/status": {
+            "request": "?reference=REF123",
+            "response": "{ status: 'pending' | 'confirmed' | 'expired', payment_id?, signature? }",
+            "behavior": [
+              "Check Postgres for Payment with this reference - if found, return confirmed + payment_id + signature",
+              "Check Redis for solana_pay:{ref} - if not found, return expired",
+              "Otherwise return pending (poller handles actual blockchain checking)"
+            ]
+          }
+        },
+        "poller": {
+          "name": "SolanaPaymentPoller",
+          "type": "Goroutine with 500ms ticker (NOT a River job)",
+          "why_not_river": "River jobs have overhead, 500ms polling needs a lightweight goroutine",
+          "startup": "go StartSolanaPoller(ctx, state) in main.go alongside HTTP server",
+          "behavior": [
+            "Ticker fires every 500ms",
+            "SMEMBERS pending_solana_payments → get all pending references",
+            "If empty, continue (SMEMBERS on empty set is ~0.1ms, negligible)",
+            "Batch RPC: send single HTTP request with N getSignaturesForAddress queries",
+            "For each reference with signature found:",
+            "  - Fetch full transaction via getTransaction RPC",
+            "  - Verify amount, recipient, and token match expected values from Redis HASH",
+            "  - Create Payment record in Postgres (idempotent on signature)",
+            "  - Grant entitlements to user",
+            "  - SREM from pending_solana_payments SET",
+            "  - DEL solana_pay:{ref} HASH",
+            "For each reference with no signature:",
+            "  - Check if expired (created_at > 15min ago or HASH missing)",
+            "  - If expired, SREM from SET and continue",
+            "  - Otherwise, still pending, do nothing"
+          ],
+          "latency": "~500-900ms from user signing tx to confirmed in our system (400ms slot time + 0-500ms poll interval)"
+        },
+        "redis_structure": {
+          "pending_solana_payments": "SET of reference strings currently being polled",
+          "solana_pay:{reference}": "HASH { user_id, price_id, amount, token, recipient, created_at } with 15min TTL"
+        },
+        "frontend_polling": {
+          "description": "Frontend polls GET /v1/solana/pay/status every 2-3 seconds",
+          "flow": [
+            "POST /v1/solana/pay → get { url, reference }",
+            "Display QR code with url",
+            "Poll GET /v1/solana/pay/status?reference=REF every 2-3 seconds",
+            "When status=confirmed → redirect to success page",
+            "When status=expired → show expiration message"
+          ]
+        },
+        "what_to_remove": [
+          "solana_payment_intents table and migration",
+          "SolanaPaymentIntent model",
+          "SolanaPaymentIntentService",
+          "SolanaPaymentIntentRepo",
+          "Intent state machine (pending/processing/confirmed/failed/expired)",
+          "POST /v1/payment-intents/* endpoints",
+          "GET /v1/payment-intents/:id endpoint"
+        ],
+        "what_to_keep": [
+          "Payment model and table (confirmed payments only)",
+          "SolanaTransaction model (audit trail of on-chain txs)",
+          "Entitlement granting logic",
+          "Token quote calculation (price → token amount)",
+          "Transaction verification logic (amount, recipient, token checks)"
+        ],
+        "benefits": [
+          "Simpler mental model: Redis for pending, Postgres for confirmed",
+          "No state machine to maintain",
+          "Server-side polling ensures payments processed even if frontend disconnects",
+          "Snappy UX: 500ms polling catches payments almost instantly",
+          "Efficient: batch RPC means 1 HTTP request regardless of pending count",
+          "Fewer database writes (only on confirmation)",
+          "Easier to reason about and debug"
+        ]
+      },
+      "passes": false
     }
-  ],
-  "current_issue": 5
+  ]
 }

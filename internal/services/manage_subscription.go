@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -14,6 +15,8 @@ type ManageSubscriptionService struct {
 	SubscriptionService      *SubscriptionService
 	NotificationQueueService *NotificationQueueService
 }
+
+var ErrInvalidSubscriptionID = errors.New("invalid subscription id")
 
 type UpdateSubscriptionStatusParams struct {
 	SubscriptionID string
@@ -37,7 +40,12 @@ func NewManageSubscriptionService(subscriptionService *SubscriptionService, noti
 }
 
 func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *UpdateSubscriptionStatusParams) error {
-	subscription, err := s.SubscriptionService.GetByID(ctx, uuid.MustParse(params.SubscriptionID))
+	subID, err := uuid.Parse(params.SubscriptionID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidSubscriptionID, err)
+	}
+
+	subscription, err := s.SubscriptionService.GetByID(ctx, subID)
 	if err != nil {
 		return err
 	}
@@ -98,7 +106,12 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 }
 
 func (s *ManageSubscriptionService) ExtendSubscription(ctx context.Context, params *ExtendSubscriptionParams) error {
-	subscription, err := s.SubscriptionService.GetByID(ctx, uuid.MustParse(params.SubscriptionID))
+	subID, err := uuid.Parse(params.SubscriptionID)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidSubscriptionID, err)
+	}
+
+	subscription, err := s.SubscriptionService.GetByID(ctx, subID)
 	if err != nil {
 		return err
 	}

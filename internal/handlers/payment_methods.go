@@ -162,6 +162,7 @@ func UpdatePaymentMethod(r *Request) {
 
 func ListPaymentMethods(r *Request) {
 	req := new(ListPaymentMethodsRequest)
+	req.SetDefaults()
 	if !r.BindQuery(req) {
 		return
 	}
@@ -189,8 +190,6 @@ func ListPaymentMethods(r *Request) {
 			return
 		}
 	}
-
-	req.SetDefaults()
 
 	user := r.GetUser()
 	if user == nil {

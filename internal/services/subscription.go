@@ -29,17 +29,23 @@ type SubscribeData struct {
 	Zip             string `json:"zip"`
 	Country         string `json:"country"`
 	PriceID         string `json:"price_id"`
-	Processor       string `json:"processor"`
-	Provider        string `json:"provider,omitempty"`
+	Processor       string `json:"processor,omitempty"` // Processor: mobius, ccbill, solana
 	PaymentToken    string `json:"payment_token,omitempty"`
 	PaymentMethodID string `json:"payment_method_id,omitempty"`
 }
 
 type GetSubscriptionsFilters struct {
-	UserID    string    `form:"user_id"`
-	Status    string    `form:"status"`
-	PriceID   uuid.UUID `form:"price_id"`
-	Processor string    `form:"processor"`
+	UserID          string     `form:"user_id"`
+	Status          string     `form:"status"`
+	PriceID         uuid.UUID  `form:"price_id"`
+	Processor       string     `form:"processor"`
+	CreatedAfter    *time.Time `form:"created_after" time_format:"2006-01-02"`
+	CreatedBefore   *time.Time `form:"created_before" time_format:"2006-01-02"`
+	CancelledAfter  *time.Time `form:"cancelled_after" time_format:"2006-01-02"`
+	CancelledBefore *time.Time `form:"cancelled_before" time_format:"2006-01-02"`
+	ExpiresBefore   *time.Time `form:"expires_before" time_format:"2006-01-02"`
+	SortBy          string     `form:"sort_by"`    // created_at (default), expires_at, cancelled_at
+	SortOrder       string     `form:"sort_order"` // asc, desc (default)
 }
 
 type SubscriptionService struct {
@@ -54,7 +60,7 @@ type SubscriptionService struct {
 	IdempotencyService       *IdempotencyService
 }
 
-func (s *SubscriptionService) nmiClientForProvider(provider string) (*nmi.NMIClient, error) {
+func (s *SubscriptionService) nmiClientForProcessor(provider string) (*nmi.NMIClient, error) {
 	providerKey := strings.TrimSpace(strings.ToLower(provider))
 	if providerKey == "" {
 		providerKey = "mobius"
@@ -142,9 +148,9 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 		return nil, errors.New("user already has an active subscription")
 	}
 
-	processor := data.Processor
+	processor := strings.TrimSpace(strings.ToLower(data.Processor))
 	if processor == "" {
-		processor = ProcessorCCBill
+		processor = ProcessorCCBill // default
 	}
 
 	switch processor {
@@ -161,27 +167,19 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			},
 			"flexform_endpoint": "/v1/subscriptions/ccbill/flexform-url",
 		}, nil
-	case ProcessorNMI:
-		provider := strings.TrimSpace(strings.ToLower(data.Provider))
-		if price.NMIProvider != nil {
-			expected := strings.TrimSpace(strings.ToLower(*price.NMIProvider))
-			if provider != "" && provider != expected {
-				return nil, fmt.Errorf("provider %s does not match price provider %s", provider, expected)
-			}
-			provider = expected
+	case "mobius", ProcessorNMI: // mobius is the processor, NMI is the underlying gateway
+		// Get NMI config from price's processors JSONB
+		nmiPlanID, _, hasNMI := price.GetNMIConfig()
+		if !hasNMI || nmiPlanID == "" {
+			return nil, fmt.Errorf("price %s is missing an NMI plan configuration", price.ID)
 		}
 
-		if provider == "" {
-			provider = "mobius"
-		}
+		// mobius is the default NMI provider
+		provider := "mobius"
 
-		client, err := s.nmiClientForProvider(provider)
+		client, err := s.nmiClientForProcessor(provider)
 		if err != nil {
 			return nil, err
-		}
-
-		if price.NMIPlanID == nil || strings.TrimSpace(*price.NMIPlanID) == "" {
-			return nil, fmt.Errorf("price %s is missing an NMI plan configuration", price.ID)
 		}
 
 		email := strings.TrimSpace(data.Email)
@@ -206,14 +204,13 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				return nil, fmt.Errorf("unable to use saved payment method: %w", err)
 			}
 
-			if paymentMethod.Processor != models.ProcessorNMI {
-				return nil, errors.New("saved payment method is not compatible with NMI subscriptions")
+			if paymentMethod.Processor != models.ProcessorMobius && paymentMethod.Processor != models.ProcessorNMI {
+				return nil, errors.New("saved payment method is not compatible with mobius subscriptions")
 			}
 
 			customerVaultID = paymentMethod.VaultID
-			if paymentMethod.Provider != nil {
-				provider = strings.TrimSpace(strings.ToLower(*paymentMethod.Provider))
-			}
+			// Use the processor from the payment method
+			provider = strings.ToLower(string(paymentMethod.Processor))
 		}
 
 		trimmedToken := strings.TrimSpace(data.PaymentToken)
@@ -244,7 +241,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				Zip:       data.Zip,
 				Country:   data.Country,
 			},
-			PlanID:     strings.TrimSpace(*price.NMIPlanID),
+			PlanID:     nmiPlanID,
 			Amount:     float64(price.Amount) / 100.0, // Convert cents to dollars for NMI API
 			Currency:   price.Currency,
 			Email:      email,
@@ -303,9 +300,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				return nil, errors.New("failed to create payment method vault: empty customer vault ID")
 			}
 			createdPaymentMethod = pm
-			if pm.Provider != nil {
-				provider = strings.TrimSpace(strings.ToLower(*pm.Provider))
-			}
+			provider = strings.ToLower(string(pm.Processor))
 		}
 
 		if customerVaultID != "" {
@@ -349,15 +344,8 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			ID:                      subscriptionID,
 			ProcessorSubscriptionID: resp.SubscriptionID,
 			Status:                  models.StatusPending,
-			Processor:               models.Processor(processor),
-			ProcessorProvider: func() *string {
-				if provider == "" {
-					return nil
-				}
-				pp := provider
-				return &pp
-			}(),
-			UserEmail: emailCopy,
+			Processor:               models.ProcessorMobius,
+			UserEmail:               emailCopy,
 		}
 		if strings.TrimSpace(data.PaymentMethodID) != "" {
 			pmUUID, _ := uuid.Parse(strings.TrimSpace(data.PaymentMethodID))
@@ -500,10 +488,17 @@ func (s *SubscriptionService) Update(ctx context.Context, subscription *models.S
 func (s *SubscriptionService) GetSubscribers(ctx context.Context, params query.QueryOptions[GetSubscriptionsFilters]) ([]*models.Subscription, int64, error) {
 	repoParams := query.QueryOptions[repo.SubscriptionFilters]{
 		Filters: repo.SubscriptionFilters{
-			UserID:    params.Filters.UserID,
-			Status:    params.Filters.Status,
-			PriceID:   params.Filters.PriceID,
-			Processor: params.Filters.Processor,
+			UserID:          params.Filters.UserID,
+			Status:          params.Filters.Status,
+			PriceID:         params.Filters.PriceID,
+			Processor:       params.Filters.Processor,
+			CreatedAfter:    params.Filters.CreatedAfter,
+			CreatedBefore:   params.Filters.CreatedBefore,
+			CancelledAfter:  params.Filters.CancelledAfter,
+			CancelledBefore: params.Filters.CancelledBefore,
+			ExpiresBefore:   params.Filters.ExpiresBefore,
+			SortBy:          params.Filters.SortBy,
+			SortOrder:       params.Filters.SortOrder,
 		},
 		Limit:  params.Limit,
 		Offset: params.Offset,
@@ -536,9 +531,9 @@ func (s *SubscriptionService) GetActiveSubscription(ctx context.Context, userID 
 	return s.subscriptionRepo.GetActiveSubscription(ctx, userID)
 }
 
-// GetByProcessorSubscriptionID finds a subscription by processor, provider, and processor_subscription_id
-func (s *SubscriptionService) GetByProcessorSubscriptionID(ctx context.Context, processor, provider, processorSubscriptionID string) (*models.Subscription, error) {
-	return s.subscriptionRepo.GetByProcessorSubscriptionID(ctx, processor, provider, processorSubscriptionID)
+// GetByProcessorSubscriptionID finds a subscription by processor, gateway (optional), and processor_subscription_id
+func (s *SubscriptionService) GetByProcessorSubscriptionID(ctx context.Context, processor, gateway, processorSubscriptionID string) (*models.Subscription, error) {
+	return s.subscriptionRepo.GetByProcessorSubscriptionID(ctx, processor, gateway, processorSubscriptionID)
 }
 
 // GetActiveSubscriptionsByProcessor gets all active subscriptions for a processor

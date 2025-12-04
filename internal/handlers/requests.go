@@ -344,3 +344,51 @@ func (r *GetUserBillingHistoryRequest) Query() any {
 func (r *GetUserBillingHistoryRequest) SetDefaults() {
 	r.SetPaginationDefaults(20)
 }
+
+// -------------------------------- Payment Intent Requests --------------------------------
+
+// CreatePaymentIntentBodyParams for POST /v1/payment-intents (direct wallet flow)
+type CreatePaymentIntentBodyParams struct {
+	PriceID string `json:"price_id" validate:"required,uuid"`
+	Token   string `json:"token" validate:"required"`  // e.g., SOL, USDC
+	Wallet  string `json:"wallet" validate:"required"` // User's linked wallet address
+}
+
+type CreatePaymentIntentRequest struct {
+	BaseRequest
+	CreatePaymentIntentBodyParams
+}
+
+func (r *CreatePaymentIntentRequest) Body() any {
+	return &r.CreatePaymentIntentBodyParams
+}
+
+// CreatePaymentIntentQRBodyParams for POST /v1/payment-intents/qr (Solana Pay QR flow)
+type CreatePaymentIntentQRBodyParams struct {
+	PriceID string `json:"price_id" validate:"required,uuid"`
+	Token   string `json:"token" validate:"required"` // e.g., SOL, USDC
+	Wallet  string `json:"wallet"`                    // Optional: user's wallet for reference
+}
+
+type CreatePaymentIntentQRRequest struct {
+	BaseRequest
+	CreatePaymentIntentQRBodyParams
+}
+
+func (r *CreatePaymentIntentQRRequest) Body() any {
+	return &r.CreatePaymentIntentQRBodyParams
+}
+
+// ConfirmPaymentIntentBodyParams for POST /v1/payment-intents/:id/confirm
+type ConfirmPaymentIntentBodyParams struct {
+	SignedTransaction string `json:"signed_transaction" validate:"required"`
+}
+
+type ConfirmPaymentIntentRequest struct {
+	BaseRequest
+	ConfirmPaymentIntentBodyParams
+}
+
+func (r *ConfirmPaymentIntentRequest) Body() any {
+	return &r.ConfirmPaymentIntentBodyParams
+}

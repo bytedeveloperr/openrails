@@ -2,7 +2,7 @@
 
 #### Scope
 - Provides a billing-related API server for the frontend to use (signups, cancellations, etc.), and an admin-API server for the backend to use (admin cancellations).
-- Handles webhooks from supported payment providers, and updates corresponding subscriptions / entitlements.
+- Handles webhooks from supported payment processors (mobius, ccbill, solana), and updates corresponding subscriptions / entitlements.
 - Runs periodic jobs to update subscriptions / entitlements.
 
 #### Interactions with other services (Intended Contract)
@@ -49,6 +49,379 @@ Service endpoints
 - Health: `GET http://localhost:2053/health` → `{ "status": "ok", "service": "billing-private" }`
 - API base: `http://localhost:2053/v1`
 - Auth: JWT-based; supply `Authorization: Bearer <token>` where required by routes.
+
+---
+
+## API Reference
+
+All endpoints return JSON. Authenticated endpoints require `Authorization: Bearer <token>` header.
+
+### Response Formats
+
+**List Response** (paginated collections):
+```json
+{
+  "object": "list",
+  "data": [...],
+  "total_items": 100,
+  "page": 1,
+  "page_size": 20,
+  "total_pages": 5
+}
+```
+
+**Error Response** (Stripe-style):
+```json
+{
+  "error": {
+    "type": "invalid_request_error",
+    "code": "resource_not_found",
+    "message": "Subscription not found",
+    "param": "subscription_id"
+  }
+}
+```
+
+Error types: `invalid_request_error`, `authentication_error`, `authorization_error`, `api_error`, `card_error`, `rate_limit_error`
+
+---
+
+### Public Endpoints (No Auth Required)
+
+#### Products & Prices
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/products` | List all active products with prices |
+| GET | `/v1/prices` | List all active prices |
+
+**Product Object:**
+```json
+{
+  "id": "prod_<uuid>",
+  "object": "product",
+  "active": true,
+  "name": "Premium Monthly",
+  "description": "...",
+  "prices": [...],
+  "created": 1704067200,
+  "updated": 1704067200
+}
+```
+
+**Price Object:**
+```json
+{
+  "id": "price_<uuid>",
+  "object": "price",
+  "active": true,
+  "currency": "usd",
+  "unit_amount": 999,
+  "product": "prod_<uuid>",
+  "type": "recurring",
+  "recurring": { "interval": "month", "interval_count": 1 },
+  "created": 1704067200
+}
+```
+
+---
+
+### Authenticated Endpoints (Auth Required)
+
+#### User Profile & Status
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/me/status` | Get current user's billing status |
+
+---
+
+#### Subscriptions
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/me/subscriptions` | List user's subscriptions |
+| POST | `/v1/me/subscriptions/cancel` | Cancel active subscription |
+
+**Query params for GET /v1/me/subscriptions:**
+- `status` - Filter: `active`, `all` (default: `active`)
+- `page`, `page_size` - Pagination
+
+**Subscription Object:**
+```json
+{
+  "id": "sub_<uuid>",
+  "object": "subscription",
+  "status": "active",
+  "customer": "<user_uuid>",
+  "items": [{
+    "id": "si_<uuid>",
+    "object": "subscription_item",
+    "price": {...},
+    "quantity": 1
+  }],
+  "start_date": 1704067200,
+  "current_period_start": 1704067200,
+  "current_period_end": 1706745600,
+  "cancel_at_period_end": false
+}
+```
+
+**Cancel Request Body:**
+```json
+{ "feedback": "Optional cancellation reason (max 500 chars)" }
+```
+
+---
+
+#### Payments
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/me/payments` | List user's payment history |
+
+**Query params:**
+- `page`, `page_size` - Pagination
+- `start_date`, `end_date` - Date range (format: `2006-01-02`)
+- `processor` - Filter: `ccbill`, `mobius`, `solana`, `system`
+- `min_amount`, `max_amount` - Amount range
+- `include_stats` - Include summary stats (default: `false`)
+- `include_events` - Include payment events (default: `true`)
+
+---
+
+#### Payment Methods
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/me/payment-methods` | List saved payment methods |
+| POST | `/v1/me/payment-methods` | Add new payment method |
+| PUT | `/v1/me/payment-methods/:id` | Update payment method |
+| DELETE | `/v1/me/payment-methods/:id` | Delete payment method |
+| PUT | `/v1/me/payment-methods/:id/activate` | Set as default payment method |
+
+**Create Payment Method Body:**
+```json
+{
+  "payment_token": "tok_xxx",
+  "first_name": "John",
+  "last_name": "Doe",
+  "address1": "123 Main St",
+  "city": "New York",
+  "state": "NY",
+  "zip": "10001",
+  "country": "US",
+  "phone": "555-1234",
+  "email": "john@example.com"
+}
+```
+
+---
+
+#### Solana Wallets
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/me/wallets` | List linked Solana wallets |
+| GET | `/v1/me/wallets/linked` | Get primary linked wallet |
+| POST | `/v1/me/wallets/challenge` | Generate wallet verification challenge |
+| POST | `/v1/me/wallets/verify` | Verify wallet signature |
+| DELETE | `/v1/me/wallets` | Unlink wallet |
+
+**Challenge Request Body:**
+```json
+{ "wallet": "<base58_address>" }
+```
+
+**Verify Request Body:**
+```json
+{
+  "wallet": "<base58_address>",
+  "signature": "<base58_signature>",
+  "message": "<challenge_message>"
+}
+```
+
+---
+
+#### Notifications
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/v1/me/notifications` | List user's notifications |
+| GET | `/v1/me/notifications/unread-count` | Get unread notification count |
+| POST | `/v1/me/notifications/:id/read` | Mark notification as read |
+
+**Query params for GET:**
+- `page`, `page_size` - Pagination
+- `seen` - Filter: `true`, `false`
+
+---
+
+#### Payment Intents (Solana Payments)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/payment-intents` | Create payment intent (direct wallet) |
+| POST | `/v1/payment-intents/qr` | Create payment intent (QR/Solana Pay) |
+| GET | `/v1/payment-intents/:id` | Get payment intent status |
+| POST | `/v1/payment-intents/:id/confirm` | Confirm with signed transaction |
+
+**Create Payment Intent Body (direct):**
+```json
+{
+  "price_id": "<uuid>",
+  "token": "USDC",
+  "wallet": "<base58_address>"
+}
+```
+
+**Create Payment Intent Body (QR):**
+```json
+{
+  "price_id": "<uuid>",
+  "token": "USDC",
+  "wallet": "<optional_base58_address>"
+}
+```
+
+**Confirm Payment Intent Body:**
+```json
+{
+  "signed_transaction": "<base64_encoded_transaction>"
+}
+```
+
+**Payment Intent Object:**
+```json
+{
+  "id": "pi_<uuid>",
+  "object": "payment_intent",
+  "status": "pending",
+  "amount": 999,
+  "currency": "usd",
+  "payment_method": {
+    "type": "solana",
+    "token": "USDC",
+    "token_mint": "<mint_address>",
+    "token_amount": "9.99",
+    "wallet": "<payer_address>"
+  },
+  "transaction": {
+    "data": "<base64_tx>",
+    "url": "solana:<recipient>?...",
+    "reference": "<reference_key>",
+    "signature": "<tx_signature>"
+  },
+  "expires_at": 1704070800,
+  "created": 1704067200
+}
+```
+
+---
+
+### Subscription Creation
+
+#### NMI / Mobius (Card Payments)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/subscriptions/mobius` | Subscribe via NMI/Mobius |
+| POST | `/v1/subscriptions/solana` | Subscribe via Solana |
+
+**Request Body:**
+```json
+{
+  "price_id": "<uuid>",
+  "payment_method_id": "<uuid>"
+}
+```
+
+#### CCBill (Redirect Flow)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/subscriptions/ccbill` | Generate CCBill FlexForm URL |
+
+**Request Body:**
+```json
+{
+  "price_id": "<uuid>",
+  "first_name": "John",
+  "last_name": "Doe",
+  "address1": "123 Main St",
+  "city": "New York",
+  "state": "NY",
+  "zip_code": "10001",
+  "country": "US"
+}
+```
+
+**Response:**
+```json
+{
+  "url": "https://api.ccbill.com/wap-frontflex/flexforms/...",
+  "expires_at": 1704070800
+}
+```
+
+---
+
+### Webhooks
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/v1/webhooks/:provider` | Receive webhook from processor (ccbill, mobius, solana) |
+
+---
+
+### Admin Endpoints (Admin API - Port 8060)
+
+Requires `X-API-KEY: <billing_api_key>` header.
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| PUT | `/v1/subscriptions/:id/extend` | Extend subscription period |
+| POST | `/v1/subscriptions/:id/cancel` | Admin cancel subscription |
+| POST | `/v1/users/:user_id/subscription/cancel` | Cancel user's subscription |
+| GET | `/v1/subscriptions/:id/details` | Get subscription details |
+| GET | `/v1/subscriptions/dashboard-metrics` | Get dashboard metrics |
+| GET | `/v1/subscriptions/daily-metrics` | Get daily metrics |
+| GET | `/v1/subscriptions/processor-metrics` | Get per-processor metrics |
+| GET | `/v1/users/:user_id/entitlements` | Get user's active entitlements |
+
+---
+
+### Legacy Endpoints (Deprecated)
+
+These endpoints are kept for backwards compatibility but will be removed:
+
+| Old Endpoint | New Endpoint |
+|--------------|--------------|
+| `GET /v1/subscriptions/products` | `GET /v1/products` |
+| `GET /v1/subscriptions/active` | `GET /v1/me/subscriptions?status=active` |
+| `GET /v1/subscriptions/history` | `GET /v1/me/subscriptions?status=all` |
+| `GET /v1/subscriptions/purchases` | `GET /v1/me/payments` |
+| `POST /v1/subscriptions/cancel` | `POST /v1/me/subscriptions/cancel` |
+| `GET /v1/payment-methods` | `GET /v1/me/payment-methods` |
+| `POST /v1/payment-methods` | `POST /v1/me/payment-methods` |
+| `PUT /v1/payment-methods/:id` | `PUT /v1/me/payment-methods/:id` |
+| `DELETE /v1/payment-methods/:id` | `DELETE /v1/me/payment-methods/:id` |
+| `PUT /v1/payment-methods/:id/activate` | `PUT /v1/me/payment-methods/:id/activate` |
+| `GET /v1/wallet/solana` | `GET /v1/me/wallets` |
+| `GET /v1/wallet/solana/linked` | `GET /v1/me/wallets/linked` |
+| `POST /v1/wallet/solana/challenge` | `POST /v1/me/wallets/challenge` |
+| `POST /v1/wallet/solana/verify` | `POST /v1/me/wallets/verify` |
+| `DELETE /v1/wallet/solana` | `DELETE /v1/me/wallets` |
+| `GET /v1/notifications` | `GET /v1/me/notifications` |
+| `GET /v1/notifications/unread-count` | `GET /v1/me/notifications/unread-count` |
+| `POST /v1/notifications/:id/read` | `POST /v1/me/notifications/:id/read` |
+| `POST /v1/solana/generate` | `POST /v1/payment-intents` |
+| `POST /v1/solana/qr` | `POST /v1/payment-intents/qr` |
+| `GET /v1/solana/check?reference=...` | `GET /v1/payment-intents/:id` |
+| `POST /v1/solana/submit` | `POST /v1/payment-intents/:id/confirm` |
+
+---
 
 Networking
 - Public: port `2053` is published to the host.
@@ -111,4 +484,3 @@ Container usage
 Notes
 - This repository manages only the billing service operations. Application-specific integration (e.g., role management in your app DB) is out of scope here.
  - Premium checks in the Doujins app should come from `billing.entitlements` (not from subscription rows). Email addresses should come from `profiles.users` (not denormalized into billing records).
-

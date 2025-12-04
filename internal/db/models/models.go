@@ -10,10 +10,14 @@ import (
 type Processor string
 
 const (
-	ProcessorNMI    Processor = "nmi"
-	ProcessorCCBill Processor = "ccbill"
-	ProcessorSolana Processor = "solana"
-	ProcessorPayPal Processor = "paypal"
+	ProcessorMobius Processor = "mobius" // Card payments via NMI gateway
+	ProcessorCCBill Processor = "ccbill" // CCBill processor (self-contained)
+	ProcessorSolana Processor = "solana" // Solana crypto payments (self-contained)
+	ProcessorPayPal Processor = "paypal" // PayPal processor (self-contained)
+
+	// ProcessorNMI is kept for backwards compatibility and gateway references
+	// New code should use ProcessorMobius for the processor field
+	ProcessorNMI Processor = "nmi"
 )
 
 var ModelRegistry = []any{

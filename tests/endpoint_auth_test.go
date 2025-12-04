@@ -15,20 +15,33 @@ import (
 func TestEndpointAuthRequirements(t *testing.T) {
 	server, _ := setupTestServerWithAuth(t)
 
-	// All endpoints that require authentication
+	// All endpoints that require authentication (using new /v1/me/ routes)
 	endpoints := []struct {
 		method string
 		path   string
 	}{
 		// Notification endpoints
-		{"GET", "/v1/notifications"},
-		{"GET", "/v1/notifications/unread-count"},
-		{"POST", "/v1/notifications/123/read"},
+		{"GET", "/v1/me/notifications"},
+		{"GET", "/v1/me/notifications/unread-count"},
+		{"POST", "/v1/me/notifications/123/read"},
 		// Payment method endpoints
-		{"GET", "/v1/payment-methods"},
-		{"PUT", "/v1/payment-methods/123"},
-		{"DELETE", "/v1/payment-methods/123"},
-		{"PUT", "/v1/payment-methods/123/activate"},
+		{"GET", "/v1/me/payment-methods"},
+		{"PUT", "/v1/me/payment-methods/123"},
+		{"DELETE", "/v1/me/payment-methods/123"},
+		{"PUT", "/v1/me/payment-methods/123/activate"},
+		// Subscription endpoints
+		{"GET", "/v1/me/subscriptions"},
+		{"POST", "/v1/me/subscriptions/cancel"},
+		// Payment history
+		{"GET", "/v1/me/payments"},
+		// Wallet endpoints
+		{"GET", "/v1/me/wallets"},
+		{"POST", "/v1/me/wallets/challenge"},
+		// Payment intents
+		{"POST", "/v1/payment-intents"},
+		{"POST", "/v1/payment-intents/qr"},
+		{"GET", "/v1/payment-intents/pi_123"},
+		{"POST", "/v1/payment-intents/pi_123/confirm"},
 	}
 
 	for _, endpoint := range endpoints {

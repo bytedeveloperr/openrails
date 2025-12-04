@@ -14,8 +14,7 @@ type PaymentMethod struct {
 
 	ID        uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
 	UserID    string    `bun:"user_id,notnull" json:"user_id"`
-	Processor Processor `bun:"processor,notnull" json:"processor"` // "nmi", "ccbill", etc.
-	Provider  *string   `bun:"processor_provider,nullzero" json:"processor_provider"`
+	Processor Processor `bun:"processor,notnull" json:"processor"` // Processor: mobius, ccbill, solana
 
 	// Processor-specific vault/payment method identifiers
 	VaultID              string  `bun:"vault_id,notnull" json:"vault_id"`                             // Primary identifier in processor's system

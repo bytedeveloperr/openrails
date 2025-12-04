@@ -18,37 +18,33 @@ type ListResponse[T any] struct {
 
 // ProductObject represents a product resource
 type ProductObject struct {
-	ID          string         `json:"id"`
-	Object      string         `json:"object"` // Always "product"
-	Active      bool           `json:"active"`
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Metadata    map[string]any `json:"metadata,omitempty"`
-	Created     int64          `json:"created"`
-	Updated     int64          `json:"updated"`
-	Prices      []PriceObject  `json:"prices,omitempty"` // Expanded prices
+	ID          string        `json:"id"`
+	Object      string        `json:"object"` // Always "product"
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Active      bool          `json:"active"`
+	Created     int64         `json:"created"`
+	Updated     int64         `json:"updated"`
+	Prices      []PriceObject `json:"prices,omitempty"`
 }
 
 // PriceObject represents a price resource
 type PriceObject struct {
-	ID                string         `json:"id"`
-	Object            string         `json:"object"` // Always "price"
-	Active            bool           `json:"active"`
-	Currency          string         `json:"currency"`
-	UnitAmount        int64          `json:"unit_amount"` // In cents
-	UnitAmountDecimal string         `json:"unit_amount_decimal,omitempty"`
-	Product           string         `json:"product"` // Product ID
-	BillingScheme     string         `json:"billing_scheme"`
-	Recurring         *RecurringInfo `json:"recurring,omitempty"`
-	Type              string         `json:"type"` // "recurring" or "one_time"
-	Created           int64          `json:"created"`
-	Metadata          map[string]any `json:"metadata,omitempty"`
+	ID        string         `json:"id"`
+	Object    string         `json:"object"` // Always "price"
+	Name      string         `json:"name"`
+	Amount    int64          `json:"amount"` // In cents
+	Currency  string         `json:"currency"`
+	Recurring *RecurringInfo `json:"recurring,omitempty"` // null for one-time purchases
+	Product   string         `json:"product"`             // Product ID
+	Active    bool           `json:"active"`
+	Created   int64          `json:"created"`
 }
 
-// RecurringInfo describes the recurring nature of a price
+// RecurringInfo describes the billing interval for recurring prices
 type RecurringInfo struct {
 	Interval      string `json:"interval"`       // "day", "week", "month", "year"
-	IntervalCount int    `json:"interval_count"` // Number of intervals
+	IntervalCount int    `json:"interval_count"` // Number of intervals between billings
 }
 
 // SubscriptionObject represents a subscription resource
@@ -64,7 +60,6 @@ type SubscriptionObject struct {
 	CanceledAt         *int64                   `json:"canceled_at,omitempty"`
 	EndedAt            *int64                   `json:"ended_at,omitempty"`
 	CancelAtPeriodEnd  bool                     `json:"cancel_at_period_end"`
-	Metadata           map[string]any           `json:"metadata,omitempty"`
 	LatestInvoice      *InvoiceObject           `json:"latest_invoice,omitempty"`
 }
 
@@ -89,9 +84,37 @@ type InvoiceObject struct {
 type PaymentIntentObject struct {
 	ID           string            `json:"id"`
 	Object       string            `json:"object"` // Always "payment_intent"
-	Status       string            `json:"status"` // "succeeded", "requires_action", etc.
+	Status       string            `json:"status"` // "pending", "processing", "confirmed", "failed"
+	Amount       int64             `json:"amount"` // Amount in cents (USD)
+	Currency     string            `json:"currency"`
 	ClientSecret string            `json:"client_secret,omitempty"`
 	NextAction   *NextActionObject `json:"next_action,omitempty"`
+	// Solana-specific fields
+	PaymentMethod *PaymentIntentPaymentMethod `json:"payment_method,omitempty"`
+	Transaction   *PaymentIntentTransaction   `json:"transaction,omitempty"`
+	ExpiresAt     int64                       `json:"expires_at,omitempty"`
+	Created       int64                       `json:"created"`
+}
+
+// PaymentIntentPaymentMethod describes the payment method for the intent
+type PaymentIntentPaymentMethod struct {
+	Type        string `json:"type"`                   // "solana"
+	Token       string `json:"token,omitempty"`        // Token symbol (SOL, USDC)
+	TokenMint   string `json:"token_mint,omitempty"`   // Token mint address
+	TokenAmount string `json:"token_amount,omitempty"` // Human-readable token amount
+	Wallet      string `json:"wallet,omitempty"`       // Payer wallet address
+}
+
+// PaymentIntentTransaction contains transaction details for Solana payments
+type PaymentIntentTransaction struct {
+	// For direct flow: base64-encoded transaction to sign
+	Data string `json:"data,omitempty"`
+	// For QR flow: Solana Pay URL
+	URL string `json:"url,omitempty"`
+	// Reference key for looking up on-chain (QR flow)
+	Reference string `json:"reference,omitempty"`
+	// Transaction signature after confirmation
+	Signature string `json:"signature,omitempty"`
 }
 
 // NextActionObject describes the next action the user must take

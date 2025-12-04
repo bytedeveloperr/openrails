@@ -152,13 +152,13 @@ func TestSubscribeRequiresAuth(t *testing.T) {
 	t.Run("returns 401 without auth token", func(t *testing.T) {
 		body := map[string]string{
 			"price_id":      uuid.New().String(),
-			"processor":     "nmi",
+			"gateway":       "nmi",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/mobius", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -169,13 +169,13 @@ func TestSubscribeRequiresAuth(t *testing.T) {
 	t.Run("returns 401 with invalid token", func(t *testing.T) {
 		body := map[string]string{
 			"price_id":      uuid.New().String(),
-			"processor":     "nmi",
+			"gateway":       "nmi",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/mobius", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer invalid-token")
 
@@ -203,7 +203,7 @@ func TestSubscribeNMISuccess(t *testing.T) {
 
 		body := map[string]interface{}{
 			"price_id":      priceID.String(),
-			"processor":     "nmi",
+			"gateway":       "nmi",
 			"provider":      "mobius",
 			"payment_token": "test-payment-token-123",
 			"email":         email,
@@ -218,7 +218,7 @@ func TestSubscribeNMISuccess(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/mobius", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -261,7 +261,7 @@ func TestSubscribeNMIDeclined(t *testing.T) {
 
 		body := map[string]interface{}{
 			"price_id":      priceID.String(),
-			"processor":     "nmi",
+			"gateway":       "nmi",
 			"provider":      "mobius",
 			"payment_token": "test-payment-token-declined",
 			"email":         email,
@@ -276,7 +276,7 @@ func TestSubscribeNMIDeclined(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/mobius", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -321,7 +321,7 @@ func TestSubscribeNMIWithExistingPaymentMethod(t *testing.T) {
 
 		body := map[string]interface{}{
 			"price_id":          priceID.String(),
-			"processor":         "nmi",
+			"gateway":           "nmi",
 			"provider":          "mobius",
 			"payment_method_id": pm.ID.String(),
 			"email":             email,
@@ -329,7 +329,7 @@ func TestSubscribeNMIWithExistingPaymentMethod(t *testing.T) {
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/mobius", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -360,13 +360,13 @@ func TestSubscribeNMIInvalidPrice(t *testing.T) {
 	t.Run("returns error for non-existent price", func(t *testing.T) {
 		body := map[string]interface{}{
 			"price_id":      uuid.New().String(), // Non-existent price
-			"processor":     "nmi",
+			"gateway":       "nmi",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/mobius", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -378,13 +378,13 @@ func TestSubscribeNMIInvalidPrice(t *testing.T) {
 	t.Run("returns error for invalid price ID format", func(t *testing.T) {
 		body := map[string]interface{}{
 			"price_id":      "not-a-uuid",
-			"processor":     "nmi",
+			"gateway":       "nmi",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/mobius", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -419,13 +419,13 @@ func TestSubscribeNMIAlreadySubscribed(t *testing.T) {
 	t.Run("returns error when user already has active subscription", func(t *testing.T) {
 		body := map[string]interface{}{
 			"price_id":      priceID.String(),
-			"processor":     "nmi",
+			"gateway":       "nmi",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/mobius", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -446,13 +446,13 @@ func TestSubscribeCCBillRedirect(t *testing.T) {
 	t.Run("returns redirect info for CCBill processor", func(t *testing.T) {
 		body := map[string]interface{}{
 			"price_id":      priceID.String(),
-			"processor":     "ccbill",
+			"gateway":       "ccbill",
 			"payment_token": "test-token",
 		}
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/ccbill", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 
@@ -486,14 +486,14 @@ func TestSubscribeNMIMissingPaymentInfo(t *testing.T) {
 
 	t.Run("returns error without payment token or method", func(t *testing.T) {
 		body := map[string]interface{}{
-			"price_id":  priceID.String(),
-			"processor": "nmi",
+			"price_id": priceID.String(),
+			"gateway":  "nmi",
 			// No payment_token or payment_method_id
 		}
 		jsonBody, _ := json.Marshal(body)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/process/nmi", bytes.NewReader(jsonBody))
+		req, _ := http.NewRequest("POST", "/v1/subscriptions/mobius", bytes.NewReader(jsonBody))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer "+token)
 

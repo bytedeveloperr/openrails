@@ -19,10 +19,14 @@ import (
 )
 
 func Webhook(r *Request) {
-	processor := r.Param("processor")
-	provider := strings.Trim(strings.Trim(r.Param("provider"), "/"), " ")
-	if provider == "" {
-		provider = strings.TrimSpace(r.Query("provider"))
+	// Single path segment: /v1/webhooks/:provider
+	// Provider can be: mobius, ccbill, solana
+	// NMI is the gateway used by mobius, not a provider itself
+	provider := strings.Trim(strings.ToLower(r.Param("provider")), " /")
+	processor := provider
+	if provider == "mobius" || provider == "nmi" {
+		processor = services.ProcessorNMI
+		provider = "mobius" // normalize to mobius
 	}
 
 	// NOTE: Webhook authentication can be bypassed for testing by setting test_mode: true

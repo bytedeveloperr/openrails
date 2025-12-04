@@ -27,7 +27,7 @@ func TestSolanaWalletRequiresAuth(t *testing.T) {
 	t.Run("challenge returns 401 without auth", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"wallet": testSolanaWallet1})
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/wallet/solana/challenge", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/me/wallets/challenge", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -41,7 +41,7 @@ func TestSolanaWalletRequiresAuth(t *testing.T) {
 			"signature": "test-signature",
 		})
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/wallet/solana/verify", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/me/wallets/verify", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -51,7 +51,7 @@ func TestSolanaWalletRequiresAuth(t *testing.T) {
 
 	t.Run("list returns 401 without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/wallet/solana", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/wallets", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -60,7 +60,7 @@ func TestSolanaWalletRequiresAuth(t *testing.T) {
 
 	t.Run("linked returns 401 without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/wallet/solana/linked", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/wallets/linked", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -69,7 +69,7 @@ func TestSolanaWalletRequiresAuth(t *testing.T) {
 
 	t.Run("delete returns 401 without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/v1/wallet/solana?wallet="+testSolanaWallet1, nil)
+		req, _ := http.NewRequest("DELETE", "/v1/me/wallets?wallet="+testSolanaWallet1, nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -84,7 +84,7 @@ func TestSolanaWalletChallengeValidation(t *testing.T) {
 	t.Run("returns 400 for missing wallet", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{})
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/wallet/solana/challenge", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/me/wallets/challenge", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -98,7 +98,7 @@ func TestSolanaWalletChallengeValidation(t *testing.T) {
 			"wallet": "invalid-wallet",
 		})
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/wallet/solana/challenge", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/me/wallets/challenge", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -117,7 +117,7 @@ func TestSolanaWalletChallengeSuccess(t *testing.T) {
 			"wallet": testSolanaWallet1,
 		})
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/wallet/solana/challenge", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/me/wallets/challenge", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -146,7 +146,7 @@ func TestSolanaWalletListEmpty(t *testing.T) {
 
 	t.Run("returns empty list for user with no wallets", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/wallet/solana", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/wallets", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -169,7 +169,7 @@ func TestSolanaWalletLinkedNotFound(t *testing.T) {
 
 	t.Run("returns 404 when no wallet linked", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/wallet/solana/linked", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/wallets/linked", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -184,7 +184,7 @@ func TestSolanaWalletDeleteValidation(t *testing.T) {
 
 	t.Run("returns 400 for missing wallet param", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/v1/wallet/solana", nil)
+		req, _ := http.NewRequest("DELETE", "/v1/me/wallets", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -194,7 +194,7 @@ func TestSolanaWalletDeleteValidation(t *testing.T) {
 
 	t.Run("returns 400 for invalid wallet address", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/v1/wallet/solana?wallet=invalid", nil)
+		req, _ := http.NewRequest("DELETE", "/v1/me/wallets?wallet=invalid", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -205,7 +205,7 @@ func TestSolanaWalletDeleteValidation(t *testing.T) {
 	t.Run("returns 500 for non-existent wallet", func(t *testing.T) {
 		// Trying to delete a wallet that doesn't exist
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/v1/wallet/solana?wallet="+testSolanaWallet3, nil)
+		req, _ := http.NewRequest("DELETE", "/v1/me/wallets?wallet="+testSolanaWallet3, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -224,7 +224,7 @@ func TestSolanaWalletVerifyValidation(t *testing.T) {
 			"signature": "test-sig",
 		})
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/wallet/solana/verify", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/me/wallets/verify", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -239,7 +239,7 @@ func TestSolanaWalletVerifyValidation(t *testing.T) {
 			"signature": "test-sig",
 		})
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/wallet/solana/verify", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/me/wallets/verify", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -259,7 +259,7 @@ func TestSolanaWalletLinkAndListFlow(t *testing.T) {
 			"wallet": testSolanaWallet2,
 		})
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/wallet/solana/challenge", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/me/wallets/challenge", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -268,7 +268,7 @@ func TestSolanaWalletLinkAndListFlow(t *testing.T) {
 
 		// Now list wallets
 		w = httptest.NewRecorder()
-		req, _ = http.NewRequest("GET", "/v1/wallet/solana", nil)
+		req, _ = http.NewRequest("GET", "/v1/me/wallets", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -301,7 +301,7 @@ func TestSolanaWalletDeleteSuccess(t *testing.T) {
 		"wallet": deleteTestWallet,
 	})
 	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/v1/wallet/solana/challenge", bytes.NewReader(body))
+	req, _ := http.NewRequest("POST", "/v1/me/wallets/challenge", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
@@ -310,7 +310,7 @@ func TestSolanaWalletDeleteSuccess(t *testing.T) {
 
 	t.Run("deletes wallet successfully", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("DELETE", "/v1/wallet/solana?wallet="+deleteTestWallet, nil)
+		req, _ := http.NewRequest("DELETE", "/v1/me/wallets?wallet="+deleteTestWallet, nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -327,7 +327,7 @@ func TestSolanaWalletDeleteSuccess(t *testing.T) {
 
 	t.Run("wallet no longer in list after delete", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/wallet/solana", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/wallets", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -355,7 +355,7 @@ func TestSolanaWalletDuplicateRejection(t *testing.T) {
 	t.Run("first challenge succeeds", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"wallet": wallet})
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/wallet/solana/challenge", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/me/wallets/challenge", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -366,7 +366,7 @@ func TestSolanaWalletDuplicateRejection(t *testing.T) {
 	t.Run("second challenge for same wallet returns same wallet", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{"wallet": wallet})
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/wallet/solana/challenge", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/me/wallets/challenge", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -378,7 +378,7 @@ func TestSolanaWalletDuplicateRejection(t *testing.T) {
 
 	t.Run("list shows only one wallet", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/wallet/solana", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/wallets", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)

@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/internal/middleware"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
 // GenerateSolanaPayQR generates a Solana Pay URL for wallet apps to scan
@@ -110,7 +111,7 @@ func GenerateSolanaPayQR(r *Request) {
 		}(),
 		ExpiresAt: exp.Unix(),
 		Reference: *intent.Reference,
-		IntentID:  intent.ID.String(),
+		IntentID:  api.FormatPaymentIntentID(intent.ID),
 	}
 
 	log.WithFields(log.Fields{

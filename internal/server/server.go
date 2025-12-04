@@ -33,7 +33,6 @@ type Server struct {
 	authVerifier auth.Verifier
 
 	publicHandler *gin.Engine
-	adminHandler  *gin.Engine
 }
 
 func New(deps Dependencies) (*Server, error) {
@@ -71,16 +70,11 @@ func (s *Server) setupHandlers() {
 	s.publicHandler = gin.New()
 	s.publicHandler.Use(gin.Recovery())
 	s.publicHandler.Use(gin.LoggerWithConfig(gin.LoggerConfig{
-		SkipPaths: []string{"/health/live", "/health/ready", "/healthz", "/readyz"},
+		SkipPaths: []string{"/health/live", "/health/ready", "/healthz", "/readyz", "/health"},
 	}))
 	s.publicHandler.
 		Use(middleware.CORS(s.cfg.CorsOrigins)).
 		Use(middleware.RateLimit(s.cfg.RateLimits, s.rdb))
-
-	// Admin handler (internal only, protected by API key)
-	s.adminHandler = gin.New()
-	s.adminHandler.Use(gin.Recovery())
-	s.adminHandler.Use(middleware.InternalOnly(s.cfg.BillingAPIKey))
 }
 
 func (s *Server) wrap(fn func(r *handlers.Request)) func(c *gin.Context) {
@@ -89,8 +83,7 @@ func (s *Server) wrap(fn func(r *handlers.Request)) func(c *gin.Context) {
 	}
 }
 
-func (s *Server) Handler() http.Handler      { return s.publicHandler }
-func (s *Server) AdminHandler() http.Handler { return s.adminHandler }
+func (s *Server) Handler() http.Handler { return s.publicHandler }
 
 // Close currently does not own underlying resources; callers should close the App.
 func (s *Server) Close(_ context.Context) error {

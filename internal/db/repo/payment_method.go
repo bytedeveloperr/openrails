@@ -128,23 +128,14 @@ func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, inc
 	return methods, int64(total), nil
 }
 
-func (r *PaymentMethodRepo) GetByVaultID(ctx context.Context, provider, vaultID string) (*models.PaymentMethod, error) {
+func (r *PaymentMethodRepo) GetByVaultID(ctx context.Context, processor, vaultID string) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
-	provider = strings.TrimSpace(strings.ToLower(provider))
-	if provider == "" {
-		provider = "mobius"
-	}
+	processor = strings.TrimSpace(strings.ToLower(processor))
 
 	query := r.db.GetDB().NewSelect().Model(pm).
-		Where("pm.processor = ?", models.ProcessorNMI).
+		Where("pm.processor = ?", processor).
 		Where("pm.vault_id = ?", vaultID)
 
-	if provider == "mobius" {
-		query = query.Where("(pm.processor_provider = ? OR pm.processor_provider IS NULL OR pm.processor_provider = '')", provider)
-	} else {
-		query = query.Where("pm.processor_provider = ?", provider)
-	}
-
 	err := query.Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -155,23 +146,14 @@ func (r *PaymentMethodRepo) GetByVaultID(ctx context.Context, provider, vaultID 
 	return pm, nil
 }
 
-func (r *PaymentMethodRepo) GetByBillingID(ctx context.Context, provider, billingID string) (*models.PaymentMethod, error) {
+func (r *PaymentMethodRepo) GetByBillingID(ctx context.Context, processor, billingID string) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
-	provider = strings.TrimSpace(strings.ToLower(provider))
-	if provider == "" {
-		provider = "mobius"
-	}
+	processor = strings.TrimSpace(strings.ToLower(processor))
 
 	query := r.db.GetDB().NewSelect().Model(pm).
-		Where("pm.processor = ?", models.ProcessorNMI).
+		Where("pm.processor = ?", processor).
 		Where("pm.billing_id = ?", billingID)
 
-	if provider == "mobius" {
-		query = query.Where("(pm.processor_provider = ? OR pm.processor_provider IS NULL OR pm.processor_provider = '')", provider)
-	} else {
-		query = query.Where("pm.processor_provider = ?", provider)
-	}
-
 	err := query.Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -182,22 +164,13 @@ func (r *PaymentMethodRepo) GetByBillingID(ctx context.Context, provider, billin
 	return pm, nil
 }
 
-func (r *PaymentMethodRepo) GetByInitialTransactionID(ctx context.Context, provider, initialTransactionID string) (*models.PaymentMethod, error) {
+func (r *PaymentMethodRepo) GetByInitialTransactionID(ctx context.Context, processor, initialTransactionID string) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
-	provider = strings.TrimSpace(strings.ToLower(provider))
-	if provider == "" {
-		provider = "mobius"
-	}
+	processor = strings.TrimSpace(strings.ToLower(processor))
 
 	query := r.db.GetDB().NewSelect().Model(pm).
-		Where("pm.processor = ?", models.ProcessorNMI).
+		Where("pm.processor = ?", processor).
 		Where("pm.initial_transaction_id = ?", initialTransactionID)
-
-	if provider == "mobius" {
-		query = query.Where("(pm.processor_provider = ? OR pm.processor_provider IS NULL OR pm.processor_provider = '')", provider)
-	} else {
-		query = query.Where("pm.processor_provider = ?", provider)
-	}
 
 	err := query.Scan(ctx)
 	if err != nil {

@@ -17,7 +17,7 @@ purpose. Unless otherwise noted, responses are JSON encoded and errors follow th
 - **Admin endpoints** listen on the private handler and require `X-API-KEY` to match
   `billing_api_key`. These routes do **not** establish a user context; operations act directly on the
   supplied identifiers.
-- **Webhooks** are public; callers must supply the appropriate processor secrets
+- **Webhooks** are public; callers must supply the appropriate gateway/provider secrets
   (e.g., IP allow-list for CCBill, HMAC signature for NMI).
 
 ## Rate Limiting
@@ -81,15 +81,14 @@ Admin routes are not rate limited by the application but should live behind netw
   }
   ```
 
-### POST /v1/subscriptions/process/:processor
+### POST /v1/subscriptions/:processor
 - **Auth:** bearer token
-- **Description:** Starts a subscription checkout for the requested processor (`nmi` or `ccbill`).
+- **Description:** Starts a subscription checkout for the requested processor (`mobius`, `ccbill`, `solana`).
 - **Body:**
   ```json
   {
     "price_id": "uuid",
-    "processor": "nmi",
-    "provider": "mobius",
+    "processor": "mobius",
     "email": "user@example.com",
     "first_name": "Jane",
     "last_name": "Doe",
@@ -98,14 +97,14 @@ Admin routes are not rate limited by the application but should live behind netw
     "state": "...",
     "zip": "...",
     "country": "...",
-    "payment_token": "collectjs token (nmi)",
+    "payment_token": "collectjs token (mobius/nmi)",
     "payment_method_id": "existing saved method"
   }
   ```
 - **Notes:**
-  - `provider` is optional and selects the configured NMI account when multiple providers exist. When omitted, the price configuration or the default provider (`mobius`) is used.
+  - Processors: `mobius` (uses NMI gateway for card payments), `ccbill` (redirect flow), `solana` (crypto).
   - `email` is optional; when omitted we do not persist an email on the subscription and notification emails are skipped.
-  - For **NMI** checkouts supply either `payment_token` (from Collect.js) **or** `payment_method_id`. When a token is provided the service now reuses the shared vault flow (`POST /v1/payment-methods`) to create & persist a payment method before charging with its customer vault ID. The new method becomes immediately available for future purchases.
+  - For **mobius** checkouts supply either `payment_token` (from Collect.js) **or** `payment_method_id`. When a token is provided the service creates & persists a payment method before charging with its customer vault ID. The new method becomes immediately available for future purchases.
 - **Response:**
   ```json
   {
@@ -188,7 +187,7 @@ Admin routes are not rate limited by the application but should live behind netw
 
 ### GET /v1/subscriptions/purchases
 - **Auth:** bearer token
-- **Query:** `limit` (1-100, default 10), `offset` (>=0), `type` (processor filter, e.g., `solana`).
+- **Query:** `limit` (1-100, default 10), `offset` (>=0), `type` (gateway filter, e.g., `solana`).
 - **Response:**
   ```json
   {
@@ -206,15 +205,13 @@ Admin routes are not rate limited by the application but should live behind netw
   }
   ```
 
-### POST /v1/subscriptions/webhook/:processor
-- **Auth:** none (processor security applies)
-- **Path:**
-  - `POST /v1/subscriptions/webhook/:processor` where `processor` = `ccbill` or `nmi`.
-  - `POST /v1/subscriptions/webhook/:processor/:provider` when addressing a specific NMI provider (e.g., `mobius`). A matching `provider` query string value is also accepted.
-- **Description:** Ingests processor webhook callbacks. Payload format depends on processor:
+### POST /v1/webhooks/:provider
+- **Auth:** none (processor-specific security applies)
+- **Path:** `POST /v1/webhooks/:provider` where provider is `ccbill`, `mobius`, or `solana`.
+- **Description:** Ingests processor webhook callbacks. Payload format depends on provider:
   - `ccbill`: `application/x-www-form-urlencoded` with IP allow-list checking.
-  - `nmi`: JSON body with HMAC signature (`X-Signature`, `X-NMI-Signature`, or legacy `X-Mobius-Signature`).
-- **Response:** 200 on success, 401 for missing/invalid NMI signatures, 403 if a CCBill request fails IP validation, 400 for unrecognised processors or providers.
+  - `mobius`: JSON body with HMAC signature (`X-Signature`, `X-NMI-Signature`, or `X-Mobius-Signature`).
+- **Response:** 200 on success, 401 for missing/invalid signatures, 403 if a CCBill request fails IP validation, 400 for unrecognised providers.
 
 ## Payment Methods
 
@@ -560,7 +557,7 @@ Admin handler also exposes `GET/HEAD /health` for internal monitoring.
 
 ### GET /v1/subscriptions/processor-metrics
 - **Auth:** `X-API-KEY`
-- **Description:** Splits metrics by processor (`ccbill`, `nmi`, `solana`, etc.).
+- **Description:** Splits metrics by processor (`ccbill`, `mobius`, `solana`, etc.).
 
 ### GET /v1/users/:user_id/entitlements
 - **Auth:** `X-API-KEY`
@@ -570,15 +567,15 @@ Admin handler also exposes `GET/HEAD /health` for internal monitoring.
 ## Webhooks (Processor Specific)
 
 ### CCBill
-- **Endpoint:** `POST /v1/subscriptions/webhook/ccbill`
+- **Endpoint:** `POST /v1/webhooks/ccbill`
 - **Security:** Source IP must match configured allow-list (default ranges under `ccbill.webhook_ips`).
 - **Payload:** Form-encoded fields documented by CCBill (event type via `eventType` query string).
 - **Behaviour:** Deduplicates, validates IP, pushes subscription/payment updates via
   `CCBillWebhookService`.
 
-### NMI
-- **Endpoint:** `POST /v1/subscriptions/webhook/nmi`
-- **Security:** HMAC signature header `X-Signature` or `X-NMI-Signature`; optional test mode bypass.
+### Mobius (NMI Gateway)
+- **Endpoint:** `POST /v1/webhooks/mobius`
+- **Security:** HMAC signature header `X-Signature`, `X-NMI-Signature`, or `X-Mobius-Signature`; optional test mode bypass.
 - **Payload:** JSON event mirroring NMI webhook schema (recurring subscription events).
 - **Behaviour:** Signature verification (unless test mode), lifecycle updates, ClickHouse logging.
 

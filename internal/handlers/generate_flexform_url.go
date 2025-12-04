@@ -41,7 +41,8 @@ func GenerateFlexFormURL(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, "Invalid price ID")
 		return
 	}
-	if price.CCBillPriceID == nil || strings.TrimSpace(*price.CCBillPriceID) == "" {
+	ccbillPriceID, hasCCBill := price.GetCCBillConfig()
+	if !hasCCBill || ccbillPriceID == "" {
 		log.WithField("price_id", priceID).Error("Price missing CCBill configuration")
 		r.ErrorJSON(http.StatusBadRequest, "Price is not configured for CCBill")
 		return
@@ -77,7 +78,7 @@ func GenerateFlexFormURL(r *Request) {
 		State:         req.State,
 		ZipCode:       req.ZipCode,
 		Country:       req.Country,
-		FlexID:        *price.CCBillPriceID,
+		FlexID:        ccbillPriceID,
 	}
 
 	response, err := ccbillClient.GenerateFlexFormURL(flexFormParams)

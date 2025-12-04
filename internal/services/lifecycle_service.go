@@ -35,13 +35,11 @@ type CreateMembershipParams struct {
 	Processor               models.Processor
 	ProcessorSubscriptionID *string
 	UserEmail               *string
-	ProcessorProvider       string
 }
 
 type RenewMembershipParams struct {
 	Processor               models.Processor
 	ProcessorSubscriptionID string
-	ProcessorProvider       string
 }
 
 type CancelMembershipParams struct {
@@ -51,13 +49,11 @@ type CancelMembershipParams struct {
 	CancelType              models.CancelType
 	CancelFeedback          *string
 	RevokeAccess            bool // If true, entitlements revoked immediately. If false, access continues until period end.
-	ProcessorProvider       string
 }
 
 type FailMembershipParams struct {
 	Processor               models.Processor
 	ProcessorSubscriptionID string
-	ProcessorProvider       string
 	FailureReason           *string
 	FailureCode             *string
 }
@@ -183,11 +179,6 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 			existingSub.ProcessorSubscriptionID = *params.ProcessorSubscriptionID
 		}
 
-		if params.ProcessorProvider != "" {
-			provider := params.ProcessorProvider
-			existingSub.ProcessorProvider = &provider
-		}
-
 		existingSub.CurrentPeriodStartsAt = &periodStartsAt
 		existingSub.CurrentPeriodEndsAt = &periodEndsAt
 		existingSub.StartedAt = periodStartsAt
@@ -221,11 +212,6 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 		if params.UserEmail != nil && strings.TrimSpace(*params.UserEmail) != "" {
 			emailc := strings.TrimSpace(*params.UserEmail)
 			subscription.UserEmail = &emailc
-		}
-
-		if params.ProcessorProvider != "" {
-			provider := params.ProcessorProvider
-			subscription.ProcessorProvider = &provider
 		}
 
 		if err := subService.Create(ctx, subscription); err != nil {
@@ -299,11 +285,11 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 		notificationQueueService := NewNotificationQueueService(db)
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
 
-		// Find subscription
+		// Find subscription - use processor name for gateway lookup
 		provider := ""
-		if params.Processor == models.ProcessorNMI {
-			provider = strings.TrimSpace(strings.ToLower(params.ProcessorProvider))
-			if provider == "" {
+		if params.Processor == models.ProcessorNMI || params.Processor == models.ProcessorMobius {
+			provider = strings.ToLower(string(params.Processor))
+			if provider == "nmi" {
 				provider = "mobius"
 			}
 		}
@@ -311,11 +297,6 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), provider, params.ProcessorSubscriptionID)
 		if err != nil {
 			return fmt.Errorf("subscription not found: %w", err)
-		}
-
-		if provider != "" {
-			providerCopy := provider
-			subscription.ProcessorProvider = &providerCopy
 		}
 
 		// Get price for billing period calculation
@@ -388,10 +369,11 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
 
+		// Use processor name for gateway lookup
 		provider := ""
-		if params.Processor != nil && *params.Processor == models.ProcessorNMI {
-			provider = strings.TrimSpace(strings.ToLower(params.ProcessorProvider))
-			if provider == "" {
+		if params.Processor != nil && (*params.Processor == models.ProcessorNMI || *params.Processor == models.ProcessorMobius) {
+			provider = strings.ToLower(string(*params.Processor))
+			if provider == "nmi" {
 				provider = "mobius"
 			}
 		}
@@ -410,11 +392,6 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 
 		if err != nil {
 			return fmt.Errorf("subscription not found: %w", err)
-		}
-
-		if provider != "" {
-			providerCopy := provider
-			subscription.ProcessorProvider = &providerCopy
 		}
 
 		// Update subscription status
@@ -569,10 +546,11 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
 
+		// Use processor name for gateway lookup
 		provider := ""
-		if params.Processor == models.ProcessorNMI {
-			provider = strings.TrimSpace(strings.ToLower(params.ProcessorProvider))
-			if provider == "" {
+		if params.Processor == models.ProcessorNMI || params.Processor == models.ProcessorMobius {
+			provider = strings.ToLower(string(params.Processor))
+			if provider == "nmi" {
 				provider = "mobius"
 			}
 		}
@@ -580,11 +558,6 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), provider, params.ProcessorSubscriptionID)
 		if err != nil {
 			return fmt.Errorf("subscription not found: %w", err)
-		}
-
-		if provider != "" {
-			providerCopy := provider
-			subscription.ProcessorProvider = &providerCopy
 		}
 
 		// Update subscription status - Wave 18: failed payment = past_due (still trying to recover)

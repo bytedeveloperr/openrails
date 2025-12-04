@@ -45,7 +45,7 @@ func TestWebhookSubscriptionLifecycle(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
+			"/v1/webhooks/ccbill?eventType=NewSaleSuccess",
 			strings.NewReader(formData))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -87,7 +87,7 @@ func TestWebhookSubscriptionLifecycle(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=Cancellation",
+			"/v1/webhooks/ccbill?eventType=Cancellation",
 			strings.NewReader(formData))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -147,7 +147,7 @@ func TestWebhookRenewalFlow(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=RenewalSuccess",
+			"/v1/webhooks/ccbill?eventType=RenewalSuccess",
 			strings.NewReader(formData))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -204,7 +204,7 @@ func TestWebhookRenewalFailureFlow(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=RenewalFailure",
+			"/v1/webhooks/ccbill?eventType=RenewalFailure",
 			strings.NewReader(formData))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -265,7 +265,7 @@ func TestWebhookExpirationFlow(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=Expiration",
+			"/v1/webhooks/ccbill?eventType=Expiration",
 			strings.NewReader(formData))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -329,7 +329,7 @@ func TestWebhookChargebackTerminatesSubscription(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=Chargeback",
+			"/v1/webhooks/ccbill?eventType=Chargeback",
 			strings.NewReader(formData))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -391,7 +391,7 @@ func TestWebhookRefundHandling(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=Refund",
+			"/v1/webhooks/ccbill?eventType=Refund",
 			strings.NewReader(formData))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -447,7 +447,7 @@ func TestWebhookUserReactivation(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=UserReactivation",
+			"/v1/webhooks/ccbill?eventType=UserReactivation",
 			strings.NewReader(formData))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -506,7 +506,7 @@ func TestWebhookBillingDateChange(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, err := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=BillingDateChange",
+			"/v1/webhooks/ccbill?eventType=BillingDateChange",
 			strings.NewReader(formData))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -553,7 +553,7 @@ func TestWebhookIdempotency(t *testing.T) {
 		// Send first webhook
 		w1 := httptest.NewRecorder()
 		req1, _ := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
+			"/v1/webhooks/ccbill?eventType=NewSaleSuccess",
 			strings.NewReader(formData))
 		req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req1.Header.Set("X-Real-IP", "127.0.0.1")
@@ -571,7 +571,7 @@ func TestWebhookIdempotency(t *testing.T) {
 		// Send duplicate webhook
 		w2 := httptest.NewRecorder()
 		req2, _ := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
+			"/v1/webhooks/ccbill?eventType=NewSaleSuccess",
 			strings.NewReader(formData))
 		req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req2.Header.Set("X-Real-IP", "127.0.0.1")
@@ -607,7 +607,7 @@ func (suite *TestContainerSuite) sendWebhookAndWait(eventType string, filePath s
 
 	w := httptest.NewRecorder()
 	req, err := http.NewRequest("POST",
-		fmt.Sprintf("/v1/subscriptions/webhook/ccbill?eventType=%s", eventType),
+		fmt.Sprintf("/v1/webhooks/ccbill?eventType=%s", eventType),
 		strings.NewReader(formData))
 	if err != nil {
 		return nil, err

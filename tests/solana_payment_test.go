@@ -56,19 +56,19 @@ func TestSolanaTokensNoAuth(t *testing.T) {
 	})
 }
 
-// TestSolanaGenerateRequiresAuth tests that generate endpoint requires authentication
-func TestSolanaGenerateRequiresAuth(t *testing.T) {
+// TestPaymentIntentRequiresAuth tests that payment-intents endpoint requires authentication
+func TestPaymentIntentRequiresAuth(t *testing.T) {
 	suite := setupTestSuite(t)
 
 	t.Run("returns 401 without auth token", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
-			"price_id":    "22222222-2222-2222-2222-222222222222",
-			"token":       "SOL",
-			"user_wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+			"price_id": "22222222-2222-2222-2222-222222222222",
+			"token":    "SOL",
+			"wallet":   "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/generate", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -78,13 +78,13 @@ func TestSolanaGenerateRequiresAuth(t *testing.T) {
 
 	t.Run("returns 401 with invalid token", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
-			"price_id":    "22222222-2222-2222-2222-222222222222",
-			"token":       "SOL",
-			"user_wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+			"price_id": "22222222-2222-2222-2222-222222222222",
+			"token":    "SOL",
+			"wallet":   "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/generate", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer invalid-token")
 		req.Header.Set("Content-Type", "application/json")
 
@@ -94,8 +94,8 @@ func TestSolanaGenerateRequiresAuth(t *testing.T) {
 	})
 }
 
-// TestSolanaGenerateValidation tests request validation for generate endpoint
-func TestSolanaGenerateValidation(t *testing.T) {
+// TestPaymentIntentValidation tests request validation for payment-intents endpoint
+func TestPaymentIntentValidation(t *testing.T) {
 	suite, token, _ := setupTestSuiteWithAuth(t)
 
 	// Seed products
@@ -103,12 +103,12 @@ func TestSolanaGenerateValidation(t *testing.T) {
 
 	t.Run("returns 400 for missing price_id", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
-			"token":       "SOL",
-			"user_wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+			"token":  "SOL",
+			"wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/generate", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -119,13 +119,13 @@ func TestSolanaGenerateValidation(t *testing.T) {
 
 	t.Run("returns 400 for invalid price_id format", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
-			"price_id":    "not-a-uuid",
-			"token":       "SOL",
-			"user_wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+			"price_id": "not-a-uuid",
+			"token":    "SOL",
+			"wallet":   "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/generate", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -136,12 +136,12 @@ func TestSolanaGenerateValidation(t *testing.T) {
 
 	t.Run("returns 400 for missing token", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
-			"price_id":    "22222222-2222-2222-2222-222222222222",
-			"user_wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+			"price_id": "22222222-2222-2222-2222-222222222222",
+			"wallet":   "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/generate", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -150,14 +150,14 @@ func TestSolanaGenerateValidation(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
 	})
 
-	t.Run("returns error for missing user_wallet", func(t *testing.T) {
+	t.Run("returns error for missing wallet", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
 			"price_id": "22222222-2222-2222-2222-222222222222",
 			"token":    "SOL",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/generate", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -168,8 +168,8 @@ func TestSolanaGenerateValidation(t *testing.T) {
 	})
 }
 
-// TestSolanaGenerateWalletNotLinked tests error when wallet is not linked to user
-func TestSolanaGenerateWalletNotLinked(t *testing.T) {
+// TestPaymentIntentWalletNotLinked tests error when wallet is not linked to user
+func TestPaymentIntentWalletNotLinked(t *testing.T) {
 	suite, token, _ := setupTestSuiteWithAuth(t)
 
 	// Seed products
@@ -178,13 +178,13 @@ func TestSolanaGenerateWalletNotLinked(t *testing.T) {
 
 	t.Run("returns 400 for wallet not linked to user", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
-			"price_id":    priceID,
-			"token":       "SOL",
-			"user_wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+			"price_id": priceID,
+			"token":    "SOL",
+			"wallet":   "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/generate", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -194,19 +194,19 @@ func TestSolanaGenerateWalletNotLinked(t *testing.T) {
 	})
 }
 
-// TestSolanaQRRequiresAuth tests that QR endpoint requires authentication
-func TestSolanaQRRequiresAuth(t *testing.T) {
+// TestPaymentIntentQRRequiresAuth tests that payment-intents/qr endpoint requires authentication
+func TestPaymentIntentQRRequiresAuth(t *testing.T) {
 	suite := setupTestSuite(t)
 
 	t.Run("returns 401 without auth token", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
-			"price_id":    "22222222-2222-2222-2222-222222222222",
-			"token":       "SOL",
-			"user_wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+			"price_id": "22222222-2222-2222-2222-222222222222",
+			"token":    "SOL",
+			"wallet":   "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/qr", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents/qr", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -215,8 +215,8 @@ func TestSolanaQRRequiresAuth(t *testing.T) {
 	})
 }
 
-// TestSolanaQRValidation tests request validation for QR endpoint
-func TestSolanaQRValidation(t *testing.T) {
+// TestPaymentIntentQRValidation tests request validation for payment-intents/qr endpoint
+func TestPaymentIntentQRValidation(t *testing.T) {
 	suite, token, _ := setupTestSuiteWithAuth(t)
 
 	// Seed products
@@ -224,12 +224,12 @@ func TestSolanaQRValidation(t *testing.T) {
 
 	t.Run("returns 400 for missing price_id", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
-			"token":       "SOL",
-			"user_wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+			"token":  "SOL",
+			"wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/qr", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents/qr", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -244,13 +244,13 @@ func TestSolanaQRValidation(t *testing.T) {
 		priceID := products[0].Prices[0].ID.String()
 
 		body, _ := json.Marshal(map[string]string{
-			"price_id":    priceID,
-			"token":       "INVALID_TOKEN",
-			"user_wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+			"price_id": priceID,
+			"token":    "INVALID_TOKEN",
+			"wallet":   "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/qr", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents/qr", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -260,13 +260,13 @@ func TestSolanaQRValidation(t *testing.T) {
 	})
 }
 
-// TestSolanaCheckRequiresAuth tests that check endpoint requires authentication
-func TestSolanaCheckRequiresAuth(t *testing.T) {
+// TestGetPaymentIntentRequiresAuth tests that GET payment-intents/:id requires authentication
+func TestGetPaymentIntentRequiresAuth(t *testing.T) {
 	suite := setupTestSuite(t)
 
 	t.Run("returns 401 without auth token", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/solana/check?reference=test-reference", nil)
+		req, _ := http.NewRequest("GET", "/v1/payment-intents/pi_22222222-2222-2222-2222-222222222222", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -274,13 +274,13 @@ func TestSolanaCheckRequiresAuth(t *testing.T) {
 	})
 }
 
-// TestSolanaCheckValidation tests request validation for check endpoint
-func TestSolanaCheckValidation(t *testing.T) {
+// TestGetPaymentIntentValidation tests request validation for GET payment-intents/:id
+func TestGetPaymentIntentValidation(t *testing.T) {
 	suite, token, _ := setupTestSuiteWithAuth(t)
 
-	t.Run("returns 400 for missing reference", func(t *testing.T) {
+	t.Run("returns 400 for invalid intent ID", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/solana/check", nil)
+		req, _ := http.NewRequest("GET", "/v1/payment-intents/not-a-uuid", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -288,37 +288,29 @@ func TestSolanaCheckValidation(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
 	})
 
-	t.Run("returns pending for non-existent reference", func(t *testing.T) {
+	t.Run("returns 404 for non-existent intent", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/solana/check?reference=nonexistent-reference-key", nil)
+		req, _ := http.NewRequest("GET", "/v1/payment-intents/pi_22222222-2222-2222-2222-222222222222", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
-		// Should return 200 with "pending" status (no intent found)
-		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK for non-existent reference")
-
-		var response map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &response)
-		require.NoError(t, err)
-
-		assert.Equal(t, "pending", response["status"], "Should return pending status")
+		// Should return 404 for non-existent intent
+		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 for non-existent intent")
 	})
 }
 
-// TestSolanaSubmitRequiresAuth tests that submit endpoint requires authentication
-func TestSolanaSubmitRequiresAuth(t *testing.T) {
+// TestConfirmPaymentIntentRequiresAuth tests that confirm endpoint requires authentication
+func TestConfirmPaymentIntentRequiresAuth(t *testing.T) {
 	suite := setupTestSuite(t)
 
 	t.Run("returns 401 without auth token", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
 			"signed_transaction": "base64-encoded-transaction",
-			"price_id":           "22222222-2222-2222-2222-222222222222",
-			"intent_id":          "33333333-3333-3333-3333-333333333333",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/submit", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents/pi_33333333-3333-3333-3333-333333333333/confirm", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -327,50 +319,15 @@ func TestSolanaSubmitRequiresAuth(t *testing.T) {
 	})
 }
 
-// TestSolanaSubmitValidation tests request validation for submit endpoint
-func TestSolanaSubmitValidation(t *testing.T) {
+// TestConfirmPaymentIntentValidation tests request validation for confirm endpoint
+func TestConfirmPaymentIntentValidation(t *testing.T) {
 	suite, token, _ := setupTestSuiteWithAuth(t)
 
 	t.Run("returns 400 for missing signed_transaction", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]string{
-			"price_id":  "22222222-2222-2222-2222-222222222222",
-			"intent_id": "33333333-3333-3333-3333-333333333333",
-		})
+		body, _ := json.Marshal(map[string]string{})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/submit", bytes.NewReader(body))
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Content-Type", "application/json")
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
-	})
-
-	t.Run("returns 400 for missing price_id", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]string{
-			"signed_transaction": "base64-encoded-transaction",
-			"intent_id":          "33333333-3333-3333-3333-333333333333",
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/submit", bytes.NewReader(body))
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Content-Type", "application/json")
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
-	})
-
-	t.Run("returns 400 for missing intent_id", func(t *testing.T) {
-		body, _ := json.Marshal(map[string]string{
-			"signed_transaction": "base64-encoded-transaction",
-			"price_id":           "22222222-2222-2222-2222-222222222222",
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/submit", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents/pi_33333333-3333-3333-3333-333333333333/confirm", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -382,12 +339,25 @@ func TestSolanaSubmitValidation(t *testing.T) {
 	t.Run("returns 400 for invalid intent_id", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
 			"signed_transaction": "base64-encoded-transaction",
-			"price_id":           "22222222-2222-2222-2222-222222222222",
-			"intent_id":          "33333333-3333-3333-3333-333333333333",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/submit", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents/not-a-uuid/confirm", bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
+	})
+
+	t.Run("returns 400 for non-existent intent", func(t *testing.T) {
+		body, _ := json.Marshal(map[string]string{
+			"signed_transaction": "base64-encoded-transaction",
+		})
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/payment-intents/pi_33333333-3333-3333-3333-333333333333/confirm", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -398,8 +368,8 @@ func TestSolanaSubmitValidation(t *testing.T) {
 	})
 }
 
-// TestSolanaQRGeneratesURL tests that QR endpoint generates a valid Solana Pay URL
-func TestSolanaQRGeneratesURL(t *testing.T) {
+// TestPaymentIntentQRGeneratesURL tests that payment-intents/qr endpoint generates a valid Solana Pay URL
+func TestPaymentIntentQRGeneratesURL(t *testing.T) {
 	suite, token, _ := setupTestSuiteWithAuth(t)
 
 	// Seed products
@@ -408,13 +378,13 @@ func TestSolanaQRGeneratesURL(t *testing.T) {
 
 	t.Run("generates Solana Pay URL for valid request", func(t *testing.T) {
 		body, _ := json.Marshal(map[string]string{
-			"price_id":    priceID,
-			"token":       "SOL",
-			"user_wallet": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+			"price_id": priceID,
+			"token":    "SOL",
+			"wallet":   "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
 		})
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/solana/qr", bytes.NewReader(body))
+		req, _ := http.NewRequest("POST", "/v1/payment-intents/qr", bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 
@@ -423,24 +393,31 @@ func TestSolanaQRGeneratesURL(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got: %s", w.Body.String())
 
 		var response struct {
-			URL         string `json:"url"`
-			Amount      int64  `json:"amount"` // Amount in cents
-			TokenAmount string `json:"token_amount"`
-			TokenSymbol string `json:"token_symbol"`
-			Label       string `json:"label"`
-			Message     string `json:"message"`
-			ExpiresAt   int64  `json:"expires_at"`
-			Reference   string `json:"reference"`
-			IntentID    string `json:"intent_id"`
+			ID            string `json:"id"`
+			Object        string `json:"object"`
+			Status        string `json:"status"`
+			Amount        int64  `json:"amount"`
+			Currency      string `json:"currency"`
+			PaymentMethod struct {
+				Type        string `json:"type"`
+				Token       string `json:"token"`
+				TokenAmount string `json:"token_amount"`
+			} `json:"payment_method"`
+			Transaction struct {
+				URL       string `json:"url"`
+				Reference string `json:"reference"`
+			} `json:"transaction"`
+			ExpiresAt int64 `json:"expires_at"`
 		}
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		// Verify Solana Pay URL format
-		assert.Contains(t, response.URL, "solana:", "URL should start with solana: scheme")
-		assert.NotEmpty(t, response.Reference, "Reference should not be empty")
-		assert.NotEmpty(t, response.IntentID, "IntentID should not be empty")
-		assert.Equal(t, "SOL", response.TokenSymbol, "Token symbol should be SOL")
+		// Verify PaymentIntentObject format
+		assert.Equal(t, "payment_intent", response.Object, "Should have object: payment_intent")
+		assert.Contains(t, response.ID, "pi_", "ID should have pi_ prefix")
+		assert.Contains(t, response.Transaction.URL, "solana:", "URL should start with solana: scheme")
+		assert.NotEmpty(t, response.Transaction.Reference, "Reference should not be empty")
+		assert.Equal(t, "SOL", response.PaymentMethod.Token, "Token should be SOL")
 		assert.Greater(t, response.ExpiresAt, int64(0), "ExpiresAt should be set")
 	})
 }

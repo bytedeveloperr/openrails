@@ -64,14 +64,12 @@ func NewVaultService(pm *PaymentMethodService, sub *SubscriptionService, nmiClie
 
 // CreateVault creates a NMI customer vault and stores a local PaymentMethod
 func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req *CreateVaultRequest) (*models.PaymentMethod, error) {
-	provider := strings.TrimSpace(strings.ToLower(req.Provider))
-	if provider == "" {
-		provider = "mobius"
-	}
+	// Currently only mobius uses NMI vaults
+	processor := "mobius"
 
-	client, ok := s.NMIClients[provider]
+	client, ok := s.NMIClients[processor]
 	if !ok {
-		return nil, fmt.Errorf("nmi provider '%s' is not configured", provider)
+		return nil, fmt.Errorf("processor '%s' is not configured", processor)
 	}
 
 	vaultData := nmi.CreateCustomerVaultData{
@@ -95,12 +93,10 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 		return nil, fmt.Errorf("failed to create payment vault: %w", err)
 	}
 
-	providerCopy := provider
 	pm := &models.PaymentMethod{
 		ID:                   uuid.New(),
 		UserID:               user.ID,
-		Processor:            models.ProcessorNMI,
-		Provider:             &providerCopy,
+		Processor:            models.ProcessorMobius,
 		VaultID:              nmiResponse.CustomerVaultID,
 		InitialTransactionID: "",
 		IsActive:             true,
@@ -121,17 +117,15 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 
 // UpdateVault updates vault in NMI and updates local record timestamp
 func (s *VaultService) UpdateVault(ctx context.Context, pm *models.PaymentMethod, req *UpdateVaultRequest) (*models.PaymentMethod, error) {
-	provider := "mobius"
-	if pm.Provider != nil && strings.TrimSpace(*pm.Provider) != "" {
-		provider = strings.TrimSpace(strings.ToLower(*pm.Provider))
-	}
-	if req.Provider != nil && strings.TrimSpace(*req.Provider) != "" {
-		provider = strings.TrimSpace(strings.ToLower(*req.Provider))
+	// Use processor from the payment method (mobius for NMI-backed vaults)
+	processor := strings.ToLower(string(pm.Processor))
+	if processor == "" {
+		processor = "mobius"
 	}
 
-	client, ok := s.NMIClients[provider]
+	client, ok := s.NMIClients[processor]
 	if !ok {
-		return nil, fmt.Errorf("nmi provider '%s' is not configured", provider)
+		return nil, fmt.Errorf("processor '%s' is not configured", processor)
 	}
 
 	upd := nmi.UpdateCustomerVaultData{CustomerVaultID: pm.VaultID}
@@ -182,8 +176,6 @@ func (s *VaultService) UpdateVault(ctx context.Context, pm *models.PaymentMethod
 		return nil, fmt.Errorf("failed to update payment vault: %w", err)
 	}
 
-	providerCopy := provider
-	pm.Provider = &providerCopy
 	pm.IsActive = true
 	pm.FailureReason = nil
 	pm.UpdatedAt = time.Now()
@@ -215,14 +207,15 @@ func (s *VaultService) DeleteVault(ctx context.Context, pm *models.PaymentMethod
 		return fmt.Errorf("cannot delete vault: %d active subscription(s) are using this payment method", activeCount)
 	}
 
-	provider := "mobius"
-	if pm.Provider != nil && strings.TrimSpace(*pm.Provider) != "" {
-		provider = strings.TrimSpace(strings.ToLower(*pm.Provider))
+	// Use processor from the payment method
+	processor := strings.ToLower(string(pm.Processor))
+	if processor == "" {
+		processor = "mobius"
 	}
 
-	client, ok := s.NMIClients[provider]
+	client, ok := s.NMIClients[processor]
 	if !ok {
-		return fmt.Errorf("nmi provider '%s' is not configured", provider)
+		return fmt.Errorf("processor '%s' is not configured", processor)
 	}
 
 	if err := client.DeleteCustomerVault(nmi.DeleteCustomerVaultData{CustomerVaultID: pm.VaultID}); err != nil {

@@ -52,8 +52,9 @@ func (s *AdminSubscriptionService) now() time.Time {
 // AdminSubscriptionResponse represents a subscription with enriched admin data
 type AdminSubscriptionResponse struct {
 	*models.Subscription
-	Product *models.Product `json:"product,omitempty"`
-	Price   *models.Price   `json:"price,omitempty"`
+	Product  *models.Product   `json:"product,omitempty"`
+	Price    *models.Price     `json:"price,omitempty"`
+	Payments []*models.Payment `json:"payments,omitempty"`
 }
 
 // GetAllSubscriptions retrieves all subscriptions with filtering (admin)
@@ -93,6 +94,7 @@ func (s *AdminSubscriptionService) GetSubscriptionByID(ctx context.Context, subs
 
 	response := &AdminSubscriptionResponse{
 		Subscription: subscription,
+		Payments:     []*models.Payment{},
 	}
 
 	// Enrich with price and product data if available
@@ -104,7 +106,18 @@ func (s *AdminSubscriptionService) GetSubscriptionByID(ctx context.Context, subs
 		}
 	}
 
-	// No user enrichment (IdP-managed)
+	// Include payment history for this subscription
+	if s.PaymentService != nil {
+		payments, err := s.PaymentService.GetByUserID(ctx, subscription.UserID)
+		if err == nil {
+			// Filter to only payments for this subscription
+			for _, p := range payments {
+				if p.SubscriptionID != nil && *p.SubscriptionID == subscriptionID {
+					response.Payments = append(response.Payments, p)
+				}
+			}
+		}
+	}
 
 	return response, nil
 }
@@ -151,30 +164,26 @@ func (s *AdminSubscriptionService) UpdateSubscription(ctx context.Context, subsc
 
 // cancelWithNMI cancels a subscription with NMI if applicable
 func (s *AdminSubscriptionService) cancelWithNMI(subscription *models.Subscription) error {
-	if subscription.Processor != models.ProcessorNMI {
-		return nil // Not an NMI subscription, nothing to do
+	// Only mobius subscriptions use NMI
+	if subscription.Processor != models.ProcessorMobius && subscription.Processor != models.ProcessorNMI {
+		return nil // Not an NMI-backed subscription, nothing to do
 	}
 
 	if s.NMIClients == nil || subscription.ProcessorSubscriptionID == "" {
 		return nil // No NMI clients configured or no subscription ID
 	}
 
-	provider := ""
-	if subscription.ProcessorProvider != nil {
-		provider = strings.ToLower(strings.TrimSpace(*subscription.ProcessorProvider))
-	}
-	if provider == "" && subscription.Price != nil && subscription.Price.NMIProvider != nil {
-		provider = strings.ToLower(strings.TrimSpace(*subscription.Price.NMIProvider))
-	}
-	if provider == "" {
-		provider = "mobius"
+	// Use processor name to look up NMI client
+	provider := strings.ToLower(string(subscription.Processor))
+	if provider == "nmi" {
+		provider = "mobius" // normalize legacy processor value
 	}
 
 	client, ok := s.NMIClients[provider]
 	if !ok {
 		log.WithFields(log.Fields{
 			"subscription_id": subscription.ID,
-			"provider":        provider,
+			"processor":       provider,
 		}).Warn("NMI provider not configured for admin cancel")
 		return nil // Log warning but don't fail the cancellation
 	}
@@ -216,66 +225,6 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 	}
 
 	// End entitlements for this subscription now
-	if s.EntitlementService != nil {
-		reason := models.EntitlementRevokeAdmin
-		if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
-			log.WithFields(log.Fields{
-				"subscription_id": subscription.ID,
-				"user_id":         subscription.UserID,
-				"error":           err.Error(),
-			}).Error("Failed to end entitlements during admin subscription operation")
-		}
-	}
-
-	// Add notification
-	notification := &models.NotificationQueue{
-		ID:        uuid.New(),
-		UserID:    subscription.UserID,
-		EventType: models.NotificationPremiumEnded,
-		Data:      map[string]any{"reason": string(PremiumEndReasonAdmin)},
-	}
-	if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
-		log.WithFields(log.Fields{
-			"subscription_id":   subscription.ID,
-			"user_id":           subscription.UserID,
-			"notification_type": notification.EventType,
-			"error":             err.Error(),
-		}).Error("Failed to create notification during admin subscription operation")
-	}
-
-	return nil
-}
-
-// CancelUserSubscription cancels a user's subscription by user ID (admin)
-func (s *AdminSubscriptionService) CancelUserSubscription(ctx context.Context, userID string, reason string) error {
-	subscription, err := s.SubscriptionService.GetByUserID(ctx, userID)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrSubscriptionNotFound, err)
-	}
-
-	if subscription.Status != models.StatusActive {
-		return ErrSubscriptionNotActive
-	}
-
-	// Cancel with payment processor first (NMI)
-	if err := s.cancelWithNMI(subscription); err != nil {
-		return err
-	}
-
-	now := s.now()
-	cancelType := models.CancelTypeMerchant // Admin cancellation
-	subscription.Status = models.StatusCancelled
-	subscription.CancelledAt = &now
-	subscription.CancelType = &cancelType
-	if reason != "" {
-		subscription.CancelFeedback = &reason
-	}
-
-	if err := s.SubscriptionService.Update(ctx, subscription); err != nil {
-		return fmt.Errorf("failed to update subscription: %w", err)
-	}
-
-	// End entitlements now
 	if s.EntitlementService != nil {
 		reason := models.EntitlementRevokeAdmin
 		if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {

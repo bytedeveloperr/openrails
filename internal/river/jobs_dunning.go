@@ -21,7 +21,7 @@ const (
 	KindDunning  = "billing.dunning"
 )
 
-const defaultNMIProvider = "mobius"
+const defaultNMIProcessor = "mobius"
 
 // DunningArgs triggers a dunning run that processes all due past_due subscriptions.
 type DunningArgs struct{}
@@ -118,10 +118,10 @@ func (w *DunningWorker) processSubscription(
 ) bool {
 	logEntry := log.WithContext(ctx).WithField("subscription_id", sub.ID)
 
-	provider := resolveSubscriptionProvider(sub)
+	provider := resolveSubscriptionProcessor(sub)
 	client := w.NMIClients[provider]
 	if client == nil {
-		logEntry.WithField("provider", provider).Warn("NMI client not configured for provider; skipping")
+		logEntry.WithField("processor", provider).Warn("NMI client not configured for provider; skipping")
 		return false
 	}
 
@@ -130,8 +130,7 @@ func (w *DunningWorker) processSubscription(
 	if pm == nil || !pm.IsActive || pm.VaultID == "" || pm.BillingID == nil || *pm.BillingID == "" {
 		reason := "payment method unavailable for rebill"
 		if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorNMI,
-			ProcessorProvider:       provider,
+			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
 			FailureReason:           &reason,
 		}); err != nil {
@@ -149,8 +148,7 @@ func (w *DunningWorker) processSubscription(
 	if err != nil {
 		msg := fmt.Sprintf("manual rebill request failed: %v", err)
 		if err2 := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorNMI,
-			ProcessorProvider:       provider,
+			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
 			FailureReason:           &msg,
 		}); err2 != nil {
@@ -165,8 +163,7 @@ func (w *DunningWorker) processSubscription(
 			reason = rebillResp.ErrorMessage
 		}
 		if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorNMI,
-			ProcessorProvider:       provider,
+			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
 			FailureReason:           &reason,
 		}); err != nil {
@@ -177,8 +174,7 @@ func (w *DunningWorker) processSubscription(
 
 	// Success: renew membership window and create a payment record
 	if err := lifecycle.RenewMembership(ctx, &services.RenewMembershipParams{
-		Processor:               models.ProcessorNMI,
-		ProcessorProvider:       provider,
+		Processor:               models.ProcessorMobius,
 		ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
 	}); err != nil {
 		logEntry.WithError(err).Error("renew membership after successful rebill")
@@ -202,16 +198,12 @@ func (w *DunningWorker) processSubscription(
 		UserID:         sub.UserID,
 		PriceID:        sub.PriceID,
 		SubscriptionID: &sub.ID,
-		Processor:      models.ProcessorNMI,
+		Processor:      models.ProcessorMobius,
 		TransactionID:  rebillResp.TransactionID,
 		Amount:         amount,
 		Currency:       currency,
 		PurchasedAt:    now,
 		CreatedAt:      now,
-	}
-	if provider != "" {
-		providerCopy := provider
-		pay.ProcessorProvider = &providerCopy
 	}
 	if err := paymentSvc.Create(ctx, pay); err != nil {
 		logEntry.WithError(err).Warn("create payment record for rebill")
@@ -221,34 +213,36 @@ func (w *DunningWorker) processSubscription(
 	return true
 }
 
-func resolveSubscriptionProvider(sub *models.Subscription) string {
+func resolveSubscriptionProcessor(sub *models.Subscription) string {
 	if sub == nil {
-		return defaultNMIProvider
+		return defaultNMIProcessor
 	}
 
-	if p := normalizeProvider(sub.ProcessorProvider); p != "" {
+	// Use processor field directly
+	if p := normalizeProcessor(sub.Processor); p != "" {
 		return p
 	}
 	if sub.PaymentMethod != nil {
-		if p := normalizeProvider(sub.PaymentMethod.Provider); p != "" {
+		if p := normalizeProcessor(sub.PaymentMethod.Processor); p != "" {
 			return p
 		}
 	}
 	if sub.Price != nil {
-		if p := normalizeProvider(sub.Price.NMIProvider); p != "" {
-			return p
+		_, priceProcessor, hasNMI := sub.Price.GetNMIConfig()
+		if hasNMI && priceProcessor != "" {
+			return strings.ToLower(strings.TrimSpace(priceProcessor))
 		}
 	}
-	return defaultNMIProvider
+	return defaultNMIProcessor
 }
 
-func normalizeProvider(value interface{}) string {
+func normalizeProcessor(value interface{}) string {
 	switch v := value.(type) {
 	case *string:
 		if v == nil {
 			return ""
 		}
-		return normalizeProvider(*v)
+		return normalizeProcessor(*v)
 	case string:
 		trimmed := strings.TrimSpace(strings.ToLower(v))
 		return trimmed

@@ -191,7 +191,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 				"billed_amount_cents":   billedAmountCents,
 				"tolerance_cents":       tolerance,
 				"price_id":              price.ID.String(),
-				"ccbill_price_id":       price.CCBillPriceID,
+				"ccbill_price_id":       data.FlexID,
 			}, nil)
 
 		s.logBillingError(ctx, billingErr, log.Fields{

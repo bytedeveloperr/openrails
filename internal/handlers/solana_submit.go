@@ -23,6 +23,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/middleware"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	solanaUtils "github.com/doujins-org/doujins-billing/internal/utils/solana"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
 // SubmitPayment accepts a signed transaction and processes payment with real on-chain verification
@@ -228,14 +229,14 @@ func SubmitPayment(r *Request) {
 	}
 
 	resp := SubmitPaymentResponse{
-		PurchaseID:    pay.ID.String(),
+		PurchaseID:    api.FormatPaymentID(pay.ID),
 		TransactionID: pay.TransactionID,
 		Status:        "confirmed",
 		Amount:        pay.Amount,
 		Currency:      pay.Currency,
-		ProcessedAt:   time.Now(),
+		ProcessedAt:   time.Now().Unix(),
 		Message:       "Payment verified on-chain and processed successfully.",
-		IntentID:      intent.ID.String(),
+		IntentID:      api.FormatPaymentIntentID(intent.ID),
 	}
 
 	log.WithFields(log.Fields{

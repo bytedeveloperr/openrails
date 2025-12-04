@@ -29,9 +29,9 @@ CREATE TABLE IF NOT EXISTS billing.subscriptions (
     price_id UUID, -- References prices table (created later)
     status billing.subscription_status NOT NULL DEFAULT 'pending',
 
-    -- Processor information
+    -- Processor information (flattened: mobius/ccbill/solana/paypal/etc.)
     processor TEXT NOT NULL DEFAULT 'ccbill',
-    processor_provider TEXT,
+    gateway TEXT, -- optional gateway (e.g., nmi)
     processor_subscription_id TEXT NOT NULL DEFAULT '',
     user_email TEXT,
     payment_method_id UUID, -- References payment_methods table (created later)
@@ -65,7 +65,8 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON billing.subscriptions(us
 CREATE INDEX IF NOT EXISTS idx_subscriptions_price_id ON billing.subscriptions(price_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON billing.subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_processor ON billing.subscriptions(processor);
-CREATE INDEX IF NOT EXISTS idx_subscriptions_processor_subscription ON billing.subscriptions(processor, coalesce(processor_provider, ''), processor_subscription_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_processor_subscription ON billing.subscriptions(processor, processor_subscription_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_gateway ON billing.subscriptions(gateway);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_next_retry_at ON billing.subscriptions(next_retry_at) WHERE next_retry_at IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_user_active ON billing.subscriptions(user_id) WHERE status = 'active';
 
@@ -100,7 +101,6 @@ CREATE TABLE IF NOT EXISTS billing.prices (
     currency TEXT NOT NULL,
     billing_cycle_days INTEGER, -- 30 for monthly, 365 for yearly, NULL for one-time
     nmi_plan_id TEXT, -- NMI processor plan ID
-    nmi_provider TEXT, -- NMI provider slug (e.g., mobius)
     ccbill_price_id TEXT, -- CCBill processor price ID  
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS billing.prices (
 );
 
 CREATE INDEX IF NOT EXISTS idx_prices_product_id ON billing.prices(product_id);
-CREATE INDEX IF NOT EXISTS idx_prices_nmi_plan_provider ON billing.prices(nmi_provider, nmi_plan_id) WHERE nmi_plan_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_prices_nmi_plan_provider ON billing.prices(nmi_plan_id) WHERE nmi_plan_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_prices_ccbill_price_id ON billing.prices(ccbill_price_id) WHERE ccbill_price_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_prices_is_active ON billing.prices(is_active);
 
@@ -175,8 +175,7 @@ ALTER TABLE billing.entitlements DROP COLUMN IF EXISTS active;
 CREATE TABLE IF NOT EXISTS billing.payment_methods (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL, -- OIDC subject (sub)
-    processor VARCHAR(50) NOT NULL, -- 'nmi', 'ccbill', etc.
-    processor_provider VARCHAR(50), -- provider slug for multi-tenant processors (e.g., mobius)
+    processor VARCHAR(50) NOT NULL, -- 'mobius', 'ccbill', etc.
     
     -- Processor-specific vault/payment method identifiers
     vault_id VARCHAR(255) NOT NULL, -- Primary identifier in processor's system
@@ -196,7 +195,7 @@ CREATE TABLE IF NOT EXISTS billing.payment_methods (
 CREATE INDEX IF NOT EXISTS idx_payment_methods_user_id ON billing.payment_methods(user_id);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_processor ON billing.payment_methods(processor);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_vault_id ON billing.payment_methods(vault_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_processor_vault_id ON billing.payment_methods(processor, coalesce(processor_provider, ''), vault_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payment_methods_processor_vault_id ON billing.payment_methods(processor, vault_id);
 CREATE INDEX IF NOT EXISTS idx_payment_methods_is_active ON billing.payment_methods(is_active) WHERE is_active = true;
 COMMENT ON TABLE billing.payment_methods IS 'Generalized payment method table supporting multiple processors.';
 COMMENT ON COLUMN billing.payment_methods.processor IS 'Payment processor type: nmi, ccbill, stripe, etc.';
@@ -219,7 +218,7 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_payment_method_id ON billing.subscr
 
 -- 4.2: Create processor and purchase status enums
 DROP TYPE IF EXISTS billing.processor_type CASCADE;
-CREATE TYPE billing.processor_type AS ENUM ('paypal', 'solana', 'nmi', 'ccbill');
+CREATE TYPE billing.processor_type AS ENUM ('paypal', 'solana', 'mobius', 'ccbill');
 
 DROP TYPE IF EXISTS billing.purchase_status CASCADE;
 CREATE TYPE billing.purchase_status AS ENUM ('pending', 'completed', 'failed', 'refunded');
@@ -229,8 +228,8 @@ CREATE TABLE IF NOT EXISTS billing.payments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     price_id UUID NOT NULL REFERENCES billing.prices(id),
-    processor billing.processor_type NOT NULL,
-    processor_provider TEXT,
+    processor billing.processor_type NOT NULL, -- flattened processor (mobius, ccbill, solana, paypal, etc.)
+    gateway TEXT, -- optional gateway (e.g., nmi)
     transaction_id TEXT NOT NULL,
     amount BIGINT NOT NULL, -- Amount in cents (smallest currency unit)
     currency TEXT NOT NULL DEFAULT 'USD',
@@ -249,7 +248,7 @@ CREATE INDEX IF NOT EXISTS idx_payments_refunded_payment_id ON billing.payments(
 CREATE INDEX IF NOT EXISTS idx_payments_user_id ON billing.payments(user_id);
 CREATE INDEX IF NOT EXISTS idx_payments_price_id ON billing.payments(price_id);
 CREATE INDEX IF NOT EXISTS idx_payments_processor ON billing.payments(processor);
-CREATE INDEX IF NOT EXISTS idx_payments_processor_provider ON billing.payments(processor, coalesce(processor_provider, ''));
+CREATE INDEX IF NOT EXISTS idx_payments_gateway ON billing.payments(gateway) WHERE gateway IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_payments_purchased_at ON billing.payments(purchased_at);
 CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON billing.payments(subscription_id);
 

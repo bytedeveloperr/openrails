@@ -102,7 +102,7 @@ func TestCCBillWebhookReplay(t *testing.T) {
 			// Send webhook
 			w := httptest.NewRecorder()
 			req, err := http.NewRequest("POST",
-				fmt.Sprintf("/v1/subscriptions/webhook/ccbill?eventType=%s", et.eventType),
+				fmt.Sprintf("/v1/webhooks/ccbill?eventType=%s", et.eventType),
 				strings.NewReader(formData))
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -173,7 +173,7 @@ func TestCCBillNewSaleCreatesSubscription(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, err := http.NewRequest("POST",
-		"/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
+		"/v1/webhooks/ccbill?eventType=NewSaleSuccess",
 		strings.NewReader(formData))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -257,7 +257,7 @@ func TestNMIWebhookReplay(t *testing.T) {
 
 			w := httptest.NewRecorder()
 			req, err := http.NewRequest("POST",
-				"/v1/subscriptions/webhook/nmi/mobius",
+				"/v1/webhooks/mobius",
 				strings.NewReader(string(eventData)))
 			require.NoError(t, err)
 			req.Header.Set("Content-Type", "application/json")
@@ -296,7 +296,7 @@ func TestWebhookWithInvalidProcessor(t *testing.T) {
 	suite := setupTestSuite(t)
 
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/invalid",
+	req, err := http.NewRequest("POST", "/v1/webhooks/invalid",
 		strings.NewReader("test=data"))
 	require.NoError(t, err)
 
@@ -314,7 +314,7 @@ func TestCCBillWebhookWithMissingEventType(t *testing.T) {
 	suite := setupTestSuite(t)
 
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/ccbill",
+	req, err := http.NewRequest("POST", "/v1/webhooks/ccbill",
 		strings.NewReader("subscriptionId=123456"))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -334,7 +334,7 @@ func TestNMIWebhookWithMalformedJSON(t *testing.T) {
 	suite := setupTestSuite(t)
 
 	w := httptest.NewRecorder()
-	req, err := http.NewRequest("POST", "/v1/subscriptions/webhook/nmi/mobius",
+	req, err := http.NewRequest("POST", "/v1/webhooks/mobius",
 		strings.NewReader("{invalid json"))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
@@ -366,7 +366,7 @@ func TestWebhookReplayWithLargePayload(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req, err := http.NewRequest("POST",
-		"/v1/subscriptions/webhook/ccbill?eventType=TestEvent",
+		"/v1/webhooks/ccbill?eventType=TestEvent",
 		strings.NewReader(formData))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -400,7 +400,7 @@ func TestWebhookContentTypeValidation(t *testing.T) {
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=NewSaleSuccess",
+			"/v1/webhooks/ccbill?eventType=NewSaleSuccess",
 			strings.NewReader(formData))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("X-Real-IP", "127.0.0.1")
@@ -414,7 +414,7 @@ func TestWebhookContentTypeValidation(t *testing.T) {
 	t.Run("NMI expects JSON", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/nmi/mobius",
+			"/v1/webhooks/mobius",
 			strings.NewReader(`{"event_type": "test"}`))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Real-IP", "127.0.0.1")
@@ -433,7 +433,7 @@ func TestWebhookReplayEmptyBody(t *testing.T) {
 	t.Run("CCBill empty body", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/ccbill?eventType=Test",
+			"/v1/webhooks/ccbill?eventType=Test",
 			nil)
 		req.Header.Set("X-Real-IP", "127.0.0.1")
 
@@ -448,7 +448,7 @@ func TestWebhookReplayEmptyBody(t *testing.T) {
 	t.Run("NMI empty body", func(t *testing.T) {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("POST",
-			"/v1/subscriptions/webhook/nmi/mobius",
+			"/v1/webhooks/mobius",
 			nil)
 		req.Header.Set("X-Real-IP", "127.0.0.1")
 

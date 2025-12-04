@@ -233,26 +233,22 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 		}
 	}
 
-	if subscription.Processor != models.ProcessorNMI {
+	// Only mobius subscriptions can be cancelled via this service (uses NMI)
+	if subscription.Processor != models.ProcessorMobius && subscription.Processor != models.ProcessorNMI {
 		return fmt.Errorf("unable to cancel subscription for processor %s", subscription.Processor)
 	}
 
 	// Cancel subscription with NMI
 	if s.NMIClients != nil {
-		provider := ""
-		if subscription.ProcessorProvider != nil {
-			provider = strings.ToLower(strings.TrimSpace(*subscription.ProcessorProvider))
-		}
-		if provider == "" && subscription.Price != nil && subscription.Price.NMIProvider != nil {
-			provider = strings.ToLower(strings.TrimSpace(*subscription.Price.NMIProvider))
-		}
-		if provider == "" {
-			provider = "mobius"
+		// Use processor name to look up NMI client
+		provider := strings.ToLower(string(subscription.Processor))
+		if provider == "nmi" {
+			provider = "mobius" // normalize legacy processor value
 		}
 
 		if client, ok := s.NMIClients[provider]; ok && subscription.ProcessorSubscriptionID != "" {
 			if err := client.DeleteRecurringSubscription(subscription.ProcessorSubscriptionID); err != nil {
-				return fmt.Errorf("failed to cancel subscription with NMI provider '%s': %w", provider, err)
+				return fmt.Errorf("failed to cancel subscription with processor '%s': %w", provider, err)
 			}
 		}
 	}

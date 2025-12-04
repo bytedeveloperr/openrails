@@ -3,7 +3,6 @@ package repo
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -14,10 +13,17 @@ import (
 )
 
 type SubscriptionFilters struct {
-	UserID    string
-	Status    string
-	PriceID   uuid.UUID
-	Processor string
+	UserID          string
+	Status          string
+	PriceID         uuid.UUID
+	Processor       string
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	CancelledAfter  *time.Time
+	CancelledBefore *time.Time
+	ExpiresBefore   *time.Time
+	SortBy          string // created_at (default), expires_at, cancelled_at
+	SortOrder       string // asc, desc (default)
 }
 
 type SubscriptionRepo struct {
@@ -57,7 +63,7 @@ func (r *SubscriptionRepo) Update(ctx context.Context, s *models.Subscription) e
 			"current_period_starts_at",
 			"current_period_ends_at",
 			"processor",
-			"processor_provider",
+			"gateway",
 			"processor_subscription_id",
 			"user_email",
 			"payment_method_id",
@@ -155,23 +161,15 @@ func (r *SubscriptionRepo) GetActiveSubscription(ctx context.Context, userID str
 	return sub, nil
 }
 
-func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, processor, provider, processorSubscriptionID string) (*models.Subscription, error) {
+func (r *SubscriptionRepo) GetByProcessorSubscriptionID(ctx context.Context, processor, gateway, processorSubscriptionID string) (*models.Subscription, error) {
 	sub := new(models.Subscription)
 	query := r.selectWithDetails(sub).
 		Where("sub.processor = ?", processor).
 		Where("sub.processor_subscription_id = ?", processorSubscriptionID)
 
-	if strings.EqualFold(processor, string(models.ProcessorNMI)) {
-		provider = strings.TrimSpace(strings.ToLower(provider))
-		if provider == "" {
-			provider = "mobius"
-		}
-
-		if provider == "mobius" {
-			query = query.Where("(sub.processor_provider = ? OR sub.processor_provider IS NULL OR sub.processor_provider = '')", provider)
-		} else {
-			query = query.Where("sub.processor_provider = ?", provider)
-		}
+	// Optionally filter by gateway (e.g., "mobius" for NMI)
+	if gateway != "" {
+		query = query.Where("sub.gateway = ?", gateway)
 	}
 
 	err := query.Scan(ctx)
@@ -283,13 +281,35 @@ func (r *SubscriptionRepo) GetSubscribers(ctx context.Context, params query.Quer
 		dataQuery = dataQuery.Offset(params.Offset)
 	}
 
-	dataQuery = dataQuery.Order("created_at DESC")
+	// Apply sorting
+	dataQuery = applySorting(dataQuery, params.Filters.SortBy, params.Filters.SortOrder)
 
 	if err := dataQuery.Scan(ctx); err != nil {
 		return nil, 0, err
 	}
 
 	return subs, int64(total), nil
+}
+
+func applySorting(q *bun.SelectQuery, sortBy, sortOrder string) *bun.SelectQuery {
+	// Validate and map sort field
+	var column string
+	switch sortBy {
+	case "expires_at":
+		column = "sub.current_period_ends_at"
+	case "cancelled_at":
+		column = "sub.cancelled_at"
+	default:
+		column = "sub.created_at"
+	}
+
+	// Validate sort order
+	order := "DESC"
+	if sortOrder == "asc" {
+		order = "ASC"
+	}
+
+	return q.OrderExpr(column + " " + order)
 }
 
 func applySubscriptionFilters(q *bun.SelectQuery, filters SubscriptionFilters) *bun.SelectQuery {
@@ -304,6 +324,21 @@ func applySubscriptionFilters(q *bun.SelectQuery, filters SubscriptionFilters) *
 	}
 	if filters.Processor != "" {
 		q = q.Where("sub.processor = ?", filters.Processor)
+	}
+	if filters.CreatedAfter != nil {
+		q = q.Where("sub.created_at >= ?", filters.CreatedAfter)
+	}
+	if filters.CreatedBefore != nil {
+		q = q.Where("sub.created_at <= ?", filters.CreatedBefore)
+	}
+	if filters.CancelledAfter != nil {
+		q = q.Where("sub.cancelled_at >= ?", filters.CancelledAfter)
+	}
+	if filters.CancelledBefore != nil {
+		q = q.Where("sub.cancelled_at <= ?", filters.CancelledBefore)
+	}
+	if filters.ExpiresBefore != nil {
+		q = q.Where("sub.current_period_ends_at <= ?", filters.ExpiresBefore)
 	}
 	return q
 }

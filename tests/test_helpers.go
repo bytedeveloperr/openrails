@@ -113,6 +113,32 @@ func setupTestServerWithRSAuth(t *testing.T) (*server.Server, string) {
 	return srv, token
 }
 
+// setupTestSuiteWithAdminAuth returns the shared test suite with an admin JWT token and user ID.
+// Use this for testing admin endpoints that require the "admin" role.
+func setupTestSuiteWithAdminAuth(t *testing.T) (*TestContainerSuite, string, string) {
+	suite := getSharedTestSuite(t)
+	userID := uuid.New().String()
+	email := "admin-" + t.Name() + "@test.example.com"
+	token := getTestIssuer().CreateTokenWithRoles(userID, email, []string{"admin"})
+	return suite, token, userID
+}
+
+// CreateAdminToken creates a JWT token with admin role for the given user ID.
+// Use this when you need an admin token for a specific user ID.
+func CreateAdminToken(t *testing.T, userID string) string {
+	t.Helper()
+	email := "admin-" + userID[:8] + "@test.example.com"
+	return getTestIssuer().CreateTokenWithRoles(userID, email, []string{"admin"})
+}
+
+// CreateUserToken creates a JWT token without admin role for the given user ID.
+// Use this when you need a regular user token for a specific user ID.
+func CreateUserToken(t *testing.T, userID string) string {
+	t.Helper()
+	email := "user-" + userID[:8] + "@test.example.com"
+	return getTestIssuer().CreateToken(userID, email)
+}
+
 // CleanupSharedSuite should be called at the end of all tests to cleanup containers.
 func CleanupSharedSuite() {
 	if sharedSuite != nil {

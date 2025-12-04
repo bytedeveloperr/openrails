@@ -27,7 +27,7 @@ func TestGetProductsEndpoint(t *testing.T) {
 
 	t.Run("returns seeded products", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/products", nil)
+		req, _ := http.NewRequest("GET", "/v1/products", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -65,7 +65,7 @@ func TestGetProductsEndpoint(t *testing.T) {
 
 	t.Run("returns products with correct price details", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/products", nil)
+		req, _ := http.NewRequest("GET", "/v1/products", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -104,14 +104,21 @@ func TestGetActiveSubscriptionEndpoint(t *testing.T) {
 
 	t.Run("returns no subscription for new user", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/active", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/subscriptions?status=active", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
-		// User without subscription should get 200 with message
+		// User without subscription should get 200 with empty list
 		assert.Equal(t, http.StatusOK, w.Code)
-		assert.Contains(t, w.Body.String(), "no active subscription")
+
+		var response handlers.PaginatedResponse
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		data, ok := response.Data.([]any)
+		require.True(t, ok, "Data should be an array")
+		assert.Empty(t, data, "Should have no active subscriptions for new user")
 	})
 
 	t.Run("returns active subscription details", func(t *testing.T) {
@@ -119,28 +126,37 @@ func TestGetActiveSubscriptionEndpoint(t *testing.T) {
 		sub := suite.CreateTestSubscription(userID, priceID, models.StatusActive)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/active", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/subscriptions?status=active", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code)
 
-		// Parse response
-		var response services.UserSubscriptionResponse
+		// Parse paginated response
+		var response handlers.PaginatedResponse
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
+		// Extract subscription data
+		dataBytes, err := json.Marshal(response.Data)
+		require.NoError(t, err)
+		var subscriptions []services.UserSubscriptionResponse
+		err = json.Unmarshal(dataBytes, &subscriptions)
+		require.NoError(t, err)
+
+		require.Len(t, subscriptions, 1, "Should have 1 active subscription")
+
 		// Verify subscription data
-		assert.Equal(t, sub.ID.String(), response.ID.String())
-		assert.Equal(t, string(models.StatusActive), string(response.Status))
-		assert.NotNil(t, response.Price, "Should include price details")
-		assert.Equal(t, int64(999), response.Price.Amount, "Amount should be 999 cents")
+		assert.Equal(t, sub.ID.String(), subscriptions[0].ID.String())
+		assert.Equal(t, string(models.StatusActive), string(subscriptions[0].Status))
+		assert.NotNil(t, subscriptions[0].Price, "Should include price details")
+		assert.Equal(t, int64(999), subscriptions[0].Price.Amount, "Amount should be 999 cents")
 	})
 
 	t.Run("requires authentication", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/active", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/subscriptions", nil)
 		// No auth header
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -160,7 +176,7 @@ func TestGetSubscriptionHistoryEndpoint(t *testing.T) {
 
 	t.Run("returns empty history for new user", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/history", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/subscriptions?status=all", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -188,7 +204,7 @@ func TestGetSubscriptionHistoryEndpoint(t *testing.T) {
 		activeSub := suite.CreateTestSubscription(userID, yearlyPriceID, models.StatusActive)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/history", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/subscriptions?status=all", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -235,7 +251,7 @@ func TestGetUserPaymentsEndpoint(t *testing.T) {
 
 	t.Run("returns empty payments for new user", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/purchases", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/payments", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -258,7 +274,7 @@ func TestGetUserPaymentsEndpoint(t *testing.T) {
 		payment2 := suite.CreateTestPayment(userID, priceID, &sub.ID)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/subscriptions/purchases", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/payments", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)

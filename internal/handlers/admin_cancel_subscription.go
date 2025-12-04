@@ -36,28 +36,3 @@ func AdminCancelSubscription(r *Request) {
 
 	r.SuccessJSONMessage("subscription cancelled successfully")
 }
-
-// AdminCancelUserSubscription cancels a subscription by user ID (admin)
-func AdminCancelUserSubscription(r *Request) {
-	userID := r.GinCtx.Param("user_id")
-	if userID == "" {
-		r.ErrorJSON(http.StatusBadRequest, "user_id is required")
-		return
-	}
-
-	req := new(AdminCancelSubscriptionRequest)
-	if !r.BindJSON(req) {
-		return
-	}
-
-	if err := r.State.AdminSubscriptionService.CancelUserSubscription(
-		r.Request.Context(),
-		userID,
-		req.Reason,
-	); err != nil {
-		r.ErrorJSON(http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	r.SuccessJSONMessage("subscription cancelled successfully")
-}

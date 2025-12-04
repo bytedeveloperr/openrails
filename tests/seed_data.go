@@ -60,11 +60,20 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					Amount:           999, // Amount in cents ($9.99)
 					Currency:         "USD",
 					BillingCycleDays: intPtr(30),
-					NMIPlanID:        strPtr("plan_monthly_999"),
-					NMIProvider:      strPtr("mobius"),
-					// CCBillPriceID matches flexId from testdata/webhooks/ccbill/newsalesuccess.json
-					CCBillPriceID: strPtr(CCBillTestFlexID),
-					IsActive:      true,
+					Processors: map[string]map[string]string{
+						string(models.ProcessorNMI): {
+							models.ProcessorKeyPlanID:   "plan_monthly_999",
+							models.ProcessorKeyProvider: "mobius",
+						},
+						// CCBillPriceID matches flexId from testdata/webhooks/ccbill/newsalesuccess.json
+						string(models.ProcessorCCBill): {
+							models.ProcessorKeyPriceID: CCBillTestFlexID,
+						},
+						string(models.ProcessorSolana): {
+							"enabled": "true",
+						},
+					},
+					IsActive: true,
 				},
 			},
 		},
@@ -86,10 +95,19 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					Amount:           9999, // Amount in cents ($99.99)
 					Currency:         "USD",
 					BillingCycleDays: intPtr(365),
-					NMIPlanID:        strPtr("plan_yearly_9999"),
-					NMIProvider:      strPtr("mobius"),
-					CCBillPriceID:    strPtr("ccbill_yearly_9999"),
-					IsActive:         true,
+					Processors: map[string]map[string]string{
+						string(models.ProcessorNMI): {
+							models.ProcessorKeyPlanID:   "plan_yearly_9999",
+							models.ProcessorKeyProvider: "mobius",
+						},
+						string(models.ProcessorCCBill): {
+							models.ProcessorKeyPriceID: "ccbill_yearly_9999",
+						},
+						string(models.ProcessorSolana): {
+							"enabled": "true",
+						},
+					},
+					IsActive: true,
 				},
 			},
 		},

@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"time"
-
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
@@ -38,12 +36,11 @@ func ProductToAPI(p *models.Product, prices []*models.Price) api.ProductObject {
 	}
 
 	return api.ProductObject{
-		ID:          p.ID.String(),
+		ID:          api.FormatProductID(p.ID),
 		Object:      "product",
-		Active:      p.IsActive,
 		Name:        p.DisplayName,
 		Description: p.Description,
-		Metadata:    nil, // Could map EntitlementsSpec if needed
+		Active:      p.IsActive,
 		Created:     api.ToUnix(p.CreatedAt),
 		Updated:     api.ToUnix(p.UpdatedAt),
 		Prices:      priceObjects,
@@ -52,11 +49,8 @@ func ProductToAPI(p *models.Product, prices []*models.Price) api.ProductObject {
 
 // PriceToAPI converts a models.Price to api.PriceObject
 func PriceToAPI(p *models.Price) api.PriceObject {
-	priceType := "one_time"
 	var recurring *api.RecurringInfo
-
 	if p.BillingCycleDays != nil && *p.BillingCycleDays > 0 {
-		priceType = "recurring"
 		interval, intervalCount := billingCycleDaysToInterval(*p.BillingCycleDays)
 		recurring = &api.RecurringInfo{
 			Interval:      interval,
@@ -65,17 +59,15 @@ func PriceToAPI(p *models.Price) api.PriceObject {
 	}
 
 	return api.PriceObject{
-		ID:            p.ID.String(),
-		Object:        "price",
-		Active:        p.IsActive,
-		Currency:      p.Currency,
-		UnitAmount:    p.Amount,
-		Product:       p.ProductID.String(),
-		BillingScheme: "per_unit",
-		Recurring:     recurring,
-		Type:          priceType,
-		Created:       api.ToUnix(p.CreatedAt),
-		Metadata:      nil,
+		ID:        api.FormatPriceID(p.ID),
+		Object:    "price",
+		Name:      p.DisplayName,
+		Amount:    p.Amount,
+		Currency:  p.Currency,
+		Recurring: recurring,
+		Product:   api.FormatProductID(p.ProductID),
+		Active:    p.IsActive,
+		Created:   api.ToUnix(p.CreatedAt),
 	}
 }
 
@@ -117,25 +109,25 @@ type GeneratePaymentResponse struct {
 
 // SubmitPaymentResponse represents the result of submitting a signed transaction
 type SubmitPaymentResponse struct {
-	PurchaseID    string    `json:"purchase_id"`
-	TransactionID string    `json:"transaction_id"`
-	Status        string    `json:"status"`
-	Amount        int64     `json:"amount"` // Amount in cents
-	Currency      string    `json:"currency"`
-	ProcessedAt   time.Time `json:"processed_at"`
-	Message       string    `json:"message"`
-	IntentID      string    `json:"intent_id"`
+	PurchaseID    string `json:"purchase_id"`
+	TransactionID string `json:"transaction_id"`
+	Status        string `json:"status"`
+	Amount        int64  `json:"amount"` // Amount in cents
+	Currency      string `json:"currency"`
+	ProcessedAt   int64  `json:"processed_at"` // Unix epoch seconds
+	Message       string `json:"message"`
+	IntentID      string `json:"intent_id"`
 }
 
 // PaymentStatusResponse represents the status of a payment
 type PaymentStatusResponse struct {
-	PurchaseID    string     `json:"purchase_id"`
-	TransactionID string     `json:"transaction_id"`
-	Status        string     `json:"status"`
-	Amount        int64      `json:"amount"` // Amount in cents
-	Currency      string     `json:"currency"`
-	CreatedAt     time.Time  `json:"created_at"`
-	ConfirmedAt   *time.Time `json:"confirmed_at,omitempty"`
+	PurchaseID    string `json:"purchase_id"`
+	TransactionID string `json:"transaction_id"`
+	Status        string `json:"status"`
+	Amount        int64  `json:"amount"` // Amount in cents
+	Currency      string `json:"currency"`
+	CreatedAt     int64  `json:"created_at"`             // Unix epoch seconds
+	ConfirmedAt   *int64 `json:"confirmed_at,omitempty"` // Unix epoch seconds
 }
 
 // ErrorResponse represents an error response
@@ -180,11 +172,11 @@ type TokenInfo struct {
 }
 
 type PublicPriceResponse struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Amount           int64  `json:"amount"` // Amount in cents
-	Currency         string `json:"currency"`
-	BillingCycleDays int    `json:"billing_cycle_days"`
+	ID        string             `json:"id"`
+	Name      string             `json:"name"`
+	Amount    int64              `json:"amount"` // Amount in cents
+	Currency  string             `json:"currency"`
+	Recurring *api.RecurringInfo `json:"recurring,omitempty"`
 }
 
 // (Removed) NMI setup response and nonce: no longer needed because
@@ -211,15 +203,15 @@ type SubscriptionHistoryItem struct {
 	Status                  string                 `json:"status"`
 	Processor               string                 `json:"processor"`
 	ProcessorSubscriptionID string                 `json:"processor_subscription_id"`
-	StartedAt               time.Time              `json:"started_at"`
-	EndedAt                 *time.Time             `json:"ended_at,omitempty"`
-	CurrentPeriodStartsAt   *time.Time             `json:"current_period_starts_at,omitempty"`
-	CurrentPeriodEndsAt     *time.Time             `json:"current_period_ends_at,omitempty"`
-	CancelledAt             *time.Time             `json:"cancelled_at,omitempty"`
+	StartedAt               int64                  `json:"started_at"`                         // Unix epoch seconds
+	EndedAt                 *int64                 `json:"ended_at,omitempty"`                 // Unix epoch seconds
+	CurrentPeriodStartsAt   *int64                 `json:"current_period_starts_at,omitempty"` // Unix epoch seconds
+	CurrentPeriodEndsAt     *int64                 `json:"current_period_ends_at,omitempty"`   // Unix epoch seconds
+	CancelledAt             *int64                 `json:"cancelled_at,omitempty"`             // Unix epoch seconds
 	CancelType              *string                `json:"cancel_type,omitempty"`
 	CancelFeedback          *string                `json:"cancel_feedback,omitempty"`
-	CreatedAt               time.Time              `json:"created_at"`
-	UpdatedAt               time.Time              `json:"updated_at"`
+	CreatedAt               int64                  `json:"created_at"` // Unix epoch seconds
+	UpdatedAt               int64                  `json:"updated_at"` // Unix epoch seconds
 	Price                   *PriceInfo             `json:"price,omitempty"`
 	PaymentMethod           *PaymentMethodInfo     `json:"payment_method,omitempty"`
 	Metadata                map[string]interface{} `json:"metadata,omitempty"`
@@ -227,11 +219,11 @@ type SubscriptionHistoryItem struct {
 
 // PriceInfo represents price information for billing history
 type PriceInfo struct {
-	ID               string `json:"id"`
-	Name             string `json:"name"`
-	Amount           int64  `json:"amount"` // Amount in cents
-	Currency         string `json:"currency"`
-	BillingCycleDays int    `json:"billing_cycle_days"`
+	ID        string             `json:"id"`
+	Name      string             `json:"name"`
+	Amount    int64              `json:"amount"` // Amount in cents
+	Currency  string             `json:"currency"`
+	Recurring *api.RecurringInfo `json:"recurring,omitempty"`
 }
 
 // PaymentMethodInfo represents payment method information for billing history
@@ -250,7 +242,7 @@ type PaymentItem struct {
 	Amount         int64      `json:"amount"` // Amount in cents
 	Currency       string     `json:"currency"`
 	Price          *PriceInfo `json:"price,omitempty"`
-	PurchasedAt    time.Time  `json:"purchased_at"`
+	PurchasedAt    int64      `json:"purchased_at"` // Unix epoch seconds
 }
 
 // PaymentEventItem represents a payment transaction event
@@ -265,8 +257,8 @@ type PaymentEventItem struct {
 	BillingInfo            map[string]interface{} `json:"billing_info,omitempty"`
 	WebhookSource          *string                `json:"webhook_source,omitempty"`
 	Metadata               map[string]interface{} `json:"metadata,omitempty"`
-	Timestamp              time.Time              `json:"timestamp"`
-	CreatedAt              time.Time              `json:"created_at"`
+	Timestamp              int64                  `json:"timestamp"`  // Unix epoch seconds
+	CreatedAt              int64                  `json:"created_at"` // Unix epoch seconds
 }
 
 // SubscriptionEventItem represents a subscription lifecycle event
@@ -280,8 +272,8 @@ type SubscriptionEventItem struct {
 	Amount                  *int64                 `json:"amount,omitempty"` // Amount in cents
 	Currency                string                 `json:"currency"`
 	Metadata                map[string]interface{} `json:"metadata,omitempty"`
-	Timestamp               time.Time              `json:"timestamp"`
-	CreatedAt               time.Time              `json:"created_at"`
+	Timestamp               int64                  `json:"timestamp"`  // Unix epoch seconds
+	CreatedAt               int64                  `json:"created_at"` // Unix epoch seconds
 }
 
 // BillingHistoryStats represents aggregated billing statistics
@@ -291,9 +283,9 @@ type BillingHistoryStats struct {
 	SuccessfulCharges  int                           `json:"successful_charges"`
 	FailedCharges      int                           `json:"failed_charges"`
 	Refunds            int                           `json:"refunds"`
-	TotalRefunded      int64                         `json:"total_refunded"` // Total in cents
-	FirstChargeDate    *time.Time                    `json:"first_charge_date,omitempty"`
-	LastChargeDate     *time.Time                    `json:"last_charge_date,omitempty"`
+	TotalRefunded      int64                         `json:"total_refunded"`              // Total in cents
+	FirstChargeDate    *int64                        `json:"first_charge_date,omitempty"` // Unix epoch seconds
+	LastChargeDate     *int64                        `json:"last_charge_date,omitempty"`  // Unix epoch seconds
 	ProcessorBreakdown map[string]ProcessorStatsInfo `json:"processor_breakdown"`
 }
 
@@ -536,7 +528,7 @@ type PaymentMethodResponse struct {
 	ExpiryDate *string `json:"expiry_date,omitempty"`
 
 	// Common fields
-	DisplayName   string    `json:"display_name"`
-	FailureReason *string   `json:"failure_reason,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	DisplayName   string  `json:"display_name"`
+	FailureReason *string `json:"failure_reason,omitempty"`
+	CreatedAt     int64   `json:"created_at"` // Unix epoch seconds
 }

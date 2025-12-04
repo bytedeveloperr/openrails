@@ -309,6 +309,360 @@
         "Returns JSON with support_url: https://support.ccbill.com and code: ccbill_cancel_required",
         "Handler returns HTTP 422 Unprocessable Entity for CCBill cancellations"
       ]
+    },
+    {
+      "name": "combine-dunning-workers",
+      "category": "refactor",
+      "description": "Combine DunningSweepWorker and DunningAttemptWorker into a single worker",
+      "steps": [
+        "Create single DunningWorker that runs periodically (e.g., every few hours)",
+        "Query all past_due subscriptions where next_retry_at is in the past",
+        "Loop through each subscription and attempt rebill via NMI",
+        "Update database after each attempt for idempotency (in case of crash)",
+        "On success: renew subscription, create payment record, reset retry counter",
+        "On failure: increment retry count, schedule next retry, or mark failed if max retries",
+        "Remove old DunningSweepWorker and DunningAttemptWorker",
+        "Update River job registration"
+      ]
+    },
+    {
+      "name": "test-dunning-worker",
+      "category": "testing",
+      "description": "Test combined DunningWorker processes failed payments",
+      "steps": [
+        "Create multiple past_due subscriptions with next_retry_at in past",
+        "Mock NMI client to return success/failure responses",
+        "Run DunningWorker",
+        "Verify subscriptions renewed on success, or failed on decline",
+        "Verify payment records created for successful rebills",
+        "Verify subscriptions not yet due are not processed"
+      ]
+    },
+    {
+      "name": "stripe-like-api-structs",
+      "category": "refactor",
+      "description": "Create Stripe-like response envelopes (Object wrappers) with our pagination system",
+      "steps": [
+        "Create `pkg/api/response.go` defining standard response structs.",
+        "Define `ListResponse` struct with `object: list`, `data`, `total_items`, `page`, `page_size`, `total_pages` fields (NOT Stripe's has_more - we prefer explicit pagination).",
+        "Define wrappers for core resources: `ProductObject`, `PriceObject`, `SubscriptionObject`.",
+        "Define `PaymentIntentObject` and `NextActionObject` for handling redirects.",
+        "Update existing handlers to use these wrappers for JSON responses (starting with `GetProducts`).",
+        "Verify tests still pass or update them to expect new JSON structure."
+      ]
+    },
+    {
+      "name": "stripe-like-api-subscriptions",
+      "category": "refactor",
+      "description": "Refactor Subscription creation endpoints to cleaner RESTful patterns",
+      "steps": [
+        "Change `POST /v1/subscriptions/process/:processor` to `POST /v1/subscriptions/:provider` (e.g., /mobius, /ccbill, /solana).",
+        "Register explicit routes for each provider rather than using a dynamic :provider param to avoid collision with :id.",
+        "Move `POST /v1/subscriptions/ccbill/flexform-url` to `POST /v1/subscriptions/ccbill` (same endpoint, just generates FlexForm URL).",
+        "Simplify webhooks: `POST /v1/webhooks/:provider` instead of `/v1/subscriptions/webhook/:processor/:provider` (e.g., /webhooks/mobius, /webhooks/ccbill).",
+        "Update tests to use new endpoint paths."
+      ]
+    },
+    {
+      "name": "time-mocking",
+      "category": "testing-infra",
+      "description": "Add time-mocking capability for testing time-dependent logic",
+      "steps": [
+        "Research options: benbjohnson/clock, jonboulle/clockwork, or custom solution",
+        "Create Clock interface that wraps time.Now() and can be injected",
+        "Update services/handlers to use Clock interface instead of time.Now() directly",
+        "Add SetTime() or Advance() methods to test clock for controlling time in tests",
+        "Test subscription expiry: create sub expiring Nov 30, advance to Nov 30, verify expiry logic",
+        "Test dunning/retry logic with time advancement"
+      ]
+    },
+    {
+      "name": "river-workers-in-tests",
+      "category": "testing-infra",
+      "description": "Start River workers in test suite for async job testing",
+      "steps": [
+        "Initialize River client in TestContainerSuite setup",
+        "Register all worker types (WebhookProcess, DunningAttempt, DunningSweep, etc.)",
+        "Start River workers in background during test setup",
+        "Add helper to wait for job completion in tests",
+        "Test webhook processing flow end-to-end (webhook -> job -> subscription created)",
+        "Test dunning sweep enqueues dunning attempt jobs",
+        "Gracefully stop workers in test cleanup"
+      ]
+    },
+    {
+      "name": "nmi-demo-integration",
+      "category": "testing-infra",
+      "description": "Add NMI demo account to test suite for real API integration tests",
+      "steps": [
+        "Configure testcontainer suite with NMI demo credentials (security key: 6457Thfj624V5r7WUwc5v6a68Zsd6YEm)",
+        "Add NMI config to TestContainerSuite with test_mode enabled",
+        "Create test for Subscribe endpoint with real NMI API calls",
+        "Use test card number 4111111111111111 with expiry 10/25",
+        "Test successful payment creates subscription and payment record",
+        "Test declined payment (amount < $1.00) returns appropriate error",
+        "Test dunning worker rebill with real NMI API"
+      ]
+    },
+    {
+      "name": "amounts-in-cents",
+      "category": "refactor",
+      "description": "Store amounts in cents (integers) instead of floats",
+      "steps": [
+        "Change Price.Amount from float64 to int64 (cents)",
+        "Change Payment.Amount from float64 to int64 (cents)",
+        "Create migration to convert existing amounts (multiply by 100)",
+        "Update all services to work with cents internally",
+        "Update API responses to return amount in cents (Stripe convention)",
+        "Update API requests to accept amount in cents",
+        "Add helper functions for cents <-> dollars conversion if needed for display",
+        "Update seed data and tests to use cent amounts"
+      ]
+    },
+    {
+      "name": "test-cancel-auth-boundaries",
+      "category": "testing",
+      "description": "Add tests for cancel subscription authorization boundaries",
+      "steps": [
+        "Test that User A cannot cancel User B's subscription (should get 'no active subscription' error)",
+        "Test that admin can cancel any user's subscription by subscription ID",
+        "Test that admin can cancel any user's subscription by user ID",
+        "Verify database status changes to 'cancelled' after successful cancel",
+        "Verify entitlements are revoked after cancel"
+      ]
+    },
+    {
+      "name": "test-subscription-renewal-webhook",
+      "category": "testing",
+      "description": "Test that renewal webhook extends subscription period",
+      "steps": [
+        "Create active subscription with period ending soon",
+        "Simulate renewal webhook from processor (NMI or CCBill)",
+        "Verify CurrentPeriodEndsAt moved forward by billing cycle days",
+        "Verify payment record created for the renewal"
+      ]
+    },
+    {
+      "name": "test-failed-payment-webhook",
+      "category": "testing",
+      "description": "Test that failed payment webhook sets subscription to past_due",
+      "steps": [
+        "Create active subscription",
+        "Simulate failed payment webhook from processor",
+        "Verify subscription status becomes past_due",
+        "Verify next_retry_at is scheduled for dunning"
+      ]
+    },
+    {
+      "name": "test-cancel-access-at-period-end",
+      "category": "testing",
+      "description": "Test user cancellation keeps access until period end, then revokes",
+      "steps": [
+        "Create active subscription with entitlements",
+        "User cancels (RevokeAccess: false)",
+        "Verify user still has entitlements immediately after cancel",
+        "Advance clock to period end",
+        "Trigger period-end processing",
+        "Verify entitlements are revoked after period ends"
+      ]
+    },
+    {
+      "name": "test-admin-revoke-access",
+      "category": "testing",
+      "description": "Test admin revocation removes access immediately",
+      "steps": [
+        "Create active subscription with entitlements",
+        "Admin revokes access (RevokeAccess: true)",
+        "Verify entitlements are revoked immediately",
+        "Verify subscription status is cancelled"
+      ]
+    },
+    {
+      "name": "test-dunning-retry-schedule",
+      "category": "testing",
+      "description": "Test dunning worker respects retry schedule with clock advancement",
+      "steps": [
+        "Create past_due subscription with next_retry_at in future",
+        "Run dunning worker - verify no attempt made (not yet due)",
+        "Advance clock past next_retry_at",
+        "Run dunning worker - verify rebill attempt made",
+        "On failure, verify next_retry_at incremented correctly (+1 day, +3 days, etc.)",
+        "Verify retry_count incremented"
+      ]
+    },
+    {
+      "name": "test-dunning-max-retries",
+      "category": "testing",
+      "description": "Test subscription fails after max dunning attempts",
+      "steps": [
+        "Create past_due subscription near max retries",
+        "Mock NMI to return decline",
+        "Advance clock and run dunning worker for final attempt",
+        "Verify subscription status becomes failed",
+        "Verify entitlements are revoked"
+      ]
+    },
+    {
+      "name": "test-dunning-success-reactivates",
+      "category": "testing",
+      "description": "Test successful dunning reactivates subscription",
+      "steps": [
+        "Create past_due subscription",
+        "Mock NMI to return success",
+        "Advance clock and run dunning worker",
+        "Verify subscription status becomes active",
+        "Verify new period dates set correctly",
+        "Verify payment record created"
+      ]
+    },
+    {
+      "name": "test-entitlement-expiry",
+      "category": "testing",
+      "description": "Test time-limited entitlements expire correctly",
+      "steps": [
+        "Grant 15-day entitlement to user",
+        "Verify entitlement is active immediately",
+        "Advance clock 14 days - verify still active",
+        "Advance clock 1 more day (15 total) - verify no longer active"
+      ]
+    },
+    {
+      "name": "test-entitlement-stacking",
+      "category": "testing",
+      "description": "Test entitlement stacking extends expiry",
+      "steps": [
+        "Grant 15-day entitlement to user",
+        "Grant another 15-day entitlement of same type",
+        "Verify expires_at is 30 days from original grant",
+        "Advance clock 20 days - verify still active",
+        "Advance clock 10 more days - verify no longer active"
+      ]
+    },
+    {
+      "name": "test-indefinite-entitlement",
+      "category": "testing",
+      "description": "Test indefinite entitlements never expire",
+      "steps": [
+        "Grant entitlement with null duration (indefinite)",
+        "Verify entitlement is active",
+        "Advance clock 1 year",
+        "Verify entitlement is still active"
+      ]
+    },
+    {
+      "name": "test-payment-intent-expiry",
+      "category": "testing",
+      "description": "Test expired Solana payment intents are rejected",
+      "steps": [
+        "Create Solana payment intent with 10-minute expiry",
+        "Verify intent is valid immediately",
+        "Advance clock 15 minutes",
+        "Attempt to submit payment - verify rejected as expired"
+      ]
+    },
+    {
+      "name": "test-wallet-challenge-expiry",
+      "category": "testing",
+      "description": "Test wallet verification challenges expire",
+      "steps": [
+        "Create wallet challenge with expiry",
+        "Advance clock past expiry",
+        "Attempt to verify challenge - verify rejected as expired"
+      ]
+    },
+    {
+      "name": "fix-test-cancel-access-at-period-end",
+      "category": "testing",
+      "description": "Fix TestCancelAccessAtPeriodEnd to properly test period-end revocation with mock clock",
+      "steps": [
+        "Current test uses indefinite entitlement (EndAt: nil) which never expires regardless of time",
+        "Need to either: (a) create a period-end worker that revokes entitlements, or (b) create entitlement with EndAt set to period end",
+        "If using period-end worker: inject mock clock into worker, run worker after advancing clock past period end",
+        "If setting EndAt: set entitlement EndAt = subscription period end, then verify IsEntitled returns false after advancing clock",
+        "Ensure test actually verifies entitlements are revoked at period end, not just that subscription is cancelled"
+      ]
+    },
+    {
+      "name": "fix-test-dunning-retry-schedule",
+      "category": "testing",
+      "description": "Fix TestDunningRetrySchedule to actually run the dunning worker with mock clock",
+      "steps": [
+        "Current test only checks timestamps, doesn't run the actual dunning worker",
+        "Inject mock clock into DunningWorker",
+        "Run DunningWorker when clock is before next_retry_at - verify NO rebill attempt made",
+        "Advance clock past next_retry_at",
+        "Run DunningWorker again - verify rebill attempt IS made",
+        "This requires DunningWorker to use injected clock for time comparisons"
+      ]
+    },
+    {
+      "name": "fix-test-dunning-max-retries",
+      "category": "testing",
+      "description": "Fix TestDunningMaxRetriesFailsSubscription to use mock clock and run dunning worker",
+      "steps": [
+        "Current test never advances mock clock and calls FailMembership directly instead of running worker",
+        "Inject mock clock into DunningWorker",
+        "Create subscription with retry_count at max-1",
+        "Run DunningWorker (with mocked NMI returning decline)",
+        "Verify subscription is cancelled and entitlements revoked",
+        "This tests the actual dunning flow, not just the FailMembership service method"
+      ]
+    },
+    {
+      "name": "fix-test-dunning-success-reactivates",
+      "category": "testing",
+      "description": "Fix TestDunningSuccessReactivates to use mock clock and run dunning worker",
+      "steps": [
+        "Current test advances clock but doesn't use it - calls RenewMembership directly",
+        "Inject mock clock into DunningWorker",
+        "Create past_due subscription with next_retry_at in the past (relative to mock clock)",
+        "Run DunningWorker (with mocked NMI returning success)",
+        "Verify subscription is reactivated with correct period dates",
+        "This tests the actual dunning flow, not just the RenewMembership service method"
+      ]
+    },
+    {
+      "name": "fix-test-payment-intent-expiry",
+      "category": "testing",
+      "description": "Fix TestPaymentIntentExpiry to use mock clock instead of time.Now()",
+      "steps": [
+        "Current test uses time.Now() directly - Solana handlers don't use mock clock",
+        "Add Clock field to SolanaPaymentIntentService or relevant handlers",
+        "Update expiry check to use injected clock instead of time.Now()",
+        "Create payment intent with ExpiresAt = mockClock.Now() + 10 minutes",
+        "Verify intent is valid at mockClock.Now()",
+        "Advance mock clock 15 minutes",
+        "Attempt to check/submit - verify rejected as expired (using mock clock time)"
+      ]
+    },
+    {
+      "name": "fix-test-wallet-challenge-expiry",
+      "category": "testing",
+      "description": "Fix TestWalletChallengeExpiry to use mock clock instead of time.Now()",
+      "steps": [
+        "Current test uses time.Now() directly - SolanaVerificationService uses time.Now()",
+        "Add Clock field to SolanaVerificationService",
+        "Update expiry check in VerifyChallenge to use s.Clock.Now() instead of time.Now()",
+        "Create challenge with ExpiresAt = mockClock.Now() + 10 minutes",
+        "Verify challenge is valid at mockClock.Now()",
+        "Advance mock clock past ExpiresAt",
+        "Attempt to verify - verify rejected as expired (using mock clock time)"
+      ]
+    },
+    {
+      "name": "unix-epoch-timestamps",
+      "category": "refactor",
+      "description": "Standardize all API response timestamps to unix epochs (like Stripe)",
+      "steps": [
+        "Audit all response structs in internal/handlers/responses.go for time.Time fields",
+        "Audit pkg/api/response.go - already uses int64 unix epochs (good)",
+        "Convert time.Time fields to int64 unix epochs in: SubmitPaymentResponse, PaymentStatusResponse, GeneratePaymentResponse, SolanaPaymentQRResponse, etc.",
+        "Use existing api.ToUnix() and api.ToUnixPtr() helpers for conversions",
+        "Update any handlers that return time.Time directly to use unix epochs",
+        "Ensure webhook event timestamps also use unix epochs",
+        "Update tests to expect int64 timestamps instead of time.Time strings",
+        "Document in API that all timestamps are unix epoch seconds (like Stripe)"
+      ]
     }
   ]
 }
