@@ -2,20 +2,38 @@ package services
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/config"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
+	"github.com/doujins-org/doujins-billing/internal/processors"
+	"github.com/jonboulle/clockwork"
 )
 
+var errUserEmailUnavailable = errors.New("user email unavailable")
+
+// EmailService handles all email notifications including subscription-related emails.
+// It wraps the SendGrid SDK and has domain knowledge for building subscription/payment emails.
 type EmailService struct {
 	client *sendgrid.Client
 	from   *mail.Email
+	Clock  clockwork.Clock
+
+	// Domain dependencies for building subscription emails
+	subscriptionService *SubscriptionService
+	productService      *ProductService
+	priceService        *PriceService
+	profiles            *repo.ProfileRepo
 }
 
 // OneOffPurchaseEmailData contains data for one-off purchase receipts
@@ -50,6 +68,28 @@ func NewEmailService(cfg *config.SendGridConfig) (*EmailService, error) {
 	from := mail.NewEmail(fromName, fromEmail)
 
 	return &EmailService{client: client, from: from}, nil
+}
+
+// SetDomainServices configures the domain services needed for subscription emails.
+// This is called after creation to avoid circular dependencies.
+func (s *EmailService) SetDomainServices(
+	subscriptionService *SubscriptionService,
+	productService *ProductService,
+	priceService *PriceService,
+	profiles *repo.ProfileRepo,
+) {
+	s.subscriptionService = subscriptionService
+	s.productService = productService
+	s.priceService = priceService
+	s.profiles = profiles
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *EmailService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
 }
 
 // IsEnabled returns true when delivery is possible.
@@ -109,12 +149,12 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 		productName = "Doujins premium content"
 	}
 
-	amountLine := fmt.Sprintf("%.2f %s", data.AmountDollars(), data.Currency)
-	if data.Currency == "USD" {
-		amountLine = fmt.Sprintf("$%.2f %s", data.AmountDollars(), data.Currency)
+	amountLine := fmt.Sprintf("%.2f %s", data.AmountDollars(), strings.ToUpper(data.Currency))
+	if strings.EqualFold(data.Currency, "usd") {
+		amountLine = fmt.Sprintf("$%.2f %s", data.AmountDollars(), strings.ToUpper(data.Currency))
 	}
 
-	issuedAt := time.Now().Format("Jan 2, 2006 15:04 MST")
+	issuedAt := s.now().Format("Jan 2, 2006 15:04 MST")
 
 	paymentMethod := strings.ToLower(data.PaymentMethod)
 	isSolana := paymentMethod == "solana"
@@ -145,12 +185,12 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 
 		plainContent := fmt.Sprintf(`
 		Solana Payment Received
-		
+
 		%s This one-time Solana transaction instantly extended your premium access.
 		Product: %s
 		Amount: %s
 		Date: %s
-		
+
 		Enjoy your premium benefits—there won't be an automatic rebill.
 		The Doujins Team
 		`, messageIntro, productName, amountLine, issuedAt)
@@ -173,12 +213,12 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 
 	plainContent := fmt.Sprintf(`
 		Payment Received
-		
+
 		%s
 		Product: %s
 		Amount: %s
 		Date: %s
-		
+
 		Your access has been updated instantly. Enjoy!
 		The Doujins Team
 	`, messageIntro, productName, amountLine, issuedAt)
@@ -200,4 +240,274 @@ func (s *EmailService) send(ctx context.Context, msg *mail.SGMailV3, to string) 
 		"status": res.StatusCode,
 	}).Debug("email sent successfully via sendgrid")
 	return nil
+}
+
+// ============================================================================
+// Subscription Email Methods (formerly in SubscriptionEmailService)
+// ============================================================================
+
+// SendSubscriptionConfirmed sends a subscription confirmation email
+func (s *EmailService) SendSubscriptionConfirmed(ctx context.Context, userID string) error {
+	if !s.IsEnabled() {
+		log.Println("Email service not available - skipping subscription confirmation email")
+		return nil
+	}
+
+	emailData, err := s.getEmailData(ctx, userID)
+	if err != nil {
+		if errors.Is(err, errUserEmailUnavailable) {
+			log.Printf("Email unavailable for user %s - skipping subscription confirmation email", userID)
+			return nil
+		}
+		return fmt.Errorf("failed to get email data: %w", err)
+	}
+
+	return s.SendSubscriptionConfirmation(ctx, *emailData)
+}
+
+// SendSubscriptionRenewed sends a subscription renewal email
+func (s *EmailService) SendSubscriptionRenewed(ctx context.Context, userID string) error {
+	if !s.IsEnabled() {
+		log.Println("Email service not available - skipping subscription renewal email")
+		return nil
+	}
+
+	emailData, err := s.getEmailData(ctx, userID)
+	if err != nil {
+		if errors.Is(err, errUserEmailUnavailable) {
+			log.Printf("Email unavailable for user %s - skipping subscription renewal email", userID)
+			return nil
+		}
+		return fmt.Errorf("failed to get email data: %w", err)
+	}
+
+	return s.SendSubscriptionRenewal(ctx, *emailData)
+}
+
+// SendPremiumEnded sends the appropriate email when a premium entitlement ends.
+func (s *EmailService) SendPremiumEnded(ctx context.Context, userID string, reason PremiumEndReason) error {
+	if !s.IsEnabled() {
+		log.Println("Email service not available - skipping premium-ended email")
+		return nil
+	}
+
+	emailData, err := s.getEmailData(ctx, userID)
+	if err != nil {
+		if errors.Is(err, errUserEmailUnavailable) {
+			log.Printf("Email unavailable for user %s - skipping premium-ended email", userID)
+			return nil
+		}
+		return fmt.Errorf("failed to get email data: %w", err)
+	}
+
+	switch reason {
+	case PremiumEndReasonExpired:
+		return s.SendSubscriptionExpired(ctx, *emailData)
+	case PremiumEndReasonChargeback, PremiumEndReasonRefund, PremiumEndReasonAdmin, PremiumEndReasonProcessor:
+		return s.SendSubscriptionCancellation(ctx, *emailData, reason)
+	case PremiumEndReasonUserCancel:
+		fallthrough
+	case PremiumEndReasonUnknown:
+		return s.SendSubscriptionCancellation(ctx, *emailData, PremiumEndReasonUserCancel)
+	default:
+		return s.SendSubscriptionCancellation(ctx, *emailData, reason)
+	}
+}
+
+// SendPaymentFailed sends a payment failure email
+func (s *EmailService) SendPaymentFailed(ctx context.Context, userID string) error {
+	if !s.IsEnabled() {
+		log.Println("Email service not available - skipping payment failure email")
+		return nil
+	}
+
+	emailData, err := s.getEmailData(ctx, userID)
+	if err != nil {
+		if errors.Is(err, errUserEmailUnavailable) {
+			log.Printf("Email unavailable for user %s - skipping payment failure email", userID)
+			return nil
+		}
+		return fmt.Errorf("failed to get email data: %w", err)
+	}
+
+	return s.sendPaymentFailed(ctx, *emailData)
+}
+
+// SendEntitlementExpired sends an entitlement expiration email
+func (s *EmailService) SendEntitlementExpired(ctx context.Context, userID string, entitlementName string, expiresAt time.Time) error {
+	if !s.IsEnabled() {
+		log.Println("Email service not available - skipping entitlement expiration email")
+		return nil
+	}
+
+	username, email, err := s.getUserEmail(ctx, userID)
+	if err != nil {
+		if errors.Is(err, errUserEmailUnavailable) {
+			log.Printf("Email unavailable for user %s - skipping entitlement expiration email", userID)
+			return nil
+		}
+		return fmt.Errorf("failed to get user profile: %w", err)
+	}
+
+	return s.SendEntitlementExpiration(ctx, email, username, entitlementName, expiresAt)
+}
+
+// getEmailData fetches subscription data for email notifications
+func (s *EmailService) getEmailData(ctx context.Context, userID string) (*SubscriptionEmailData, error) {
+	if s.subscriptionService == nil {
+		return nil, fmt.Errorf("subscription service not configured")
+	}
+
+	// Get the user's active subscription or last known subscription as fallback
+	subscription, err := s.subscriptionService.GetActiveSubscription(ctx, userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			subscription, err = s.subscriptionService.GetByUserID(ctx, userID)
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return nil, errUserEmailUnavailable
+				}
+				return nil, fmt.Errorf("failed to get subscription for user %s: %w", userID, err)
+			}
+		} else {
+			return nil, fmt.Errorf("failed to get active subscription: %w", err)
+		}
+	}
+
+	var (
+		username string
+		email    string
+	)
+
+	if subscription.UserEmail != nil && strings.TrimSpace(*subscription.UserEmail) != "" {
+		email = strings.TrimSpace(*subscription.UserEmail)
+	}
+
+	if email == "" {
+		var err error
+		username, email, err = s.getUserEmail(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if email == "" {
+		return nil, errUserEmailUnavailable
+	}
+
+	// Get the price details
+	price, err := s.priceService.GetByID(ctx, subscription.PriceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get price: %w", err)
+	}
+
+	// Calculate billing period based on subscription and price interval
+	periodStart := s.now()
+	periodEnd := s.now()
+	if subscription.CurrentPeriodStartsAt != nil {
+		periodStart = *subscription.CurrentPeriodStartsAt
+		if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
+			periodEnd = periodStart.AddDate(0, 0, *price.BillingCycleDays)
+		} else {
+			periodEnd = periodStart.AddDate(0, 1, 0) // Default to monthly for one-time purchases
+		}
+		if subscription.CurrentPeriodEndsAt != nil {
+			periodEnd = *subscription.CurrentPeriodEndsAt
+		}
+	}
+
+	paymentMethod := describePaymentMethod(subscription)
+	if paymentMethod == "" {
+		paymentMethod = processorDisplayName(subscription.Processor)
+		if paymentMethod == "" {
+			paymentMethod = "Credit Card"
+		}
+	}
+
+	return &SubscriptionEmailData{
+		UserEmail:      email,
+		Username:       username,
+		SubscriptionID: subscription.ID,
+		Amount:         price.Amount,
+		Currency:       price.Currency,
+		PeriodStart:    periodStart,
+		PeriodEnd:      periodEnd,
+		PaymentMethod:  paymentMethod,
+		TransactionID:  "", // Would come from payment processor
+	}, nil
+}
+
+// getUserEmail gets user profile and validates email exists
+func (s *EmailService) getUserEmail(ctx context.Context, userID string) (username string, email string, err error) {
+	if s.profiles == nil {
+		return "", "", errUserEmailUnavailable
+	}
+	uid, perr := uuid.Parse(userID)
+	if perr != nil {
+		return "", "", errUserEmailUnavailable
+	}
+	uname, mail, verified, active, qerr := s.profiles.GetUserEmail(ctx, uid)
+	if qerr != nil || mail == "" || !active {
+		return "", "", errUserEmailUnavailable
+	}
+	_ = verified // reserved for future policy checks
+	return uname, mail, nil
+}
+
+func describePaymentMethod(subscription *models.Subscription) string {
+	if subscription == nil || subscription.PaymentMethod == nil {
+		return ""
+	}
+
+	pm := subscription.PaymentMethod
+	cardType := ""
+	if pm.CardType != nil {
+		cardType = strings.TrimSpace(*pm.CardType)
+	}
+	lastFour := ""
+	if pm.LastFour != nil {
+		lastFour = strings.TrimSpace(*pm.LastFour)
+	}
+
+	parts := make([]string, 0, 2)
+	if cardType != "" {
+		parts = append(parts, cardType)
+	} else {
+		friendly := processorDisplayName(pm.Processor)
+		if friendly != "" {
+			parts = append(parts, friendly)
+		}
+	}
+
+	if lastFour != "" {
+		parts = append(parts, fmt.Sprintf("••••%s", lastFour))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func processorDisplayName(processor models.Processor) string {
+	// NMI-backed processors (mobius, etc.) are displayed as "Credit Card"
+	if processors.IsNMIBackedProcessor(processor) {
+		return "Credit Card"
+	}
+
+	switch processor {
+	case models.ProcessorCCBill:
+		return "Credit Card"
+	case models.ProcessorPayPal:
+		return "PayPal"
+	case models.ProcessorSolana:
+		return "Solana"
+	default:
+		clean := strings.TrimSpace(string(processor))
+		if clean == "" {
+			return ""
+		}
+		return strings.ToUpper(clean)
+	}
 }

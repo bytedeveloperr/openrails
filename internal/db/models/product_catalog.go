@@ -20,6 +20,12 @@ type Product struct {
 	// Entitlements configuration: map entitlement name -> duration days (nil or 0 means indefinite)
 	EntitlementsSpec map[string]*int `bun:"entitlements_spec,type:jsonb,nullzero" json:"entitlements_spec,omitempty"`
 
+	// Tier configuration for upgrade/downgrade relationships
+	// Products in the same TierGroup are mutually exclusive - user must upgrade/downgrade between them
+	// TierRank determines direction: higher rank = more premium (upgrade), lower rank = downgrade
+	TierGroup *string `bun:"tier_group,nullzero" json:"tier_group,omitempty"`
+	TierRank  int     `bun:"tier_rank,notnull,default:0" json:"tier_rank"`
+
 	IsActive  bool      `bun:"is_active,notnull,default:true" json:"is_active"`
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`

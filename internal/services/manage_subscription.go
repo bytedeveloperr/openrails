@@ -13,9 +13,9 @@ import (
 )
 
 type ManageSubscriptionService struct {
-	SubscriptionService      *SubscriptionService
-	NotificationQueueService *NotificationQueueService
-	Clock                    clockwork.Clock
+	SubscriptionService *SubscriptionService
+	NotificationService *NotificationService
+	Clock               clockwork.Clock
 }
 
 // now returns the current time from the service's clock, or time.Now() if no clock is set.
@@ -42,10 +42,10 @@ type ExtendSubscriptionParams struct {
 	Duration       time.Duration
 }
 
-func NewManageSubscriptionService(subscriptionService *SubscriptionService, notificationQueueService *NotificationQueueService) *ManageSubscriptionService {
+func NewManageSubscriptionService(subscriptionService *SubscriptionService, notificationService *NotificationService) *ManageSubscriptionService {
 	return &ManageSubscriptionService{
-		SubscriptionService:      subscriptionService,
-		NotificationQueueService: notificationQueueService,
+		SubscriptionService: subscriptionService,
+		NotificationService: notificationService,
 	}
 }
 
@@ -99,7 +99,7 @@ func (s *ManageSubscriptionService) UpdateStatus(ctx context.Context, params *Up
 			EventType: models.NotificationPremiumEnded,
 			Data:      map[string]any{"reason": string(PremiumEndReasonAdmin)},
 		}
-		if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
+		if err := s.NotificationService.Create(ctx, notification); err != nil {
 			log.WithFields(log.Fields{
 				"subscription_id":   subscription.ID,
 				"user_id":           subscription.UserID,

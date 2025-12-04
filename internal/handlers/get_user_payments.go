@@ -51,6 +51,5 @@ func GetUserPayments(r *Request) {
 		return
 	}
 
-	response := PaginatedResponse{Data: payments, TotalItems: queryOpts.TotalItems}
-	r.SuccessJSON(response)
+	r.SuccessJSONPaginated(payments, queryOpts.TotalItems, limit, offset)
 }

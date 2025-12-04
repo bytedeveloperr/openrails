@@ -51,16 +51,16 @@ type GetSubscriptionsFilters struct {
 }
 
 type SubscriptionService struct {
-	subscriptionRepo         *repo.SubscriptionRepo
-	Clock                    clockwork.Clock
-	PriceService             *PriceService
-	ProductService           *ProductService
-	NotificationQueueService *NotificationQueueService
-	CCBillRESTClient         *ccbill.RESTClient
-	NMIClients               map[string]*nmi.NMIClient
-	PaymentMethodService     *PaymentMethodService
-	VaultService             *VaultService
-	IdempotencyService       *IdempotencyService
+	subscriptionRepo     *repo.SubscriptionRepo
+	Clock                clockwork.Clock
+	PriceService         *PriceService
+	ProductService       *ProductService
+	NotificationService  *NotificationService
+	CCBillRESTClient     *ccbill.RESTClient
+	NMIClients           map[string]*nmi.NMIClient
+	PaymentMethodService *PaymentMethodService
+	VaultService         *VaultService
+	IdempotencyService   *IdempotencyService
 }
 
 // now returns the current time from the service's clock, or time.Now() if no clock is set.
@@ -93,8 +93,8 @@ const (
 	// Deprecated: ProcessorNMI is deprecated. Use "mobius" or other NMI-backed processor names instead.
 	ProcessorNMI = "nmi"
 
-	CurrencyUSD = "USD"
-	CurrencyEUR = "EUR"
+	CurrencyUSD = "usd"
+	CurrencyEUR = "eur"
 
 	BillingCycleMonthly = 30
 
@@ -353,6 +353,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 		}
 		subscription := &models.Subscription{
 			UserID:                  user.ID,
+			ProductID:               price.ProductID,
 			PriceID:                 priceID,
 			ID:                      subscriptionID,
 			ProcessorSubscriptionID: resp.SubscriptionID,
@@ -416,7 +417,7 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 			"reason": string(PremiumEndReasonUserCancel),
 		},
 	}
-	if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
+	if err := s.NotificationService.Create(ctx, notification); err != nil {
 		log.WithError(err).Error("failed to create cancellation notification")
 	}
 
@@ -462,19 +463,19 @@ func NewSubscriptionService(
 	db *db.DB,
 	priceService *PriceService,
 	productService *ProductService,
-	notificationQueueService *NotificationQueueService,
+	notificationService *NotificationService,
 	ccbillRESTClient *ccbill.RESTClient,
 	nmiClients map[string]*nmi.NMIClient,
 	paymentMethodService *PaymentMethodService,
 ) *SubscriptionService {
 	return &SubscriptionService{
-		subscriptionRepo:         repo.NewSubscriptionRepo(db),
-		PriceService:             priceService,
-		ProductService:           productService,
-		NotificationQueueService: notificationQueueService,
-		CCBillRESTClient:         ccbillRESTClient,
-		NMIClients:               nmiClients,
-		PaymentMethodService:     paymentMethodService,
+		subscriptionRepo:     repo.NewSubscriptionRepo(db),
+		PriceService:         priceService,
+		ProductService:       productService,
+		NotificationService:  notificationService,
+		CCBillRESTClient:     ccbillRESTClient,
+		NMIClients:           nmiClients,
+		PaymentMethodService: paymentMethodService,
 	}
 }
 
@@ -492,6 +493,19 @@ func (s *SubscriptionService) GetByUserID(ctx context.Context, id string) (*mode
 
 func (s *SubscriptionService) GetByUserIDAndPriceID(ctx context.Context, id string, priceID uuid.UUID) (*models.Subscription, error) {
 	return s.subscriptionRepo.GetByUserIDAndPriceID(ctx, id, priceID)
+}
+
+// GetActiveOrPendingByUserIDAndProductID returns an active or pending subscription for a user and product.
+// Uses the denormalized ProductID field for efficient lookup.
+func (s *SubscriptionService) GetActiveOrPendingByUserIDAndProductID(ctx context.Context, userID string, productID uuid.UUID) (*models.Subscription, error) {
+	return s.subscriptionRepo.GetActiveOrPendingByUserIDAndProductID(ctx, userID, productID)
+}
+
+// GetActiveOrPendingByUserIDAndTierGroup returns an active or pending subscription for a user
+// in the specified tier group. Used to detect upgrade/downgrade scenarios.
+// Returns the subscription with its Price and Product loaded.
+func (s *SubscriptionService) GetActiveOrPendingByUserIDAndTierGroup(ctx context.Context, userID string, tierGroup string) (*models.Subscription, error) {
+	return s.subscriptionRepo.GetActiveOrPendingByUserIDAndTierGroup(ctx, userID, tierGroup)
 }
 
 func (s *SubscriptionService) Update(ctx context.Context, subscription *models.Subscription) error {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
 
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/google/uuid"
@@ -27,13 +28,12 @@ type CCBillWebhookService struct {
 	CCBillClient                 *ccbill.RESTClient
 	ProductService               *ProductService
 	PriceService                 *PriceService
-	NotificationQueueService     *NotificationQueueService
 	NotificationService          *NotificationService
 	DeadLetterService            *DeadLetterService
 	BillingEventService          *BillingEventService
 	SubscriptionService          *SubscriptionService
 	SubscriptionLifecycleService *SubscriptionLifecycleService
-	CCBillAliasService           *CCBillAliasService
+	ProfileRepo                  *repo.ProfileRepo
 }
 
 // now returns the current time from the service's clock, or time.Now() if no clock is set.
@@ -44,13 +44,13 @@ func (s *CCBillWebhookService) now() time.Time {
 	return time.Now()
 }
 
-func (s *CCBillWebhookService) resolveUserID(ctx context.Context, alias string) (string, error) {
-	if s.CCBillAliasService == nil {
-		return "", fmt.Errorf("ccbill alias service is not configured")
+func (s *CCBillWebhookService) resolveUserID(ctx context.Context, username string) (string, error) {
+	if s.ProfileRepo == nil {
+		return "", fmt.Errorf("profile repo is not configured")
 	}
-	userID, err := s.CCBillAliasService.Resolve(ctx, alias)
+	userID, err := s.ProfileRepo.GetUserIDByUsername(ctx, username)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve CCBill username '%s': %w", alias, err)
+		return "", fmt.Errorf("failed to resolve username '%s': %w", username, err)
 	}
 	return userID, nil
 }
@@ -246,7 +246,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			EventType:      "charge_success",
 			Processor:      "ccbill",
 			Amount:         &billedAmount,
-			Currency:       "USD",
+			Currency:       "usd",
 			WebhookSource:  "webhook",
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{}), // No billing info from webhook
 			Metadata:       CreateMetadataJSON(metadata),
@@ -318,7 +318,7 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 				UserID:        userID,
 				EventType:     "charge_failed",
 				Processor:     "ccbill",
-				Currency:      "USD",
+				Currency:      "usd",
 				BillingInfo:   CreateMetadataJSON(map[string]interface{}{"initial_signup": true}),
 				WebhookSource: "webhook",
 				Metadata:      CreateMetadataJSON(metadata),
@@ -383,9 +383,9 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		txdb := db.NewWithTx(tx)
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
-		notificationQueueService := NewNotificationQueueService(txdb)
+		notificationService := NewNotificationService(txdb, nil)
 		entitlementService := NewEntitlementService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationService, s.CCBillClient, nil, nil)
 
 		// Find subscription by processor subscription ID
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", originalSubscriptionID)
@@ -470,7 +470,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 				EventType:      "charge_success",
 				Processor:      "ccbill",
 				Amount:         &billedAmount,
-				Currency:       "USD",
+				Currency:       "usd",
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"upgrade": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
@@ -663,7 +663,7 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 				UserID:        userID,
 				EventType:     "upgrade_failed",
 				Processor:     "ccbill",
-				Currency:      "USD",
+				Currency:      "usd",
 				BillingInfo:   CreateMetadataJSON(map[string]interface{}{"upgrade_failure": true}),
 				WebhookSource: "webhook",
 				Metadata:      CreateMetadataJSON(metadata),
@@ -721,8 +721,8 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 		txdb := db.NewWithTx(tx)
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
-		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
+		notificationService := NewNotificationService(txdb, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationService, s.CCBillClient, nil, nil)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", pSubscriptionID)
@@ -809,8 +809,8 @@ func (s *CCBillWebhookService) handleCustomerDataUpdate(ctx context.Context) err
 		txdb := db.NewWithTx(tx)
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
-		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
+		notificationService := NewNotificationService(txdb, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationService, s.CCBillClient, nil, nil)
 
 		// Find subscription by processor subscription ID
 		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", pSubscriptionID)
@@ -898,8 +898,8 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 		txdb := db.NewWithTx(tx)
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
-		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
+		notificationService := NewNotificationService(txdb, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationService, s.CCBillClient, nil, nil)
 
 		// Note: We could validate that the email matches the subscription's user email here
 		// but for now we'll rely on the subscription lookup
@@ -1030,8 +1030,8 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 		txdb := db.NewWithTx(tx)
 		priceService := NewPriceService(txdb)
 		productService := NewProductService(txdb)
-		notificationQueueService := NewNotificationQueueService(txdb)
-		subService := NewSubscriptionService(txdb, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
+		notificationService := NewNotificationService(txdb, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationService, s.CCBillClient, nil, nil)
 		entSvc := NewEntitlementService(txdb)
 
 		// Find subscription by processor subscription ID
@@ -1128,7 +1128,7 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 				EventType:      "refund",
 				Processor:      "ccbill",
 				Amount:         &negativeAmount,
-				Currency:       "USD",
+				Currency:       "usd",
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"refund": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
@@ -1186,8 +1186,8 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 		db := db.NewWithTx(tx)
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
-		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
+		notificationService := NewNotificationService(db, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationService, s.CCBillClient, nil, nil)
 
 		// Try to find subscription by processor subscription ID
 		// Note: For voids, the subscription might not exist yet since the transaction was voided
@@ -1222,7 +1222,7 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 						EventType:     "void",
 						Processor:     "ccbill",
 						Amount:        &negativeAmount,
-						Currency:      "USD",
+						Currency:      "usd",
 						BillingInfo:   CreateMetadataJSON(map[string]interface{}{"void": true}),
 						WebhookSource: "webhook",
 						Metadata:      CreateMetadataJSON(metadata),
@@ -1271,7 +1271,7 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 				EventType:      "void",
 				Processor:      "ccbill",
 				Amount:         &negativeAmount,
-				Currency:       "USD",
+				Currency:       "usd",
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"void": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
@@ -1330,8 +1330,8 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 		db := db.NewWithTx(tx)
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
-		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, s.CCBillClient, nil, nil)
+		notificationService := NewNotificationService(db, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationService, s.CCBillClient, nil, nil)
 		entSvc := NewEntitlementService(db)
 
 		// Find subscription by processor subscription ID
@@ -1367,7 +1367,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 						EventType:     "chargeback",
 						Processor:     "ccbill",
 						Amount:        &negativeAmount,
-						Currency:      "USD",
+						Currency:      "usd",
 						BillingInfo:   CreateMetadataJSON(map[string]interface{}{"chargeback": true, "fraud_flag": true}),
 						WebhookSource: "webhook",
 						Metadata:      CreateMetadataJSON(metadata),
@@ -1447,7 +1447,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 				EventType:      "chargeback",
 				Processor:      "ccbill",
 				Amount:         &negativeAmount,
-				Currency:       "USD",
+				Currency:       "usd",
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"chargeback": true, "fraud_flag": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
@@ -1547,7 +1547,7 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 			EventType:      "charge_success",
 			Processor:      "ccbill",
 			Amount:         &billedAmount,
-			Currency:       "USD",
+			Currency:       "usd",
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{"renewal": true}),
 			WebhookSource:  "webhook",
 			Metadata:       CreateMetadataJSON(metadata),

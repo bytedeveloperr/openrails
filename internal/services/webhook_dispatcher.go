@@ -8,6 +8,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/processors"
@@ -20,13 +21,12 @@ type WebhookDispatcher struct {
 	Clock                        clockwork.Clock
 	PriceService                 *PriceService
 	ProductService               *ProductService
-	NotificationQueueService     *NotificationQueueService
 	NotificationService          *NotificationService
 	SubscriptionService          *SubscriptionService
 	PaymentService               *PaymentService
 	BillingEventService          *BillingEventService
 	SubscriptionLifecycleService *SubscriptionLifecycleService
-	CCBillAliasService           *CCBillAliasService
+	ProfileRepo                  *repo.ProfileRepo
 	DeduplicationService         *DeduplicationService
 	CCBillRESTClient             *ccbill.RESTClient
 	NMIClients                   map[string]*nmi.NMIClient
@@ -62,13 +62,12 @@ func (d *WebhookDispatcher) processCCBill(ctx context.Context, event *models.Web
 		CCBillClient:                 d.CCBillRESTClient,
 		ProductService:               d.ProductService,
 		PriceService:                 d.PriceService,
-		NotificationQueueService:     d.NotificationQueueService,
 		NotificationService:          d.NotificationService,
-		DeadLetterService:            &DeadLetterService{DB: d.DB, NotificationQueueService: d.NotificationQueueService},
+		DeadLetterService:            &DeadLetterService{DB: d.DB, NotificationService: d.NotificationService},
 		BillingEventService:          d.BillingEventService,
 		SubscriptionService:          d.SubscriptionService,
 		SubscriptionLifecycleService: d.SubscriptionLifecycleService,
-		CCBillAliasService:           d.CCBillAliasService,
+		ProfileRepo:                  d.ProfileRepo,
 	}
 	return service.HandleCCBillWebhook(ctx)
 }
@@ -93,13 +92,13 @@ func (d *WebhookDispatcher) processNMI(ctx context.Context, event *models.Webhoo
 		ProductService:               d.ProductService,
 		Data:                         payload,
 		Processor:                    provider,
-		DeadLetterService:            &DeadLetterService{DB: d.DB, NotificationQueueService: d.NotificationQueueService},
+		DeadLetterService:            &DeadLetterService{DB: d.DB, NotificationService: d.NotificationService},
 		NMIClient:                    client,
 		BillingEventService:          d.BillingEventService,
 		SubscriptionService:          d.SubscriptionService,
 		PaymentService:               d.PaymentService,
 		DeduplicationService:         d.DeduplicationService,
-		NotificationQueueService:     d.NotificationQueueService,
+		NotificationService:          d.NotificationService,
 		SubscriptionLifecycleService: d.SubscriptionLifecycleService,
 	}
 	return service.HandleNMIWebhook(ctx)

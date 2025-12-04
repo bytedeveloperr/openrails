@@ -251,7 +251,7 @@ func TestCleanupExpiredDataWorker(t *testing.T) {
 			Token:           "SOL",
 			TokenMint:       "So11111111111111111111111111111111111111112",
 			Amount:          1000,
-			Currency:        "USD",
+			Currency:        "usd",
 			RecipientWallet: "TestWallet456",
 			Status:          "pending",
 			ExpiresAt:       &expiredAt,

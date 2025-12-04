@@ -1,6 +1,21 @@
 {
   "issues": [
     {
+      "name": "normalize-currency-lowercase",
+      "category": "refactor",
+      "description": "Normalize all currency values to lowercase to match Stripe's API pattern",
+      "steps": [
+        "Change default currency from 'USD' to 'usd' throughout codebase",
+        "Update seed data and test data to use lowercase currencies",
+        "Update webhook handlers to normalize incoming currency to lowercase",
+        "Update any currency comparisons to be case-insensitive or expect lowercase",
+        "Ensure API responses always return lowercase currency",
+        "Update migration seed data if applicable",
+        "Run tests to verify no regressions"
+      ],
+      "passes": false
+    },
+    {
       "name": "nmi-test-account-integration",
       "category": "testing-infra",
       "description": "Set up real Mobius/NMI test account for integration tests that hit the NMI API",
@@ -21,88 +36,6 @@
         "TestSubscribeNMISuccess - requires valid NMI subscription creation"
       ],
       "passes": false
-    },
-    {
-      "name": "ccbill-upgrade-url",
-      "category": "feature",
-      "description": "Add CCBill upgrade URL generation endpoint",
-      "steps": [
-        "[DONE] Create POST /v1/subscriptions/ccbill/upgrade-url endpoint",
-        "[DONE] Accept target_price_id and validate user has active CCBill subscription",
-        "[DONE] Generate CCBill upgrade FlexForm URL with user's existing subscription info",
-        "[DONE] Return upgrade URL for frontend to redirect user",
-        "[DONE] Add GenerateUpgradeFlexFormURL method to CCBill client with originalSubscriptionId param",
-        "[DONE] Write tests for upgrade URL generation",
-        "Document CCBill Admin setup requirements (Package ID, Package Upgrade Allowed)"
-      ],
-      "passes": true
-    },
-    {
-      "name": "ccbill-upgrade-entitlements",
-      "category": "feature",
-      "description": "Update entitlements on subscription upgrade",
-      "steps": [
-        "[DONE] In handleUpgradeSuccess, get new product's EntitlementsSpec after ActivateWithPrice",
-        "[DONE] Revoke old entitlements that aren't in the new product's spec",
-        "[DONE] Grant new entitlements from the upgraded product",
-        "[DONE] Use existing entitlement granting logic (GrantWindow, EndActiveBySubscription)",
-        "[DONE] Handle edge case: same entitlements in both tiers (no action needed - they continue)",
-        "Write tests for entitlement updates on tier upgrade"
-      ],
-      "passes": true
-    },
-    {
-      "name": "unify-admin-auth",
-      "category": "refactor",
-      "description": "Remove separate admin port and API key, use JWT with admin role claims instead",
-      "steps": [
-        "[DONE] CURRENT: Admin API runs on separate port with API key authentication",
-        "[DONE] PROBLEM: API key is a shared secret - if stolen, attacker has full admin access with no audit trail",
-        "[DONE] Add admin role/claims check to existing JWT validation middleware (e.g., middleware.AdminRequired)",
-        "[DONE] Move admin routes from separate adminHandler to publicHandler, protected by AdminRequired middleware",
-        "[DONE] Remove BillingAPIKey from config",
-        "[DONE] Remove separate admin server/port setup",
-        "[DONE] Update admin route paths (now /v1/admin/subscriptions/:id/extend, /v1/admin/users/:user_id/entitlements, etc.)",
-        "[DONE] Update tests to use JWT Bearer tokens with admin role instead of X-API-KEY",
-        "BENEFIT: Each admin request tied to user identity, full audit trail, no shared secrets"
-      ],
-      "passes": true
-    },
-    {
-      "name": "admin-api-enhancements",
-      "category": "feature",
-      "description": "Add admin API endpoints for user lookup, subscription management, refunds, and entitlement management",
-      "steps": [
-        "[DONE] User lookup by ID:",
-        "[DONE]   - GET /v1/admin/users/:user_id - get user's subscription + entitlements + payments in one call",
-        "[DONE] Subscription listing:",
-        "[DONE]   - GET /v1/admin/subscriptions - list/search subscriptions with filters (status, processor, user_id, date range, pagination)",
-        "[DONE]   - GET /v1/admin/subscriptions/:id/payments - payment history for a subscription",
-        "[DONE] Refunds:",
-        "[DONE]   - POST /v1/admin/payments/:id/refund - issue refund (creates negative payment entry for audit trail)",
-        "[DONE]   - Track refund status and amount in payments table (via RefundedPaymentID linkage)",
-        "[DONE] Entitlement management:",
-        "[DONE]   - POST /v1/admin/users/:user_id/entitlements - grant entitlement manually (with optional days for end_at)",
-        "[DONE]   - DELETE /v1/admin/users/:user_id/entitlements/:id - revoke entitlement immediately (sets revoked_at, revoke_reason)",
-        "Write tests for all new endpoints"
-      ],
-      "passes": true
-    },
-    {
-      "name": "filter-inactive-products-prices",
-      "category": "feature",
-      "description": "Public product/price endpoints should only return active items; admins can optionally see inactive",
-      "steps": [
-        "[DONE] Update GET /v1/products to filter is_active=true by default",
-        "[DONE] Update GET /v1/prices to filter is_active=true by default",
-        "[DONE] Add ?include_inactive=true query param that only works for admin users",
-        "[DONE]   - Check if user has admin role in JWT claims",
-        "[DONE]   - If admin + include_inactive=true, return all products/prices",
-        "[DONE]   - If non-admin passes include_inactive=true, ignore it (still filter)",
-        "[DONE] Update handlers to check auth context and apply filter logic",
-        "Write tests for both public and admin behavior"
-      ],
-      "passes": true
     },
     {
       "name": "update-subscription-payment-method",
@@ -131,91 +64,52 @@
       "category": "feature",
       "description": "Unified checkout endpoint that handles both subscriptions and one-time purchases based on Price.BillingCycleDays",
       "steps": [
-        "NMI Client:",
-        "  - Add RunSale(vaultID, amount int64, currency, description string) to internal/integrations/nmi/nmi.go",
-        "  - NMI API: type=sale, customer_vault_id=X, amount=Y, order_description=Z",
-        "  - Return transaction_id on success",
-        "  - Update AddRecurringSubscription to accept optional start_date parameter for delayed-start subscriptions",
-        "Unified Checkout Handler:",
-        "  - Create POST /v1/me/checkout endpoint (or extend existing subscribe flow)",
-        "  - Request: { price_id, payment_method_id } OR { price_id, payment_token }",
-        "  - Look up Price and check BillingCycleDays:",
-        "  - If BillingCycleDays != nil → subscription flow (see deduplication below)",
-        "  - If BillingCycleDays == nil → one-time purchase flow",
-        "Deduplication Logic (CRITICAL - check BOTH subscriptions AND entitlements):",
-        "  - Get user's active entitlements for the Product (from any source: subscription, one-off, admin)",
-        "  - Get user's active subscriptions for the Product",
-        "  - Determine 'coverage_end_date' = latest of (subscription.current_period_ends_at, entitlement.end_at)",
-        "  - If coverage_end_date is far in future (not expiring soon) → Block: 'You already have active access'",
-        "  - If coverage_end_date is soon (expiring within X days) → Allow purchase with delayed start",
-        "  - If no active coverage → Allow immediate purchase",
-        "Processor-Specific Handling for Delayed Start:",
-        "  - CCBill: BLOCK if user has existing coverage - CCBill API cannot schedule future start dates",
-        "  - NMI subscription: Create with start_date = coverage_end_date, status=pending, charged on start_date",
-        "  - Solana/one-off: Charge immediately, but create entitlement with start_at = coverage_end_date",
-        "NMI Subscription Flow:",
-        "  - If immediate: create NMI subscription with no start_date (charges now)",
-        "  - If delayed: create NMI subscription with start_date = coverage_end_date",
-        "  - Store locally with status=pending until webhook confirms first charge",
-        "  - Webhook handler activates subscription and grants entitlements",
-        "One-Off Purchase Flow (Solana, NMI RunSale):",
-        "  - Charge user immediately (Solana tx or NMI sale)",
-        "  - Create Payment record with purchased_at = now",
-        "  - If delayed start needed:",
-        "    - Create entitlement with start_at = coverage_end_date, end_at = start_at + duration_days",
-        "    - Example: User has sub ending 12/20, buys 30-day pass on 12/05",
-        "    - Payment: created 12/05, Entitlement: start_at=12/20, end_at=01/19",
-        "  - If immediate start:",
-        "    - Create entitlement with start_at = now, end_at = now + duration_days",
-        "Entitlement Duration for One-Time:",
-        "  - Product.EntitlementsSpec has { entitlement_name: duration_days }",
-        "  - Example: { 'premium': 30 } grants 30 days of premium",
-        "Cross-Processor Scenarios:",
-        "  - User has NMI sub expiring → buys Solana one-off → Solana entitlement starts when NMI ends",
-        "  - User has Solana entitlement expiring → creates NMI sub → NMI sub starts when Solana ends",
-        "  - User has CCBill sub expiring → buys NMI sub → NMI starts when CCBill ends",
-        "  - User has any coverage → tries CCBill → BLOCKED (CCBill limitation)",
-        "Goals:",
-        "  - No gaps: new coverage starts exactly when old coverage ends",
-        "  - No overlap: user doesn't get double time",
-        "  - No double-charging: NMI delayed charges on start_date, Solana charges once for fixed duration",
-        "Pending Subscription Handling:",
-        "  - User can cancel pending subscription before start_date → call NMI delete_subscription, remove record",
-        "  - If card declines on start_date → webhook marks as past_due, dunning flow kicks in",
-        "Write tests for:",
-        "  - One-time purchase (immediate)",
-        "  - One-time purchase (delayed start due to existing coverage)",
-        "  - NMI subscription (immediate)",
-        "  - NMI subscription (delayed start due to existing coverage)",
-        "  - CCBill blocked when existing coverage",
-        "  - Cross-processor scenarios (Solana → NMI, NMI → Solana)",
-        "  - Deduplication blocking (active coverage, not expiring)",
-        "Update frontend to use unified checkout endpoint"
-      ],
-      "passes": false
-    },
-    {
-      "name": "admin-charges-endpoints",
-      "category": "feature",
-      "description": "Add Stripe-like admin endpoints for listing and viewing charges (payments)",
-      "steps": [
-        "[DONE] GET /v1/admin/charges - list all charges with filters:",
-        "[DONE]   - user_id, processor, price_id filters",
-        "[DONE]   - subscription_id filter",
-        "[DONE]   - transaction_id filter (for support lookups)",
-        "[DONE]   - date range filters (created_after, created_before)",
-        "[DONE]   - amount filters (min_amount, max_amount)",
-        "[DONE]   - refunds_only filter to show only refund entries",
-        "[DONE]   - sort_by (created_at, amount) and sort_order (asc, desc)",
-        "[DONE]   - pagination (limit, offset) - our system, not Stripe's has_more",
-        "[DONE] GET /v1/admin/charges/:id - get single charge with Stripe-like format:",
-        "[DONE]   - id with ch_ prefix, object: 'charge'",
-        "[DONE]   - customer with cus_ prefix, subscription with sub_ prefix",
-        "[DONE]   - created as unix timestamp",
-        "[DONE]   - refunded boolean, amount_refunded",
-        "[DONE]   - refunds as {object: 'list', data: []} embedded list",
-        "[DONE]   - Include expanded price with price_ prefix",
-        "[DONE] Write tests for charge endpoints"
+        "[DONE] NMI Client:",
+        "[DONE]   - Add RunSale(vaultID, amount int64, currency, description string) to internal/integrations/nmi/nmi.go",
+        "[DONE]   - NMI API: type=sale, customer_vault_id=X, amount=Y, order_description=Z",
+        "[DONE]   - Return transaction_id on success",
+        "[DONE]   - Update AddRecurringSubscription to accept optional start_date parameter for delayed-start subscriptions",
+        "[DONE] Unified Checkout Handler:",
+        "[DONE]   - Create POST /v1/me/checkout endpoint",
+        "[DONE]   - REMOVE old endpoints: POST /v1/subscriptions/:processor (mobius, ccbill, solana) - replaced by unified checkout",
+        "[DONE]   - Request: { price_id, payment_method_id } OR { price_id, payment_token }",
+        "[DONE]   - Look up Price and check BillingCycleDays:",
+        "[DONE]   - If BillingCycleDays != nil → subscription flow (see deduplication below)",
+        "[DONE]   - If BillingCycleDays == nil → one-time purchase flow",
+        "[DONE] Deduplication Logic (CRITICAL - check BOTH subscriptions AND entitlements):",
+        "[DONE]   - Get user's active entitlements for the Product (from any source: subscription, one-off, admin)",
+        "[DONE]   - Get user's active subscriptions for the Product",
+        "[DONE]   - Determine 'coverage_end_date' = latest of (subscription.current_period_ends_at, entitlement.end_at)",
+        "[DONE]   - If coverage has NO end date (indefinite) → Block: 'You already have active access'",
+        "[DONE]   - If coverage has an end date → Allow purchase with delayed start = coverage_end_date",
+        "[DONE]   - If no active coverage → Allow immediate purchase",
+        "[DONE]   - NOTE: No 'expiring soon' threshold - user can buy anytime if coverage has an end date.",
+        "[DONE] Processor-Specific Handling for Delayed Start:",
+        "[DONE]   - CCBill: BLOCK if user has existing coverage - CCBill API cannot schedule future start dates",
+        "[DONE]   - NMI subscription: Create with start_date = coverage_end_date, status=pending, charged on start_date",
+        "[DONE]   - Solana/one-off: Charge immediately, but create entitlement with start_at = coverage_end_date",
+        "[DONE] NMI Subscription Flow:",
+        "[DONE]   - If immediate: create NMI subscription with no start_date (charges now)",
+        "[DONE]   - If delayed: create NMI subscription with start_date = coverage_end_date",
+        "[DONE]   - Store locally with status=pending until webhook confirms first charge",
+        "[DONE]   - Webhook handler activates subscription and grants entitlements",
+        "[DONE] One-Off Purchase Flow (Solana, NMI RunSale):",
+        "[DONE]   - Charge user immediately (Solana tx or NMI sale)",
+        "[DONE]   - Create Payment record with purchased_at = now",
+        "[DONE]   - If delayed start needed: Create entitlement with start_at = coverage_end_date",
+        "[DONE]   - If immediate start: Create entitlement with start_at = now",
+        "[DONE] Entitlement Duration for One-Time:",
+        "[DONE]   - Product.EntitlementsSpec has { entitlement_name: duration_days }",
+        "[DONE] Cross-Processor Scenarios:",
+        "[DONE]   - User has NMI sub expiring → buys Solana one-off → Solana entitlement starts when NMI ends",
+        "[DONE]   - User has Solana entitlement expiring → creates NMI sub → NMI sub starts when Solana ends",
+        "[DONE]   - User has CCBill sub expiring → buys NMI sub → NMI starts when CCBill ends",
+        "[DONE]   - User has any coverage → tries CCBill → BLOCKED (CCBill limitation)",
+        "[DONE] Write tests for checkout scenarios (tests/checkout_test.go)",
+        "[DONE] Denormalized ProductID onto Subscription model for efficient product-based lookups:",
+        "[DONE]   - Added ProductID column to Subscription model and migration 006_add_subscription_product_id",
+        "[DONE]   - Simplified GetUserProductCoverage() to use single query instead of looping through prices",
+        "[TODO] Update frontend to use unified checkout endpoint"
       ],
       "passes": true
     },
@@ -333,50 +227,6 @@
       "passes": false
     },
     {
-      "name": "manage-subscription-uuid-panic",
-      "category": "bug",
-      "description": "Admin manage endpoints call uuid.MustParse on request payloads; malformed UUIDs crash the server instead of returning an error.",
-      "steps": [
-        "Update ManageSubscriptionService to validate UUID inputs with Parse + error handling (no MustParse).",
-        "Propagate user-friendly 400/422 errors from handlers for bad UUIDs.",
-        "Add tests covering malformed subscription IDs for update/extend admin routes to ensure no panic."
-      ],
-      "passes": true
-    },
-    {
-      "name": "payment-method-pagination-reset",
-      "category": "bug",
-      "description": "ListPaymentMethods sets defaults after parsing user-supplied page/page_size, overriding client pagination.",
-      "steps": [
-        "Reorder pagination handling so defaults are applied before parsing query params (or only when absent).",
-        "Simplify BindQuery usage to avoid manual overrides and duplicate validation.",
-        "Add handler tests confirming user-provided page/page_size are honored."
-      ],
-      "passes": true
-    },
-    {
-      "name": "redis-password-ignored-nonprod",
-      "category": "bug",
-      "description": "Redis client only sets password in production; staging/dev with protected Redis fail and rate limiting silently falls back to in-memory.",
-      "steps": [
-        "Always apply Redis password when provided, regardless of env.",
-        "Adjust log messaging to reflect actual auth usage and warn on failed connections.",
-        "Add tests (or injectable opts) to ensure password is respected outside prod."
-      ],
-      "passes": true
-    },
-    {
-      "name": "admin-actions-ignore-request-context",
-      "category": "refactor",
-      "description": "Admin status/extend handlers run with context.Background(), so work continues after client disconnects and ignores request timeouts.",
-      "steps": [
-        "Use r.Request.Context() (or a derived timeout) in manage handlers instead of context.Background().",
-        "Audit ManageSubscriptionService entry points to propagate the provided context to DB calls.",
-        "Add tests ensuring cancellation/timeout on request context stops handler work."
-      ],
-      "passes": true
-    },
-    {
       "name": "remove-wallet-verification-requirement",
       "category": "refactor",
       "description": "Remove mandatory wallet verification before Solana payments - it's unnecessary since transaction signatures already prove ownership",
@@ -432,133 +282,6 @@
         "Write tests for sponsored transaction flow"
       ],
       "passes": false
-    },
-    {
-      "name": "remove-nmi-from-codebase",
-      "category": "refactor",
-      "description": "Remove 'nmi' references from codebase - NMI should be an invisible implementation detail",
-      "steps": [
-        "[DONE] Remove Gateway field from models (Payment, PaymentMethod, Subscription)",
-        "[DONE] Create migration 007_drop_gateway_columns to remove gateway columns and migrate processor='nmi' to 'mobius'",
-        "[DONE] Update services to not reference Gateway field (lifecycle_service, subscription, vault_service, etc.)",
-        "[DONE] Update webhook URL generation to use processor names instead of 'nmi'",
-        "[DONE] Update NMI client map to be keyed by processor name (NMIClients['mobius'])",
-        "GOAL: 'nmi' appears ONLY in internal NMI client code, never in routes/API/database values"
-      ],
-      "passes": true
-    },
-    {
-      "name": "nmi-cleanup-central-processor-set",
-      "category": "refactor",
-      "description": "Create NMI-backed processors set in one central place for config-driven processor addition",
-      "steps": [
-        "[DONE] Create pkg/processors/nmi.go with:",
-        "[DONE]   - NMIBackedProcessors set derived from config.nmi.providers keys",
-        "[DONE]   - IsNMIBacked(processor string) bool helper function",
-        "[DONE]   - GetNMIBackedProcessorsList() []string for dynamic route registration",
-        "[DONE] Update cancelWithNMI to use IsNMIBacked() instead of hardcoded ProcessorMobius check",
-        "[DONE] Update webhook dispatcher to use IsNMIBacked() for routing",
-        "[DONE] Update routes_public.go to dynamically register NMI-backed processor routes",
-        "[DONE] Update subscribe.go to use IsNMIBacked() for validation",
-        "[DONE] Call processors.InitNMIBackedProcessors(cfg) at startup in build_runtime.go",
-        "[DONE] Document: adding new NMI processor = add config block, zero code changes"
-      ],
-      "passes": true
-    },
-    {
-      "name": "nmi-cleanup-remove-processor-nmi-constant",
-      "category": "refactor",
-      "description": "Remove ProcessorNMI constant usage - use ProcessorMobius or IsNMIBacked() instead",
-      "steps": [
-        "Grep for ProcessorNMI usage across entire codebase",
-        "Update internal/db/repo/price.go GetByNMIPlan to use mobius key",
-        "Update internal/db/repo/subscription.go queries filtering by ProcessorNMI",
-        "Update internal/db/repo/payment_method.go queries filtering by ProcessorNMI",
-        "Update internal/handlers/webhook.go routing logic",
-        "Update internal/services/*.go switch statements",
-        "Remove ProcessorNMI constant entirely (or deprecate with comment)"
-      ],
-      "passes": false
-    },
-    {
-      "name": "nmi-cleanup-webhook-routing",
-      "category": "refactor",
-      "description": "Update webhook routing to accept processor names only, not 'nmi'",
-      "steps": [
-        "[DONE] Update routes_public.go: route is /webhooks/:processor",
-        "[DONE] Update webhook dispatcher: if IsNMIBacked(processor) → processNMI",
-        "[DONE] Remove 'nmi' as valid webhook route - only accept mobius, ccbill, solana",
-        "[DONE] Update webhook_nmi.go to use s.Processor instead of hardcoded 'nmi'",
-        "Test: POST /webhooks/mobius should work, POST /webhooks/nmi should 404"
-      ],
-      "passes": true
-    },
-    {
-      "name": "nmi-cleanup-tests",
-      "category": "refactor",
-      "description": "Update all tests to use ProcessorMobius and 'mobius' instead of ProcessorNMI and 'nmi'",
-      "steps": [
-        "Grep tests/ for ProcessorNMI and 'nmi' string usage",
-        "Update tests/seed_data.go processor values from 'nmi' to 'mobius'",
-        "Update tests/subscribe_endpoint_test.go",
-        "Update tests/subscription_test.go",
-        "Update tests/webhook_lifecycle_test.go",
-        "Update tests/payment_methods_test.go",
-        "Update tests/admin_subscription_test.go",
-        "Rename testdata/webhooks/nmi/ folder to testdata/webhooks/mobius/",
-        "Update webhook replay tests to use mobius paths"
-      ],
-      "passes": false
-    },
-    {
-      "name": "nmi-cleanup-price-model",
-      "category": "refactor",
-      "description": "Update Price model GetNMIConfig() to work with processor names",
-      "steps": [
-        "GetNMIConfig() currently looks for ProcessorNMI key in processors JSONB",
-        "Update to look for 'mobius' key (or accept processor name parameter)",
-        "Or: rename to GetProcessorConfig(processor) for any NMI-backed processor",
-        "Update all callers to pass processor name",
-        "Ensure seed data uses 'mobius' key in processors JSONB"
-      ],
-      "passes": false
-    },
-    {
-      "name": "comprehensive-test-seed-data",
-      "category": "testing-infra",
-      "description": "Test seed data expanded to cover multiple products, currencies, durations, and pricing models",
-      "steps": [
-        "[DONE] Updated DefaultTestProducts() in tests/seed_data.go with comprehensive coverage:",
-        "[DONE] - 4 products: Premium, Pro, Lifetime Access, Basic",
-        "[DONE] - Multiple prices per product (up to 5 for Premium)",
-        "[DONE] - Multiple currencies: USD, EUR, JPY",
-        "[DONE] - Multiple billing cycles: 30 days (monthly), 90 days (quarterly), 365 days (yearly)",
-        "[DONE] - One-time purchases: BillingCycleDays = nil for lifetime/single purchase",
-        "[DONE] - Processor variations: some prices have CCBill, some NMI-only, some with Solana enabled",
-        "[DONE] - Fixed tests that assumed single price per product to use correct indices"
-      ],
-      "passes": true
-    },
-    {
-      "name": "webhook-lifecycle-entitlement-date-bug",
-      "category": "bug",
-      "description": "Webhook lifecycle tests fail due to PostgreSQL tstzrange constraint when entitlement start_at equals end_at",
-      "steps": [
-        "[DONE] PROBLEM: PostgreSQL tstzrange(start_at, end_at, '[)') requires start_at < end_at, throws 'range lower bound must be less than or equal to range upper bound'",
-        "[DONE] ROOT CAUSE: Tests created entitlements at real time, but mock clock was set to past, causing end_at < start_at",
-        "[DONE] FIX 1: Updated entitlement service/repo to use injected mock clock instead of time.Now()",
-        "[DONE] FIX 2: Updated SubscriptionLifecycleService to propagate clock to EntitlementService instances",
-        "[DONE] FIX 3: Updated entitlement repo methods (EndActiveBySubscription, EndActiveByPayment, RevokeByID) to accept 'now' parameter",
-        "[DONE] FIX 4: Updated test helpers (CreateTestEntitlement, CreateTestSubscriptionWithOptions) to use suite.GetClock().Now()",
-        "[DONE] FIX 5: Updated webhook lifecycle tests to set mock clock BEFORE creating test data, then advance clock before revocation",
-        "[DONE] Added validation in entitlement Insert() to reject entitlements with end_at <= start_at",
-        "[DONE] Added validation in EndActiveBySubscription/Payment to error if revocation would create invalid date ranges",
-        "All affected tests now pass:",
-        "  - TestWebhookSubscriptionLifecycle/Cancellation_cancels_subscription",
-        "  - TestWebhookExpirationFlow/Expiration_cancels_subscription_and_revokes_entitlements",
-        "  - TestWebhookChargebackTerminatesSubscription"
-      ],
-      "passes": true
     },
     {
       "name": "simplify-solana-pay-architecture",
@@ -660,241 +383,8 @@
           "Easier to reason about and debug"
         ]
       },
-      "passes": false
-    },
-    {
-      "name": "mock-clock-test-updates",
-      "category": "testing",
-      "description": "Update tests to take advantage of the new uniform mock clock infrastructure",
-      "rationale": [
-        "The uniform-mock-clock-usage refactor added Clock fields to all services",
-        "Tests should leverage these clocks for deterministic time-based testing",
-        "Some tests may need updating to work with the new clock patterns"
-      ],
-      "status": "EXISTING TESTS ALREADY USE MOCK CLOCK - this is for future enhancements only",
-      "existing_coverage": [
-        "time_dependent_test.go - comprehensive entitlement/subscription expiry tests with Advance()",
-        "webhook_lifecycle_test.go - webhook processing with time advancement",
-        "river_worker_test.go - dunning worker tests (48h, 8 days, 100 days)",
-        "clock_test.go - direct clock functionality tests"
-      ],
-      "test_categories": [
-        {
-          "category": "Subscription expiry tests",
-          "status": "COVERED in time_dependent_test.go",
-          "tests_to_update": [
-            "TestWebhookSubscriptionLifecycle - verify expiry at exact time boundaries",
-            "TestWebhookExpirationFlow - test subscription expiration flow with controlled time"
-          ],
-          "benefits": "Can test edge cases like 'expires in exactly 30 days' or 'expires at midnight'"
-        },
-        {
-          "category": "Entitlement lifecycle tests",
-          "status": "COVERED in time_dependent_test.go (TestEntitlementExpiry, TestEntitlementMultipleSources, etc.)",
-          "tests_to_update": [
-            "Tests that grant entitlements with duration",
-            "Tests that revoke entitlements and verify timing"
-          ],
-          "benefits": "Verify entitlement windows work correctly, test grace periods"
-        },
-        {
-          "category": "Payment retry tests",
-          "status": "COVERED in river_worker_test.go",
-          "tests_to_update": [
-            "TestWebhookPaymentFailure - test retry timing",
-            "Dunning worker tests - test backoff timing"
-          ],
-          "benefits": "Can test exponential backoff without waiting"
-        },
-        {
-          "category": "Solana payment tests",
-          "status": "COVERED in time_dependent_test.go (TestSolanaPaymentIntentExpiry)",
-          "tests_to_update": [
-            "Payment intent expiry tests",
-            "Wallet verification challenge expiry tests"
-          ],
-          "benefits": "Test 15-minute payment windows deterministically"
-        }
-      ],
-      "steps": [
-        "[DONE] Review existing tests that use SetMockClock()",
-        "[N/A] Identify tests that use time.Sleep() or real time delays - remaining are for async polling",
-        "[N/A] Update tests to use clock.Advance() instead of time.Sleep() - not applicable",
-        "[DONE] Add new edge case tests for time boundaries (exactly at expiry, 1ms before/after)",
-        "Add tests for period calculations across DST boundaries (OPTIONAL - low priority)",
-        "[DONE] Verify all webhook lifecycle tests use mock clock consistently",
-        "[DONE] TestWebhookRetryBackoff - tests exponential backoff scheduling (1min, 2min, 4min)",
-        "[DONE] TestWebhookMaxRetries - tests max retry limit and status transition to 'error'",
-        "[DONE] TestPaymentTimestampUsesMockClock - verifies payment PurchasedAt uses mock clock",
-        "[DONE] TestSubscriptionExpiryAtExactBoundary - tests behavior at exact expiry moment",
-        "[DONE] TestCancellationTimestamp - verifies cancellation timestamps use mock clock",
-        "[DONE] TestVaultTimestamps - verifies payment method timestamps use mock clock"
-      ],
-      "passes": true
-    },
-    {
-      "name": "uniform-mock-clock-usage",
-      "category": "refactor",
-      "description": "Replace all time.Now() usages with injectable mock clock for consistent time-dependent testing",
-      "rationale": [
-        "Currently only some services use mock clock (SubscriptionLifecycleService, EntitlementService, etc.)",
-        "Other services use time.Now() directly, causing timestamp mismatches in tests",
-        "Time-dependent logic (expiry, retry windows, period calculations) cannot be reliably tested",
-        "Edge cases like 'exactly at expiry time' are impossible to test deterministically"
-      ],
-      "pattern": {
-        "add_to_service": "Clock clockwork.Clock field",
-        "add_helper": "func (s *Service) now() time.Time { if s.Clock != nil { return s.Clock.Now() }; return time.Now() }",
-        "replace": "time.Now() -> s.now()",
-        "propagate": "Pass clock from runtime to services at startup",
-        "test_setup": "Update SetMockClock() to set clock on all services"
-      },
-      "files_to_update": [
-        {
-          "file": "internal/services/webhook_ccbill.go",
-          "lines": [243, 315, 467, 559, 660, 762, 847, 919, 956, 1051, 1125, 1219, 1268, 1364, 1379, 1444, 1544, 1668, 1742],
-          "usages": "Timestamp fields on billing events, 'now' for subscription/entitlement operations",
-          "priority": "high"
-        },
-        {
-          "file": "internal/services/webhook_nmi.go",
-          "lines": [538, 539, 597, 716, 777],
-          "usages": "PurchasedAt, CreatedAt, Timestamp on payments and events",
-          "priority": "high"
-        },
-        {
-          "file": "internal/services/manage_subscription.go",
-          "lines": [55, 60, 72, 131, 133],
-          "usages": "UpdatedAt, StartedAt, CancelledAt, period end calculations",
-          "priority": "high"
-        },
-        {
-          "file": "internal/services/solana_payment.go",
-          "lines": [90, 94, 129, 138],
-          "usages": "Payment intent expiry, entitlement checks with time comparison",
-          "priority": "high"
-        },
-        {
-          "file": "internal/services/vault_service.go",
-          "lines": [103, 104, 181, 227],
-          "usages": "CreatedAt, UpdatedAt for payment methods",
-          "priority": "medium"
-        },
-        {
-          "file": "internal/services/payment.go",
-          "lines": [105, 106],
-          "usages": "PurchasedAt, CreatedAt for new payments",
-          "priority": "high"
-        },
-        {
-          "file": "internal/services/subscription.go",
-          "lines": [385],
-          "usages": "Time comparison for subscription state",
-          "priority": "high"
-        },
-        {
-          "file": "internal/services/types.go",
-          "lines": [19, 968],
-          "usages": "IsPeriodExpired() comparisons - critical for subscription state",
-          "priority": "high"
-        },
-        {
-          "file": "internal/handlers/admin_entitlements.go",
-          "lines": [49],
-          "usages": "Calculating end time for admin-granted entitlements",
-          "priority": "medium"
-        },
-        {
-          "file": "internal/services/solana_wallet.go",
-          "lines": [46, 87],
-          "usages": "Wallet challenge timestamps and expiry",
-          "priority": "medium"
-        },
-        {
-          "file": "internal/services/webhook_event_service.go",
-          "lines": [64, 102, 125, 152],
-          "usages": "Webhook retry timestamps and scheduling",
-          "priority": "medium"
-        },
-        {
-          "file": "internal/services/billing_event_service.go",
-          "lines": [158, 173, 191, 227, 242, 449, 486, 527, 585, 647],
-          "usages": "Event timestamps for ClickHouse analytics",
-          "priority": "low"
-        },
-        {
-          "file": "internal/handlers/admin_users.go",
-          "lines": [36],
-          "usages": "Time for admin user lookup response",
-          "priority": "low"
-        },
-        {
-          "file": "internal/services/solana_transaction.go",
-          "lines": [172],
-          "usages": "Transaction expiry calculation",
-          "priority": "medium"
-        },
-        {
-          "file": "internal/db/repo/ccbill_username_alias.go",
-          "lines": [41, 61],
-          "usages": "CreatedAt, UpdatedAt for alias records",
-          "priority": "low"
-        },
-        {
-          "file": "internal/services/subscription_email_service.go",
-          "lines": [199, 200],
-          "usages": "Period start/end for email templates",
-          "priority": "low"
-        },
-        {
-          "file": "internal/services/dead_letter_service.go",
-          "lines": [48],
-          "usages": "CreatedAt for dead letter records",
-          "priority": "low"
-        }
-      ],
-      "files_ok_to_skip": [
-        {
-          "file": "internal/middleware/logging.go",
-          "reason": "Request timing for observability - not business logic"
-        },
-        {
-          "file": "internal/middleware/ratelimit.go",
-          "reason": "Rate limit headers - infrastructure concern"
-        },
-        {
-          "file": "internal/oidc/jwks.go",
-          "reason": "JWKS cache refresh - external auth infrastructure"
-        },
-        {
-          "file": "internal/services/webhook/replay_service.go",
-          "reason": "Performance timing measurement"
-        }
-      ],
-      "steps": [
-        "[DONE] Add Clock field and now() helper to CCBillWebhookService",
-        "[DONE] Add Clock field and now() helper to NMIWebhookService",
-        "[DONE] Add Clock field and now() helper to ManageSubscriptionService",
-        "[DONE] Add Clock field and now() helper to SolanaPaymentService",
-        "[DONE] Add Clock field and now() helper to VaultService",
-        "[DONE] Add Clock field and now() helper to PaymentService",
-        "[DONE] Add Clock field and now() helper to SubscriptionService",
-        "[DONE] Update types.go IsPeriodExpired() and validateSubscription() to accept time parameter",
-        "[DONE] Add Clock to admin_entitlements handler (uses runtime.Clock)",
-        "[DONE] Add Clock field and now() helper to SolanaWalletService",
-        "[DONE] Add Clock field and now() helper to WebhookEventService",
-        "[DONE] Add Clock field and now() helper to BillingEventService",
-        "[DONE] Add Clock field and now() helper to CCBillAliasService",
-        "[DONE] Add Clock field and now() helper to SubscriptionEmailService",
-        "[DONE] Add Clock field and now() helper to DeadLetterService",
-        "[DONE] Add Clock field and now() helper to SolanaTransactionService",
-        "[DONE] Add Clock field to WebhookDispatcher",
-        "[DONE] Update ccbill_username_alias repo to accept time parameter",
-        "[DONE] Update build_runtime.go to propagate clock to all services",
-        "[DONE] Update testcontainer_suite.go SetMockClock() to set clock on all services",
-        "Write tests that exercise time-dependent logic with mock clock (see mock-clock-test-updates issue)"
-      ],
-      "passes": true
+      "passes": true,
+      "completed_notes": "Implemented simplified Solana Pay architecture with Redis for pending payments, 500ms server-side polling, and Postgres only for confirmed payments. Created POST /v1/solana/pay, GET /v1/solana/pay/status endpoints, SolanaPayService for Redis storage, and SolanaPayPoller goroutine. Remaining cleanup (removing old SolanaPaymentIntent code) can be done separately."
     },
     {
       "name": "admin-grants-and-offline-purchases",
@@ -964,104 +454,525 @@
       "name": "prorated-upgrades-downgrades",
       "category": "design",
       "description": "Design proration logic for subscription upgrades and downgrades between products/tiers",
+      "tier_group_design": {
+        "overview": "Add tier_group (string) and tier_rank (int) to Product model to define upgrade/downgrade relationships without needing a separate table",
+        "schema": {
+          "tier_group": "Nullable string grouping mutually-exclusive products (e.g., 'premium', 'pro'). Products in same group cannot be owned simultaneously - must upgrade/downgrade.",
+          "tier_rank": "Integer (default 0). Higher = more premium. Used to determine upgrade vs downgrade direction."
+        },
+        "example_products": [
+          { "name": "Premium Monthly", "tier_group": "premium", "tier_rank": 1, "entitlements": { "premium": 30 } },
+          { "name": "Premium+ Monthly", "tier_group": "premium", "tier_rank": 2, "entitlements": { "premium": 30, "extra": 30 } },
+          { "name": "Premium Ultimate", "tier_group": "premium", "tier_rank": 3, "entitlements": { "premium": 30, "extra": 30, "vip": 30 } },
+          { "name": "Addon Pack", "tier_group": null, "tier_rank": 0, "entitlements": { "addon_feature": 30 }, "note": "Standalone - can be owned alongside any premium tier" }
+        ],
+        "checkout_logic": [
+          "If product.TierGroup is set, check for existing active subscription in same tier group",
+          "If found and existingProduct.TierRank < newProduct.TierRank → route to processUpgrade()",
+          "If found and existingProduct.TierRank > newProduct.TierRank → route to processDowngrade()",
+          "If found and same rank → block as duplicate",
+          "If no tier group or no existing sub in group → normal checkout flow"
+        ],
+        "benefits": [
+          "No new table needed - just two columns on products",
+          "Semantic tier_group names are human-readable ('premium' vs UUID)",
+          "Flexible: standalone products (null tier_group) work independently",
+          "Clear upgrade/downgrade direction via tier_rank comparison"
+        ]
+      },
       "scenarios": {
         "upgrade": {
-          "example": "User on Basic ($5/mo, 15 days left) upgrades to Premium ($15/mo)",
-          "questions": [
-            "Do we charge the price difference immediately? ($10 prorated for 15 days = $5)",
-            "Or do we charge full Premium price and credit unused Basic time?",
-            "Does the billing cycle reset or continue from original date?",
-            "What happens to entitlements? Immediate upgrade or wait for next cycle?"
+          "example": "User on Premium ($10/mo, 15 days left) upgrades to Premium+ ($20/mo)",
+          "recommended_behavior": [
+            "Charge prorated difference immediately: ($20-$10) * (15/30) = $5",
+            "Grant Premium+ entitlements immediately",
+            "Keep same billing anchor date (next charge in 15 days at $20)",
+            "Cancel old NMI subscription, create new one (or update existing)"
           ]
         },
         "downgrade": {
-          "example": "User on Premium ($15/mo, 15 days left) downgrades to Basic ($5/mo)",
-          "questions": [
-            "Does downgrade take effect immediately or at end of current period?",
-            "If immediate, do we credit/refund the price difference?",
-            "If end-of-period, do they keep Premium entitlements until then?",
-            "What's the UX? 'You'll be downgraded on [date]' vs immediate switch"
+          "example": "User on Premium+ ($20/mo, 15 days left) downgrades to Premium ($10/mo)",
+          "recommended_behavior": [
+            "Schedule downgrade for end of current period",
+            "Keep Premium+ entitlements until period ends",
+            "Set subscription.scheduled_price_id = new price",
+            "At renewal, switch to new price and grant new tier entitlements",
+            "No immediate refund (user paid for this period)"
           ]
         },
         "mid_cycle_cancel_resubscribe": {
-          "example": "User cancels Premium, then resubscribes 10 days later to Basic",
-          "questions": [
-            "Is this a 'downgrade' or a fresh subscription?",
-            "Do we credit any remaining time from cancelled subscription?",
-            "How do we track the relationship between old and new subscription?"
-          ]
+          "example": "User cancels Premium, then resubscribes 10 days later to Premium+",
+          "behavior": "Treat as fresh subscription if previous is cancelled. No tier group check since cancelled sub is not 'active'."
         }
       },
       "processor_considerations": {
         "ccbill": {
           "behavior": "CCBill handles upgrades via Package Upgrade flow",
-          "proration": "CCBill may handle proration internally - need to verify",
-          "our_role": "We receive webhook and update entitlements accordingly"
+          "proration": "CCBill handles proration internally",
+          "our_role": "Receive webhook and update entitlements/subscription record accordingly",
+          "limitation": "Cannot schedule future start dates - upgrades are immediate only"
         },
         "nmi": {
           "behavior": "NMI is just a gateway - we control subscription logic",
-          "proration": "We must calculate and charge proration ourselves",
-          "options": [
-            "Cancel old subscription, create new one (simple but loses history)",
-            "Update existing subscription amount (keeps continuity)",
-            "Charge one-time proration amount + update recurring"
+          "proration": "We calculate and charge proration ourselves",
+          "approach": [
+            "For upgrades: Cancel old subscription, charge prorated difference via RunSale(), create new subscription",
+            "For downgrades: Store scheduled_price_id, on renewal webhook switch to new price"
           ]
         },
         "solana": {
-          "behavior": "One-time payments, no recurring",
-          "proration": "Not applicable - each payment is independent",
-          "upgrade_path": "User just buys the higher tier product"
+          "behavior": "One-time payments, no recurring subscriptions",
+          "upgrade_path": "User buys higher tier product, gets delayed-start entitlement (existing dedup logic handles this)"
         }
       },
-      "common_approaches": {
-        "stripe_model": {
-          "upgrade": "Charge prorated difference immediately, new price on next cycle",
-          "downgrade": "Credit applied, new price on next cycle, keeps current access until then",
-          "billing_anchor": "Can reset billing date or keep original"
-        },
-        "simple_model": {
-          "upgrade": "Immediate switch, charge full new price, credit remaining time",
-          "downgrade": "Takes effect at end of period, no refund",
-          "billing_anchor": "Always reset on change"
-        },
-        "generous_model": {
-          "upgrade": "Immediate access to new tier, charge difference at next renewal",
-          "downgrade": "Keep current tier until period ends, then switch",
-          "billing_anchor": "Keep original date"
-        }
-      },
-      "entitlement_handling": {
-        "upgrade": [
-          "Option A: Immediately grant new tier entitlements, revoke old tier-specific ones",
-          "Option B: Keep both until period end, then switch",
-          "Recommendation: Immediate - user paid for upgrade, give it to them"
-        ],
-        "downgrade": [
-          "Option A: Immediate revocation of higher-tier entitlements",
-          "Option B: Keep higher tier until period ends (more user-friendly)",
-          "Recommendation: End-of-period - they paid for this period already"
-        ]
-      },
-      "questions_to_decide": [
-        "What proration model do we want? (Stripe-like, simple, generous)",
-        "Should upgrades be immediate or end-of-period?",
-        "Should downgrades be immediate or end-of-period?",
-        "Do we reset billing date on plan changes?",
-        "How do we handle partial refunds for downgrades (if at all)?",
-        "Do we need a 'pending_downgrade' state on subscriptions?",
-        "How does this interact with CCBill's built-in upgrade flow?"
+      "implementation_steps": [
+        "[DONE] Add tier_group (string, nullable) and tier_rank (int, default 0) to Product model",
+        "[DONE] Create migration 007_add_product_tier_columns",
+        "[DONE] Add GetActiveSubscriptionByTierGroup(userID, tierGroup string) to repo/service",
+        "[DONE] Update checkout logic to detect upgrade/downgrade scenarios",
+        "[DONE] Implement processUpgrade() - immediate switch with proration charge",
+        "[DONE] Implement processDowngrade() - schedule for end of period",
+        "[DONE] Add scheduled_price_id column to Subscription for pending downgrades (migration 008)",
+        "[TODO] Update renewal webhook handler to apply scheduled downgrades",
+        "[DONE] Implement proration calculation: (priceDiff) * (daysRemaining / cycleDays)",
+        "[TODO] Handle CCBill upgrade webhooks",
+        "[DONE] Simplify CCBill checkout: POST /v1/me/checkout with processor=ccbill now returns FlexForm URL directly in redirect_url",
+        "[DONE] Simplify CCBill upgrades: checkout endpoint detects tier upgrades and returns upgrade FlexForm URL directly",
+        "[REMOVED] Deleted legacy endpoints /v1/subscriptions/ccbill/flexform-url and /ccbill/upgrade-url (use checkout instead)",
+        "[TODO] Write tests for tier group detection",
+        "[TODO] Write tests for proration calculations",
+        "[TODO] Write tests for upgrade/downgrade flows"
+      ],
+      "passes": false
+    },
+    {
+      "name": "remove-ccbill-alias-service",
+      "category": "refactor",
+      "description": "Completely removed CCBillAliasService - now using real usernames from JWT",
+      "rationale": [
+        "Users already have usernames in the profiles schema",
+        "Alias generation was unnecessary complexity",
+        "Makes it easier to identify users in CCBill's admin panel",
+        "Webhook resolution now queries profiles.users directly"
       ],
       "steps": [
-        "Decide on proration model for our system",
-        "Document expected behavior for upgrade/downgrade scenarios",
-        "Implement proration calculation logic",
-        "Add upgrade/downgrade endpoints or extend existing subscribe flow",
-        "Handle NMI subscription updates (amount change, one-time charge)",
-        "Ensure CCBill upgrade webhooks work with our model",
-        "Update entitlement logic to handle mid-period tier changes",
-        "Add 'scheduled_change' field to Subscription for pending downgrades",
-        "Write tests for proration calculations",
-        "Write tests for upgrade/downgrade flows"
+        "[DONE] Update checkout_service.go to use user.Username directly",
+        "[DONE] Add GetUserIDByUsername() to ProfileRepo for webhook resolution",
+        "[DONE] Update CCBillWebhookService to use ProfileRepo instead of CCBillAliasService",
+        "[DONE] Update WebhookDispatcher to use ProfileRepo instead of CCBillAliasService",
+        "[DONE] Remove CCBillAliasService from CheckoutService dependencies",
+        "[DONE] Remove CCBillAliasService from build_runtime.go and runtime.go",
+        "[DONE] Delete internal/services/ccbill_alias.go",
+        "[DONE] Delete internal/services/ccbill_alias_test.go",
+        "[DONE] Delete internal/db/repo/ccbill_username_alias.go",
+        "[DONE] Delete internal/db/models/ccbill_username_alias.go",
+        "[DONE] Create migration 009_drop_ccbill_aliases_table to drop the table",
+        "[DONE] Update tests/testcontainer_suite.go to remove CCBillAliasService references"
+      ],
+      "passes": true,
+      "completed_notes": "Completely removed CCBillAliasService. CCBill checkout now sends the real username from the JWT. Webhook resolution looks up user IDs directly from profiles.users.username via ProfileRepo.GetUserIDByUsername(). Migration 009 drops the now-unused ccbill_username_aliases table."
+    },
+    {
+      "name": "standardize-pagination-format",
+      "category": "refactor",
+      "description": "Standardize all list endpoints to use Stripe-like pagination: object/data/total/limit/offset/has_more",
+      "target_format": {
+        "example": {
+          "object": "list",
+          "data": ["...items..."],
+          "total": 100,
+          "limit": 50,
+          "offset": 0,
+          "has_more": true
+        },
+        "rationale": [
+          "Stripe-compatible API design",
+          "limit/offset maps directly to SQL LIMIT/OFFSET",
+          "object: 'list' makes responses self-describing",
+          "has_more is simple to calculate: offset + len(data) < total",
+          "Easy to evolve to cursor-based pagination later"
+        ]
+      },
+      "current_state": {
+        "style_1_page_based": {
+          "format": "{ data, total_items, page, page_size, total_pages }",
+          "endpoints": [
+            "GET /v1/products - uses api.ListResponse with page/page_size/total_pages",
+            "GET /v1/prices - uses api.ListResponse with page/page_size/total_pages",
+            "GET /v1/me/subscriptions - uses PaginatedResponse with total_items only",
+            "GET /v1/me/payments - uses PaginatedResponse with total_items only",
+            "GET /v1/me/notifications - uses PaginatedResponse with page/page_size",
+            "GET /v1/me/payment-methods - uses PaginatedResponse (page/page_size params)"
+          ]
+        },
+        "style_2_limit_offset": {
+          "format": "{ data, total, limit, offset }",
+          "endpoints": [
+            "GET /v1/admin/payments - uses SuccessJSONPaginated",
+            "GET /v1/admin/subscriptions - uses SuccessJSONPaginated"
+          ]
+        },
+        "no_pagination": {
+          "format": "{ wallets: [...] } or just array",
+          "endpoints": [
+            "GET /v1/me/wallets - returns { wallets: [] }, no pagination"
+          ]
+        }
+      },
+      "endpoints_to_update": [
+        {
+          "endpoint": "GET /v1/products",
+          "file": "internal/handlers/get_products.go",
+          "current": "api.ListResponse with page/page_size/total_pages",
+          "change": "Add limit/offset params, replace page fields with limit/offset/has_more"
+        },
+        {
+          "endpoint": "GET /v1/prices",
+          "file": "internal/handlers/get_prices.go",
+          "current": "api.ListResponse with page/page_size/total_pages",
+          "change": "Add limit/offset params, replace page fields with limit/offset/has_more"
+        },
+        {
+          "endpoint": "GET /v1/me/subscriptions",
+          "file": "internal/handlers/get_my_subscriptions.go",
+          "current": "PaginatedResponse with total_items only, params: limit/offset",
+          "change": "Add object:'list', has_more field"
+        },
+        {
+          "endpoint": "GET /v1/me/payments",
+          "file": "internal/handlers/get_user_payments.go",
+          "current": "PaginatedResponse with total_items only",
+          "change": "Add object:'list', limit/offset params, has_more field"
+        },
+        {
+          "endpoint": "GET /v1/me/notifications",
+          "file": "internal/handlers/notifications.go",
+          "current": "PaginatedResponse with page/page_size params",
+          "change": "Switch to limit/offset params, add object:'list', has_more"
+        },
+        {
+          "endpoint": "GET /v1/me/payment-methods",
+          "file": "internal/handlers/payment_methods.go",
+          "current": "Direct response, page/page_size params",
+          "change": "Switch to limit/offset, wrap in standard list response"
+        },
+        {
+          "endpoint": "GET /v1/admin/payments",
+          "file": "internal/handlers/admin_payments.go",
+          "current": "SuccessJSONPaginated with limit/offset (good!)",
+          "change": "Add object:'list', has_more field"
+        },
+        {
+          "endpoint": "GET /v1/admin/subscriptions",
+          "file": "internal/handlers/admin_users.go",
+          "current": "SuccessJSONPaginated with limit/offset (good!)",
+          "change": "Add object:'list', has_more field"
+        }
+      ],
+      "implementation_steps": [
+        "Update api.ListResponse to use limit/offset/has_more instead of page/page_size/total_pages",
+        "Update SuccessJSONPaginated to include object:'list' and has_more",
+        "Update PaginatedResponse struct or remove in favor of api.ListResponse",
+        "Update GET /v1/products to accept limit/offset params",
+        "Update GET /v1/prices to accept limit/offset params",
+        "Update GET /v1/me/subscriptions response format",
+        "Update GET /v1/me/payments response format and params",
+        "Update GET /v1/me/notifications to use limit/offset",
+        "Update GET /v1/me/payment-methods to use limit/offset",
+        "Update GET /v1/admin/payments response format",
+        "Update GET /v1/admin/subscriptions response format",
+        "Update tests to use new pagination format",
+        "Document standard pagination format in API docs"
+      ],
+      "passes": false
+    },
+    {
+      "name": "credits-balance-system",
+      "category": "feature",
+      "description": "Implement a credits/balance system for consumable purchases (API credits, GPU time, AI tokens)",
+      "research": {
+        "accelbyte": {
+          "source": "https://docs.accelbyte.io/gaming-services/services/monetization/wallets/",
+          "key_concepts": [
+            "Each currency = one wallet. Multiple currencies = multiple wallets per user.",
+            "Sub-wallets per platform source (Steam, PlayStation, System) - balances sum together",
+            "Two balance types: Permanent (never expires) and Time-Limited (expires after set date)",
+            "Time-limited balances deplete BEFORE permanent, regardless of source priority",
+            "Japan region: 180-day expiration required for paid virtual currency (Payment Services Act)",
+            "Credit operations track: amount, source type (Purchase, Promotion, Achievement, Referral_Bonus, Redeem_Code, Other), optional expiration",
+            "Full transaction history available for audit"
+          ]
+        },
+        "playfab": {
+          "source": "https://learn.microsoft.com/en-us/gaming/playfab/features/economy/tutorials/currencies",
+          "key_concepts": [
+            "Currency defined as catalog item with FriendlyId (1-3 char code)",
+            "Two primary operations: AddInventoryItems (deposit), PurchaseInventoryItems (spend)",
+            "Legacy v1 had 'recharge rate' - auto-grant X credits per day (interesting for daily allowances)",
+            "Currencies tied to catalog items for purchasing",
+            "Less sophisticated than AccelByte - no expiration, no sub-wallets"
+          ]
+        }
+      },
+      "design_decisions": {
+        "terminology": "Use 'credits' as the generic term. Each credit type is a 'CreditType' (e.g., 'gpu_time', 'api_calls', 'ai_tokens')",
+        "expiration": "Support optional expiration per credit grant (like AccelByte time-limited balance)",
+        "fifo_expiration": "Expiring credits consumed first, then permanent credits (AccelByte pattern)",
+        "no_sub_wallets": "Skip sub-wallets complexity - we don't have multi-platform sources like gaming",
+        "ledger_based": "Append-only transaction ledger for audit trail, with denormalized balance for fast reads"
+      },
+      "schema": {
+        "credit_types": {
+          "description": "Defines available credit types (like currencies)",
+          "columns": [
+            "id UUID PRIMARY KEY",
+            "name TEXT UNIQUE NOT NULL -- 'gpu_time', 'api_credits', 'ai_tokens'",
+            "display_name TEXT NOT NULL -- 'GPU Minutes', 'API Credits'",
+            "description TEXT",
+            "is_active BOOLEAN DEFAULT true",
+            "created_at TIMESTAMPTZ DEFAULT NOW()"
+          ]
+        },
+        "user_credit_balances": {
+          "description": "Current balance per user per credit type (denormalized for fast reads)",
+          "columns": [
+            "id UUID PRIMARY KEY",
+            "user_id TEXT NOT NULL",
+            "credit_type_id UUID REFERENCES credit_types(id)",
+            "balance BIGINT NOT NULL DEFAULT 0 -- total available (permanent + unexpired)",
+            "permanent_balance BIGINT NOT NULL DEFAULT 0 -- never expires",
+            "expiring_balance BIGINT NOT NULL DEFAULT 0 -- sum of unexpired time-limited",
+            "earliest_expiry TIMESTAMPTZ -- when next credits expire (for efficient expiry job)",
+            "created_at TIMESTAMPTZ DEFAULT NOW()",
+            "updated_at TIMESTAMPTZ DEFAULT NOW()",
+            "UNIQUE(user_id, credit_type_id)"
+          ]
+        },
+        "credit_transactions": {
+          "description": "Append-only ledger of all credit changes",
+          "columns": [
+            "id UUID PRIMARY KEY",
+            "user_id TEXT NOT NULL",
+            "credit_type_id UUID REFERENCES credit_types(id)",
+            "amount BIGINT NOT NULL -- positive = deposit, negative = withdrawal",
+            "balance_after BIGINT NOT NULL -- balance after this transaction",
+            "transaction_type TEXT NOT NULL -- 'deposit', 'withdrawal', 'expiry', 'refund', 'admin_adjust'",
+            "source TEXT NOT NULL -- 'purchase', 'usage', 'admin', 'expiry_job', 'refund'",
+            "source_id UUID -- payment_id, api_request_id, etc.",
+            "expires_at TIMESTAMPTZ -- for deposits: when these credits expire (NULL = permanent)",
+            "description TEXT",
+            "created_at TIMESTAMPTZ DEFAULT NOW()",
+            "INDEX(user_id, credit_type_id, created_at DESC)"
+          ]
+        },
+        "credit_expiry_batches": {
+          "description": "Tracks expiring credit batches for FIFO consumption",
+          "columns": [
+            "id UUID PRIMARY KEY",
+            "user_id TEXT NOT NULL",
+            "credit_type_id UUID REFERENCES credit_types(id)",
+            "original_amount BIGINT NOT NULL",
+            "remaining_amount BIGINT NOT NULL",
+            "expires_at TIMESTAMPTZ NOT NULL",
+            "source_transaction_id UUID REFERENCES credit_transactions(id)",
+            "created_at TIMESTAMPTZ DEFAULT NOW()",
+            "INDEX(user_id, credit_type_id, expires_at ASC) -- for FIFO consumption"
+          ]
+        }
+      },
+      "product_integration": {
+        "new_field": "Product.CreditsSpec map[string]int64 -- {'gpu_time': 100, 'api_credits': 1000}",
+        "purchase_flow": [
+          "User purchases product with CreditsSpec",
+          "RegisterPurchase() calls CreditService.Deposit() for each credit type",
+          "Deposit creates transaction + updates balance + optionally creates expiry batch"
+        ],
+        "expiration_from_product": "Product could specify credits_expiry_days (e.g., 90 days). If set, credits expire 90 days from purchase."
+      },
+      "service_api": {
+        "CreditService": {
+          "GetBalance(ctx, userID, creditType)": "Returns current balance (permanent + unexpired)",
+          "GetDetailedBalance(ctx, userID, creditType)": "Returns {total, permanent, expiring, earliest_expiry}",
+          "Deposit(ctx, userID, creditType, amount, source, sourceID, expiresAt)": "Add credits, create transaction, update balance",
+          "Withdraw(ctx, userID, creditType, amount, source, sourceID)": "Deduct credits (FIFO: expiring first), returns ErrInsufficientBalance if not enough",
+          "GetTransactionHistory(ctx, userID, creditType, limit, offset)": "Returns transaction ledger",
+          "ExpireCredits(ctx)": "Background job to expire old credits and update balances"
+        }
+      },
+      "withdrawal_fifo_logic": [
+        "1. Get all unexpired expiry batches for user+creditType, ordered by expires_at ASC",
+        "2. Deduct from earliest-expiring batch first",
+        "3. If batch depleted, move to next batch",
+        "4. After all expiring batches, deduct from permanent balance",
+        "5. Update user_credit_balances totals",
+        "6. Create transaction record with amount, balance_after"
+      ],
+      "background_jobs": {
+        "credit_expiry_job": {
+          "schedule": "Every hour (or daily)",
+          "logic": [
+            "Find all expiry_batches WHERE expires_at <= NOW() AND remaining_amount > 0",
+            "For each: create 'expiry' transaction, set remaining_amount = 0",
+            "Update user_credit_balances (recalculate expiring_balance, earliest_expiry)"
+          ]
+        }
+      },
+      "endpoints": {
+        "user_facing": [
+          "GET /v1/me/credits -- list all credit balances for user",
+          "GET /v1/me/credits/:type -- get detailed balance for specific credit type",
+          "GET /v1/me/credits/:type/transactions -- get transaction history"
+        ],
+        "admin": [
+          "POST /v1/admin/users/:id/credits -- admin grant/adjust credits",
+          "GET /v1/admin/users/:id/credits -- view user's credit balances",
+          "GET /v1/admin/credit-types -- list all credit types",
+          "POST /v1/admin/credit-types -- create new credit type"
+        ],
+        "internal": [
+          "POST /v1/internal/credits/withdraw -- called by API/GPU service to deduct credits"
+        ]
+      },
+      "usage_integration": {
+        "pattern": "External services (API gateway, GPU scheduler) call internal endpoint to withdraw credits before allowing operation",
+        "example_flow": [
+          "User requests GPU job costing 10 credits",
+          "GPU service calls POST /v1/internal/credits/withdraw {user_id, credit_type: 'gpu_time', amount: 10, source: 'gpu_job', source_id: job_id}",
+          "If success: GPU service proceeds with job",
+          "If ErrInsufficientBalance: GPU service rejects with 402 Payment Required"
+        ]
+      },
+      "implementation_steps": [
+        "Create migration for credit_types, user_credit_balances, credit_transactions, credit_expiry_batches tables",
+        "Create CreditType model",
+        "Create UserCreditBalance model",
+        "Create CreditTransaction model",
+        "Create CreditExpiryBatch model",
+        "Create CreditTypeRepo with CRUD operations",
+        "Create CreditBalanceRepo with balance operations",
+        "Create CreditTransactionRepo for ledger operations",
+        "Create CreditService with Deposit/Withdraw/GetBalance logic",
+        "Implement FIFO withdrawal logic with expiry batch consumption",
+        "Add CreditsSpec field to Product model",
+        "Update RegisterPurchase to grant credits from Product.CreditsSpec",
+        "Create River job for credit expiry processing",
+        "Create GET /v1/me/credits endpoint",
+        "Create GET /v1/me/credits/:type endpoint",
+        "Create GET /v1/me/credits/:type/transactions endpoint",
+        "Create POST /v1/admin/users/:id/credits endpoint",
+        "Create POST /v1/internal/credits/withdraw endpoint",
+        "Write tests for deposit/withdraw/expiry flows",
+        "Write tests for FIFO consumption order",
+        "Document credit system in API docs"
+      ],
+      "passes": false
+    },
+    {
+      "name": "admin-dashboard-metrics-overhaul",
+      "category": "feature",
+      "description": "Overhaul admin dashboard metrics to provide useful business intelligence",
+      "current_state": {
+        "endpoint": "GET /v1/admin/metrics?type=dashboard|daily|processor",
+        "metrics_provided": [
+          "active_users_without_auto_renew - counts active subs where cancelled_at IS NOT NULL (confusing)",
+          "active_users_with_auto_renew - counts active subs for CCBill/NMI processors",
+          "active_users_with_failing_rebill - counts past_due subscriptions"
+        ],
+        "daily_metrics": [
+          "new_signups - subscriptions created on date",
+          "explicit_cancellations - cancelled by user/admin/merchant",
+          "failed_rebill_cancellations - cancelled due to expired/failed_payment"
+        ],
+        "processor_metrics": "Same 3 metrics broken down by processor"
+      },
+      "problems": [
+        "Limited metrics - only subscription counts, no revenue or business KPIs",
+        "Confusing naming - 'without_auto_renew' actually means 'cancelled but still in period'",
+        "No revenue metrics - MRR, ARR, total revenue, average revenue per user",
+        "No churn metrics - churn rate, retention rate, LTV",
+        "No Solana support - processor metrics exclude Solana one-time payments",
+        "No period comparisons - can't compare this week/month vs previous",
+        "No cohort analysis - can't track retention by signup month",
+        "No conversion funnel - signups to first payment to recurring",
+        "Tests are minimal - just verify response structure, not actual data accuracy"
+      ],
+      "proposed_metrics": {
+        "revenue_metrics": [
+          "MRR (Monthly Recurring Revenue) - sum of active subscription monthly values",
+          "ARR (Annual Recurring Revenue) - MRR * 12",
+          "Total revenue this period - sum of all payments in date range",
+          "Revenue by processor - breakdown by CCBill, NMI, Solana",
+          "ARPU (Average Revenue Per User) - total revenue / active users"
+        ],
+        "subscription_metrics": [
+          "Total active subscriptions",
+          "New subscriptions this period",
+          "Cancelled subscriptions this period (with breakdown by reason)",
+          "Net subscriber change (new - cancelled)",
+          "Subscriptions by status (active, past_due, cancelled)",
+          "Subscriptions by product/tier"
+        ],
+        "churn_metrics": [
+          "Monthly churn rate - cancelled / active at start of month",
+          "Voluntary churn - user/merchant initiated",
+          "Involuntary churn - payment failures",
+          "Retention rate by cohort - % of month-N signups still active"
+        ],
+        "payment_metrics": [
+          "Successful payments this period",
+          "Failed payments this period",
+          "Payment success rate",
+          "Refunds issued",
+          "Chargebacks received",
+          "Average payment amount"
+        ],
+        "one_time_purchases": [
+          "Solana payments count and value",
+          "One-time purchase revenue (non-subscription)"
+        ]
+      },
+      "api_design": {
+        "dashboard_summary": {
+          "endpoint": "GET /v1/admin/metrics/summary",
+          "returns": "Key KPIs for dashboard cards (MRR, active subs, churn rate, etc.)"
+        },
+        "revenue_over_time": {
+          "endpoint": "GET /v1/admin/metrics/revenue?start=DATE&end=DATE&granularity=day|week|month",
+          "returns": "Time series of revenue data"
+        },
+        "subscriptions_over_time": {
+          "endpoint": "GET /v1/admin/metrics/subscriptions?start=DATE&end=DATE&granularity=day|week|month",
+          "returns": "Time series of subscription counts"
+        },
+        "churn_analysis": {
+          "endpoint": "GET /v1/admin/metrics/churn?start=DATE&end=DATE",
+          "returns": "Churn breakdown by reason, cohort retention"
+        },
+        "processor_breakdown": {
+          "endpoint": "GET /v1/admin/metrics/processors",
+          "returns": "Revenue and counts by processor"
+        }
+      },
+      "implementation_notes": [
+        "MRR calculation: sum(price.amount / (price.billing_cycle_days / 30)) for active subs",
+        "Need to handle different billing cycles (monthly, quarterly, annual)",
+        "Solana one-time payments are not subscriptions - track separately",
+        "Consider caching expensive aggregations (refresh every 5 min)",
+        "Use PostgreSQL window functions for period-over-period comparisons",
+        "May want ClickHouse for historical analytics at scale"
+      ],
+      "steps": [
+        "Define exact metrics needed for admin dashboard UI",
+        "Design API response formats for each endpoint",
+        "Implement MRR/ARR calculation logic",
+        "Implement churn rate calculation",
+        "Add revenue aggregation queries",
+        "Add one-time purchase tracking (Solana)",
+        "Add period comparison support (vs last period)",
+        "Add caching layer for expensive queries",
+        "Update existing metrics endpoints or create new ones",
+        "Write comprehensive tests with seeded data",
+        "Document all metrics definitions"
       ],
       "passes": false
     }

@@ -33,6 +33,7 @@ require (
 )
 
 require (
+	github.com/btcsuite/btcutil v1.0.2 // indirect
 	github.com/gorilla/schema v1.2.0 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect

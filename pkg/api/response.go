@@ -4,16 +4,28 @@ import (
 	"time"
 )
 
-// ListResponse is a generic list response wrapper with full pagination info.
-// We use explicit pagination (total_items, page, page_size, total_pages) instead of
-// Stripe's has_more pattern because it provides more useful information to the UI.
+// ListResponse is a generic Stripe-like list response wrapper.
+// Uses limit/offset pagination which maps directly to SQL and is more flexible than page-based.
 type ListResponse[T any] struct {
-	Object     string `json:"object"`                // Always "list"
-	Data       []T    `json:"data"`                  // The list of items
-	TotalItems int64  `json:"total_items"`           // Total number of items across all pages
-	Page       int    `json:"page,omitempty"`        // Current page number (1-indexed)
-	PageSize   int    `json:"page_size,omitempty"`   // Number of items per page
-	TotalPages int    `json:"total_pages,omitempty"` // Total number of pages
+	Object  string `json:"object"`   // Always "list"
+	Data    []T    `json:"data"`     // The list of items
+	Total   int64  `json:"total"`    // Total number of items across all pages
+	Limit   int    `json:"limit"`    // Maximum items requested
+	Offset  int    `json:"offset"`   // Number of items skipped
+	HasMore bool   `json:"has_more"` // Whether there are more items after this page
+}
+
+// NewListResponse creates a standardized list response with has_more calculated automatically
+func NewListResponse[T any](data []T, total int64, limit, offset int) ListResponse[T] {
+	hasMore := int64(offset+len(data)) < total
+	return ListResponse[T]{
+		Object:  "list",
+		Data:    data,
+		Total:   total,
+		Limit:   limit,
+		Offset:  offset,
+		HasMore: hasMore,
+	}
 }
 
 // ProductObject represents a product resource
@@ -49,18 +61,24 @@ type RecurringInfo struct {
 
 // SubscriptionObject represents a subscription resource
 type SubscriptionObject struct {
-	ID                 string                   `json:"id"`
-	Object             string                   `json:"object"` // Always "subscription"
-	Status             string                   `json:"status"`
-	User               string                   `json:"user"`  // User ID with usr_ prefix
-	Items              []SubscriptionItemObject `json:"items"` // Subscription items (typically just one)
-	StartDate          int64                    `json:"start_date"`
-	CurrentPeriodStart int64                    `json:"current_period_start"`
-	CurrentPeriodEnd   int64                    `json:"current_period_end"`
-	CanceledAt         *int64                   `json:"canceled_at,omitempty"`
-	EndedAt            *int64                   `json:"ended_at,omitempty"`
-	CancelAtPeriodEnd  bool                     `json:"cancel_at_period_end"`
-	LatestInvoice      *InvoiceObject           `json:"latest_invoice,omitempty"`
+	ID                 string                 `json:"id"`
+	Object             string                 `json:"object"` // Always "subscription"
+	Status             string                 `json:"status"` // pending, active, past_due, cancelled
+	User               string                 `json:"user"`   // User ID with usr_ prefix
+	Items              *SubscriptionItemsList `json:"items"`  // Subscription items wrapped in list object (Stripe-compatible)
+	StartDate          int64                  `json:"start_date"`
+	CurrentPeriodStart int64                  `json:"current_period_start"`
+	CurrentPeriodEnd   int64                  `json:"current_period_end"`
+	CanceledAt         *int64                 `json:"canceled_at,omitempty"`         // When cancellation was requested (access continues until current_period_end)
+	EndedAt            *int64                 `json:"ended_at,omitempty"`            // When subscription actually terminated (access revoked)
+	CancellationReason *string                `json:"cancellation_reason,omitempty"` // Why cancelled: user, merchant, expired, chargeback
+	Created            int64                  `json:"created"`
+}
+
+// SubscriptionItemsList wraps subscription items in a Stripe-compatible list object
+type SubscriptionItemsList struct {
+	Object string                   `json:"object"` // Always "list"
+	Data   []SubscriptionItemObject `json:"data"`
 }
 
 // SubscriptionItemObject represents an item in a subscription

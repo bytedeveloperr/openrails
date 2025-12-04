@@ -461,14 +461,9 @@ func (suite *TestContainerSuite) SetMockClock(t ...time.Time) *clockwork.FakeClo
 		rt.WebhookDispatcher.Clock = mockClock
 	}
 
-	// CCBill alias service
-	if rt.CCBillAliasService != nil {
-		rt.CCBillAliasService.Clock = mockClock
-	}
-
 	// Email service (if it has a clock)
-	if rt.SubscriptionEmailService != nil {
-		rt.SubscriptionEmailService.Clock = mockClock
+	if rt.EmailService != nil {
+		rt.EmailService.Clock = mockClock
 	}
 
 	// Billing event service (analytics)

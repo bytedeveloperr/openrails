@@ -13,20 +13,8 @@ type SubscribeResponse = services.SubscribeResponse
 // GetProductsResponse is now a Stripe-like list response
 type GetProductsResponse = api.ListResponse[api.ProductObject]
 
-// NewGetProductsResponse converts internal product responses to API response.
-// Products endpoint returns all items without pagination since catalogs are typically small.
-func NewGetProductsResponse(products []*services.PublicProductResponse) GetProductsResponse {
-	productObjects := make([]api.ProductObject, len(products))
-	for i, p := range products {
-		productObjects[i] = ProductToAPI(p.Product, p.Prices)
-	}
-	return api.ListResponse[api.ProductObject]{
-		Object:     "list",
-		Data:       productObjects,
-		TotalItems: int64(len(productObjects)),
-		// Page, PageSize, TotalPages omitted - this endpoint returns all products without pagination
-	}
-}
+// GetPricesResponse is a Stripe-like list response for prices
+type GetPricesResponse = api.ListResponse[api.PriceObject]
 
 // ProductToAPI converts a models.Product to api.ProductObject
 func ProductToAPI(p *models.Product, prices []*models.Price) api.ProductObject {
@@ -168,7 +156,7 @@ type GeneratePaymentResponse struct {
 
 // SubmitPaymentResponse represents the result of submitting a signed transaction
 type SubmitPaymentResponse struct {
-	PurchaseID    string `json:"purchase_id"`
+	PaymentID     string `json:"payment_id"`
 	TransactionID string `json:"transaction_id"`
 	Status        string `json:"status"`
 	Amount        int64  `json:"amount"` // Amount in cents
@@ -180,7 +168,7 @@ type SubmitPaymentResponse struct {
 
 // PaymentStatusResponse represents the status of a payment
 type PaymentStatusResponse struct {
-	PurchaseID    string `json:"purchase_id"`
+	PaymentID     string `json:"payment_id"`
 	TransactionID string `json:"transaction_id"`
 	Status        string `json:"status"`
 	Amount        int64  `json:"amount"` // Amount in cents
@@ -573,21 +561,55 @@ type GetUserBillingHistoryResponse = GetBillingHistoryResponse
 
 // -------------------------------- Payment Method Responses --------------------------------
 
-// PaymentMethodResponse represents a NMI payment method response
+// PaymentMethodResponse represents a NMI payment method response (Stripe-compatible)
 // Payment methods only support NMI card vaults
 type PaymentMethodResponse struct {
-	ID        string `json:"id"`
+	ID        string `json:"id"`        // Prefixed with pm_
+	Object    string `json:"object"`    // Always "payment_method"
 	Type      string `json:"type"`      // Always "card" for NMI
-	Processor string `json:"processor"` // Always "nmi"
+	Processor string `json:"processor"` // nmi, mobius, etc.
 	IsActive  bool   `json:"is_active"`
+	Created   int64  `json:"created"` // Unix epoch seconds
 
-	// Card-specific fields (NMI only)
-	LastFour   *string `json:"last_four,omitempty"`
-	CardType   *string `json:"card_type,omitempty"`
-	ExpiryDate *string `json:"expiry_date,omitempty"`
+	// Card-specific fields (NMI only) - Stripe-compatible names
+	Last4      *string `json:"last4,omitempty"`
+	Brand      *string `json:"brand,omitempty"`       // visa, mastercard, amex, etc.
+	ExpiryDate *string `json:"expiry_date,omitempty"` // MM/YY format
 
-	// Common fields
+	// Additional fields
 	DisplayName   string  `json:"display_name"`
 	FailureReason *string `json:"failure_reason,omitempty"`
-	CreatedAt     int64   `json:"created_at"` // Unix epoch seconds
+}
+
+// PaymentMethodToAPI converts a models.PaymentMethod to a Stripe-compatible PaymentMethodResponse
+func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
+	displayName := "Card"
+	if pm.CardType != nil && pm.LastFour != nil {
+		displayName = *pm.CardType + " •••• " + *pm.LastFour
+	} else if pm.LastFour != nil {
+		displayName = "Card •••• " + *pm.LastFour
+	}
+
+	return PaymentMethodResponse{
+		ID:            api.FormatPaymentMethodID(pm.ID),
+		Object:        "payment_method",
+		Type:          "card",
+		Processor:     string(pm.Processor),
+		IsActive:      pm.IsActive,
+		Created:       api.ToUnix(pm.CreatedAt),
+		Last4:         pm.LastFour,
+		Brand:         pm.CardType,
+		ExpiryDate:    pm.ExpiryDate,
+		DisplayName:   displayName,
+		FailureReason: pm.FailureReason,
+	}
+}
+
+// PaymentMethodsToAPI converts a slice of models.PaymentMethod to PaymentMethodResponse slice
+func PaymentMethodsToAPI(methods []*models.PaymentMethod) []PaymentMethodResponse {
+	result := make([]PaymentMethodResponse, len(methods))
+	for i, pm := range methods {
+		result[i] = PaymentMethodToAPI(pm)
+	}
+	return result
 }

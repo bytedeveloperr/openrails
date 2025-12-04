@@ -54,6 +54,37 @@ func (r *ProductRepo) GetAll(ctx context.Context) ([]*models.Product, error) {
 	return products, nil
 }
 
+// GetActivePaginated returns active products with pagination
+func (r *ProductRepo) GetActivePaginated(ctx context.Context, limit, offset int) ([]*models.Product, int64, error) {
+	products := []*models.Product{}
+	count, err := r.db.GetDB().NewSelect().
+		Model(&products).
+		Where("prod.is_active = ?", true).
+		Order("prod.created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		ScanAndCount(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return products, int64(count), nil
+}
+
+// GetAllPaginated returns all products with pagination
+func (r *ProductRepo) GetAllPaginated(ctx context.Context, limit, offset int) ([]*models.Product, int64, error) {
+	products := []*models.Product{}
+	count, err := r.db.GetDB().NewSelect().
+		Model(&products).
+		Order("prod.created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		ScanAndCount(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return products, int64(count), nil
+}
+
 func (r *ProductRepo) Update(ctx context.Context, product *models.Product) error {
 	res, err := r.db.GetDB().NewUpdate().Model(product).WherePK().Exec(ctx)
 	if err != nil {

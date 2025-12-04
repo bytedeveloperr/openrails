@@ -10,17 +10,22 @@ import (
 )
 
 // GetNotifications returns paginated in-app notifications for the current user
+// Query params:
+//   - limit: max results (1-100, default 20)
+//   - offset: pagination offset (default 0)
+//   - seen: filter by read status (true, false, or omit for all)
 func GetNotifications(r *Request) {
 	user := r.GetUser()
 
 	// Parse query params
-	page, _ := strconv.Atoi(r.Request.URL.Query().Get("page"))
-	if page <= 0 {
-		page = 1
+	limit, _ := strconv.Atoi(r.Request.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 100 {
+		limit = 20
 	}
-	pageSize, _ := strconv.Atoi(r.Request.URL.Query().Get("page_size"))
-	if pageSize <= 0 || pageSize > 100 {
-		pageSize = 20
+
+	offset, _ := strconv.Atoi(r.Request.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
 	}
 
 	seenParam := r.Request.URL.Query().Get("seen")
@@ -35,9 +40,9 @@ func GetNotifications(r *Request) {
 	}
 
 	q := &query.QueryOptions[services.GetNotificationsFilters]{
-		Page:     page,
-		PageSize: pageSize,
-		Filters:  services.GetNotificationsFilters{UserID: user.ID, Seen: seen},
+		Limit:   limit,
+		Offset:  offset,
+		Filters: services.GetNotificationsFilters{UserID: user.ID, Seen: seen},
 	}
 
 	items, _, err := r.State.UserSubscriptionService.GetUserNotifications(r.Request.Context(), user.ID, q)
@@ -46,7 +51,7 @@ func GetNotifications(r *Request) {
 		return
 	}
 
-	r.SuccessJSON(PaginatedResponse{Data: items, TotalItems: q.TotalItems, Page: page, PageSize: pageSize})
+	r.SuccessJSONPaginated(items, q.TotalItems, limit, offset)
 }
 
 // MarkNotificationRead marks a notification as read for the user
@@ -70,7 +75,8 @@ func GetUnreadNotificationCount(r *Request) {
 	user := r.GetUser()
 	f := false
 	q := &query.QueryOptions[services.GetNotificationsFilters]{
-		Page: 1, PageSize: 1,
+		Limit:   1,
+		Offset:  0,
 		Filters: services.GetNotificationsFilters{UserID: user.ID, Seen: &f},
 	}
 	// We only need total count; items ignored

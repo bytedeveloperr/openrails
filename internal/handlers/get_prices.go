@@ -2,50 +2,87 @@ package handlers
 
 import (
 	"net/http"
+	"strings"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
+	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/google/uuid"
 )
 
-// GetPrices retrieves all available prices.
-// By default, only active prices are returned.
-// Admins can pass ?include_inactive=true to see all prices.
+// GetPrices retrieves prices with optional filters.
+// Follows Stripe's API pattern: https://docs.stripe.com/api/prices/list
+//
+// Query params:
+//   - active: Only return active (true) or inactive (false) prices. Default: true.
+//     Non-admins can only see active=true; any other value is silently ignored.
+//   - currency: Only return prices for the given currency (e.g., "usd")
+//   - product: Only return prices for the given product ID (with or without prod_ prefix)
+//   - type: Only return prices of type "recurring" or "one_time"
+//   - limit: Maximum number of items to return (default: 20, max: 100)
+//   - offset: Number of items to skip (default: 0)
 func GetPrices(r *Request) {
-	includeInactive := false
+	req := new(GetPricesRequest)
+	req.SetDefaults()
+	if !r.BindQuery(req.Query()) {
+		return
+	}
 
-	// Check if admin is requesting inactive items
-	if r.Query("include_inactive") == "true" {
+	// Build filter
+	filter := services.PriceFilter{
+		Currency: strings.ToLower(req.Currency),
+		Type:     req.Type,
+	}
+
+	// Determine active filter
+	// By default, only active prices are shown
+	// Non-admins can only see active prices
+	if req.Active == nil {
+		// Default to active only
+		active := true
+		filter.Active = &active
+	} else if *req.Active {
+		filter.Active = req.Active
+	} else {
+		// Requesting inactive prices - only admins can do this
 		userCtx := middleware.GetUserContext(r.GinCtx)
 		if userCtx != nil && userCtx.HasRole("admin") {
-			includeInactive = true
+			filter.Active = req.Active
+		} else {
+			// Silently ignore for non-admins, show active only
+			active := true
+			filter.Active = &active
 		}
-		// Non-admins passing include_inactive=true are silently ignored
 	}
 
-	var prices []*models.Price
-	var err error
-
-	if includeInactive {
-		prices, err = r.State.PriceService.GetAll(r.Request.Context())
-	} else {
-		prices, err = r.State.PriceService.GetAllActive(r.Request.Context())
+	// Parse product ID if provided
+	if req.Product != "" {
+		// Accept both "prod_uuid" and raw "uuid" formats
+		productIDStr := strings.TrimPrefix(req.Product, api.PrefixProduct)
+		productID, err := uuid.Parse(productIDStr)
+		if err != nil {
+			r.ErrorJSON(http.StatusBadRequest, "Invalid product ID format")
+			return
+		}
+		filter.ProductID = &productID
 	}
+
+	prices, totalItems, err := r.State.PriceService.ListPaginated(
+		r.Request.Context(),
+		filter,
+		req.Limit,
+		req.Offset,
+	)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
 		return
 	}
 
+	// Convert to API response
 	priceObjects := make([]api.PriceObject, len(prices))
 	for i, p := range prices {
 		priceObjects[i] = PriceToAPI(p)
 	}
 
-	response := api.ListResponse[api.PriceObject]{
-		Object:     "list",
-		Data:       priceObjects,
-		TotalItems: int64(len(priceObjects)),
-	}
-
-	r.SuccessJSON(response)
+	r.SuccessJSON(api.NewListResponse(priceObjects, totalItems, req.Limit, req.Offset))
 }

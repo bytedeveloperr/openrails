@@ -36,8 +36,8 @@ func Webhook(r *Request) {
 
 	// Create dead letter service
 	deadLetterService := &services.DeadLetterService{
-		DB:                       r.State.DB,
-		NotificationQueueService: r.State.NotificationQueueService,
+		DB:                  r.State.DB,
+		NotificationService: r.State.NotificationService,
 	}
 
 	// Capture request headers for dead letter logging

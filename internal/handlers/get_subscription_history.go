@@ -51,6 +51,5 @@ func GetSubscriptionHistory(r *Request) {
 		return
 	}
 
-	response := PaginatedResponse{Data: subscriptions, TotalItems: queryOpts.TotalItems}
-	r.SuccessJSON(response)
+	r.SuccessJSONPaginated(subscriptions, queryOpts.TotalItems, limit, offset)
 }

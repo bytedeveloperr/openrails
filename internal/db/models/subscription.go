@@ -35,9 +35,13 @@ const (
 type Subscription struct {
 	bun.BaseModel `bun:"table:billing.subscriptions,alias:sub"`
 
-	ID      uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
-	UserID  string    `bun:"user_id,notnull" json:"user_id"`
-	PriceID uuid.UUID `bun:"price_id,type:uuid,notnull" json:"price_id"` // Required for all subscriptions
+	ID        uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
+	UserID    string    `bun:"user_id,notnull" json:"user_id"`
+	ProductID uuid.UUID `bun:"product_id,type:uuid,notnull" json:"product_id"` // Denormalized for efficient product-based lookups
+	PriceID   uuid.UUID `bun:"price_id,type:uuid,notnull" json:"price_id"`     // Required for all subscriptions
+
+	// Scheduled tier change (for downgrades that take effect at end of period)
+	ScheduledPriceID *uuid.UUID `bun:"scheduled_price_id,type:uuid,nullzero" json:"scheduled_price_id,omitempty"`
 
 	Status                SubscriptionStatus `bun:"status,notnull,default:'pending'" json:"status"`
 	StartedAt             time.Time          `bun:"started_at,notnull" json:"started_at"`

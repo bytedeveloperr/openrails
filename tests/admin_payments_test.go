@@ -331,7 +331,7 @@ func TestAdminGetPayment(t *testing.T) {
 		assert.Equal(t, api.FormatPaymentID(payment.ID), response["id"], "Payment ID should have pay_ prefix")
 		assert.Equal(t, "payment", response["object"], "Object should be 'payment'")
 		assert.Equal(t, float64(999), response["amount"], "Amount should match")
-		assert.Equal(t, "USD", response["currency"], "Currency should match")
+		assert.Equal(t, "usd", response["currency"], "Currency should match")
 		assert.Equal(t, api.FormatUserID(userID), response["user"], "User should have usr_ prefix")
 		assert.Equal(t, "mobius", response["processor"], "Processor should match")
 		assert.NotNil(t, response["subscription"], "Should include subscription ID")

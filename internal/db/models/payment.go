@@ -27,7 +27,7 @@ type Payment struct {
 
 	// Payment details - amount in cents (smallest currency unit)
 	Amount   int64  `bun:"amount,notnull" json:"amount"`
-	Currency string `bun:"currency,notnull,default:'USD'" json:"currency"`
+	Currency string `bun:"currency,notnull,default:'usd'" json:"currency"`
 
 	PurchasedAt time.Time `bun:"purchased_at,notnull,default:current_timestamp" json:"purchased_at"`
 	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`

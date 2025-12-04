@@ -73,6 +73,7 @@ func (r *SubscriptionRepo) Update(ctx context.Context, s *models.Subscription) e
 			"cancel_type",
 			"cancelled_at",
 			"gateway_response",
+			"scheduled_price_id",
 			"updated_at",
 		).
 		WherePK().
@@ -138,6 +139,23 @@ func (r *SubscriptionRepo) GetByUserIDAndPriceID(ctx context.Context, userID str
 	err := r.selectWithDetails(sub).
 		Where("sub.user_id = ?", userID).
 		Where("sub.price_id = ?", priceID).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return sub, nil
+}
+
+// GetActiveOrPendingByUserIDAndProductID finds any active or pending subscription for a user and product.
+// Returns the subscription with the latest period end date.
+func (r *SubscriptionRepo) GetActiveOrPendingByUserIDAndProductID(ctx context.Context, userID string, productID uuid.UUID) (*models.Subscription, error) {
+	sub := new(models.Subscription)
+	err := r.selectWithDetails(sub).
+		Where("sub.user_id = ?", userID).
+		Where("sub.product_id = ?", productID).
+		Where("sub.status IN (?, ?)", models.StatusActive, models.StatusPending).
+		Order("sub.current_period_ends_at DESC NULLS FIRST"). // NULLS FIRST prioritizes indefinite subscriptions
+		Limit(1).
 		Scan(ctx)
 	if err != nil {
 		return nil, err
@@ -344,4 +362,31 @@ func (r *SubscriptionRepo) selectWithDetails(model any) *bun.SelectQuery {
 	return r.db.GetDB().NewSelect().Model(model).
 		Relation("Price").
 		Relation("PaymentMethod")
+}
+
+func (r *SubscriptionRepo) selectWithProduct(model any) *bun.SelectQuery {
+	return r.db.GetDB().NewSelect().Model(model).
+		Relation("Price").
+		Relation("Price.Product").
+		Relation("PaymentMethod")
+}
+
+// GetActiveOrPendingByUserIDAndTierGroup finds an active or pending subscription for a user
+// where the product belongs to the specified tier group.
+// Returns the subscription with its Price and Product loaded.
+func (r *SubscriptionRepo) GetActiveOrPendingByUserIDAndTierGroup(ctx context.Context, userID string, tierGroup string) (*models.Subscription, error) {
+	sub := new(models.Subscription)
+	err := r.selectWithProduct(sub).
+		Where("sub.user_id = ?", userID).
+		Where("sub.status IN (?, ?)", models.StatusActive, models.StatusPending).
+		// Join to products table to filter by tier_group
+		Join("JOIN billing.products AS prod ON prod.id = sub.product_id").
+		Where("prod.tier_group = ?", tierGroup).
+		Order("sub.current_period_ends_at DESC NULLS FIRST"). // Prioritize indefinite subscriptions
+		Limit(1).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return sub, nil
 }

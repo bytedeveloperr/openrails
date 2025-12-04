@@ -10,6 +10,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
@@ -68,7 +69,7 @@ func CreatePaymentMethod(r *Request) {
 		return
 	}
 
-	r.SuccessJSON(pm)
+	r.SuccessJSON(PaymentMethodToAPI(pm))
 }
 
 // UpdatePaymentMethod replaces the stored payment method using a tokenized payload
@@ -157,36 +158,36 @@ func UpdatePaymentMethod(r *Request) {
 		return
 	}
 
-	r.SuccessJSON(updated)
+	r.SuccessJSON(PaymentMethodToAPI(updated))
 }
 
 func ListPaymentMethods(r *Request) {
 	req := new(ListPaymentMethodsRequest)
 	req.SetDefaults()
-	if !r.BindQuery(req) {
+	if !r.BindQuery(req.Query()) {
 		return
 	}
 
 	// Fallback if Bind doesn't populate query embedded struct
-	if p := r.Request.URL.Query().Get("page"); p != "" {
-		if v, err := strconv.Atoi(p); err == nil && v > 0 {
-			req.Page = v
+	if l := r.Request.URL.Query().Get("limit"); l != "" {
+		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 100 {
+			req.Limit = v
 		} else if err != nil {
-			log.WithError(err).WithField("page", p).Error("Invalid page parameter")
-			r.ErrorJSON(http.StatusBadRequest, "Invalid page parameter - must be a positive integer")
+			log.WithError(err).WithField("limit", l).Error("Invalid limit parameter")
+			r.ErrorJSON(http.StatusBadRequest, "Invalid limit parameter - must be a positive integer")
+			return
+		} else if v > 100 {
+			log.WithField("limit", v).Error("Limit too large")
+			r.ErrorJSON(http.StatusBadRequest, "Limit cannot exceed 100")
 			return
 		}
 	}
-	if ps := r.Request.URL.Query().Get("page_size"); ps != "" {
-		if v, err := strconv.Atoi(ps); err == nil && v > 0 && v <= 500 {
-			req.PageSize = v
+	if o := r.Request.URL.Query().Get("offset"); o != "" {
+		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
+			req.Offset = v
 		} else if err != nil {
-			log.WithError(err).WithField("page_size", ps).Error("Invalid page_size parameter")
-			r.ErrorJSON(http.StatusBadRequest, "Invalid page_size parameter - must be a positive integer")
-			return
-		} else if v > 500 {
-			log.WithField("page_size", v).Error("Page size too large")
-			r.ErrorJSON(http.StatusBadRequest, "Page size cannot exceed 500")
+			log.WithError(err).WithField("offset", o).Error("Invalid offset parameter")
+			r.ErrorJSON(http.StatusBadRequest, "Invalid offset parameter - must be a non-negative integer")
 			return
 		}
 	}
@@ -199,12 +200,12 @@ func ListPaymentMethods(r *Request) {
 	}
 
 	// Validate pagination parameters
-	if req.Page < 1 {
-		r.ErrorJSON(http.StatusBadRequest, "Page must be greater than 0")
+	if req.Limit < 1 || req.Limit > 100 {
+		r.ErrorJSON(http.StatusBadRequest, "Limit must be between 1 and 100")
 		return
 	}
-	if req.PageSize < 1 || req.PageSize > 500 {
-		r.ErrorJSON(http.StatusBadRequest, "Page size must be between 1 and 500")
+	if req.Offset < 0 {
+		r.ErrorJSON(http.StatusBadRequest, "Offset must be non-negative")
 		return
 	}
 
@@ -212,32 +213,21 @@ func ListPaymentMethods(r *Request) {
 		r.Request.Context(),
 		user.ID,
 		req.IncludeInactive,
-		req.Page,
-		req.PageSize,
+		req.Limit,
+		req.Offset,
 	)
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{
 			"user_id":          user.ID,
 			"include_inactive": req.IncludeInactive,
-			"page":             req.Page,
-			"page_size":        req.PageSize,
+			"limit":            req.Limit,
+			"offset":           req.Offset,
 		}).Error("Failed to retrieve payment methods")
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to retrieve payment methods")
 		return
 	}
 
-	totalPages := 0
-	if req.PageSize > 0 {
-		totalPages = int((totalItems + int64(req.PageSize) - 1) / int64(req.PageSize))
-	}
-
-	r.SuccessJSON(PaginatedResponse{
-		Data:       methods,
-		TotalItems: totalItems,
-		Page:       req.Page,
-		PageSize:   req.PageSize,
-		TotalPages: totalPages,
-	})
+	r.SuccessJSON(api.NewListResponse(PaymentMethodsToAPI(methods), totalItems, req.Limit, req.Offset))
 }
 
 // DeletePaymentMethod removes a payment method by ID

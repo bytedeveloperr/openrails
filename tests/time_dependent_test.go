@@ -1114,7 +1114,7 @@ func TestPaymentTimestampUsesMockClock(t *testing.T) {
 			Processor:     models.ProcessorMobius,
 			TransactionID: "test-tx-" + uuid.New().String()[:8],
 			Amount:        999,
-			Currency:      "USD",
+			Currency:      "usd",
 			PurchasedAt:   mockClock.Now(),
 		}
 
@@ -1139,7 +1139,7 @@ func TestPaymentTimestampUsesMockClock(t *testing.T) {
 			Processor:     models.ProcessorMobius,
 			TransactionID: "test-tx-" + uuid.New().String()[:8],
 			Amount:        999,
-			Currency:      "USD",
+			Currency:      "usd",
 			PurchasedAt:   mockClock.Now(),
 		}
 

@@ -85,8 +85,8 @@ func (w *DunningWorker) Work(ctx context.Context, job *river.Job[DunningArgs]) e
 	priceSvc := services.NewPriceService(w.DB)
 	productSvc := services.NewProductService(w.DB)
 	entitlementSvc := services.NewEntitlementService(w.DB)
-	notifQueueSvc := services.NewNotificationQueueService(w.DB)
-	lifecycle := services.NewSubscriptionLifecycleService(w.DB, productSvc, priceSvc, entitlementSvc, notifQueueSvc)
+	notifSvc := services.NewNotificationService(w.DB, nil)
+	lifecycle := services.NewSubscriptionLifecycleService(w.DB, productSvc, priceSvc, entitlementSvc, notifSvc)
 	paymentSvc := services.NewPaymentService(w.DB)
 
 	successCount := 0
@@ -186,7 +186,7 @@ func (w *DunningWorker) processSubscription(
 
 	// Create payment record
 	var amount int64
-	currency := "USD"
+	currency := "usd"
 	if sub.Price != nil {
 		amount = sub.Price.Amount
 		currency = sub.Price.Currency

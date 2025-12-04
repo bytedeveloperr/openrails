@@ -71,6 +71,45 @@ func (r *PriceRepo) GetAll(ctx context.Context) ([]*models.Price, error) {
 	return prices, nil
 }
 
+// PriceFilter contains optional filters for listing prices
+type PriceFilter struct {
+	Active    *bool      // Filter by active status
+	Currency  string     // Filter by currency (e.g., "usd")
+	ProductID *uuid.UUID // Filter by product ID
+	Type      string     // Filter by "recurring" or "one_time"
+}
+
+// ListPaginated returns prices with pagination and optional filters
+func (r *PriceRepo) ListPaginated(ctx context.Context, filter PriceFilter, limit, offset int) ([]*models.Price, int64, error) {
+	prices := []*models.Price{}
+	query := r.db.GetDB().NewSelect().
+		Model(&prices).
+		Relation("Product").
+		Order("price.created_at DESC")
+
+	// Apply filters
+	if filter.Active != nil {
+		query = query.Where("price.is_active = ?", *filter.Active)
+	}
+	if filter.Currency != "" {
+		query = query.Where("LOWER(price.currency) = LOWER(?)", filter.Currency)
+	}
+	if filter.ProductID != nil {
+		query = query.Where("price.product_id = ?", *filter.ProductID)
+	}
+	if filter.Type == "recurring" {
+		query = query.Where("price.billing_cycle_days IS NOT NULL AND price.billing_cycle_days > 0")
+	} else if filter.Type == "one_time" {
+		query = query.Where("price.billing_cycle_days IS NULL OR price.billing_cycle_days = 0")
+	}
+
+	count, err := query.Limit(limit).Offset(offset).ScanAndCount(ctx)
+	if err != nil {
+		return nil, 0, err
+	}
+	return prices, int64(count), nil
+}
+
 func (r *PriceRepo) GetByNMIPlan(ctx context.Context, provider, nmiPlanID string) (*models.Price, error) {
 	price := new(models.Price)
 	provider = strings.TrimSpace(strings.ToLower(provider))

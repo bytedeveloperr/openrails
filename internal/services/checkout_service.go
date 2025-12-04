@@ -1,0 +1,1396 @@
+package services
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/doujins-org/doujins-billing/config"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
+	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	"github.com/doujins-org/doujins-billing/internal/processors"
+	"github.com/google/uuid"
+	"github.com/jonboulle/clockwork"
+	log "github.com/sirupsen/logrus"
+)
+
+// CheckoutRequest represents a unified checkout request
+type CheckoutRequest struct {
+	PriceID         string `json:"price_id"`
+	PaymentMethodID string `json:"payment_method_id,omitempty"` // For stored payment methods
+	PaymentToken    string `json:"payment_token,omitempty"`     // For direct tokenized card
+	Processor       string `json:"processor"`                   // mobius, ccbill, solana
+
+	// Optional billing info (used when creating vault from payment token)
+	Email     string `json:"email,omitempty"`
+	FirstName string `json:"first_name,omitempty"`
+	LastName  string `json:"last_name,omitempty"`
+	Address1  string `json:"address1,omitempty"`
+	City      string `json:"city,omitempty"`
+	State     string `json:"state,omitempty"`
+	Zip       string `json:"zip,omitempty"`
+	Country   string `json:"country,omitempty"`
+}
+
+// CheckoutResponse represents the unified checkout response
+type CheckoutResponse struct {
+	Status         string     `json:"status"`                    // success, pending, redirect_required, blocked
+	Action         string     `json:"action,omitempty"`          // new, upgrade, downgrade - indicates the type of checkout
+	Message        string     `json:"message,omitempty"`         // User-friendly message
+	SubscriptionID *uuid.UUID `json:"subscription_id,omitempty"` // For subscription purchases
+	PaymentID      *uuid.UUID `json:"payment_id,omitempty"`      // For one-time purchases
+	TransactionID  string     `json:"transaction_id,omitempty"`  // Processor transaction ID
+	RedirectURL    string     `json:"redirect_url,omitempty"`    // For CCBill FlexForm
+	DelayedStart   *time.Time `json:"delayed_start,omitempty"`   // When subscription/entitlement will start
+}
+
+// CoverageInfo represents the user's current product coverage
+type CoverageInfo struct {
+	HasCoverage  bool       // Whether user has any active coverage
+	IsIndefinite bool       // True if coverage has no end date
+	EndDate      *time.Time // When coverage ends (nil if indefinite)
+	SourceType   string     // "subscription" or "entitlement"
+	SourceID     *uuid.UUID // ID of the subscription or entitlement source
+}
+
+// EligibilityStatus represents the result of a purchase eligibility check
+type EligibilityStatus string
+
+const (
+	EligibilityAllowed   EligibilityStatus = "allowed"   // User can purchase
+	EligibilityBlocked   EligibilityStatus = "blocked"   // User already has this product
+	EligibilityUpgrade   EligibilityStatus = "upgrade"   // User is upgrading within a tier group
+	EligibilityDowngrade EligibilityStatus = "downgrade" // User is downgrading within a tier group
+)
+
+// EligibilityResult contains the result of checking if a user can purchase a product
+type EligibilityResult struct {
+	Status               EligibilityStatus    // Whether the purchase is allowed
+	Reason               string               // Human-readable explanation
+	Coverage             *CoverageInfo        // User's current coverage for this product
+	ExistingSubscription *models.Subscription // For upgrades/downgrades, the existing subscription
+	ExistingProduct      *models.Product      // For upgrades/downgrades, the existing product
+}
+
+// CheckoutService handles unified checkout for subscriptions and one-time purchases
+type CheckoutService struct {
+	SubscriptionService  *SubscriptionService
+	ProductService       *ProductService
+	PriceService         *PriceService
+	PaymentService       *PaymentService
+	EntitlementService   *EntitlementService
+	PaymentMethodService *PaymentMethodService
+	VaultService         *VaultService
+	IdempotencyService   *IdempotencyService
+	NMIClients           map[string]*nmi.NMIClient
+	Clock                clockwork.Clock
+	Config               *config.Config
+}
+
+// now returns the current time from the service's clock, or time.Now() if no clock is set.
+func (s *CheckoutService) now() time.Time {
+	if s.Clock != nil {
+		return s.Clock.Now()
+	}
+	return time.Now()
+}
+
+// NewCheckoutService creates a new CheckoutService
+func NewCheckoutService(
+	subscriptionService *SubscriptionService,
+	productService *ProductService,
+	priceService *PriceService,
+	paymentService *PaymentService,
+	entitlementService *EntitlementService,
+	paymentMethodService *PaymentMethodService,
+	vaultService *VaultService,
+	idempotencyService *IdempotencyService,
+	nmiClients map[string]*nmi.NMIClient,
+	cfg *config.Config,
+) *CheckoutService {
+	return &CheckoutService{
+		SubscriptionService:  subscriptionService,
+		ProductService:       productService,
+		PriceService:         priceService,
+		PaymentService:       paymentService,
+		EntitlementService:   entitlementService,
+		PaymentMethodService: paymentMethodService,
+		VaultService:         vaultService,
+		IdempotencyService:   idempotencyService,
+		NMIClients:           nmiClients,
+		Config:               cfg,
+	}
+}
+
+// CheckPurchaseEligibility determines if a user can purchase a given price.
+// This should be called BEFORE generating payment URLs or charging cards.
+//
+// Returns:
+//   - EligibilityAllowed: User can proceed with purchase
+//   - EligibilityBlocked: User already owns this product (duplicate prevention)
+//   - EligibilityUpgrade: User is upgrading within a tier group
+//   - EligibilityDowngrade: User is downgrading within a tier group
+//
+// For upgrades/downgrades, the caller can decide how to handle (e.g., proration).
+// For blocked, the caller should reject the purchase attempt.
+func (s *CheckoutService) CheckPurchaseEligibility(ctx context.Context, userID string, priceID uuid.UUID) (*EligibilityResult, error) {
+	// Get price
+	price, err := s.PriceService.GetByID(ctx, priceID)
+	if err != nil {
+		return nil, fmt.Errorf("price not found: %w", err)
+	}
+	if !price.IsActive {
+		return &EligibilityResult{
+			Status: EligibilityBlocked,
+			Reason: "price is not available for purchase",
+		}, nil
+	}
+
+	// Get product
+	product, err := s.ProductService.GetByID(ctx, price.ProductID)
+	if err != nil {
+		return nil, fmt.Errorf("product not found: %w", err)
+	}
+	if !product.IsActive {
+		return &EligibilityResult{
+			Status: EligibilityBlocked,
+			Reason: "product is not available for purchase",
+		}, nil
+	}
+
+	// Check for tier group conflicts (upgrade/downgrade scenarios)
+	if product.TierGroup != nil && *product.TierGroup != "" {
+		existingSub, err := s.SubscriptionService.GetActiveOrPendingByUserIDAndTierGroup(ctx, userID, *product.TierGroup)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to check tier group: %w", err)
+		}
+
+		if existingSub != nil {
+			existingProduct := existingSub.Price.Product
+			if existingProduct == nil {
+				return nil, errors.New("failed to load existing product for tier comparison")
+			}
+
+			if existingProduct.ID == product.ID {
+				// Same product - fall through to coverage check
+			} else if existingProduct.TierRank < product.TierRank {
+				// Upgrade: existing is lower tier than requested
+				return &EligibilityResult{
+					Status:               EligibilityUpgrade,
+					Reason:               fmt.Sprintf("Upgrading from %s to %s", existingProduct.DisplayName, product.DisplayName),
+					ExistingSubscription: existingSub,
+					ExistingProduct:      existingProduct,
+				}, nil
+			} else if existingProduct.TierRank > product.TierRank {
+				// Downgrade: existing is higher tier than requested
+				return &EligibilityResult{
+					Status:               EligibilityDowngrade,
+					Reason:               fmt.Sprintf("Downgrading from %s to %s", existingProduct.DisplayName, product.DisplayName),
+					ExistingSubscription: existingSub,
+					ExistingProduct:      existingProduct,
+				}, nil
+			} else {
+				// Same tier rank but different product - block as duplicate
+				return &EligibilityResult{
+					Status: EligibilityBlocked,
+					Reason: fmt.Sprintf("You already have an equivalent product (%s) in this tier", existingProduct.DisplayName),
+				}, nil
+			}
+		}
+	}
+
+	// Check for existing coverage
+	coverage, err := s.GetUserProductCoverage(ctx, userID, product)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing coverage: %w", err)
+	}
+
+	if coverage.HasCoverage && coverage.IsIndefinite {
+		// User has indefinite coverage - block purchase
+		return &EligibilityResult{
+			Status:   EligibilityBlocked,
+			Reason:   "You already have active access to this product",
+			Coverage: coverage,
+		}, nil
+	}
+
+	// User can purchase (possibly with delayed start if they have finite coverage)
+	return &EligibilityResult{
+		Status:   EligibilityAllowed,
+		Reason:   "Purchase allowed",
+		Coverage: coverage,
+	}, nil
+}
+
+// Checkout processes a unified checkout request
+func (s *CheckoutService) Checkout(ctx context.Context, req *CheckoutRequest, user *UserIdentity) (*CheckoutResponse, error) {
+	// Parse and validate price
+	priceID, err := uuid.Parse(req.PriceID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid price_id: %w", err)
+	}
+
+	price, err := s.PriceService.GetByID(ctx, priceID)
+	if err != nil {
+		return nil, fmt.Errorf("price not found: %w", err)
+	}
+	if !price.IsActive {
+		return nil, errors.New("price is not available for purchase")
+	}
+
+	// Get product
+	product, err := s.ProductService.GetByID(ctx, price.ProductID)
+	if err != nil {
+		return nil, fmt.Errorf("product not found: %w", err)
+	}
+	if !product.IsActive {
+		return nil, errors.New("product is not available for purchase")
+	}
+
+	// Normalize processor
+	processor := strings.TrimSpace(strings.ToLower(req.Processor))
+	if processor == "" {
+		return nil, errors.New("processor is required")
+	}
+
+	// Check for tier group conflicts (upgrade/downgrade scenarios)
+	// This must happen BEFORE the general coverage check
+	if product.TierGroup != nil && *product.TierGroup != "" {
+		existingSub, err := s.SubscriptionService.GetActiveOrPendingByUserIDAndTierGroup(ctx, user.ID, *product.TierGroup)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to check tier group: %w", err)
+		}
+
+		if existingSub != nil {
+			// User has an active subscription in the same tier group
+			existingProduct := existingSub.Price.Product
+			if existingProduct == nil {
+				return nil, errors.New("failed to load existing product for tier comparison")
+			}
+
+			if existingProduct.ID == product.ID {
+				// Same product - this is a duplicate, not an upgrade/downgrade
+				// Fall through to normal coverage check below
+			} else if existingProduct.TierRank < product.TierRank {
+				// Upgrade: existing is lower tier than requested
+				return s.processUpgrade(ctx, req, user, price, product, existingSub, processor)
+			} else if existingProduct.TierRank > product.TierRank {
+				// Downgrade: existing is higher tier than requested
+				return s.processDowngrade(ctx, req, user, price, product, existingSub, processor)
+			} else {
+				// Same tier rank but different product - treat as duplicate
+				return &CheckoutResponse{
+					Status:  "blocked",
+					Message: fmt.Sprintf("You already have an equivalent product (%s) in this tier", existingProduct.DisplayName),
+				}, nil
+			}
+		}
+	}
+
+	// Check for existing coverage and determine if purchase is allowed
+	coverage, err := s.GetUserProductCoverage(ctx, user.ID, product)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check existing coverage: %w", err)
+	}
+
+	// Deduplication logic
+	if coverage.HasCoverage {
+		if coverage.IsIndefinite {
+			// User has indefinite coverage - block purchase
+			return &CheckoutResponse{
+				Status:  "blocked",
+				Message: "You already have active access to this product",
+			}, nil
+		}
+
+		// User has coverage with an end date
+		// CCBill cannot schedule future start dates - block
+		if processor == "ccbill" {
+			return &CheckoutResponse{
+				Status:  "blocked",
+				Message: "You already have active access. CCBill subscriptions cannot be scheduled for future start. Please try again when your current access expires.",
+			}, nil
+		}
+
+		// Other processors: allow with delayed start
+	}
+
+	// Determine if this is a subscription or one-time purchase
+	isSubscription := price.BillingCycleDays != nil
+
+	if isSubscription {
+		return s.processSubscription(ctx, req, user, price, product, coverage, processor)
+	}
+	return s.processOneTimePurchase(ctx, req, user, price, product, coverage, processor)
+}
+
+// GetUserProductCoverage checks if user has active coverage for a product.
+// It checks both:
+// 1. Active/pending subscriptions (using the denormalized ProductID field)
+// 2. Active entitlements matching the product's EntitlementsSpec
+func (s *CheckoutService) GetUserProductCoverage(ctx context.Context, userID string, product *models.Product) (*CoverageInfo, error) {
+	now := s.now()
+	coverage := &CoverageInfo{HasCoverage: false}
+
+	// Check for active/pending subscription for this product (single query using denormalized ProductID)
+	if s.SubscriptionService != nil {
+		sub, err := s.SubscriptionService.GetActiveOrPendingByUserIDAndProductID(ctx, userID, product.ID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("failed to check subscription: %w", err)
+		}
+		if sub != nil {
+			coverage.HasCoverage = true
+			coverage.SourceType = "subscription"
+			coverage.SourceID = &sub.ID
+
+			// Check if subscription has an end date
+			if sub.CurrentPeriodEndsAt == nil || sub.CurrentPeriodEndsAt.IsZero() {
+				coverage.IsIndefinite = true
+				return coverage, nil
+			}
+
+			coverage.EndDate = sub.CurrentPeriodEndsAt
+		}
+	}
+
+	// Check for active entitlements from the product's EntitlementsSpec
+	if s.EntitlementService != nil && product.EntitlementsSpec != nil {
+		for entitlementName := range product.EntitlementsSpec {
+			// Check for indefinite entitlement
+			hasIndefinite, err := s.EntitlementService.HasActiveIndefinite(ctx, userID, entitlementName, now)
+			if err != nil {
+				return nil, fmt.Errorf("failed to check indefinite entitlement: %w", err)
+			}
+			if hasIndefinite {
+				coverage.HasCoverage = true
+				coverage.IsIndefinite = true
+				coverage.SourceType = "entitlement"
+				return coverage, nil
+			}
+
+			// Check for finite entitlement
+			ent, err := s.EntitlementService.LatestFiniteWindow(ctx, userID, entitlementName, now)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return nil, fmt.Errorf("failed to check finite entitlement: %w", err)
+			}
+			if ent != nil && ent.EndAt != nil {
+				coverage.HasCoverage = true
+				coverage.SourceType = "entitlement"
+				coverage.SourceID = &ent.ID
+
+				if coverage.EndDate == nil || ent.EndAt.After(*coverage.EndDate) {
+					coverage.EndDate = ent.EndAt
+				}
+			}
+		}
+	}
+
+	return coverage, nil
+}
+
+// processSubscription handles subscription purchases
+func (s *CheckoutService) processSubscription(
+	ctx context.Context,
+	req *CheckoutRequest,
+	user *UserIdentity,
+	price *models.Price,
+	product *models.Product,
+	coverage *CoverageInfo,
+	processor string,
+) (*CheckoutResponse, error) {
+	switch processor {
+	case "ccbill":
+		return s.processCCBillSubscription(ctx, req, user, price)
+	case "mobius", "nmi":
+		return s.processNMISubscription(ctx, req, user, price, product, coverage)
+	case "solana":
+		return nil, errors.New("solana does not support recurring subscriptions; use a one-time price instead")
+	default:
+		return nil, fmt.Errorf("unsupported processor: %s", processor)
+	}
+}
+
+// processOneTimePurchase handles one-time purchases
+func (s *CheckoutService) processOneTimePurchase(
+	ctx context.Context,
+	req *CheckoutRequest,
+	user *UserIdentity,
+	price *models.Price,
+	product *models.Product,
+	coverage *CoverageInfo,
+	processor string,
+) (*CheckoutResponse, error) {
+	switch processor {
+	case "mobius", "nmi":
+		return s.processNMISale(ctx, req, user, price, product, coverage)
+	case "solana":
+		return s.processSolanaPurchase(ctx, req, user, price, product, coverage)
+	case "ccbill":
+		return nil, errors.New("ccbill does not support one-time purchases; use a subscription price instead")
+	default:
+		return nil, fmt.Errorf("unsupported processor for one-time purchases: %s", processor)
+	}
+}
+
+// processCCBillSubscription handles CCBill subscription creation
+// Returns a FlexForm URL that the client can redirect to for payment
+func (s *CheckoutService) processCCBillSubscription(
+	ctx context.Context,
+	req *CheckoutRequest,
+	user *UserIdentity,
+	price *models.Price,
+) (*CheckoutResponse, error) {
+	// Validate CCBill configuration
+	if s.Config == nil || s.Config.CCBill == nil {
+		return nil, errors.New("CCBill configuration is not available")
+	}
+
+	// Validate price has CCBill configuration
+	ccbillPriceID, hasCCBill := price.GetCCBillConfig()
+	if !hasCCBill || ccbillPriceID == "" {
+		return nil, fmt.Errorf("price %s is not configured for CCBill", price.ID)
+	}
+
+	// User must have verified email for CCBill payments
+	if user.Email == nil || strings.TrimSpace(*user.Email) == "" {
+		return nil, errors.New("verified email required for CCBill payments")
+	}
+
+	// User must have a username for CCBill (used for webhook resolution via profiles.users)
+	if user.Username == "" {
+		return nil, errors.New("username required for CCBill payments")
+	}
+
+	// Generate FlexForm URL
+	ccbillClient := ccbill.NewClient(s.Config.CCBill, s.Config.Env == "prod")
+	flexFormParams := &ccbill.GenerateFlexFormURLParams{
+		Username:      user.Username,
+		Email:         *user.Email,
+		CustomerFName: req.FirstName,
+		CustomerLName: req.LastName,
+		Address1:      req.Address1,
+		City:          req.City,
+		State:         req.State,
+		ZipCode:       req.Zip,
+		Country:       req.Country,
+		FlexID:        ccbillPriceID,
+	}
+
+	response, err := ccbillClient.GenerateFlexFormURL(flexFormParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate CCBill FlexForm URL: %w", err)
+	}
+
+	log.WithFields(log.Fields{
+		"user_id":  user.ID,
+		"price_id": price.ID,
+	}).Info("Generated CCBill FlexForm URL via checkout")
+
+	return &CheckoutResponse{
+		Status:      "redirect_required",
+		Action:      "new",
+		Message:     "Redirect to CCBill payment form",
+		RedirectURL: response.IFrameURL,
+	}, nil
+}
+
+// processCCBillUpgrade handles CCBill subscription upgrades
+// Returns a FlexForm URL for the upgrade that the client can redirect to
+func (s *CheckoutService) processCCBillUpgrade(
+	ctx context.Context,
+	user *UserIdentity,
+	newPrice *models.Price,
+	existingSub *models.Subscription,
+) (*CheckoutResponse, error) {
+	// Validate CCBill configuration
+	if s.Config == nil || s.Config.CCBill == nil {
+		return nil, errors.New("CCBill configuration is not available")
+	}
+
+	// Validate existing subscription is CCBill
+	if existingSub.Processor != models.ProcessorCCBill {
+		return nil, errors.New("existing subscription is not a CCBill subscription")
+	}
+	if existingSub.ProcessorSubscriptionID == "" {
+		return nil, errors.New("existing subscription is missing CCBill reference")
+	}
+
+	// Validate new price has CCBill configuration
+	ccbillPriceID, hasCCBill := newPrice.GetCCBillConfig()
+	if !hasCCBill || ccbillPriceID == "" {
+		return nil, fmt.Errorf("target price %s is not configured for CCBill", newPrice.ID)
+	}
+
+	// User must have verified email for CCBill payments
+	if user.Email == nil || strings.TrimSpace(*user.Email) == "" {
+		return nil, errors.New("verified email required for CCBill payments")
+	}
+
+	// User must have a username for CCBill (used for webhook resolution via profiles.users)
+	if user.Username == "" {
+		return nil, errors.New("username required for CCBill payments")
+	}
+
+	// Generate upgrade FlexForm URL
+	ccbillClient := ccbill.NewClient(s.Config.CCBill, s.Config.Env == "prod")
+	upgradeParams := &ccbill.GenerateUpgradeFlexFormURLParams{
+		Username:               user.Username,
+		Email:                  *user.Email,
+		FlexID:                 ccbillPriceID,
+		OriginalSubscriptionID: existingSub.ProcessorSubscriptionID,
+	}
+
+	response, err := ccbillClient.GenerateUpgradeFlexFormURL(upgradeParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate CCBill upgrade FlexForm URL: %w", err)
+	}
+
+	log.WithFields(log.Fields{
+		"user_id":                   user.ID,
+		"subscription_id":           existingSub.ID,
+		"current_price_id":          existingSub.PriceID,
+		"target_price_id":           newPrice.ID,
+		"processor_subscription_id": existingSub.ProcessorSubscriptionID,
+	}).Info("Generated CCBill upgrade FlexForm URL via checkout")
+
+	return &CheckoutResponse{
+		Status:         "redirect_required",
+		Action:         "upgrade",
+		Message:        "Redirect to CCBill upgrade form",
+		RedirectURL:    response.IFrameURL,
+		SubscriptionID: &existingSub.ID,
+	}, nil
+}
+
+// processNMISubscription handles NMI-backed subscription creation (mobius, etc.)
+func (s *CheckoutService) processNMISubscription(
+	ctx context.Context,
+	req *CheckoutRequest,
+	user *UserIdentity,
+	price *models.Price,
+	product *models.Product,
+	coverage *CoverageInfo,
+) (*CheckoutResponse, error) {
+	// Get NMI plan configuration from price
+	nmiPlanID, provider, hasNMI := price.GetNMIConfig()
+	if !hasNMI || nmiPlanID == "" {
+		return nil, fmt.Errorf("price %s is missing NMI plan configuration", price.ID)
+	}
+
+	client, ok := s.NMIClients[provider]
+	if !ok {
+		return nil, fmt.Errorf("NMI provider '%s' is not configured", provider)
+	}
+
+	// Get or create vault (payment method)
+	customerVaultID, createdPaymentMethod, err := s.resolveVault(ctx, req, user, provider)
+	if err != nil {
+		return nil, err
+	}
+
+	// Build subscription ID
+	subscriptionID := uuid.New()
+
+	// Determine start date for delayed start
+	var startDate string
+	var delayedStart *time.Time
+	if coverage.HasCoverage && coverage.EndDate != nil {
+		// Schedule subscription to start when current coverage ends
+		startDate = coverage.EndDate.Format("20060102") // YYYYMMDD format for NMI
+		delayedStart = coverage.EndDate
+	}
+
+	// Build NMI params
+	params := nmi.RecurringPaymentData{
+		CardUserData: nmi.CardUserData{
+			FirstName: s.resolveFirstName(req, user),
+			LastName:  s.resolveLastName(req),
+			Address1:  s.defaultIfEmpty(req.Address1, "N/A"),
+			City:      s.defaultIfEmpty(req.City, "N/A"),
+			State:     s.defaultIfEmpty(req.State, "N/A"),
+			Zip:       s.defaultIfEmpty(req.Zip, "00000"),
+			Country:   s.defaultIfEmpty(req.Country, "US"),
+		},
+		PlanID:          nmiPlanID,
+		CustomerVaultID: customerVaultID,
+		Amount:          float64(price.Amount) / 100.0, // Convert cents to dollars
+		Currency:        price.Currency,
+		Email:           req.Email,
+		OrderID:         subscriptionID.String(),
+		PONumber:        subscriptionID.String(),
+		CustomerID:      user.ID,
+		StartDate:       startDate,
+	}
+
+	// Create subscription with NMI
+	resp, err := client.AddRecurringSubscription(params)
+	if err != nil {
+		// Cleanup vault if we created it
+		if createdPaymentMethod != nil && s.VaultService != nil {
+			if cleanupErr := s.VaultService.DeleteVault(ctx, createdPaymentMethod); cleanupErr != nil {
+				log.WithError(cleanupErr).WithField("vault_id", customerVaultID).Warn("failed to cleanup payment method after subscription error")
+			}
+		}
+		return nil, fmt.Errorf("failed to create subscription: %w", err)
+	}
+
+	// Determine initial status
+	status := models.StatusPending
+	if startDate != "" {
+		// Delayed start - subscription won't charge until start date
+		status = models.StatusPending
+	}
+
+	// Create subscription record
+	var emailPtr *string
+	if req.Email != "" {
+		emailPtr = &req.Email
+	}
+
+	subscription := &models.Subscription{
+		ID:                      subscriptionID,
+		UserID:                  user.ID,
+		ProductID:               price.ProductID,
+		PriceID:                 price.ID,
+		ProcessorSubscriptionID: resp.SubscriptionID,
+		Status:                  status,
+		Processor:               models.ProcessorMobius,
+		UserEmail:               emailPtr,
+	}
+
+	if createdPaymentMethod != nil {
+		subscription.PaymentMethodID = &createdPaymentMethod.ID
+	} else if req.PaymentMethodID != "" {
+		pmID, _ := uuid.Parse(req.PaymentMethodID)
+		subscription.PaymentMethodID = &pmID
+	}
+
+	if err := s.SubscriptionService.Create(ctx, subscription); err != nil {
+		return nil, fmt.Errorf("failed to save subscription: %w", err)
+	}
+
+	statusMsg := "pending"
+	message := "Subscription created successfully"
+	if delayedStart != nil {
+		message = fmt.Sprintf("Subscription scheduled to start on %s", delayedStart.Format("2006-01-02"))
+	}
+
+	return &CheckoutResponse{
+		Status:         statusMsg,
+		Action:         "new",
+		Message:        message,
+		SubscriptionID: &subscriptionID,
+		TransactionID:  resp.TransactionID,
+		DelayedStart:   delayedStart,
+	}, nil
+}
+
+// processNMISale handles NMI one-time sale (card purchase)
+func (s *CheckoutService) processNMISale(
+	ctx context.Context,
+	req *CheckoutRequest,
+	user *UserIdentity,
+	price *models.Price,
+	product *models.Product,
+	coverage *CoverageInfo,
+) (*CheckoutResponse, error) {
+	provider := "mobius" // Default NMI provider
+
+	client, ok := s.NMIClients[provider]
+	if !ok {
+		return nil, fmt.Errorf("NMI provider '%s' is not configured", provider)
+	}
+
+	// Get or create vault
+	customerVaultID, createdPaymentMethod, err := s.resolveVault(ctx, req, user, provider)
+	if err != nil {
+		return nil, err
+	}
+
+	// Generate order ID for the sale
+	orderID := uuid.New().String()
+
+	// Execute sale via NMI
+	saleResp, err := client.RunSale(nmi.SaleParams{
+		CustomerVaultID:  customerVaultID,
+		Amount:           price.Amount,
+		Currency:         price.Currency,
+		OrderDescription: fmt.Sprintf("Purchase: %s - %s", product.DisplayName, price.DisplayName),
+		OrderID:          orderID,
+	})
+	if err != nil {
+		// Cleanup vault if we created it
+		if createdPaymentMethod != nil && s.VaultService != nil {
+			_ = s.VaultService.DeleteVault(ctx, createdPaymentMethod)
+		}
+		return nil, fmt.Errorf("payment failed: %w", err)
+	}
+
+	// Use RegisterPurchase to record payment and grant entitlements
+	result, err := s.RegisterPurchase(ctx, &RegisterPurchaseRequest{
+		UserID:        user.ID,
+		PriceID:       price.ID,
+		Processor:     string(models.ProcessorMobius),
+		TransactionID: saleResp.TransactionID,
+		Amount:        price.Amount,
+		Currency:      price.Currency,
+	})
+	if err != nil {
+		log.WithError(err).WithField("transaction_id", saleResp.TransactionID).Error("failed to register purchase after successful NMI sale")
+		return nil, fmt.Errorf("payment processed but failed to register: %w", err)
+	}
+
+	return &CheckoutResponse{
+		Status:        "success",
+		Action:        "new",
+		Message:       "Purchase completed successfully",
+		PaymentID:     &result.PaymentID,
+		TransactionID: saleResp.TransactionID,
+		DelayedStart:  result.DelayedStart,
+	}, nil
+}
+
+// processSolanaPurchase handles Solana one-time purchases
+func (s *CheckoutService) processSolanaPurchase(
+	ctx context.Context,
+	req *CheckoutRequest,
+	user *UserIdentity,
+	price *models.Price,
+	product *models.Product,
+	coverage *CoverageInfo,
+) (*CheckoutResponse, error) {
+	// For Solana, we redirect to the payment intent flow
+	// The actual payment is handled by CreatePaymentIntent + ConfirmPaymentIntent
+	return &CheckoutResponse{
+		Status:  "redirect_required",
+		Action:  "new",
+		Message: "Use POST /v1/payment-intents to create a Solana payment",
+	}, nil
+}
+
+// resolveVault gets an existing vault or creates one from payment token
+func (s *CheckoutService) resolveVault(ctx context.Context, req *CheckoutRequest, user *UserIdentity, provider string) (string, *models.PaymentMethod, error) {
+	// Try existing payment method first
+	if req.PaymentMethodID != "" {
+		pmID, err := uuid.Parse(req.PaymentMethodID)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid payment_method_id: %w", err)
+		}
+
+		pm, err := s.PaymentMethodService.ValidatePaymentMethodOperation(ctx, pmID, user.ID)
+		if err != nil {
+			return "", nil, fmt.Errorf("invalid payment method: %w", err)
+		}
+
+		if !processors.IsNMIBackedProcessor(pm.Processor) {
+			return "", nil, errors.New("payment method is not compatible with card payments")
+		}
+
+		return pm.VaultID, nil, nil
+	}
+
+	// Create new vault from payment token
+	if req.PaymentToken == "" {
+		return "", nil, errors.New("payment_method_id or payment_token is required")
+	}
+
+	if s.VaultService == nil {
+		return "", nil, errors.New("vault service unavailable")
+	}
+
+	pm, err := s.VaultService.CreateVault(ctx, user, &CreateVaultRequest{
+		PaymentToken: req.PaymentToken,
+		Provider:     provider,
+		FirstName:    s.resolveFirstName(req, user),
+		LastName:     s.resolveLastName(req),
+		Address1:     req.Address1,
+		City:         req.City,
+		State:        req.State,
+		Zip:          req.Zip,
+		Country:      req.Country,
+		Email:        req.Email,
+	})
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to create payment method: %w", err)
+	}
+
+	return pm.VaultID, pm, nil
+}
+
+// grantProductEntitlements grants entitlements from product spec after a one-time purchase
+func (s *CheckoutService) grantProductEntitlements(
+	ctx context.Context,
+	userID string,
+	product *models.Product,
+	paymentID uuid.UUID,
+	coverage *CoverageInfo,
+) error {
+	if s.EntitlementService == nil || product.EntitlementsSpec == nil {
+		return nil
+	}
+
+	now := s.now()
+
+	for entitlementName, durationDays := range product.EntitlementsSpec {
+		var startAt time.Time
+		var endAt *time.Time
+
+		// Determine start time
+		if coverage.HasCoverage && coverage.EndDate != nil {
+			// Delayed start - entitlement starts when current coverage ends
+			startAt = *coverage.EndDate
+		} else {
+			// Immediate start
+			startAt = now
+		}
+
+		// Determine end time
+		if durationDays != nil && *durationDays > 0 {
+			end := startAt.Add(time.Duration(*durationDays) * 24 * time.Hour)
+			endAt = &end
+		}
+		// If durationDays is nil or 0, endAt stays nil (indefinite)
+
+		_, err := s.EntitlementService.GrantWindow(
+			ctx,
+			userID,
+			entitlementName,
+			startAt,
+			endAt,
+			models.EntitlementSourceOneOff,
+			&paymentID,
+		)
+		if err != nil {
+			log.WithError(err).WithFields(log.Fields{
+				"user_id":     userID,
+				"entitlement": entitlementName,
+				"payment_id":  paymentID,
+			}).Error("failed to grant entitlement")
+			return err
+		}
+
+		log.WithFields(log.Fields{
+			"user_id":     userID,
+			"entitlement": entitlementName,
+			"payment_id":  paymentID,
+			"start_at":    startAt,
+			"end_at":      endAt,
+		}).Info("granted entitlement from one-time purchase")
+	}
+
+	return nil
+}
+
+// Helper functions
+func (s *CheckoutService) resolveFirstName(req *CheckoutRequest, user *UserIdentity) string {
+	if req.FirstName != "" {
+		return req.FirstName
+	}
+	if user.Username != "" {
+		return user.Username
+	}
+	return "Customer"
+}
+
+func (s *CheckoutService) resolveLastName(req *CheckoutRequest) string {
+	if req.LastName != "" {
+		return req.LastName
+	}
+	return "Member"
+}
+
+func (s *CheckoutService) defaultIfEmpty(value, defaultValue string) string {
+	if strings.TrimSpace(value) == "" {
+		return defaultValue
+	}
+	return value
+}
+
+// UpgradeResponse extends CheckoutResponse with upgrade-specific details
+type UpgradeResponse struct {
+	*CheckoutResponse
+	ProratedAmount    int64      `json:"prorated_amount,omitempty"`     // Amount charged for proration
+	OldSubscriptionID *uuid.UUID `json:"old_subscription_id,omitempty"` // The subscription being replaced
+}
+
+// RegisterPurchaseRequest contains everything needed to record a completed one-time purchase.
+// This is the universal entry point for all processors after payment is confirmed.
+type RegisterPurchaseRequest struct {
+	UserID        string    // User who made the purchase
+	PriceID       uuid.UUID // Price that was purchased
+	Processor     string    // "solana", "mobius", "ccbill"
+	TransactionID string    // Processor's transaction/signature ID
+	Amount        int64     // Amount in smallest unit (cents for USD, lamports for SOL)
+	Currency      string    // "USD", "USDC", "SOL", etc.
+}
+
+// RegisterPurchaseResponse contains the result of a registered purchase
+type RegisterPurchaseResponse struct {
+	PaymentID    uuid.UUID         // Created payment record ID
+	Entitlements []string          // Names of entitlements granted
+	DelayedStart *time.Time        // If user had coverage, when entitlements start
+	Eligibility  EligibilityStatus // For logging: was this allowed, blocked (duplicate), upgrade, or downgrade
+}
+
+// RegisterPurchase records a confirmed one-time purchase and grants entitlements.
+// This is the single source of truth for "user paid for product" logic.
+//
+// Called by:
+//   - NMI/Mobius sale (after charging card)
+//   - Solana poller (after detecting on-chain payment)
+//   - CCBill webhook (after receiving payment confirmation)
+//   - Admin API (for manual grants)
+//
+// It handles:
+//  1. Creating the Payment record
+//  2. Looking up Product from Price
+//  3. Checking coverage for delayed start
+//  4. Granting entitlements from Product.EntitlementsSpec
+func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPurchaseRequest) (*RegisterPurchaseResponse, error) {
+	// Validate required fields
+	if req.UserID == "" {
+		return nil, errors.New("user_id is required")
+	}
+	if req.TransactionID == "" {
+		return nil, errors.New("transaction_id is required")
+	}
+	if req.Processor == "" {
+		return nil, errors.New("processor is required")
+	}
+
+	// Get price
+	price, err := s.PriceService.GetByID(ctx, req.PriceID)
+	if err != nil {
+		return nil, fmt.Errorf("price not found: %w", err)
+	}
+
+	// Get product
+	product, err := s.ProductService.GetByID(ctx, price.ProductID)
+	if err != nil {
+		return nil, fmt.Errorf("product not found: %w", err)
+	}
+
+	// Check eligibility (for logging/analytics - can't block at this point, payment already happened)
+	eligibility, err := s.CheckPurchaseEligibility(ctx, req.UserID, req.PriceID)
+	if err != nil {
+		// Log but don't fail - the payment happened, we need to record it
+		log.WithError(err).WithFields(log.Fields{
+			"user_id":  req.UserID,
+			"price_id": req.PriceID,
+		}).Warn("failed to check eligibility during RegisterPurchase")
+		eligibility = &EligibilityResult{Status: EligibilityAllowed}
+	}
+
+	// Get coverage from eligibility result (avoids duplicate query)
+	coverage := eligibility.Coverage
+	if coverage == nil {
+		coverage = &CoverageInfo{}
+	}
+
+	// Use provided amount/currency or fall back to price defaults
+	amount := req.Amount
+	if amount == 0 {
+		amount = price.Amount
+	}
+	currency := req.Currency
+	if currency == "" {
+		currency = price.Currency
+	}
+
+	now := s.now()
+
+	// Create payment record
+	paymentID := uuid.New()
+	payment := &models.Payment{
+		ID:            paymentID,
+		UserID:        req.UserID,
+		PriceID:       price.ID,
+		Processor:     models.Processor(req.Processor),
+		TransactionID: req.TransactionID,
+		Amount:        amount,
+		Currency:      currency,
+		PurchasedAt:   now,
+		CreatedAt:     now,
+	}
+
+	if err := s.PaymentService.Create(ctx, payment); err != nil {
+		return nil, fmt.Errorf("failed to create payment record: %w", err)
+	}
+
+	// Grant entitlements
+	var grantedEntitlements []string
+	if err := s.grantProductEntitlements(ctx, req.UserID, product, paymentID, coverage); err != nil {
+		log.WithError(err).WithField("payment_id", paymentID).Error("failed to grant entitlements after payment")
+		// Don't fail - payment record was created successfully
+	} else if product.EntitlementsSpec != nil {
+		for entName := range product.EntitlementsSpec {
+			grantedEntitlements = append(grantedEntitlements, entName)
+		}
+	}
+
+	// Determine delayed start
+	var delayedStart *time.Time
+	if coverage.HasCoverage && coverage.EndDate != nil {
+		delayedStart = coverage.EndDate
+	}
+
+	log.WithFields(log.Fields{
+		"payment_id":     paymentID,
+		"user_id":        req.UserID,
+		"price_id":       req.PriceID,
+		"product_id":     product.ID,
+		"processor":      req.Processor,
+		"transaction_id": req.TransactionID,
+		"entitlements":   grantedEntitlements,
+		"delayed_start":  delayedStart,
+		"eligibility":    eligibility.Status,
+	}).Info("registered one-time purchase")
+
+	return &RegisterPurchaseResponse{
+		PaymentID:    paymentID,
+		Entitlements: grantedEntitlements,
+		DelayedStart: delayedStart,
+		Eligibility:  eligibility.Status,
+	}, nil
+}
+
+// processUpgrade handles tier upgrades with proration
+// Upgrade = user moving to a higher tier (higher TierRank)
+// Behavior: Immediate switch, charge prorated difference for remaining days
+func (s *CheckoutService) processUpgrade(
+	ctx context.Context,
+	req *CheckoutRequest,
+	user *UserIdentity,
+	newPrice *models.Price,
+	newProduct *models.Product,
+	existingSub *models.Subscription,
+	processor string,
+) (*CheckoutResponse, error) {
+	now := s.now()
+
+	// CCBill handles upgrades via their own Package Upgrade flow
+	if processor == "ccbill" {
+		return s.processCCBillUpgrade(ctx, user, newPrice, existingSub)
+	}
+
+	// Solana doesn't support subscriptions
+	if processor == "solana" {
+		return nil, errors.New("solana does not support subscription upgrades")
+	}
+
+	// Only NMI-backed processors support programmatic upgrades
+	if processor != "mobius" && processor != "nmi" {
+		return nil, fmt.Errorf("unsupported processor for upgrades: %s", processor)
+	}
+
+	// Validate existing subscription has required data
+	if existingSub.Price == nil {
+		return nil, errors.New("existing subscription missing price data")
+	}
+	oldPrice := existingSub.Price
+
+	// Calculate proration
+	prorationAmount, daysRemaining, cycleDays := s.CalculateProration(
+		oldPrice.Amount,
+		newPrice.Amount,
+		existingSub.CurrentPeriodEndsAt,
+		oldPrice.BillingCycleDays,
+		now,
+	)
+
+	log.WithFields(log.Fields{
+		"user_id":          user.ID,
+		"old_price":        oldPrice.Amount,
+		"new_price":        newPrice.Amount,
+		"days_remaining":   daysRemaining,
+		"cycle_days":       cycleDays,
+		"proration_amount": prorationAmount,
+	}).Info("calculating upgrade proration")
+
+	// Get NMI client
+	_, provider, hasNMI := newPrice.GetNMIConfig()
+	if !hasNMI {
+		return nil, fmt.Errorf("new price %s is missing NMI plan configuration", newPrice.ID)
+	}
+
+	client, ok := s.NMIClients[provider]
+	if !ok {
+		return nil, fmt.Errorf("NMI provider '%s' is not configured", provider)
+	}
+
+	// Get or create vault
+	customerVaultID, createdPaymentMethod, err := s.resolveVault(ctx, req, user, provider)
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 1: Charge prorated difference (if positive)
+	var prorationTransactionID string
+	if prorationAmount > 0 {
+		saleResp, err := client.RunSale(nmi.SaleParams{
+			CustomerVaultID:  customerVaultID,
+			Amount:           prorationAmount,
+			Currency:         newPrice.Currency,
+			OrderDescription: fmt.Sprintf("Upgrade proration: %s to %s", oldPrice.DisplayName, newPrice.DisplayName),
+			OrderID:          fmt.Sprintf("upgrade-%s-%s", existingSub.ID.String()[:8], uuid.New().String()[:8]),
+		})
+		if err != nil {
+			// Cleanup vault if we created it
+			if createdPaymentMethod != nil && s.VaultService != nil {
+				_ = s.VaultService.DeleteVault(ctx, createdPaymentMethod)
+			}
+			return nil, fmt.Errorf("failed to charge proration: %w", err)
+		}
+		prorationTransactionID = saleResp.TransactionID
+
+		log.WithFields(log.Fields{
+			"user_id":        user.ID,
+			"transaction_id": prorationTransactionID,
+			"amount":         prorationAmount,
+		}).Info("charged upgrade proration")
+	}
+
+	// Step 2: Cancel old subscription at NMI
+	if err := s.cancelNMISubscription(ctx, existingSub, provider); err != nil {
+		log.WithError(err).WithField("subscription_id", existingSub.ID).
+			Warn("failed to cancel old NMI subscription during upgrade, continuing anyway")
+		// Don't fail the upgrade - the old sub will just not renew
+	}
+
+	// Step 3: Create new subscription at NMI
+	newSubscriptionID := uuid.New()
+	nmiPlanID, _, _ := newPrice.GetNMIConfig()
+
+	params := nmi.RecurringPaymentData{
+		CardUserData: nmi.CardUserData{
+			FirstName: s.resolveFirstName(req, user),
+			LastName:  s.resolveLastName(req),
+			Address1:  s.defaultIfEmpty(req.Address1, "N/A"),
+			City:      s.defaultIfEmpty(req.City, "N/A"),
+			State:     s.defaultIfEmpty(req.State, "N/A"),
+			Zip:       s.defaultIfEmpty(req.Zip, "00000"),
+			Country:   s.defaultIfEmpty(req.Country, "US"),
+		},
+		PlanID:          nmiPlanID,
+		CustomerVaultID: customerVaultID,
+		Amount:          float64(newPrice.Amount) / 100.0,
+		Currency:        newPrice.Currency,
+		Email:           req.Email,
+		OrderID:         newSubscriptionID.String(),
+		PONumber:        newSubscriptionID.String(),
+		CustomerID:      user.ID,
+		// Start date = when current period ends (so they're not double-charged)
+		StartDate: existingSub.CurrentPeriodEndsAt.Format("20060102"),
+	}
+
+	resp, err := client.AddRecurringSubscription(params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create upgraded subscription: %w", err)
+	}
+
+	// Step 4: Update local database
+	// Cancel old subscription
+	cancelType := models.CancelType("upgrade")
+	existingSub.Status = models.StatusCancelled
+	existingSub.CancelledAt = &now
+	existingSub.CancelType = &cancelType
+	existingSub.CancelFeedback = nil
+	if err := s.SubscriptionService.Update(ctx, existingSub); err != nil {
+		log.WithError(err).WithField("subscription_id", existingSub.ID).
+			Error("failed to mark old subscription as cancelled during upgrade")
+	}
+
+	// Create new subscription record
+	var emailPtr *string
+	if req.Email != "" {
+		emailPtr = &req.Email
+	}
+
+	newSubscription := &models.Subscription{
+		ID:                      newSubscriptionID,
+		UserID:                  user.ID,
+		ProductID:               newPrice.ProductID,
+		PriceID:                 newPrice.ID,
+		ProcessorSubscriptionID: resp.SubscriptionID,
+		Status:                  models.StatusActive, // Active immediately since user paid proration
+		Processor:               models.ProcessorMobius,
+		UserEmail:               emailPtr,
+		StartedAt:               now,
+		CurrentPeriodStartsAt:   existingSub.CurrentPeriodStartsAt,
+		CurrentPeriodEndsAt:     existingSub.CurrentPeriodEndsAt, // Keep same period end
+	}
+
+	if createdPaymentMethod != nil {
+		newSubscription.PaymentMethodID = &createdPaymentMethod.ID
+	} else if req.PaymentMethodID != "" {
+		pmID, _ := uuid.Parse(req.PaymentMethodID)
+		newSubscription.PaymentMethodID = &pmID
+	}
+
+	if err := s.SubscriptionService.Create(ctx, newSubscription); err != nil {
+		return nil, fmt.Errorf("failed to save upgraded subscription: %w", err)
+	}
+
+	// Step 5: Update entitlements immediately (grant new tier entitlements)
+	if s.EntitlementService != nil && newProduct.EntitlementsSpec != nil {
+		for entitlementName, durationDays := range newProduct.EntitlementsSpec {
+			var endAt *time.Time
+			if durationDays != nil && *durationDays > 0 {
+				end := now.Add(time.Duration(*durationDays) * 24 * time.Hour)
+				endAt = &end
+			}
+
+			_, err := s.EntitlementService.GrantWindow(
+				ctx,
+				user.ID,
+				entitlementName,
+				now,
+				endAt,
+				models.EntitlementSourceSubscription,
+				&newSubscriptionID,
+			)
+			if err != nil {
+				log.WithError(err).WithFields(log.Fields{
+					"user_id":         user.ID,
+					"entitlement":     entitlementName,
+					"subscription_id": newSubscriptionID,
+				}).Error("failed to grant upgraded entitlement")
+			}
+		}
+	}
+
+	return &CheckoutResponse{
+		Status:         "success",
+		Action:         "upgrade",
+		Message:        fmt.Sprintf("Upgraded to %s. Prorated charge: $%.2f", newProduct.DisplayName, float64(prorationAmount)/100.0),
+		SubscriptionID: &newSubscriptionID,
+		TransactionID:  prorationTransactionID,
+	}, nil
+}
+
+// processDowngrade handles tier downgrades (scheduled for end of period)
+// Downgrade = user moving to a lower tier (lower TierRank)
+// Behavior: Keep current tier until period ends, then switch to new tier at next renewal
+func (s *CheckoutService) processDowngrade(
+	ctx context.Context,
+	req *CheckoutRequest,
+	user *UserIdentity,
+	newPrice *models.Price,
+	newProduct *models.Product,
+	existingSub *models.Subscription,
+	processor string,
+) (*CheckoutResponse, error) {
+	// CCBill handles downgrades via their own flow
+	if processor == "ccbill" {
+		return &CheckoutResponse{
+			Status:  "blocked",
+			Message: "CCBill subscription downgrades are not supported. Please cancel your current subscription and wait for it to expire, then subscribe to the lower tier.",
+		}, nil
+	}
+
+	// Solana doesn't support subscriptions
+	if processor == "solana" {
+		return nil, errors.New("solana does not support subscription downgrades")
+	}
+
+	// Only NMI-backed processors support programmatic downgrades
+	if processor != "mobius" && processor != "nmi" {
+		return nil, fmt.Errorf("unsupported processor for downgrades: %s", processor)
+	}
+
+	// Validate the new price has NMI configuration
+	nmiPlanID, _, hasNMI := newPrice.GetNMIConfig()
+	if !hasNMI || nmiPlanID == "" {
+		return nil, fmt.Errorf("new price %s is missing NMI plan configuration", newPrice.ID)
+	}
+
+	// Check if there's already a scheduled downgrade
+	if existingSub.ScheduledPriceID != nil {
+		return &CheckoutResponse{
+			Status:  "blocked",
+			Message: "You already have a tier change scheduled. Please wait for the current period to end or cancel the scheduled change first.",
+		}, nil
+	}
+
+	// Schedule the downgrade for end of current period
+	// The actual price switch happens in the renewal webhook handler
+	existingSub.ScheduledPriceID = &newPrice.ID
+
+	if err := s.SubscriptionService.Update(ctx, existingSub); err != nil {
+		return nil, fmt.Errorf("failed to schedule downgrade: %w", err)
+	}
+
+	effectiveDate := "the end of your current billing period"
+	if existingSub.CurrentPeriodEndsAt != nil {
+		effectiveDate = existingSub.CurrentPeriodEndsAt.Format("January 2, 2006")
+	}
+
+	log.WithFields(log.Fields{
+		"user_id":            user.ID,
+		"subscription_id":    existingSub.ID,
+		"current_price_id":   existingSub.PriceID,
+		"scheduled_price_id": newPrice.ID,
+		"effective_date":     effectiveDate,
+	}).Info("scheduled downgrade for end of period")
+
+	return &CheckoutResponse{
+		Status:         "success",
+		Action:         "downgrade",
+		Message:        fmt.Sprintf("Downgrade to %s scheduled. Your current plan will remain active until %s.", newProduct.DisplayName, effectiveDate),
+		SubscriptionID: &existingSub.ID,
+		DelayedStart:   existingSub.CurrentPeriodEndsAt,
+	}, nil
+}
+
+// CalculateProration calculates the prorated amount for an upgrade
+// Returns: prorationAmount (in cents), daysRemaining, cycleDays
+func (s *CheckoutService) CalculateProration(
+	oldPriceAmount int64,
+	newPriceAmount int64,
+	periodEndsAt *time.Time,
+	billingCycleDays *int,
+	now time.Time,
+) (int64, int, int) {
+	// Default to 30-day cycle if not specified
+	cycleDays := 30
+	if billingCycleDays != nil && *billingCycleDays > 0 {
+		cycleDays = *billingCycleDays
+	}
+
+	// Calculate days remaining in current period
+	daysRemaining := 0
+	if periodEndsAt != nil && periodEndsAt.After(now) {
+		hoursRemaining := periodEndsAt.Sub(now).Hours()
+		daysRemaining = int(hoursRemaining / 24)
+		if daysRemaining < 0 {
+			daysRemaining = 0
+		}
+	}
+
+	// Proration = (newPrice - oldPrice) * (daysRemaining / cycleDays)
+	priceDiff := newPriceAmount - oldPriceAmount
+	if priceDiff <= 0 {
+		// This is a downgrade, not an upgrade - no proration charge
+		return 0, daysRemaining, cycleDays
+	}
+
+	// Calculate prorated amount
+	// Use integer math to avoid floating point issues: (diff * daysRemaining) / cycleDays
+	prorationAmount := (priceDiff * int64(daysRemaining)) / int64(cycleDays)
+
+	return prorationAmount, daysRemaining, cycleDays
+}
+
+// cancelNMISubscription cancels a subscription at NMI
+func (s *CheckoutService) cancelNMISubscription(ctx context.Context, sub *models.Subscription, provider string) error {
+	client, ok := s.NMIClients[provider]
+	if !ok {
+		return fmt.Errorf("NMI provider '%s' is not configured", provider)
+	}
+
+	return client.DeleteRecurringSubscription(sub.ProcessorSubscriptionID)
+}

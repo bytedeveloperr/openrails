@@ -238,8 +238,8 @@ func (s *EmailService) SendSubscriptionExpired(ctx context.Context, data Subscri
 	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
 }
 
-// SendPaymentFailed sends notification when subscription payment fails
-func (s *EmailService) SendPaymentFailed(ctx context.Context, data SubscriptionEmailData) error {
+// sendPaymentFailed sends notification when subscription payment fails (internal, takes SubscriptionEmailData)
+func (s *EmailService) sendPaymentFailed(ctx context.Context, data SubscriptionEmailData) error {
 	amountLine := fmt.Sprintf("$%.2f %s", data.AmountDollars(), data.Currency)
 	subject := "We couldn’t renew your Doujins Premium subscription"
 

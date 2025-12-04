@@ -183,7 +183,7 @@ func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
 				d.Timestamp = s.now().UTC()
 			}
 			if d.Currency == "" {
-				d.Currency = "USD"
+				d.Currency = "usd"
 			}
 			pays = append(pays, d)
 			paysFiles = append(paysFiles, fileRec{p})
@@ -201,7 +201,7 @@ func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
 				d.Timestamp = s.now().UTC()
 			}
 			if d.Currency == "" {
-				d.Currency = "USD"
+				d.Currency = "usd"
 			}
 			// Map to PaymentEventData as in LogTransactionEvent
 			userID := ""
@@ -252,7 +252,7 @@ func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
 				d.Timestamp = s.now().UTC()
 			}
 			if d.Currency == "" {
-				d.Currency = "USD"
+				d.Currency = "usd"
 			}
 			chgs = append(chgs, d)
 			chgsFiles = append(chgsFiles, fileRec{p})
@@ -496,7 +496,7 @@ func (s *BillingEventService) LogPaymentEvent(ctx context.Context, data PaymentE
 		data.Timestamp = s.now().UTC()
 	}
 	if data.Currency == "" {
-		data.Currency = "USD"
+		data.Currency = "usd"
 	}
 
 	err := s.insertPayment(ctx, data)
@@ -537,7 +537,7 @@ func (s *BillingEventService) LogTransactionEvent(ctx context.Context, data Tran
 		data.Timestamp = s.now().UTC()
 	}
 	if data.Currency == "" {
-		data.Currency = "USD"
+		data.Currency = "usd"
 	}
 
 	evt := strings.ToLower(data.EventType)
@@ -657,7 +657,7 @@ func (s *BillingEventService) LogChargebackEvent(ctx context.Context, data Charg
 		data.Timestamp = s.now().UTC()
 	}
 	if data.Currency == "" {
-		data.Currency = "USD"
+		data.Currency = "usd"
 	}
 
 	query := `

@@ -14,9 +14,9 @@ import (
 
 // DeadLetterService handles logging of failed or unexpected webhook events
 type DeadLetterService struct {
-	DB                       *db.DB
-	NotificationQueueService *NotificationQueueService
-	Clock                    clockwork.Clock
+	DB                  *db.DB
+	NotificationService *NotificationService
+	Clock               clockwork.Clock
 }
 
 // now returns the current time from the service's clock, or time.Now() if no clock is set.

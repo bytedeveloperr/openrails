@@ -346,7 +346,7 @@ Admin routes are not rate limited by the application but should live behind netw
 - **Response:**
   ```json
   {
-    "purchase_id": "5a76f178-4a9e-4fa2-8554-0cc6e0c0bfe4",
+    "payment_id": "pay_5a76f178-4a9e-4fa2-8554-0cc6e0c0bfe4",
     "transaction_id": "3zY..aP",
     "status": "confirmed",
     "amount": 9.99,

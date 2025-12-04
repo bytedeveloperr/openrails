@@ -50,6 +50,14 @@ func (s *PriceService) GetAll(ctx context.Context) ([]*models.Price, error) {
 	return s.repo.GetAll(ctx)
 }
 
+// PriceFilter contains optional filters for listing prices
+type PriceFilter = repo.PriceFilter
+
+// ListPaginated returns prices with pagination and optional filters
+func (s *PriceService) ListPaginated(ctx context.Context, filter PriceFilter, limit, offset int) ([]*models.Price, int64, error) {
+	return s.repo.ListPaginated(ctx, filter, limit, offset)
+}
+
 // Update is not supported - prices are immutable to preserve historical payment accuracy.
 // To change pricing, create a new price and deactivate the old one.
 // Use UpdateDisplayName() or UpdateProcessors() for non-financial fields.

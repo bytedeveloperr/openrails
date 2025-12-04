@@ -16,7 +16,7 @@ func UpdateStatus(r *Request) {
 	// Use new Wave 18 ManageSubscriptionService constructor
 	service := services.NewManageSubscriptionService(
 		r.State.SubscriptionService,
-		r.State.NotificationQueueService,
+		r.State.NotificationService,
 	)
 
 	if err := service.UpdateStatus(r.Request.Context(), &data); err != nil {
@@ -40,7 +40,7 @@ func ExtendSubscription(r *Request) {
 	// Use new Wave 18 ManageSubscriptionService constructor
 	service := services.NewManageSubscriptionService(
 		r.State.SubscriptionService,
-		r.State.NotificationQueueService,
+		r.State.NotificationService,
 	)
 
 	if err := service.ExtendSubscription(r.Request.Context(), &data); err != nil {

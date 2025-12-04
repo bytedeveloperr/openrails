@@ -35,22 +35,23 @@ func (b *BaseRequest) SetDefaults() {
 }
 
 // PaginationParams provides common pagination parameters that can be embedded in request structs
+// Uses limit/offset pattern (Stripe-style) for better SQL mapping and flexibility
 type PaginationParams struct {
-	Page     int `form:"page" default:"1" validate:"min=1,max=1000"`
-	PageSize int `form:"page_size" default:"20" validate:"min=1,max=500"`
+	Limit  int `form:"limit" default:"20" validate:"min=1,max=100"`
+	Offset int `form:"offset" default:"0" validate:"min=0"`
 }
 
 // SetPaginationDefaults sets default values for pagination parameters
-// This method accepts a custom default page size to allow flexibility across different endpoints
-func (p *PaginationParams) SetPaginationDefaults(defaultPageSize int) {
-	p.Page = 1
-	p.PageSize = defaultPageSize
+// This method accepts a custom default limit to allow flexibility across different endpoints
+func (p *PaginationParams) SetPaginationDefaults(defaultLimit int) {
+	p.Limit = defaultLimit
+	p.Offset = 0
 }
 
-// This method makes PageSize=min(PageSize,maxPageSize) and return true is PageSize have been changed
-func (p *PaginationParams) CapPageSize(maxPageSize int) bool {
-	if maxPageSize < p.PageSize {
-		p.PageSize = maxPageSize
+// CapLimit ensures Limit doesn't exceed maxLimit and returns true if it was capped
+func (p *PaginationParams) CapLimit(maxLimit int) bool {
+	if maxLimit < p.Limit {
+		p.Limit = maxLimit
 		return true
 	}
 	return false
@@ -78,9 +79,56 @@ func (r *SubscribeRequest) Body() any {
 }
 
 // -------------------------------- GetProducts Request --------------------------------
+// Query params follow Stripe's pattern: https://docs.stripe.com/api/products/list
+
+type GetProductsQueryParams struct {
+	// Stripe-style pagination using limit/offset
+	PaginationParams
+	// Only return products that are active or inactive. Defaults to true (only active).
+	// Non-admins can only see active products; inactive filter is silently ignored for them.
+	Active *bool `form:"active"`
+}
 
 type GetProductsRequest struct {
 	BaseRequest
+	GetProductsQueryParams
+}
+
+func (r *GetProductsRequest) Query() any {
+	return &r.GetProductsQueryParams
+}
+
+func (r *GetProductsRequest) SetDefaults() {
+	r.SetPaginationDefaults(20)
+}
+
+// -------------------------------- GetPrices Request --------------------------------
+// Query params follow Stripe's pattern: https://docs.stripe.com/api/prices/list
+
+type GetPricesQueryParams struct {
+	PaginationParams
+	// Only return prices that are active or inactive. Defaults to true (only active).
+	// Non-admins can only see active prices; inactive filter is silently ignored for them.
+	Active *bool `form:"active"`
+	// Only return prices for the given currency (e.g., "usd")
+	Currency string `form:"currency"`
+	// Only return prices for the given product ID
+	Product string `form:"product"`
+	// Only return prices of type "recurring" or "one_time"
+	Type string `form:"type" validate:"omitempty,oneof=recurring one_time"`
+}
+
+type GetPricesRequest struct {
+	BaseRequest
+	GetPricesQueryParams
+}
+
+func (r *GetPricesRequest) Query() any {
+	return &r.GetPricesQueryParams
+}
+
+func (r *GetPricesRequest) SetDefaults() {
+	r.SetPaginationDefaults(20)
 }
 
 // -------------------------------- CancelSubscription Request --------------------------------
@@ -96,43 +144,6 @@ type CancelSubscriptionRequest struct {
 
 func (r *CancelSubscriptionRequest) Body() any {
 	return &r.CancelSubscriptionBodyParams
-}
-
-// -------------------------------- GenerateFlexFormURL Request --------------------------------
-
-type GenerateFlexFormURLBodyParams struct {
-	PriceID   string `json:"price_id" validate:"required,uuid"`
-	FirstName string `json:"first_name" validate:"required,min=1,max=100"`
-	LastName  string `json:"last_name" validate:"required,min=1,max=100"`
-	Address1  string `json:"address1" validate:"required,min=1,max=200"`
-	City      string `json:"city" validate:"required,min=1,max=100"`
-	State     string `json:"state" validate:"required,min=1,max=50"`
-	ZipCode   string `json:"zip_code" validate:"required,min=1,max=20"`
-	Country   string `json:"country" validate:"required,min=2,max=2"` // ISO 2-letter country code
-}
-
-type GenerateFlexFormURLRequest struct {
-	BaseRequest
-	GenerateFlexFormURLBodyParams
-}
-
-func (r *GenerateFlexFormURLRequest) Body() any {
-	return &r.GenerateFlexFormURLBodyParams
-}
-
-// -------------------------------- GenerateCCBillUpgradeURL Request --------------------------------
-
-type GenerateCCBillUpgradeURLBodyParams struct {
-	TargetPriceID string `json:"target_price_id" validate:"required,uuid"` // The new price tier to upgrade to
-}
-
-type GenerateCCBillUpgradeURLRequest struct {
-	BaseRequest
-	GenerateCCBillUpgradeURLBodyParams
-}
-
-func (r *GenerateCCBillUpgradeURLRequest) Body() any {
-	return &r.GenerateCCBillUpgradeURLBodyParams
 }
 
 // -------------------------------- Solana Generate Payment Request --------------------------------
@@ -406,4 +417,33 @@ type ConfirmPaymentIntentRequest struct {
 
 func (r *ConfirmPaymentIntentRequest) Body() any {
 	return &r.ConfirmPaymentIntentBodyParams
+}
+
+// -------------------------------- Unified Checkout Request --------------------------------
+
+// CheckoutBodyParams for POST /v1/me/checkout
+type CheckoutBodyParams struct {
+	PriceID         string `json:"price_id" validate:"required,uuid"`
+	Processor       string `json:"processor" validate:"required,oneof=mobius ccbill solana"`
+	PaymentMethodID string `json:"payment_method_id,omitempty" validate:"omitempty,uuid"`
+	PaymentToken    string `json:"payment_token,omitempty"`
+
+	// Optional billing info (used when creating vault from payment token)
+	Email     string `json:"email,omitempty" validate:"omitempty,email"`
+	FirstName string `json:"first_name,omitempty" validate:"omitempty,max=100"`
+	LastName  string `json:"last_name,omitempty" validate:"omitempty,max=100"`
+	Address1  string `json:"address1,omitempty" validate:"omitempty,max=200"`
+	City      string `json:"city,omitempty" validate:"omitempty,max=100"`
+	State     string `json:"state,omitempty" validate:"omitempty,max=50"`
+	Zip       string `json:"zip,omitempty" validate:"omitempty,max=20"`
+	Country   string `json:"country,omitempty" validate:"omitempty,max=2"`
+}
+
+type CheckoutRequest struct {
+	BaseRequest
+	CheckoutBodyParams
+}
+
+func (r *CheckoutRequest) Body() any {
+	return &r.CheckoutBodyParams
 }

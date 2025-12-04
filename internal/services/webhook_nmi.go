@@ -34,7 +34,7 @@ type NMIWebhookService struct {
 	SubscriptionService          *SubscriptionService
 	PaymentService               *PaymentService
 	DeduplicationService         *DeduplicationService
-	NotificationQueueService     *NotificationQueueService
+	NotificationService          *NotificationService
 	SubscriptionLifecycleService *SubscriptionLifecycleService
 }
 
@@ -527,12 +527,13 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			}
 
 			if amountCents > 0 {
-				currencyValue := currency
-				if strings.TrimSpace(currencyValue) == "" {
+				// Normalize incoming currency to lowercase (external data from NMI)
+				currencyValue := strings.ToLower(strings.TrimSpace(currency))
+				if currencyValue == "" {
 					if subscription.Price != nil && strings.TrimSpace(subscription.Price.Currency) != "" {
-						currencyValue = subscription.Price.Currency
+						currencyValue = subscription.Price.Currency // Already normalized in our DB
 					} else {
-						currencyValue = "USD"
+						currencyValue = "usd"
 					}
 				}
 

@@ -20,13 +20,12 @@ import (
 // SubscriptionLifecycleService handles the complete lifecycle of subscriptions
 // including membership creation, renewal, cancellation, and expiration
 type SubscriptionLifecycleService struct {
-	DB                       *db.DB
-	Clock                    clockwork.Clock
-	ProductService           *ProductService
-	PriceService             *PriceService
-	EntitlementService       *EntitlementService
-	NotificationQueueService *NotificationQueueService
-	notificationService      *NotificationService
+	DB                  *db.DB
+	Clock               clockwork.Clock
+	ProductService      *ProductService
+	PriceService        *PriceService
+	EntitlementService  *EntitlementService
+	NotificationService *NotificationService
 }
 
 type CreateMembershipParams struct {
@@ -59,15 +58,14 @@ type FailMembershipParams struct {
 }
 
 // NewSubscriptionLifecycleService creates a new instance of SubscriptionLifecycleService
-func NewSubscriptionLifecycleService(db *db.DB, productService *ProductService, priceService *PriceService, entitlementService *EntitlementService, notificationService *NotificationQueueService) *SubscriptionLifecycleService {
+func NewSubscriptionLifecycleService(db *db.DB, productService *ProductService, priceService *PriceService, entitlementService *EntitlementService, notificationService *NotificationService) *SubscriptionLifecycleService {
 	return &SubscriptionLifecycleService{
-		DB:                       db,
-		Clock:                    clockwork.NewRealClock(), // Default to real clock, can be overridden for tests
-		ProductService:           productService,
-		PriceService:             priceService,
-		EntitlementService:       entitlementService,
-		NotificationQueueService: notificationService,
-		notificationService:      nil,
+		DB:                  db,
+		Clock:               clockwork.NewRealClock(), // Default to real clock, can be overridden for tests
+		ProductService:      productService,
+		PriceService:        priceService,
+		EntitlementService:  entitlementService,
+		NotificationService: notificationService,
 	}
 }
 
@@ -84,17 +82,12 @@ func (s *SubscriptionLifecycleService) now() time.Time {
 	return time.Now()
 }
 
-// SetNotificationService allows notification dispatch to run post-transaction
-func (s *SubscriptionLifecycleService) SetNotificationService(notificationService *NotificationService) {
-	s.notificationService = notificationService
-}
-
 func (s *SubscriptionLifecycleService) dispatchNotifications(ctx context.Context, notifications []*models.NotificationQueue) {
-	if s.notificationService == nil {
+	if s.NotificationService == nil {
 		return
 	}
 	for _, notification := range notifications {
-		if err := s.notificationService.DeliverEmail(ctx, notification); err != nil {
+		if err := s.NotificationService.DeliverEmail(ctx, notification); err != nil {
 			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
 				"notification_id": notification.ID,
 				"event_type":      notification.EventType,
@@ -144,7 +137,7 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 	productService := NewProductService(dbb)
 	entitlementService := NewEntitlementService(dbb)
 	entitlementService.SetClock(s.Clock) // Propagate clock for testing
-	notificationService := NewNotificationQueueService(dbb)
+	notificationService := NewNotificationService(dbb, nil)
 	subService := NewSubscriptionService(dbb, priceService, productService, notificationService, nil, nil, nil)
 
 	price, err := priceService.GetByID(ctx, params.PriceID)
@@ -196,6 +189,7 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 		subscription = &models.Subscription{
 			ID:        uuid.New(),
 			UserID:    params.UserID,
+			ProductID: price.ProductID,
 			PriceID:   price.ID,
 			Status:    models.StatusActive,
 			Processor: params.Processor,
@@ -283,8 +277,8 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 		db := db.NewWithTx(tx)
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
-		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
+		notificationService := NewNotificationService(db, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationService, nil, nil, nil)
 
 		// Find subscription - use processor name for gateway lookup
 		provider := ""
@@ -340,7 +334,7 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 			UserID:    subscription.UserID,
 			EventType: models.NotificationPremiumRenewed,
 		}
-		if err := notificationQueueService.Create(ctx, notification); err != nil {
+		if err := notificationService.Create(ctx, notification); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to create membership renewed notification")
 		} else {
 			notifications = append(notifications, notification)
@@ -366,8 +360,8 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		db := db.NewWithTx(tx)
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
-		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
+		notificationService := NewNotificationService(db, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
 		entSvc.SetClock(s.Clock) // Propagate clock for testing
 
@@ -460,7 +454,7 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 			EventType: models.NotificationPremiumEnded,
 			Data:      map[string]any{"reason": string(reason)},
 		}
-		if err := notificationQueueService.Create(ctx, notification); err != nil {
+		if err := notificationService.Create(ctx, notification); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to create membership ended notification")
 		} else {
 			notifications = append(notifications, notification)
@@ -486,8 +480,8 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 		db := db.NewWithTx(tx)
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
-		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
+		notificationService := NewNotificationService(db, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
 		entSvc.SetClock(s.Clock) // Propagate clock for testing
 
@@ -519,7 +513,7 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 			EventType: models.NotificationPremiumEnded,
 			Data:      map[string]any{"reason": string(PremiumEndReasonExpired)},
 		}
-		if err := notificationQueueService.Create(ctx, notification); err != nil {
+		if err := notificationService.Create(ctx, notification); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to create membership expired notification")
 		} else {
 			notifications = append(notifications, notification)
@@ -545,8 +539,8 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 		db := db.NewWithTx(tx)
 		priceService := NewPriceService(db)
 		productService := NewProductService(db)
-		notificationQueueService := NewNotificationQueueService(db)
-		subService := NewSubscriptionService(db, priceService, productService, notificationQueueService, nil, nil, nil)
+		notificationService := NewNotificationService(db, nil)
+		subService := NewSubscriptionService(db, priceService, productService, notificationService, nil, nil, nil)
 		entSvc := NewEntitlementService(db)
 		entSvc.SetClock(s.Clock) // Propagate clock for testing
 
@@ -617,7 +611,7 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 			EventType: eventType,
 			Data:      data,
 		}
-		if err := notificationQueueService.Create(ctx, notification); err != nil {
+		if err := notificationService.Create(ctx, notification); err != nil {
 			log.WithContext(ctx).WithError(err).Error("failed to create payment failed notification")
 		} else {
 			notifications = append(notifications, notification)

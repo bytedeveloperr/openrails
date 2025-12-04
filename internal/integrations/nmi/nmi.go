@@ -79,6 +79,10 @@ type RecurringPaymentData struct {
 	OrderID         string
 	PONumber        string
 	CustomerID      string
+	// StartDate is optional. If set, the subscription won't charge until this date.
+	// Format: YYYYMMDD (e.g., "20251220")
+	// When set, the first charge happens ON this date (not before).
+	StartDate string
 }
 
 type QueryFilter struct {
@@ -99,6 +103,22 @@ type AddSubscriptionResponse struct {
 	SubscriptionID string
 	TransactionID  string
 	Authcode       string
+}
+
+// SaleParams contains parameters for a one-time sale transaction
+type SaleParams struct {
+	CustomerVaultID  string
+	Amount           int64  // Amount in cents
+	Currency         string // e.g., "USD"
+	OrderDescription string
+	OrderID          string // Optional order reference
+}
+
+// SaleResponse contains the response from a sale transaction
+type SaleResponse struct {
+	TransactionID string
+	Authcode      string
+	ResponseText  string
 }
 
 type ManualRebillParams struct {
@@ -401,6 +421,72 @@ func (c *NMIClient) DeleteCustomerVault(data DeleteCustomerVaultData) error {
 	return nil
 }
 
+// RunSale executes a one-time sale against a stored customer vault (payment method).
+// This is used for one-time purchases that don't create a recurring subscription.
+func (c *NMIClient) RunSale(params SaleParams) (*SaleResponse, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return nil, err
+	}
+
+	if params.CustomerVaultID == "" {
+		return nil, errors.New("customer vault ID is required")
+	}
+
+	if params.Amount <= 0 {
+		return nil, errors.New("amount must be greater than 0")
+	}
+
+	// Convert cents to dollars for NMI API (NMI expects decimal format)
+	amountStr := strconv.FormatFloat(float64(params.Amount)/100.0, 'f', 2, 64)
+
+	currency := params.Currency
+	if currency == "" {
+		currency = "usd"
+	}
+
+	orderDesc := params.OrderDescription
+	if orderDesc == "" {
+		orderDesc = "One-time purchase"
+	}
+
+	values := url.Values{
+		"type":              {"sale"},
+		"security_key":      {c.SecurityKey},
+		"customer_vault_id": {params.CustomerVaultID},
+		"amount":            {amountStr},
+		"currency":          {currency},
+		"order_description": {orderDesc},
+	}
+
+	if params.OrderID != "" {
+		values.Set("orderid", params.OrderID)
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return nil, err
+	}
+
+	output, err := url.ParseQuery(response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse response: %s", response)
+	}
+
+	if output.Get("response") != "1" {
+		return nil, fmt.Errorf("sale failed: %s", output.Get("responsetext"))
+	}
+
+	return &SaleResponse{
+		TransactionID: output.Get("transactionid"),
+		Authcode:      output.Get("authcode"),
+		ResponseText:  output.Get("responsetext"),
+	}, nil
+}
+
 func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSubscriptionResponse, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return nil, err
@@ -451,6 +537,12 @@ func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSub
 
 	if data.CustomerVaultID != "" {
 		values.Set("customer_vault_id", data.CustomerVaultID)
+	}
+
+	// Optional: delayed start date for the subscription
+	// When set, the first charge happens ON this date (not before)
+	if trimmed := strings.TrimSpace(data.StartDate); trimmed != "" {
+		values.Set("start_date", trimmed)
 	}
 
 	if !c.IsProd {

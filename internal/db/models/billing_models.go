@@ -72,8 +72,8 @@ type SolanaTransaction struct {
 	IntentID    *uuid.UUID `bun:"intent_id" json:"intent_id,omitempty"`
 
 	// Product reference
-	ProductID  *uuid.UUID `bun:",type:uuid" json:"product_id,omitempty"`
-	PurchaseID *uuid.UUID `bun:",type:uuid" json:"purchase_id,omitempty"`
+	ProductID *uuid.UUID `bun:",type:uuid" json:"product_id,omitempty"`
+	PaymentID *uuid.UUID `bun:",type:uuid" json:"payment_id,omitempty"`
 
 	// Blockchain details
 	BlockTime      *time.Time `bun:",nullzero" json:"block_time,omitempty"`

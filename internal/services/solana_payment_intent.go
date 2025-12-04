@@ -2,14 +2,12 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
-	"github.com/mr-tron/base58"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/config"
@@ -244,12 +242,4 @@ func (s *SolanaPaymentIntentService) insertIntent(ctx context.Context, intent *m
 		"price_id":  intent.PriceID,
 	}).Info("Created Solana payment intent")
 	return nil
-}
-
-func generateReference() (string, error) {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-	return base58.Encode(buf), nil
 }

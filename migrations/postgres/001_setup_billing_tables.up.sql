@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS billing.subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL, -- AuthKit user ID (UUID)
     price_id UUID, -- References prices table (created later)
+    product_id UUID NOT NULL, -- Denormalized for efficient user+product lookups (references products table)
     status billing.subscription_status NOT NULL DEFAULT 'pending',
 
     -- Processor information (flattened: mobius/ccbill/solana/paypal/etc.)
@@ -40,6 +41,9 @@ CREATE TABLE IF NOT EXISTS billing.subscriptions (
     current_period_ends_at TIMESTAMPTZ,
     started_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     ended_at TIMESTAMPTZ,
+
+    -- Scheduled tier changes (downgrades applied at end of billing period)
+    scheduled_price_id UUID, -- Price ID for scheduled downgrade, applied at renewal
 
     -- Retry fields for manual rebilling
     last_retry_at TIMESTAMPTZ,
@@ -62,6 +66,8 @@ CREATE TABLE IF NOT EXISTS billing.subscriptions (
 -- Create indexes for subscriptions
 CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id ON billing.subscriptions(user_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_price_id ON billing.subscriptions(price_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_product_id ON billing.subscriptions(product_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_user_product ON billing.subscriptions(user_id, product_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_status ON billing.subscriptions(status);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_processor ON billing.subscriptions(processor);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_processor_subscription ON billing.subscriptions(processor, processor_subscription_id);
@@ -69,6 +75,8 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_next_retry_at ON billing.subscripti
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_user_active ON billing.subscriptions(user_id) WHERE status = 'active';
 
 COMMENT ON INDEX billing.idx_subscriptions_user_active IS 'Ensures each user can have only one active subscription at a time';
+COMMENT ON COLUMN billing.subscriptions.product_id IS 'Denormalized product ID for efficient user+product lookups without joining prices';
+COMMENT ON COLUMN billing.subscriptions.scheduled_price_id IS 'Price ID for scheduled tier change (downgrade). Applied at end of current billing period during renewal.';
 
 
 -- ============================================================================
@@ -82,6 +90,9 @@ CREATE TABLE IF NOT EXISTS billing.products (
     display_name TEXT NOT NULL,
     description TEXT,
     entitlements_spec JSONB, -- map: entitlement_name -> duration_days (null/0 = indefinite)
+    -- Tier columns for upgrade/downgrade relationships
+    tier_group VARCHAR(100), -- Products in same group are mutually exclusive (upgrade/downgrade between them)
+    tier_rank INT NOT NULL DEFAULT 0, -- Higher = more premium; determines upgrade vs downgrade direction
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
@@ -89,6 +100,10 @@ CREATE TABLE IF NOT EXISTS billing.products (
 
 CREATE INDEX IF NOT EXISTS idx_products_slug ON billing.products(slug);
 CREATE INDEX IF NOT EXISTS idx_products_is_active ON billing.products(is_active);
+CREATE INDEX IF NOT EXISTS idx_products_tier_group ON billing.products(tier_group) WHERE tier_group IS NOT NULL;
+
+COMMENT ON COLUMN billing.products.tier_group IS 'Semantic group name for mutually-exclusive products (e.g., "premium"). Products in same group require upgrade/downgrade, not parallel ownership.';
+COMMENT ON COLUMN billing.products.tier_rank IS 'Tier ranking within group. Higher = more premium. Used to determine upgrade (higher rank) vs downgrade (lower rank) direction.';
 
 -- 2.2: Create prices table
 CREATE TABLE IF NOT EXISTS billing.prices (
@@ -112,7 +127,7 @@ ALTER TABLE billing.prices DROP CONSTRAINT IF EXISTS unique_prices_product_amoun
 ALTER TABLE billing.prices ADD CONSTRAINT unique_prices_product_amount_cycle 
     UNIQUE (product_id, amount, currency, billing_cycle_days);
 
--- Add foreign key reference from subscriptions to prices
+-- Add foreign key references from subscriptions to prices and products
 DO $$
 BEGIN
     IF NOT EXISTS (
@@ -122,6 +137,24 @@ BEGIN
         ALTER TABLE billing.subscriptions
         ADD CONSTRAINT fk_subscriptions_price_id
         FOREIGN KEY (price_id) REFERENCES billing.prices(id);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_subscriptions_product'
+    ) THEN
+        ALTER TABLE billing.subscriptions
+        ADD CONSTRAINT fk_subscriptions_product
+        FOREIGN KEY (product_id) REFERENCES billing.products(id);
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_subscriptions_scheduled_price'
+    ) THEN
+        ALTER TABLE billing.subscriptions
+        ADD CONSTRAINT fk_subscriptions_scheduled_price
+        FOREIGN KEY (scheduled_price_id) REFERENCES billing.prices(id);
     END IF;
 END$$;
 
@@ -227,7 +260,7 @@ CREATE TABLE IF NOT EXISTS billing.payments (
     processor billing.processor_type NOT NULL, -- flattened processor (mobius, ccbill, solana, paypal, etc.)
     transaction_id TEXT NOT NULL,
     amount BIGINT NOT NULL, -- Amount in cents (smallest currency unit)
-    currency TEXT NOT NULL DEFAULT 'USD',
+    currency TEXT NOT NULL DEFAULT 'usd',
     -- Overall lifecycle state for the payment record
     status billing.purchase_status NOT NULL DEFAULT 'completed',
     subscription_id UUID REFERENCES billing.subscriptions(id) ON DELETE SET NULL,
@@ -296,7 +329,7 @@ CREATE TABLE IF NOT EXISTS billing.solana_transactions (
 
     -- Optional references
     product_id UUID,
-    purchase_id UUID,
+    payment_id UUID,
     intent_id UUID REFERENCES billing.solana_payment_intents(id) ON DELETE SET NULL,
 
     -- Blockchain metadata

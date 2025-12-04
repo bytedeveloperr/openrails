@@ -36,3 +36,17 @@ func (r *ProfileRepo) GetUserEmail(ctx context.Context, id uuid.UUID) (username 
 	}
 	return username, out.Email, out.EmailVerified, out.IsActive, nil
 }
+
+// GetUserIDByUsername looks up a user ID by their username.
+// Used by CCBill webhooks to resolve usernames back to user IDs.
+func (r *ProfileRepo) GetUserIDByUsername(ctx context.Context, username string) (string, error) {
+	var userID string
+	q := r.db.GetDB().NewSelect().
+		TableExpr("profiles.users").
+		ColumnExpr("id").
+		Where("username = ?", username)
+	if err := q.Scan(ctx, &userID); err != nil {
+		return "", err
+	}
+	return userID, nil
+}

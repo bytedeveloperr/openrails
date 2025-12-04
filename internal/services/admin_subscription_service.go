@@ -26,14 +26,14 @@ var (
 
 // AdminSubscriptionService handles administrative subscription operations
 type AdminSubscriptionService struct {
-	SubscriptionService      *SubscriptionService
-	ProductService           *ProductService
-	PriceService             *PriceService
-	EntitlementService       *EntitlementService
-	NotificationQueueService *NotificationQueueService
-	PaymentService           *PaymentService
-	NMIClients               map[string]*nmi.NMIClient
-	Clock                    clockwork.Clock
+	SubscriptionService *SubscriptionService
+	ProductService      *ProductService
+	PriceService        *PriceService
+	EntitlementService  *EntitlementService
+	NotificationService *NotificationService
+	PaymentService      *PaymentService
+	NMIClients          map[string]*nmi.NMIClient
+	Clock               clockwork.Clock
 	// No user directory enrichment; IdP subject is stored on subscription
 }
 
@@ -243,7 +243,7 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 		EventType: models.NotificationPremiumEnded,
 		Data:      map[string]any{"reason": string(PremiumEndReasonAdmin)},
 	}
-	if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
+	if err := s.NotificationService.Create(ctx, notification); err != nil {
 		log.WithFields(log.Fields{
 			"subscription_id":   subscription.ID,
 			"user_id":           subscription.UserID,
@@ -440,7 +440,7 @@ func (s *AdminSubscriptionService) GetAllPurchases(ctx context.Context, queryOpt
 
 // GetAllNotifications retrieves all notifications with filtering (admin)
 func (s *AdminSubscriptionService) GetAllNotifications(ctx context.Context, queryOpts *query.QueryOptions[GetNotificationsFilters]) ([]*models.NotificationQueue, int64, error) {
-	notifications, total, err := s.NotificationQueueService.GetNotifications(ctx, *queryOpts)
+	notifications, total, err := s.NotificationService.GetNotifications(ctx, *queryOpts)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get notifications: %w", err)
 	}
@@ -460,7 +460,7 @@ func (s *AdminSubscriptionService) SendManualNotification(ctx context.Context, u
 		},
 	}
 
-	return s.NotificationQueueService.Create(ctx, notification)
+	return s.NotificationService.Create(ctx, notification)
 }
 
 // NewAdminSubscriptionService creates a new AdminSubscriptionService
@@ -469,17 +469,17 @@ func NewAdminSubscriptionService(
 	productService *ProductService,
 	priceService *PriceService,
 	entitlementService *EntitlementService,
-	notificationQueueService *NotificationQueueService,
+	notificationService *NotificationService,
 	paymentService *PaymentService,
 	nmiClients map[string]*nmi.NMIClient,
 ) *AdminSubscriptionService {
 	return &AdminSubscriptionService{
-		SubscriptionService:      subscriptionService,
-		ProductService:           productService,
-		PriceService:             priceService,
-		EntitlementService:       entitlementService,
-		NotificationQueueService: notificationQueueService,
-		PaymentService:           paymentService,
-		NMIClients:               nmiClients,
+		SubscriptionService: subscriptionService,
+		ProductService:      productService,
+		PriceService:        priceService,
+		EntitlementService:  entitlementService,
+		NotificationService: notificationService,
+		PaymentService:      paymentService,
+		NMIClients:          nmiClients,
 	}
 }

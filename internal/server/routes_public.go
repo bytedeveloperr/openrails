@@ -7,7 +7,6 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/handlers"
 	"github.com/doujins-org/doujins-billing/internal/middleware"
-	"github.com/doujins-org/doujins-billing/internal/processors"
 )
 
 func (s *Server) registerPublicRoutes() {
@@ -31,16 +30,7 @@ func (s *Server) registerPublicRoutes() {
 	subscriptions.GET("/products", s.wrap(handlers.GetProducts))
 
 	subscriptions.Use(middleware.AuthRequired(s.authVerifier))
-	// Processor routes for subscription creation
-	// NMI-backed processors (mobius, etc.) use NMI gateway
-	// ccbill and solana are self-contained processors
-	for _, processor := range processors.GetNMIBackedProcessorsList() {
-		subscriptions.POST("/"+processor, s.wrap(handlers.Subscribe))
-	}
-	subscriptions.POST("/ccbill", s.wrap(handlers.GenerateFlexFormURL))
-	subscriptions.POST("/solana", s.wrap(handlers.Subscribe))
-	subscriptions.POST("/ccbill/flexform-url", s.wrap(handlers.GenerateFlexFormURL))
-	subscriptions.POST("/ccbill/upgrade-url", s.wrap(handlers.GenerateCCBillUpgradeURL))
+	// Legacy endpoints - use POST /v1/me/checkout instead
 	subscriptions.POST("/cancel", s.wrap(handlers.CancelSubscription))
 	subscriptions.GET("/active", s.wrap(handlers.GetSubscription))
 	subscriptions.GET("/history", s.wrap(handlers.GetSubscriptionHistory))
@@ -92,10 +82,16 @@ func (s *Server) registerPublicRoutes() {
 	solana.POST("/submit", s.wrap(handlers.SubmitPayment))     // Use POST /payment-intents/:id/confirm instead
 	solana.POST("/qr", s.wrap(handlers.GenerateSolanaPayQR))   // Use POST /payment-intents/qr instead
 	solana.GET("/check", s.wrap(handlers.CheckSolanaPayment))  // Use GET /payment-intents/:id instead
+	// New Solana Pay Transfer Request flow
+	solana.POST("/pay", s.wrap(handlers.CreateSolanaPay))
+	solana.GET("/pay/status", s.wrap(handlers.GetSolanaPayStatus))
+	solana.GET("/pay/:reference", s.wrap(handlers.GetSolanaPayByReference))
 
 	me := api.Group("/me")
 	me.Use(middleware.AuthRequired(s.authVerifier))
 	me.GET("/status", s.wrap(handlers.GetMyBillingStatus))
+	// Unified checkout endpoint - handles both subscriptions and one-time purchases
+	me.POST("/checkout", s.wrap(handlers.Checkout))
 	// New user-scoped endpoints
 	me.GET("/subscriptions", s.wrap(handlers.GetMySubscriptions))
 	me.POST("/subscriptions/cancel", s.wrap(handlers.CancelSubscription))

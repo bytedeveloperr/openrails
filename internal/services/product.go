@@ -34,6 +34,16 @@ func (s *ProductService) GetAll(ctx context.Context) ([]*models.Product, error) 
 	return s.repo.GetAll(ctx)
 }
 
+// GetActivePaginated returns active products with pagination
+func (s *ProductService) GetActivePaginated(ctx context.Context, limit, offset int) ([]*models.Product, int64, error) {
+	return s.repo.GetActivePaginated(ctx, limit, offset)
+}
+
+// GetAllPaginated returns all products with pagination
+func (s *ProductService) GetAllPaginated(ctx context.Context, limit, offset int) ([]*models.Product, int64, error) {
+	return s.repo.GetAllPaginated(ctx, limit, offset)
+}
+
 // Update is not supported for arbitrary changes - products should be treated as mostly immutable.
 // Use UpdateDisplayName(), UpdateDescription(), or Deactivate() for allowed changes.
 func (s *ProductService) Update(ctx context.Context, product *models.Product) error {

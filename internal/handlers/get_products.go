@@ -4,29 +4,52 @@ import (
 	"net/http"
 
 	"github.com/doujins-org/doujins-billing/internal/middleware"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
-// GetProducts retrieves all available products and prices for subscription.
-// By default, only active products/prices are returned.
-// Admins can pass ?include_inactive=true to see all products/prices.
+// GetProducts retrieves products and prices for subscription.
+// Follows Stripe's API pattern: https://docs.stripe.com/api/products/list
+//
+// Query params:
+//   - active: Only return active (true) or inactive (false) products. Default: true.
+//     Non-admins can only see active=true; any other value is silently ignored.
+//   - limit: Maximum items to return (default: 20, max: 100)
+//   - offset: Number of items to skip (default: 0)
 func GetProducts(r *Request) {
-	includeInactive := false
+	req := new(GetProductsRequest)
+	req.SetDefaults()
+	if !r.BindQuery(req.Query()) {
+		return
+	}
 
-	// Check if admin is requesting inactive items
-	if r.Query("include_inactive") == "true" {
+	// Determine whether to include inactive products
+	includeInactive := false
+	if req.Active != nil && !*req.Active {
+		// Only admins can view inactive products
 		userCtx := middleware.GetUserContext(r.GinCtx)
 		if userCtx != nil && userCtx.HasRole("admin") {
 			includeInactive = true
 		}
-		// Non-admins passing include_inactive=true are silently ignored
+		// Non-admins requesting active=false are silently shown active products only
 	}
 
-	products, err := r.State.PublicSubscriptionService.GetProducts(r.Request.Context(), includeInactive)
+	result, err := r.State.PublicSubscriptionService.GetProductsPaginated(
+		r.Request.Context(),
+		includeInactive,
+		req.Limit,
+		req.Offset,
+	)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	response := NewGetProductsResponse(products)
+	// Convert to API objects
+	productObjects := make([]api.ProductObject, len(result.Products))
+	for i, p := range result.Products {
+		productObjects[i] = ProductToAPI(p.Product, p.Prices)
+	}
+
+	response := api.NewListResponse(productObjects, result.TotalItems, req.Limit, req.Offset)
 	r.SuccessJSON(response)
 }

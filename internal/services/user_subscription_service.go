@@ -27,14 +27,14 @@ var (
 
 // UserSubscriptionService handles user-facing subscription operations
 type UserSubscriptionService struct {
-	SubscriptionService      *SubscriptionService
-	ProductService           *ProductService
-	PriceService             *PriceService
-	PaymentService           *PaymentService
-	NotificationQueueService *NotificationQueueService
-	EntitlementService       *EntitlementService
-	NMIClients               map[string]*nmi.NMIClient
-	Clock                    clockwork.Clock
+	SubscriptionService *SubscriptionService
+	ProductService      *ProductService
+	PriceService        *PriceService
+	PaymentService      *PaymentService
+	NotificationService *NotificationService
+	EntitlementService  *EntitlementService
+	NMIClients          map[string]*nmi.NMIClient
+	Clock               clockwork.Clock
 }
 
 // SetClock sets the clock for this service. Used for testing.
@@ -182,7 +182,7 @@ func (s *UserSubscriptionService) GetUserNotifications(ctx context.Context, user
 		queryOpts.Filters.UserID = userID
 	}
 
-	notifications, total, err := s.NotificationQueueService.GetNotifications(ctx, *queryOpts)
+	notifications, total, err := s.NotificationService.GetNotifications(ctx, *queryOpts)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get notifications: %w", err)
 	}
@@ -193,7 +193,7 @@ func (s *UserSubscriptionService) GetUserNotifications(ctx context.Context, user
 
 // MarkNotificationRead marks a notification as read
 func (s *UserSubscriptionService) MarkNotificationRead(ctx context.Context, userID string, notificationID uuid.UUID) error {
-	notification, err := s.NotificationQueueService.GetByID(ctx, notificationID)
+	notification, err := s.NotificationService.GetByID(ctx, notificationID)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrNotificationNotFound, err)
 	}
@@ -204,7 +204,7 @@ func (s *UserSubscriptionService) MarkNotificationRead(ctx context.Context, user
 	}
 
 	notification.MarkAsSeen() // Mark as seen (new boolean field)
-	return s.NotificationQueueService.Update(ctx, notification)
+	return s.NotificationService.Update(ctx, notification)
 }
 
 // CCBillCancelError is returned when a user tries to cancel a CCBill subscription
@@ -275,7 +275,7 @@ func (s *UserSubscriptionService) CancelUserSubscription(ctx context.Context, us
 		EventType: models.NotificationPremiumEnded,
 		Data:      map[string]any{"reason": string(PremiumEndReasonUserCancel)},
 	}
-	if err := s.NotificationQueueService.Create(ctx, notification); err != nil {
+	if err := s.NotificationService.Create(ctx, notification); err != nil {
 		log.WithFields(log.Fields{
 			"subscription_id":   subscription.ID,
 			"user_id":           userID,
@@ -367,17 +367,17 @@ func NewUserSubscriptionService(
 	productService *ProductService,
 	priceService *PriceService,
 	paymentService *PaymentService,
-	notificationQueueService *NotificationQueueService,
+	notificationService *NotificationService,
 	entitlementService *EntitlementService,
 	nmiClients map[string]*nmi.NMIClient,
 ) *UserSubscriptionService {
 	return &UserSubscriptionService{
-		NMIClients:               nmiClients,
-		SubscriptionService:      subscriptionService,
-		ProductService:           productService,
-		PriceService:             priceService,
-		PaymentService:           paymentService,
-		NotificationQueueService: notificationQueueService,
-		EntitlementService:       entitlementService,
+		NMIClients:          nmiClients,
+		SubscriptionService: subscriptionService,
+		ProductService:      productService,
+		PriceService:        priceService,
+		PaymentService:      paymentService,
+		NotificationService: notificationService,
+		EntitlementService:  entitlementService,
 	}
 }

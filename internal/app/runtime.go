@@ -20,34 +20,30 @@ import (
 
 // Runtime aggregates infrastructure clients and application services.
 type Runtime struct {
-	DB                 *db.DB
-	RedisClient        *redis.Client
-	Config             *config.Config
-	Clock              clockwork.Clock
-	CCBillClient       *ccbill.CCBillClient
-	CCBillRESTClient   *ccbill.RESTClient
-	CCBillDataLink     *ccbill.DataLinkClient
-	CCBillAliasService *services.CCBillAliasService
-	NMIClients         map[string]*nmi.NMIClient
-	RiverClient        *river.Client[pgx.Tx]
-	riverPool          *pgxpool.Pool
+	DB               *db.DB
+	RedisClient      *redis.Client
+	Config           *config.Config
+	Clock            clockwork.Clock
+	CCBillClient     *ccbill.CCBillClient
+	CCBillRESTClient *ccbill.RESTClient
+	CCBillDataLink   *ccbill.DataLinkClient
+	NMIClients       map[string]*nmi.NMIClient
+	RiverClient      *river.Client[pgx.Tx]
+	riverPool        *pgxpool.Pool
 
-	UserService              *services.UserService
-	SubscriptionService      *services.SubscriptionService
-	ProductService           *services.ProductService
-	PriceService             *services.PriceService
-	NotificationQueueService *services.NotificationQueueService
-	NotificationService      *services.NotificationService
-	PaymentMethodService     *services.PaymentMethodService
-	PaymentService           *services.PaymentService
-	VaultService             *services.VaultService
+	SubscriptionService  *services.SubscriptionService
+	ProductService       *services.ProductService
+	PriceService         *services.PriceService
+	NotificationService  *services.NotificationService
+	PaymentMethodService *services.PaymentMethodService
+	PaymentService       *services.PaymentService
+	VaultService         *services.VaultService
 
 	UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService
 	AdminSubscriptionService  *services.AdminSubscriptionService
 
-	EmailService             *services.EmailService
-	SubscriptionEmailService *services.SubscriptionEmailService
+	EmailService *services.EmailService
 
 	BillingEventService *services.BillingEventService
 	EntitlementService  *services.EntitlementService
@@ -56,12 +52,16 @@ type Runtime struct {
 	SolanaPaymentService       *services.SolanaPaymentService
 	SolanaPaymentIntentService *services.SolanaPaymentIntentService
 	SolanaVerificationService  *services.SolanaVerificationService
+	SolanaPayService           *services.SolanaPayService
+	SolanaPayPoller            *services.SolanaPayPoller
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 	WebhookEventService          *services.WebhookEventService
 	WebhookDispatcher            *services.WebhookDispatcher
 	DeduplicationService         *services.DeduplicationService
 	WebhookProcessor             *services.WebhookProcessor
+
+	CheckoutService *services.CheckoutService
 
 	riverStarted bool
 }
@@ -72,6 +72,13 @@ func (r *Runtime) Close(ctx context.Context) error {
 		return nil
 	}
 	var errs []error
+
+	// Stop Solana Pay poller
+	if r.SolanaPayPoller != nil {
+		log.Info("Stopping Solana Pay poller...")
+		r.SolanaPayPoller.Stop()
+	}
+
 	if r.RiverClient != nil && r.riverStarted {
 		log.Info("Stopping River background workers...")
 		if err := r.RiverClient.Stop(ctx); err != nil {
@@ -154,5 +161,10 @@ func (r *Runtime) StartWorkers(ctx context.Context) {
 				}
 			}()
 		}
+	}
+
+	// Start Solana Pay poller if configured
+	if r.SolanaPayPoller != nil && r.Config.Solana != nil {
+		go r.SolanaPayPoller.Start(ctx)
 	}
 }

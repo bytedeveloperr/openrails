@@ -54,17 +54,16 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		return nil, fmt.Errorf("failed to create nmi clients: %w", err)
 	}
 
-	serviceInstances := createServices(database, cfg, ccbillRESTClient, nmiClients, clock)
+	serviceInstances := createServices(database, cfg, ccbillRESTClient, nmiClients, redisClient, clock)
 
 	var emailService *services.EmailService
-	var subscriptionEmailService *services.SubscriptionEmailService
 	if cfg.SendGrid != nil {
 		if es, err := services.NewEmailService(cfg.SendGrid); err != nil {
 			log.WithError(err).Warn("EmailService init failed; email disabled")
 		} else {
 			emailService = es
-			subscriptionEmailService = services.NewSubscriptionEmailService(
-				emailService,
+			// Configure domain services for subscription emails
+			emailService.SetDomainServices(
 				serviceInstances.SubscriptionService,
 				serviceInstances.ProductService,
 				serviceInstances.PriceService,
@@ -73,32 +72,24 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		}
 	}
 
-	notificationService := services.NewNotificationService(
-		serviceInstances.NotificationQueueService,
-		subscriptionEmailService,
-		emailService,
-	)
-	serviceInstances.WebhookDispatcher.NotificationService = notificationService
-	serviceInstances.SubscriptionLifecycleService.SetNotificationService(notificationService)
-	serviceInstances.SolanaPaymentService.SetNotificationService(notificationService)
+	// Set emailService on the NotificationService that was created in createServices
+	serviceInstances.NotificationService.SetEmailService(emailService)
+	serviceInstances.SolanaPaymentService.SetNotificationService(serviceInstances.NotificationService)
 
 	runtime := &Runtime{
-		DB:                 database,
-		RedisClient:        redisClient,
-		Config:             cfg,
-		Clock:              clock,
-		CCBillClient:       ccbillClient,
-		CCBillRESTClient:   ccbillRESTClient,
-		CCBillDataLink:     ccbillDataLinkClient,
-		CCBillAliasService: serviceInstances.CCBillAliasService,
-		NMIClients:         nmiClients,
+		DB:               database,
+		RedisClient:      redisClient,
+		Config:           cfg,
+		Clock:            clock,
+		CCBillClient:     ccbillClient,
+		CCBillRESTClient: ccbillRESTClient,
+		CCBillDataLink:   ccbillDataLinkClient,
+		NMIClients:       nmiClients,
 
 		SubscriptionService:        serviceInstances.SubscriptionService,
-		UserService:                serviceInstances.UserService,
 		ProductService:             serviceInstances.ProductService,
 		PriceService:               serviceInstances.PriceService,
-		NotificationQueueService:   serviceInstances.NotificationQueueService,
-		NotificationService:        notificationService,
+		NotificationService:        serviceInstances.NotificationService,
 		PaymentMethodService:       serviceInstances.PaymentMethodService,
 		PaymentService:             serviceInstances.PurchaseService,
 		EntitlementService:         serviceInstances.EntitlementService,
@@ -107,17 +98,20 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		SolanaPaymentService:       serviceInstances.SolanaPaymentService,
 		SolanaPaymentIntentService: serviceInstances.SolanaPaymentIntentService,
 		SolanaVerificationService:  serviceInstances.SolanaVerificationService,
+		SolanaPayService:           serviceInstances.SolanaPayService,
+		SolanaPayPoller:            serviceInstances.SolanaPayPoller,
 
 		UserSubscriptionService:   serviceInstances.UserSubscriptionService,
 		PublicSubscriptionService: serviceInstances.PublicSubscriptionService,
 		AdminSubscriptionService:  serviceInstances.AdminSubscriptionService,
 
 		EmailService:                 emailService,
-		SubscriptionEmailService:     subscriptionEmailService,
 		SubscriptionLifecycleService: serviceInstances.SubscriptionLifecycleService,
 		WebhookEventService:          serviceInstances.WebhookEventService,
 		WebhookDispatcher:            serviceInstances.WebhookDispatcher,
 		DeduplicationService:         serviceInstances.DeduplicationService,
+
+		CheckoutService: serviceInstances.CheckoutService,
 	}
 	runtime.WebhookProcessor = &services.WebhookProcessor{
 		Events:     runtime.WebhookEventService,
@@ -281,12 +275,10 @@ func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
 
 type servicesInstances struct {
 	SubscriptionService *services.SubscriptionService
-	UserService         *services.UserService
-	CCBillAliasService  *services.CCBillAliasService
 
 	ProductService             *services.ProductService
 	PriceService               *services.PriceService
-	NotificationQueueService   *services.NotificationQueueService
+	NotificationService        *services.NotificationService
 	PaymentMethodService       *services.PaymentMethodService
 	PurchaseService            *services.PaymentService
 	EntitlementService         *services.EntitlementService
@@ -295,45 +287,49 @@ type servicesInstances struct {
 	SolanaPaymentService       *services.SolanaPaymentService
 	SolanaPaymentIntentService *services.SolanaPaymentIntentService
 	SolanaVerificationService  *services.SolanaVerificationService
+	SolanaPayService           *services.SolanaPayService
+	SolanaPayPoller            *services.SolanaPayPoller
 
 	UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService
 	AdminSubscriptionService  *services.AdminSubscriptionService
 
-	EmailService             *services.EmailService
-	SubscriptionEmailService *services.SubscriptionEmailService
-
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 	DeduplicationService         *services.DeduplicationService
 	WebhookEventService          *services.WebhookEventService
 	WebhookDispatcher            *services.WebhookDispatcher
+
+	CheckoutService *services.CheckoutService
 }
 
-func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, nmiClients map[string]*nmi.NMIClient, clock clockwork.Clock) *servicesInstances {
-	userService := services.NewUserService(database)
+func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, nmiClients map[string]*nmi.NMIClient, redisClient *redis.Client, clock clockwork.Clock) *servicesInstances {
 	productService := services.NewProductService(database)
 	priceService := services.NewPriceService(database)
-	notificationQueueService := services.NewNotificationQueueService(database)
+	// NotificationService created with nil emailService - will be set later in buildRuntime
+	notificationService := services.NewNotificationService(database, nil)
 	paymentMethodService := services.NewPaymentMethodService(database)
 	purchaseService := services.NewPaymentService(database)
 	purchaseService.Clock = clock
 	entitlementService := services.NewEntitlementService(database)
 	entitlementService.Clock = clock
-	aliasService := services.NewCCBillAliasService(database)
-	aliasService.Clock = clock
+	profileRepo := repo.NewProfileRepo(database)
 	solanaWalletService := services.NewSolanaWalletService(database)
 	solanaWalletService.Clock = clock
 	solanaPaymentService := services.NewSolanaPaymentService(database, cfg, priceService, purchaseService, productService, entitlementService, nil)
 	solanaPaymentService.Clock = clock
 	solanaPaymentIntentService := services.NewSolanaPaymentIntentService(database, cfg, priceService)
 	solanaVerificationService := services.NewSolanaVerificationService(database, solanaWalletService)
+	// Note: solanaPayService and SolanaPayPoller need checkoutService, which is created later
+	// We'll create solanaPayService with nil checkoutService and set it after checkoutService is created
+	solanaPayService := services.NewSolanaPayService(database, redisClient, cfg, priceService, productService, nil)
+	solanaPayService.Clock = clock
 
 	subscriptionLifecycleService := services.NewSubscriptionLifecycleService(
 		database,
 		productService,
 		priceService,
 		entitlementService,
-		notificationQueueService,
+		notificationService,
 	)
 	subscriptionLifecycleService.Clock = clock
 
@@ -341,7 +337,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		database,
 		priceService,
 		productService,
-		notificationQueueService,
+		notificationService,
 		ccbillRESTClient,
 		nmiClients,
 		paymentMethodService,
@@ -358,7 +354,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		productService,
 		priceService,
 		purchaseService,
-		notificationQueueService,
+		notificationService,
 		entitlementService,
 		nmiClients,
 	)
@@ -373,7 +369,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		productService,
 		priceService,
 		entitlementService,
-		notificationQueueService,
+		notificationService,
 		purchaseService,
 		nmiClients,
 	)
@@ -386,25 +382,49 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		Clock:                        clock,
 		PriceService:                 priceService,
 		ProductService:               productService,
-		NotificationQueueService:     notificationQueueService,
-		NotificationService:          nil,
+		NotificationService:          notificationService,
 		SubscriptionService:          subscriptionService,
 		PaymentService:               purchaseService,
 		BillingEventService:          nil,
 		SubscriptionLifecycleService: subscriptionLifecycleService,
-		CCBillAliasService:           aliasService,
+		ProfileRepo:                  profileRepo,
 		DeduplicationService:         deduplicationService,
 		CCBillRESTClient:             ccbillRESTClient,
 		NMIClients:                   nmiClients,
 	}
 
+	// Create checkout service for unified checkout endpoint
+	checkoutService := services.NewCheckoutService(
+		subscriptionService,
+		productService,
+		priceService,
+		purchaseService,
+		entitlementService,
+		paymentMethodService,
+		vaultService,
+		subscriptionService.IdempotencyService,
+		nmiClients,
+		cfg,
+	)
+	checkoutService.Clock = clock
+
+	// Wire up checkoutService to solanaPayService for eligibility checks
+	solanaPayService.SetCheckoutService(checkoutService)
+
+	// Create SolanaPayPoller (depends on checkoutService for RegisterPurchase)
+	solanaPayPoller := services.NewSolanaPayPoller(
+		database,
+		redisClient,
+		cfg,
+		solanaPayService,
+		checkoutService,
+	)
+
 	return &servicesInstances{
 		SubscriptionService:          subscriptionService,
-		UserService:                  userService,
-		CCBillAliasService:           aliasService,
 		ProductService:               productService,
 		PriceService:                 priceService,
-		NotificationQueueService:     notificationQueueService,
+		NotificationService:          notificationService,
 		PaymentMethodService:         paymentMethodService,
 		PurchaseService:              purchaseService,
 		EntitlementService:           entitlementService,
@@ -413,6 +433,8 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		SolanaPaymentService:         solanaPaymentService,
 		SolanaPaymentIntentService:   solanaPaymentIntentService,
 		SolanaVerificationService:    solanaVerificationService,
+		SolanaPayService:             solanaPayService,
+		SolanaPayPoller:              solanaPayPoller,
 		UserSubscriptionService:      userSubscriptionService,
 		PublicSubscriptionService:    publicSubscriptionService,
 		AdminSubscriptionService:     adminSubscriptionService,
@@ -420,6 +442,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		DeduplicationService:         deduplicationService,
 		WebhookEventService:          webhookEventService,
 		WebhookDispatcher:            webhookDispatcher,
+		CheckoutService:              checkoutService,
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
+	"reflect"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -70,11 +71,26 @@ func (r *Request) SuccessJSONMessage(msg string) {
 }
 
 func (r *Request) SuccessJSONPaginated(data any, total int64, limit, offset int) {
+	// Calculate has_more based on whether there are items beyond current page
+	dataLen := 0
+	if slice, ok := data.([]any); ok {
+		dataLen = len(slice)
+	} else {
+		// Use reflection for typed slices
+		v := reflect.ValueOf(data)
+		if v.Kind() == reflect.Slice {
+			dataLen = v.Len()
+		}
+	}
+	hasMore := int64(offset+dataLen) < total
+
 	r.GinCtx.JSON(http.StatusOK, message.Json{
-		"data":   data,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
+		"object":   "list",
+		"data":     data,
+		"total":    total,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": hasMore,
 	})
 }
 

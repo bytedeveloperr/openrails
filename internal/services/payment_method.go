@@ -49,19 +49,18 @@ func (s *PaymentMethodService) GetActiveByUserID(ctx context.Context, userID str
 	return s.repo.GetActiveByUserID(ctx, userID)
 }
 
-func (s *PaymentMethodService) ListByUserID(ctx context.Context, userID string, includeInactive bool, page, pageSize int) ([]*models.PaymentMethod, int64, error) {
+func (s *PaymentMethodService) ListByUserID(ctx context.Context, userID string, includeInactive bool, limit, offset int) ([]*models.PaymentMethod, int64, error) {
 	if userID == "" {
 		return nil, 0, errors.New("user ID is required")
 	}
-	if page < 1 {
-		page = 1
+	if limit < 1 {
+		limit = 20
 	}
-	if pageSize < 1 {
-		pageSize = 20
+	if offset < 0 {
+		offset = 0
 	}
 
-	offset := (page - 1) * pageSize
-	items, total, err := s.repo.ListByUserID(ctx, userID, includeInactive, pageSize, offset)
+	items, total, err := s.repo.ListByUserID(ctx, userID, includeInactive, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}

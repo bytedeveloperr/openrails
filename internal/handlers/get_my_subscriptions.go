@@ -13,7 +13,7 @@ import (
 // Query params:
 //   - status: filter by status (active, cancelled, past_due, all). Default: non-cancelled
 //   - limit: max results (1-100, default 10)
-//   - offset: pagination offset
+//   - offset: pagination offset (default 0)
 func GetMySubscriptions(r *Request) {
 	userCtx := middleware.GetUserContext(r.GinCtx)
 	if userCtx.User == nil {
@@ -60,6 +60,5 @@ func GetMySubscriptions(r *Request) {
 		return
 	}
 
-	response := PaginatedResponse{Data: subscriptions, TotalItems: queryOpts.TotalItems}
-	r.SuccessJSON(response)
+	r.SuccessJSONPaginated(subscriptions, queryOpts.TotalItems, limit, offset)
 }

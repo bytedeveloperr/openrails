@@ -36,9 +36,10 @@ func CreateSubscription(r *Request) {
 		Object:             "subscription",
 		Status:             "pending",
 		User:               api.FormatUserID(user.ID),
+		Items:              &api.SubscriptionItemsList{Object: "list", Data: []api.SubscriptionItemObject{}},
 		StartDate:          api.ToUnix(now),
 		CurrentPeriodStart: api.ToUnix(now),
 		CurrentPeriodEnd:   api.ToUnix(now.AddDate(0, 1, 0)), // 1 month from now
-		CancelAtPeriodEnd:  false,
+		Created:            api.ToUnix(now),
 	})
 }

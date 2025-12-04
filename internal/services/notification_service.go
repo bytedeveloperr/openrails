@@ -3,32 +3,116 @@ package services
 import (
 	"context"
 	"fmt"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/pkg/query"
+	"github.com/google/uuid"
 )
 
-// NotificationService handles both db storage and immediate external delivery
+// NotificationService handles notification storage, retrieval, and delivery.
+// It combines DB operations with email delivery logic.
 type NotificationService struct {
-	notificationService  *NotificationQueueService
-	subscriptionEmailSvc *SubscriptionEmailService
-	emailService         *EmailService
+	repo         *repo.NotificationQueueRepo
+	emailService *EmailService
 }
 
-// NewNotificationService creates a new notification service
-func NewNotificationService(
-	notificationService *NotificationQueueService,
-	subscriptionEmailSvc *SubscriptionEmailService,
-	emailService *EmailService,
-) *NotificationService {
+// GetNotificationsFilters defines filters for notification queries
+type GetNotificationsFilters struct {
+	UserID    string `form:"user_id"`
+	EventType string `form:"event_type"`
+	Seen      *bool  `form:"seen"`
+}
+
+// NewNotificationService creates a new notification service.
+// emailService can be nil and set later via SetEmailService.
+func NewNotificationService(database *db.DB, emailService *EmailService) *NotificationService {
 	return &NotificationService{
-		notificationService:  notificationService,
-		subscriptionEmailSvc: subscriptionEmailSvc,
-		emailService:         emailService,
+		repo:         repo.NewNotificationQueueRepo(database),
+		emailService: emailService,
 	}
 }
+
+// SetEmailService sets the email service for delivery operations.
+// This allows delayed initialization to break circular dependencies.
+func (s *NotificationService) SetEmailService(emailService *EmailService) {
+	s.emailService = emailService
+}
+
+// ============================================================================
+// DB Operations (formerly in NotificationQueueService)
+// ============================================================================
+
+func (s *NotificationService) Create(ctx context.Context, notification *models.NotificationQueue) error {
+	return s.repo.Create(ctx, notification)
+}
+
+func (s *NotificationService) GetByID(ctx context.Context, id uuid.UUID) (*models.NotificationQueue, error) {
+	return s.repo.GetByID(ctx, id)
+}
+
+func (s *NotificationService) GetByUserID(ctx context.Context, userID string) ([]*models.NotificationQueue, error) {
+	return s.repo.GetByUserID(ctx, userID)
+}
+
+func (s *NotificationService) GetUnseenByUserID(ctx context.Context, userID string) ([]*models.NotificationQueue, error) {
+	return s.repo.GetUnseenByUserID(ctx, userID)
+}
+
+func (s *NotificationService) GetByEventType(ctx context.Context, eventType models.NotificationEventType) ([]*models.NotificationQueue, error) {
+	return s.repo.GetByEventType(ctx, eventType)
+}
+
+func (s *NotificationService) CountByUserAndEventSince(ctx context.Context, userID string, eventType models.NotificationEventType, since time.Time) (int, error) {
+	return s.repo.CountByUserAndEventSince(ctx, userID, eventType, since)
+}
+
+func (s *NotificationService) GetUsersWithPendingDigest(ctx context.Context, since time.Time) ([]string, error) {
+	return s.repo.GetUsersWithPendingDigest(ctx, since)
+}
+
+func (s *NotificationService) GetPendingDigestForUser(ctx context.Context, userID string, since time.Time, limit int) ([]*models.NotificationQueue, error) {
+	return s.repo.GetPendingDigestForUser(ctx, userID, since, limit)
+}
+
+func (s *NotificationService) MarkAsSeen(ctx context.Context, id uuid.UUID) error {
+	return s.repo.MarkAsSeen(ctx, id)
+}
+
+func (s *NotificationService) Update(ctx context.Context, notification *models.NotificationQueue) error {
+	return s.repo.Update(ctx, notification)
+}
+
+func (s *NotificationService) Delete(ctx context.Context, id uuid.UUID) error {
+	return s.repo.Delete(ctx, id)
+}
+
+func (s *NotificationService) GetNotifications(ctx context.Context, queryOpts query.QueryOptions[GetNotificationsFilters]) ([]*models.NotificationQueue, int64, error) {
+	repoFilters := repo.NotificationFilters{
+		UserID:    queryOpts.Filters.UserID,
+		EventType: models.NotificationEventType(queryOpts.Filters.EventType),
+		Seen:      queryOpts.Filters.Seen,
+	}
+
+	repoOpts := query.QueryOptions[repo.NotificationFilters]{
+		Filters:  repoFilters,
+		Limit:    queryOpts.Limit,
+		Offset:   queryOpts.Offset,
+		Page:     queryOpts.Page,
+		PageSize: queryOpts.PageSize,
+		All:      queryOpts.All,
+	}
+
+	return s.repo.GetNotifications(ctx, repoOpts)
+}
+
+// ============================================================================
+// Delivery Operations (create + send email)
+// ============================================================================
 
 // CreateAndDeliver creates a notification in the db and immediately sends external notifications
 func (s *NotificationService) CreateAndDeliver(ctx context.Context, notification *models.NotificationQueue) error {
@@ -39,7 +123,7 @@ func (s *NotificationService) CreateAndDeliver(ctx context.Context, notification
 	}
 
 	// 2. Store in db
-	if err := s.notificationService.Create(ctx, notification); err != nil {
+	if err := s.Create(ctx, notification); err != nil {
 		log.WithContext(ctx).WithError(err).Error("failed to create notification in db")
 		return fmt.Errorf("failed to create notification: %w", err)
 	}
@@ -73,58 +157,41 @@ func (s *NotificationService) DeliverEmail(ctx context.Context, notification *mo
 }
 
 // sendEmailNotification sends appropriate email based on notification type
-
 func (s *NotificationService) sendEmailNotification(ctx context.Context, notification *models.NotificationQueue) error {
+	if s.emailService == nil {
+		log.WithContext(ctx).Debug("email service not available - skipping email notification")
+		return nil
+	}
+
 	switch notification.EventType {
 	case models.NotificationPremiumStarted:
-		if s.subscriptionEmailSvc == nil {
-			log.WithContext(ctx).Debug("subscription email service not available - skipping subscription confirmation email")
-			return nil
-		}
-		return s.subscriptionEmailSvc.SendSubscriptionConfirmed(ctx, notification.UserID)
+		return s.emailService.SendSubscriptionConfirmed(ctx, notification.UserID)
 
 	case models.NotificationPremiumRenewed:
-		if s.subscriptionEmailSvc == nil {
-			log.WithContext(ctx).Debug("subscription email service not available - skipping subscription renewal email")
-			return nil
-		}
-		return s.subscriptionEmailSvc.SendSubscriptionRenewed(ctx, notification.UserID)
+		return s.emailService.SendSubscriptionRenewed(ctx, notification.UserID)
 
 	case models.NotificationPremiumEnded:
-		if s.subscriptionEmailSvc == nil {
-			log.WithContext(ctx).Debug("subscription email service not available - skipping subscription cancellation email")
-			return nil
-		}
 		reason := PremiumEndReasonUnknown
 		if notification.Data != nil {
 			if r, ok := notification.Data["reason"].(string); ok {
 				reason = ParsePremiumEndReason(r)
 			}
 		}
-		return s.subscriptionEmailSvc.SendPremiumEnded(ctx, notification.UserID, reason)
+		return s.emailService.SendPremiumEnded(ctx, notification.UserID, reason)
 
 	case models.NotificationPaymentMethodFailed:
-		if s.subscriptionEmailSvc == nil {
-			log.WithContext(ctx).Debug("subscription email service not available - skipping payment failure email")
-			return nil
-		}
-		return s.subscriptionEmailSvc.SendPaymentFailed(ctx, notification.UserID)
+		return s.emailService.SendPaymentFailed(ctx, notification.UserID)
 
 	case models.NotificationOneOffPurchaseCompleted:
-		if s.emailService == nil {
-			log.WithContext(ctx).Debug("email service not available - skipping one-off purchase receipt email")
-			return nil
-		}
-
 		if notification.Data == nil {
 			log.WithContext(ctx).WithField("user_id", notification.UserID).Warn("one-off purchase notification missing data payload")
 			return nil
 		}
 
 		email, _ := notification.Data["user_email"].(string)
-		if email == "" && s.subscriptionEmailSvc != nil {
-			// Fallback to profiles lookup via subscription email service
-			if uname, mail, err := s.subscriptionEmailSvc.getUserEmail(ctx, notification.UserID); err == nil && mail != "" {
+		if email == "" {
+			// Fallback to profiles lookup via email service
+			if uname, mail, err := s.emailService.getUserEmail(ctx, notification.UserID); err == nil && mail != "" {
 				_ = uname
 				email = mail
 			}
@@ -219,7 +286,7 @@ func (s *NotificationService) cleanupObsoleteNotifications(ctx context.Context, 
 func (s *NotificationService) removeObsoleteNotifications(ctx context.Context, userID string, eventTypes []models.NotificationEventType) (int, error) {
 	// Get unseen notifications for this user that match the obsolete types
 	falseVal := false
-	notifications, _, err := s.notificationService.GetNotifications(ctx, query.QueryOptions[GetNotificationsFilters]{
+	notifications, _, err := s.GetNotifications(ctx, query.QueryOptions[GetNotificationsFilters]{
 		Filters: GetNotificationsFilters{
 			UserID: userID,
 			Seen:   &falseVal, // Only unseen notifications
@@ -236,7 +303,7 @@ func (s *NotificationService) removeObsoleteNotifications(ctx context.Context, u
 		// Check if this notification's type is in the obsolete list
 		for _, obsoleteType := range eventTypes {
 			if notification.EventType == obsoleteType {
-				if err := s.notificationService.Delete(ctx, notification.ID); err != nil {
+				if err := s.Delete(ctx, notification.ID); err != nil {
 					log.WithContext(ctx).WithError(err).WithFields(log.Fields{
 						"notification_id": notification.ID,
 						"event_type":      notification.EventType,

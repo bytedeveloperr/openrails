@@ -751,6 +751,333 @@
         "[DONE] Errors now return {error: {type, code, message, param}} like Stripe",
         "BENEFIT: Clients can programmatically handle errors by type/code, better UX"
       ]
+    },
+    {
+      "name": "nmi-cleanup-remove-processor-nmi-constant",
+      "category": "refactor",
+      "description": "Remove ProcessorNMI constant usage - use ProcessorMobius or IsNMIBacked() instead",
+      "decision": "Keep ProcessorNMI constant with deprecation notice for backwards compatibility. Legacy database records may have processor='nmi'. New code uses 'mobius' or IsNMIBacked().",
+      "steps": [
+        "[DONE] Grep for ProcessorNMI usage across entire codebase",
+        "[N/A] Update internal/db/repo/price.go GetByNMIPlan - no such function exists",
+        "[N/A] Update internal/db/repo/subscription.go - no ProcessorNMI filtering found",
+        "[N/A] Update internal/db/repo/payment_method.go - no ProcessorNMI filtering found",
+        "[DONE] Update internal/handlers/webhook.go routing logic - uses IsNMIBacked()",
+        "[DONE] Update internal/services/*.go switch statements - ProcessorNMI kept for backwards compat only",
+        "[PARTIAL] ProcessorNMI constant kept with deprecation comment for legacy DB records"
+      ]
+    },
+    {
+      "name": "nmi-cleanup-tests",
+      "category": "refactor",
+      "description": "Update all tests to use ProcessorMobius and 'mobius' instead of ProcessorNMI and 'nmi'",
+      "steps": [
+        "[DONE] Grep tests/ for ProcessorNMI and 'nmi' string usage - NONE FOUND",
+        "[DONE] Update tests/seed_data.go processor values from 'nmi' to 'mobius'",
+        "[DONE] Update tests/subscribe_endpoint_test.go - already uses mobius",
+        "[DONE] Update tests/subscription_test.go - already uses mobius",
+        "[DONE] Update tests/webhook_lifecycle_test.go - already uses mobius",
+        "[DONE] Update tests/payment_methods_test.go - already uses mobius",
+        "[DONE] Update tests/admin_subscription_test.go - already uses mobius",
+        "[DONE] Rename testdata/webhooks/nmi/ folder to testdata/webhooks/mobius/ - folder is mobius/",
+        "[DONE] Update webhook replay tests to use mobius paths"
+      ]
+    },
+    {
+      "name": "nmi-cleanup-price-model",
+      "category": "refactor",
+      "description": "Update Price model GetNMIConfig() to work with processor names",
+      "implementation": {
+        "GetNMIConfig": "Tries 'mobius' first, falls back to 'nmi' for legacy records",
+        "GetProcessorConfig": "Generic lookup by processor name",
+        "GetNMIConfigForProcessor": "Lookup for specific NMI-backed processor (e.g., 'mobius', 'acme')"
+      },
+      "steps": [
+        "[DONE] GetNMIConfig() now looks for 'mobius' key FIRST in processors JSONB",
+        "[DONE] Falls back to legacy 'nmi' key for backwards compatibility",
+        "[DONE] GetProcessorConfig(processor) exists for any processor lookup",
+        "[DONE] GetNMIConfigForProcessor(processorName) added for multi-NMI-provider support",
+        "[DONE] Seed data uses 'mobius' key in processors JSONB"
+      ]
+    },
+    {
+      "name": "nmi-cleanup-central-processor-set",
+      "category": "refactor",
+      "description": "Create NMI-backed processors set in one central place for config-driven processor addition",
+      "steps": [
+        "[DONE] Create pkg/processors/nmi.go with:",
+        "[DONE]   - NMIBackedProcessors set derived from config.nmi.providers keys",
+        "[DONE]   - IsNMIBacked(processor string) bool helper function",
+        "[DONE]   - GetNMIBackedProcessorsList() []string for dynamic route registration",
+        "[DONE] Update cancelWithNMI to use IsNMIBacked() instead of hardcoded ProcessorMobius check",
+        "[DONE] Update webhook dispatcher to use IsNMIBacked() for routing",
+        "[DONE] Update routes_public.go to dynamically register NMI-backed processor routes",
+        "[DONE] Update subscribe.go to use IsNMIBacked() for validation",
+        "[DONE] Call processors.InitNMIBackedProcessors(cfg) at startup in build_runtime.go",
+        "[DONE] Document: adding new NMI processor = add config block, zero code changes"
+      ]
+    },
+    {
+      "name": "nmi-cleanup-webhook-routing",
+      "category": "refactor",
+      "description": "Update webhook routing to accept processor names only, not 'nmi'",
+      "steps": [
+        "[DONE] Update routes_public.go: route is /webhooks/:processor",
+        "[DONE] Update webhook dispatcher: if IsNMIBacked(processor) → processNMI",
+        "[DONE] Remove 'nmi' as valid webhook route - only accept mobius, ccbill, solana",
+        "[DONE] Update webhook_nmi.go to use s.Processor instead of hardcoded 'nmi'",
+        "Test: POST /webhooks/mobius should work, POST /webhooks/nmi should 404"
+      ]
+    },
+    {
+      "name": "comprehensive-test-seed-data",
+      "category": "testing-infra",
+      "description": "Test seed data expanded to cover multiple products, currencies, durations, and pricing models",
+      "steps": [
+        "[DONE] Updated DefaultTestProducts() in tests/seed_data.go with comprehensive coverage:",
+        "[DONE] - 4 products: Premium, Pro, Lifetime Access, Basic",
+        "[DONE] - Multiple prices per product (up to 5 for Premium)",
+        "[DONE] - Multiple currencies: USD, EUR, JPY",
+        "[DONE] - Multiple billing cycles: 30 days (monthly), 90 days (quarterly), 365 days (yearly)",
+        "[DONE] - One-time purchases: BillingCycleDays = nil for lifetime/single purchase",
+        "[DONE] - Processor variations: some prices have CCBill, some NMI-only, some with Solana enabled",
+        "[DONE] - Fixed tests that assumed single price per product to use correct indices"
+      ]
+    },
+    {
+      "name": "webhook-lifecycle-entitlement-date-bug",
+      "category": "bug",
+      "description": "Webhook lifecycle tests fail due to PostgreSQL tstzrange constraint when entitlement start_at equals end_at",
+      "steps": [
+        "[DONE] PROBLEM: PostgreSQL tstzrange(start_at, end_at, '[)') requires start_at < end_at, throws 'range lower bound must be less than or equal to range upper bound'",
+        "[DONE] ROOT CAUSE: Tests created entitlements at real time, but mock clock was set to past, causing end_at < start_at",
+        "[DONE] FIX 1: Updated entitlement service/repo to use injected mock clock instead of time.Now()",
+        "[DONE] FIX 2: Updated SubscriptionLifecycleService to propagate clock to EntitlementService instances",
+        "[DONE] FIX 3: Updated entitlement repo methods (EndActiveBySubscription, EndActiveByPayment, RevokeByID) to accept 'now' parameter",
+        "[DONE] FIX 4: Updated test helpers (CreateTestEntitlement, CreateTestSubscriptionWithOptions) to use suite.GetClock().Now()",
+        "[DONE] FIX 5: Updated webhook lifecycle tests to set mock clock BEFORE creating test data, then advance clock before revocation",
+        "[DONE] Added validation in entitlement Insert() to reject entitlements with end_at <= start_at",
+        "[DONE] Added validation in EndActiveBySubscription/Payment to error if revocation would create invalid date ranges",
+        "All affected tests now pass:",
+        "  - TestWebhookSubscriptionLifecycle/Cancellation_cancels_subscription",
+        "  - TestWebhookExpirationFlow/Expiration_cancels_subscription_and_revokes_entitlements",
+        "  - TestWebhookChargebackTerminatesSubscription"
+      ]
+    },
+    {
+      "name": "admin-payments-endpoints",
+      "category": "feature",
+      "description": "Add Stripe-like admin endpoints for listing and viewing payments",
+      "steps": [
+        "[DONE] GET /v1/admin/payments - list all payments with filters:",
+        "[DONE]   - user_id, processor, price_id filters",
+        "[DONE]   - subscription_id filter",
+        "[DONE]   - transaction_id filter (for support lookups)",
+        "[DONE]   - date range filters (created_after, created_before)",
+        "[DONE]   - amount filters (min_amount, max_amount)",
+        "[DONE]   - refunds_only filter to show only refund entries",
+        "[DONE]   - sort_by (created_at, amount) and sort_order (asc, desc)",
+        "[DONE]   - pagination (limit, offset) - our system, not Stripe's has_more",
+        "[DONE] GET /v1/admin/payments/:id - get single payment with Stripe-like format:",
+        "[DONE]   - id with pay_ prefix, object: 'payment'",
+        "[DONE]   - user with usr_ prefix, subscription with sub_ prefix",
+        "[DONE]   - created as unix timestamp",
+        "[DONE]   - refunded boolean, amount_refunded",
+        "[DONE]   - refunds as {object: 'list', data: []} embedded list",
+        "[DONE]   - Include expanded price with price_ prefix",
+        "[DONE] Write tests for payment endpoints"
+      ],
+      "notes": "Initially used Stripe 'charge/ch_/customer' terminology, later refactored to 'payment/pay_/user' for clarity"
+    },
+    {
+      "name": "mock-clock-test-updates",
+      "category": "testing",
+      "description": "Update tests to take advantage of the new uniform mock clock infrastructure",
+      "existing_coverage": [
+        "time_dependent_test.go - comprehensive entitlement/subscription expiry tests with Advance()",
+        "webhook_lifecycle_test.go - webhook processing with time advancement",
+        "river_worker_test.go - dunning worker tests (48h, 8 days, 100 days)",
+        "clock_test.go - direct clock functionality tests"
+      ],
+      "new_tests_added": [
+        "TestWebhookRetryBackoff - tests exponential backoff scheduling (1min, 2min, 4min)",
+        "TestWebhookMaxRetries - tests max retry limit and status transition to 'error'",
+        "TestPaymentTimestampUsesMockClock - verifies payment PurchasedAt uses mock clock",
+        "TestSubscriptionExpiryAtExactBoundary - tests behavior at exact expiry moment",
+        "TestCancellationTimestamp - verifies cancellation timestamps use mock clock",
+        "TestVaultTimestamps - verifies payment method timestamps use mock clock"
+      ],
+      "steps": [
+        "[DONE] Review existing tests that use SetMockClock()",
+        "[N/A] Identify tests that use time.Sleep() or real time delays - remaining are for async polling",
+        "[N/A] Update tests to use clock.Advance() instead of time.Sleep() - not applicable",
+        "[DONE] Add new edge case tests for time boundaries (exactly at expiry, 1ms before/after)",
+        "[DONE] Verify all webhook lifecycle tests use mock clock consistently"
+      ]
+    },
+    {
+      "name": "uniform-mock-clock-usage",
+      "category": "refactor",
+      "description": "Replace all time.Now() usages with injectable mock clock for consistent time-dependent testing",
+      "pattern": {
+        "add_to_service": "Clock clockwork.Clock field",
+        "add_helper": "func (s *Service) now() time.Time { if s.Clock != nil { return s.Clock.Now() }; return time.Now() }",
+        "replace": "time.Now() -> s.now()",
+        "propagate": "Pass clock from runtime to services at startup",
+        "test_setup": "Update SetMockClock() to set clock on all services"
+      },
+      "steps": [
+        "[DONE] Add Clock field and now() helper to CCBillWebhookService",
+        "[DONE] Add Clock field and now() helper to NMIWebhookService",
+        "[DONE] Add Clock field and now() helper to ManageSubscriptionService",
+        "[DONE] Add Clock field and now() helper to SolanaPaymentService",
+        "[DONE] Add Clock field and now() helper to VaultService",
+        "[DONE] Add Clock field and now() helper to PaymentService",
+        "[DONE] Add Clock field and now() helper to SubscriptionService",
+        "[DONE] Update types.go IsPeriodExpired() and validateSubscription() to accept time parameter",
+        "[DONE] Add Clock to admin_entitlements handler (uses runtime.Clock)",
+        "[DONE] Add Clock field and now() helper to SolanaWalletService",
+        "[DONE] Add Clock field and now() helper to WebhookEventService",
+        "[DONE] Add Clock field and now() helper to BillingEventService",
+        "[DONE] Add Clock field and now() helper to CCBillAliasService",
+        "[DONE] Add Clock field and now() helper to SubscriptionEmailService",
+        "[DONE] Add Clock field and now() helper to DeadLetterService",
+        "[DONE] Add Clock field and now() helper to SolanaTransactionService",
+        "[DONE] Add Clock field to WebhookDispatcher",
+        "[DONE] Update ccbill_username_alias repo to accept time parameter",
+        "[DONE] Update build_runtime.go to propagate clock to all services",
+        "[DONE] Update testcontainer_suite.go SetMockClock() to set clock on all services"
+      ]
+    },
+    {
+      "name": "remove-nmi-from-codebase",
+      "category": "refactor",
+      "description": "Remove 'nmi' references from codebase - NMI should be an invisible implementation detail",
+      "steps": [
+        "[DONE] Remove Gateway field from models (Payment, PaymentMethod, Subscription)",
+        "[DONE] Create migration 007_drop_gateway_columns to remove gateway columns and migrate processor='nmi' to 'mobius'",
+        "[DONE] Update services to not reference Gateway field (lifecycle_service, subscription, vault_service, etc.)",
+        "[DONE] Update webhook URL generation to use processor names instead of 'nmi'",
+        "[DONE] Update NMI client map to be keyed by processor name (NMIClients['mobius'])",
+        "GOAL: 'nmi' appears ONLY in internal NMI client code, never in routes/API/database values"
+      ]
+    },
+    {
+      "name": "ccbill-upgrade-url",
+      "category": "feature",
+      "description": "Add CCBill upgrade URL generation endpoint",
+      "steps": [
+        "[DONE] Create POST /v1/subscriptions/ccbill/upgrade-url endpoint",
+        "[DONE] Accept target_price_id and validate user has active CCBill subscription",
+        "[DONE] Generate CCBill upgrade FlexForm URL with user's existing subscription info",
+        "[DONE] Return upgrade URL for frontend to redirect user",
+        "[DONE] Add GenerateUpgradeFlexFormURL method to CCBill client with originalSubscriptionId param",
+        "[DONE] Write tests for upgrade URL generation",
+        "Document CCBill Admin setup requirements (Package ID, Package Upgrade Allowed)"
+      ]
+    },
+    {
+      "name": "ccbill-upgrade-entitlements",
+      "category": "feature",
+      "description": "Update entitlements on subscription upgrade",
+      "steps": [
+        "[DONE] In handleUpgradeSuccess, get new product's EntitlementsSpec after ActivateWithPrice",
+        "[DONE] Revoke old entitlements that aren't in the new product's spec",
+        "[DONE] Grant new entitlements from the upgraded product",
+        "[DONE] Use existing entitlement granting logic (GrantWindow, EndActiveBySubscription)",
+        "[DONE] Handle edge case: same entitlements in both tiers (no action needed - they continue)",
+        "Write tests for entitlement updates on tier upgrade"
+      ]
+    },
+    {
+      "name": "unify-admin-auth",
+      "category": "refactor",
+      "description": "Remove separate admin port and API key, use JWT with admin role claims instead",
+      "steps": [
+        "[DONE] CURRENT: Admin API runs on separate port with API key authentication",
+        "[DONE] PROBLEM: API key is a shared secret - if stolen, attacker has full admin access with no audit trail",
+        "[DONE] Add admin role/claims check to existing JWT validation middleware (e.g., middleware.AdminRequired)",
+        "[DONE] Move admin routes from separate adminHandler to publicHandler, protected by AdminRequired middleware",
+        "[DONE] Remove BillingAPIKey from config",
+        "[DONE] Remove separate admin server/port setup",
+        "[DONE] Update admin route paths (now /v1/admin/subscriptions/:id/extend, /v1/admin/users/:user_id/entitlements, etc.)",
+        "[DONE] Update tests to use JWT Bearer tokens with admin role instead of X-API-KEY",
+        "BENEFIT: Each admin request tied to user identity, full audit trail, no shared secrets"
+      ]
+    },
+    {
+      "name": "admin-api-enhancements",
+      "category": "feature",
+      "description": "Add admin API endpoints for user lookup, subscription management, refunds, and entitlement management",
+      "steps": [
+        "[DONE] User lookup by ID:",
+        "[DONE]   - GET /v1/admin/users/:user_id - get user's subscription + entitlements + payments in one call",
+        "[DONE] Subscription listing:",
+        "[DONE]   - GET /v1/admin/subscriptions - list/search subscriptions with filters (status, processor, user_id, date range, pagination)",
+        "[DONE]   - GET /v1/admin/subscriptions/:id/payments - payment history for a subscription",
+        "[DONE] Refunds:",
+        "[DONE]   - POST /v1/admin/payments/:id/refund - issue refund (creates negative payment entry for audit trail)",
+        "[DONE]   - Track refund status and amount in payments table (via RefundedPaymentID linkage)",
+        "[DONE] Entitlement management:",
+        "[DONE]   - POST /v1/admin/users/:user_id/entitlements - grant entitlement manually (with optional days for end_at)",
+        "[DONE]   - DELETE /v1/admin/users/:user_id/entitlements/:id - revoke entitlement immediately (sets revoked_at, revoke_reason)",
+        "Write tests for all new endpoints"
+      ]
+    },
+    {
+      "name": "filter-inactive-products-prices",
+      "category": "feature",
+      "description": "Public product/price endpoints should only return active items; admins can optionally see inactive",
+      "steps": [
+        "[DONE] Update GET /v1/products to filter is_active=true by default",
+        "[DONE] Update GET /v1/prices to filter is_active=true by default",
+        "[DONE] Add ?include_inactive=true query param that only works for admin users",
+        "[DONE]   - Check if user has admin role in JWT claims",
+        "[DONE]   - If admin + include_inactive=true, return all products/prices",
+        "[DONE]   - If non-admin passes include_inactive=true, ignore it (still filter)",
+        "[DONE] Update handlers to check auth context and apply filter logic",
+        "Write tests for both public and admin behavior"
+      ]
+    },
+    {
+      "name": "manage-subscription-uuid-panic",
+      "category": "bug",
+      "description": "Admin manage endpoints call uuid.MustParse on request payloads; malformed UUIDs crash the server instead of returning an error.",
+      "steps": [
+        "[DONE] Update ManageSubscriptionService to validate UUID inputs with Parse + error handling (no MustParse).",
+        "[DONE] Propagate user-friendly 400/422 errors from handlers for bad UUIDs.",
+        "[DONE] Add tests covering malformed subscription IDs for update/extend admin routes to ensure no panic."
+      ]
+    },
+    {
+      "name": "payment-method-pagination-reset",
+      "category": "bug",
+      "description": "ListPaymentMethods sets defaults after parsing user-supplied page/page_size, overriding client pagination.",
+      "steps": [
+        "[DONE] Reorder pagination handling so defaults are applied before parsing query params (or only when absent).",
+        "[DONE] Simplify BindQuery usage to avoid manual overrides and duplicate validation.",
+        "[DONE] Add handler tests confirming user-provided page/page_size are honored."
+      ]
+    },
+    {
+      "name": "redis-password-ignored-nonprod",
+      "category": "bug",
+      "description": "Redis client only sets password in production; staging/dev with protected Redis fail and rate limiting silently falls back to in-memory.",
+      "steps": [
+        "[DONE] Always apply Redis password when provided, regardless of env.",
+        "[DONE] Adjust log messaging to reflect actual auth usage and warn on failed connections.",
+        "[DONE] Add tests (or injectable opts) to ensure password is respected outside prod."
+      ]
+    },
+    {
+      "name": "admin-actions-ignore-request-context",
+      "category": "refactor",
+      "description": "Admin status/extend handlers run with context.Background(), so work continues after client disconnects and ignores request timeouts.",
+      "steps": [
+        "[DONE] Use r.Request.Context() (or a derived timeout) in manage handlers instead of context.Background().",
+        "[DONE] Audit ManageSubscriptionService entry points to propagate the provided context to DB calls.",
+        "[DONE] Add tests ensuring cancellation/timeout on request context stops handler work."
+      ]
     }
   ]
 }

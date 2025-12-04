@@ -64,7 +64,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222222"),
 					DisplayName:      "Monthly - $9.99",
 					Amount:           999, // Amount in cents ($9.99)
-					Currency:         "USD",
+					Currency:         "usd",
 					BillingCycleDays: intPtr(30),
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -85,7 +85,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222223"),
 					DisplayName:      "Quarterly - $24.99",
 					Amount:           2499, // Amount in cents ($24.99, ~17% discount)
-					Currency:         "USD",
+					Currency:         "usd",
 					BillingCycleDays: intPtr(90),
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -137,7 +137,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222226"),
 					DisplayName:      "Yearly - $79.99",
 					Amount:           7999, // Amount in cents ($79.99, ~33% discount)
-					Currency:         "USD",
+					Currency:         "usd",
 					BillingCycleDays: intPtr(365),
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -174,7 +174,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444444"),
 					DisplayName:      "Pro Monthly - $19.99",
 					Amount:           1999, // Amount in cents ($19.99)
-					Currency:         "USD",
+					Currency:         "usd",
 					BillingCycleDays: intPtr(30),
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -194,7 +194,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444445"),
 					DisplayName:      "Pro Yearly - $149.99",
 					Amount:           14999, // Amount in cents ($149.99)
-					Currency:         "USD",
+					Currency:         "usd",
 					BillingCycleDays: intPtr(365),
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -247,7 +247,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("66666666-6666-6666-6666-666666666666"),
 					DisplayName:      "Lifetime - $299.99",
 					Amount:           29999, // Amount in cents ($299.99)
-					Currency:         "USD",
+					Currency:         "usd",
 					BillingCycleDays: nil, // One-time purchase, no recurring billing
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -314,7 +314,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("88888888-8888-8888-8888-888888888888"),
 					DisplayName:      "Basic Monthly - $4.99",
 					Amount:           499, // Amount in cents ($4.99)
-					Currency:         "USD",
+					Currency:         "usd",
 					BillingCycleDays: intPtr(30),
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -374,6 +374,139 @@ func (suite *TestContainerSuite) SeedProductsWithPrices() []TestProduct {
 	return suite.SeedProducts()
 }
 
+// TieredTestProducts returns test products with tier groups for upgrade/downgrade testing
+// Premium (tier_group="premium", rank=1) and Premium+ (tier_group="premium", rank=2)
+func (suite *TestContainerSuite) TieredTestProducts() []TestProduct {
+	premiumGroup := "premium"
+	return []TestProduct{
+		{
+			Product: &models.Product{
+				ID:          uuid.MustParse("aaaa1111-1111-1111-1111-111111111111"),
+				Slug:        "premium-basic",
+				DisplayName: "Premium",
+				Description: "Basic premium tier",
+				EntitlementsSpec: map[string]*int{
+					"premium": intPtr(30),
+				},
+				TierGroup: &premiumGroup,
+				TierRank:  1,
+				IsActive:  true,
+			},
+			Prices: []*models.Price{
+				{
+					ID:               uuid.MustParse("aaaa2222-2222-2222-2222-222222222222"),
+					DisplayName:      "Premium Monthly - $10",
+					Amount:           1000,
+					Currency:         "usd",
+					BillingCycleDays: intPtr(30),
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_premium_basic_1000",
+						},
+					},
+					IsActive: true,
+				},
+			},
+		},
+		{
+			Product: &models.Product{
+				ID:          uuid.MustParse("bbbb1111-1111-1111-1111-111111111111"),
+				Slug:        "premium-plus",
+				DisplayName: "Premium+",
+				Description: "Enhanced premium tier",
+				EntitlementsSpec: map[string]*int{
+					"premium": intPtr(30),
+					"extra":   intPtr(30),
+				},
+				TierGroup: &premiumGroup,
+				TierRank:  2,
+				IsActive:  true,
+			},
+			Prices: []*models.Price{
+				{
+					ID:               uuid.MustParse("bbbb2222-2222-2222-2222-222222222222"),
+					DisplayName:      "Premium+ Monthly - $20",
+					Amount:           2000,
+					Currency:         "usd",
+					BillingCycleDays: intPtr(30),
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_premium_plus_2000",
+						},
+					},
+					IsActive: true,
+				},
+			},
+		},
+		{
+			Product: &models.Product{
+				ID:          uuid.MustParse("cccc1111-1111-1111-1111-111111111111"),
+				Slug:        "premium-ultimate",
+				DisplayName: "Premium Ultimate",
+				Description: "Top tier premium",
+				EntitlementsSpec: map[string]*int{
+					"premium": intPtr(30),
+					"extra":   intPtr(30),
+					"vip":     intPtr(30),
+				},
+				TierGroup: &premiumGroup,
+				TierRank:  3,
+				IsActive:  true,
+			},
+			Prices: []*models.Price{
+				{
+					ID:               uuid.MustParse("cccc2222-2222-2222-2222-222222222222"),
+					DisplayName:      "Premium Ultimate Monthly - $30",
+					Amount:           3000,
+					Currency:         "usd",
+					BillingCycleDays: intPtr(30),
+					Processors: map[string]map[string]string{
+						string(models.ProcessorMobius): {
+							models.ProcessorKeyPlanID: "plan_premium_ultimate_3000",
+						},
+					},
+					IsActive: true,
+				},
+			},
+		},
+	}
+}
+
+// SeedTieredProducts creates tiered test products in the database for upgrade/downgrade testing
+func (suite *TestContainerSuite) SeedTieredProducts() []TestProduct {
+	suite.t.Helper()
+	ctx := context.Background()
+
+	testProducts := suite.TieredTestProducts()
+	now := time.Now()
+
+	for i := range testProducts {
+		tp := &testProducts[i]
+		tp.Product.CreatedAt = now
+		tp.Product.UpdatedAt = now
+
+		_, err := suite.BunDB.NewInsert().Model(tp.Product).
+			On("CONFLICT (id) DO UPDATE").
+			Set("tier_group = EXCLUDED.tier_group").
+			Set("tier_rank = EXCLUDED.tier_rank").
+			Exec(ctx)
+		require.NoError(suite.t, err, "Failed to seed tiered product %s", tp.Product.DisplayName)
+
+		for _, price := range tp.Prices {
+			price.ProductID = tp.Product.ID
+			price.CreatedAt = now
+			price.UpdatedAt = now
+
+			_, err := suite.BunDB.NewInsert().Model(price).
+				On("CONFLICT (id) DO NOTHING").
+				Exec(ctx)
+			require.NoError(suite.t, err, "Failed to seed tiered price %s", price.DisplayName)
+		}
+	}
+
+	return testProducts
+}
+
 // GetSeededProduct retrieves a product by slug from the database
 func (suite *TestContainerSuite) GetSeededProduct(slug string) *models.Product {
 	suite.t.Helper()
@@ -412,12 +545,16 @@ func (suite *TestContainerSuite) CreateTestSubscription(userID string, priceID u
 	ctx := context.Background()
 	now := time.Now()
 
+	// Look up the price to get ProductID
+	price := suite.GetPrice(priceID)
+
 	periodStart := now
 	periodEnd := now.Add(30 * 24 * time.Hour)
 
 	sub := &models.Subscription{
 		ID:                      uuid.New(),
 		UserID:                  userID,
+		ProductID:               price.ProductID,
 		PriceID:                 priceID,
 		Status:                  status,
 		StartedAt:               now,
@@ -437,24 +574,28 @@ func (suite *TestContainerSuite) CreateTestSubscription(userID string, priceID u
 
 // CreateTestSubscriptionWithOptions creates a subscription with custom options
 type SubscriptionOptions struct {
-	UserID          string
-	PriceID         uuid.UUID
-	Status          models.SubscriptionStatus
-	Processor       models.Processor
-	PeriodStart     time.Time
-	PeriodEnd       time.Time
-	PaymentMethodID *uuid.UUID
-	CancelType      *models.CancelType
-	CancelFeedback  *string
-	ProcessorSubID  string
-	RetryAttempts   *int
-	NextRetryAt     *time.Time
+	UserID              string
+	PriceID             uuid.UUID
+	Status              models.SubscriptionStatus
+	Processor           models.Processor
+	PeriodStart         time.Time
+	PeriodEnd           time.Time
+	CurrentPeriodEndsAt *time.Time // Optional: if set, overrides PeriodEnd for current_period_ends_at
+	PaymentMethodID     *uuid.UUID
+	CancelType          *models.CancelType
+	CancelFeedback      *string
+	ProcessorSubID      string
+	RetryAttempts       *int
+	NextRetryAt         *time.Time
 }
 
 func (suite *TestContainerSuite) CreateTestSubscriptionWithOptions(opts SubscriptionOptions) *models.Subscription {
 	suite.t.Helper()
 	ctx := context.Background()
 	now := suite.GetClock().Now()
+
+	// Look up the price to get ProductID
+	price := suite.GetPrice(opts.PriceID)
 
 	if opts.PeriodStart.IsZero() {
 		opts.PeriodStart = now
@@ -469,14 +610,20 @@ func (suite *TestContainerSuite) CreateTestSubscriptionWithOptions(opts Subscrip
 		opts.ProcessorSubID = "test-sub-" + uuid.New().String()[:8]
 	}
 
+	periodEndsAt := &opts.PeriodEnd
+	if opts.CurrentPeriodEndsAt != nil {
+		periodEndsAt = opts.CurrentPeriodEndsAt
+	}
+
 	sub := &models.Subscription{
 		ID:                      uuid.New(),
 		UserID:                  opts.UserID,
+		ProductID:               price.ProductID,
 		PriceID:                 opts.PriceID,
 		Status:                  opts.Status,
 		StartedAt:               opts.PeriodStart,
 		CurrentPeriodStartsAt:   &opts.PeriodStart,
-		CurrentPeriodEndsAt:     &opts.PeriodEnd,
+		CurrentPeriodEndsAt:     periodEndsAt,
 		Processor:               opts.Processor,
 		ProcessorSubscriptionID: opts.ProcessorSubID,
 		PaymentMethodID:         opts.PaymentMethodID,
@@ -592,7 +739,7 @@ func (suite *TestContainerSuite) CreateTestPayment(userID string, priceID uuid.U
 		Processor:      models.ProcessorMobius,
 		TransactionID:  "txn-" + uuid.New().String()[:8],
 		Amount:         999, // Amount in cents ($9.99)
-		Currency:       "USD",
+		Currency:       "usd",
 		PurchasedAt:    now,
 		CreatedAt:      now,
 	}
@@ -631,7 +778,7 @@ func (suite *TestContainerSuite) CreateTestPaymentWithOptions(opts PaymentOption
 		opts.Amount = 999 // Default: $9.99 in cents
 	}
 	if opts.Currency == "" {
-		opts.Currency = "USD"
+		opts.Currency = "usd"
 	}
 	if opts.PurchasedAt.IsZero() {
 		opts.PurchasedAt = now

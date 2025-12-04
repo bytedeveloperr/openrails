@@ -132,7 +132,7 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intent
 		entitlementService := NewEntitlementService(txDB)
 		entitlementService.SetClock(s.Clock) // Propagate clock for testing
 		solanaTxnRepo := repo.NewSolanaTransactionRepo(txDB)
-		notificationQueueService := NewNotificationQueueService(txDB)
+		notificationService := NewNotificationService(txDB, nil)
 
 		price, err := priceService.GetByID(ctx, priceID)
 		if err != nil {
@@ -190,7 +190,7 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intent
 			UserID:    userID,
 			EventType: models.NotificationPremiumStarted,
 		}
-		if err := notificationQueueService.Create(ctx, premiumStarted); err != nil {
+		if err := notificationService.Create(ctx, premiumStarted); err != nil {
 			log.WithContext(ctx).WithError(err).WithField("user_id", userID).Warn("failed to queue premium started notification for solana purchase")
 		} else {
 			queuedNotifications = append(queuedNotifications, premiumStarted)
@@ -211,7 +211,7 @@ func (s *SolanaPaymentService) Submit(ctx context.Context, userID string, intent
 			EventType: models.NotificationOneOffPurchaseCompleted,
 			Data:      receiptData,
 		}
-		if err := notificationQueueService.Create(ctx, receiptNotification); err != nil {
+		if err := notificationService.Create(ctx, receiptNotification); err != nil {
 			log.WithContext(ctx).WithError(err).WithField("user_id", userID).Warn("failed to queue solana purchase receipt notification")
 		} else {
 			queuedNotifications = append(queuedNotifications, receiptNotification)

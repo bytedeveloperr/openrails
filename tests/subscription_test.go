@@ -59,7 +59,7 @@ func TestGetProductsEndpoint(t *testing.T) {
 		assert.True(t, monthlyProduct.Active)
 		require.Len(t, monthlyProduct.Prices, 1, "Should have 1 price")
 		assert.Equal(t, int64(999), monthlyProduct.Prices[0].Amount, "Amount should be 999 cents")
-		assert.Equal(t, "USD", monthlyProduct.Prices[0].Currency)
+		assert.Equal(t, "usd", monthlyProduct.Prices[0].Currency)
 		assert.Equal(t, "price", monthlyProduct.Prices[0].Object)
 	})
 
@@ -111,13 +111,12 @@ func TestGetActiveSubscriptionEndpoint(t *testing.T) {
 		// User without subscription should get 200 with empty list
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response handlers.PaginatedResponse
+		var response api.ListResponse[any]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		data, ok := response.Data.([]any)
-		require.True(t, ok, "Data should be an array")
-		assert.Empty(t, data, "Should have no active subscriptions for new user")
+		assert.Equal(t, "list", response.Object, "Should have object: list")
+		assert.Empty(t, response.Data, "Should have no active subscriptions for new user")
 	})
 
 	t.Run("returns active subscription details", func(t *testing.T) {
@@ -132,19 +131,20 @@ func TestGetActiveSubscriptionEndpoint(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 
-		// Parse paginated response
-		var response handlers.PaginatedResponse
+		// Parse list response
+		var response api.ListResponse[json.RawMessage]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
+		assert.Equal(t, "list", response.Object, "Should have object: list")
+		require.Len(t, response.Data, 1, "Should have 1 active subscription")
+
 		// Extract subscription data
+		var subscriptions []services.UserSubscriptionResponse
 		dataBytes, err := json.Marshal(response.Data)
 		require.NoError(t, err)
-		var subscriptions []services.UserSubscriptionResponse
 		err = json.Unmarshal(dataBytes, &subscriptions)
 		require.NoError(t, err)
-
-		require.Len(t, subscriptions, 1, "Should have 1 active subscription")
 
 		// Verify subscription data
 		assert.Equal(t, sub.ID.String(), subscriptions[0].ID.String())
@@ -182,13 +182,12 @@ func TestGetSubscriptionHistoryEndpoint(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response handlers.PaginatedResponse
+		var response api.ListResponse[any]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		data, ok := response.Data.([]any)
-		require.True(t, ok, "Data should be an array")
-		assert.Empty(t, data, "Should have no subscriptions for new user")
+		assert.Equal(t, "list", response.Object, "Should have object: list")
+		assert.Empty(t, response.Data, "Should have no subscriptions for new user")
 	})
 
 	t.Run("returns subscription history with multiple subscriptions", func(t *testing.T) {
@@ -210,21 +209,16 @@ func TestGetSubscriptionHistoryEndpoint(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 
-		var response handlers.PaginatedResponse
+		var response api.ListResponse[map[string]any]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		// Extract subscription data from paginated response
-		dataBytes, err := json.Marshal(response.Data)
-		require.NoError(t, err)
-		var subscriptions []map[string]any
-		err = json.Unmarshal(dataBytes, &subscriptions)
-		require.NoError(t, err)
-		require.Len(t, subscriptions, 2, "Should have 2 subscriptions in history")
+		assert.Equal(t, "list", response.Object, "Should have object: list")
+		require.Len(t, response.Data, 2, "Should have 2 subscriptions in history")
 
 		// Verify we have both active and cancelled subscriptions
 		var hasActive, hasCancelled bool
-		for _, sub := range subscriptions {
+		for _, sub := range response.Data {
 			status := sub["status"].(string)
 			if status == string(models.StatusActive) {
 				hasActive = true
@@ -257,13 +251,12 @@ func TestGetUserPaymentsEndpoint(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response handlers.PaginatedResponse
+		var response api.ListResponse[any]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		data, ok := response.Data.([]any)
-		require.True(t, ok, "Data should be an array")
-		assert.Empty(t, data, "Should have no payments for new user")
+		assert.Equal(t, "list", response.Object, "Should have object: list")
+		assert.Empty(t, response.Data, "Should have no payments for new user")
 	})
 
 	t.Run("returns payment history", func(t *testing.T) {
@@ -280,25 +273,20 @@ func TestGetUserPaymentsEndpoint(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 
-		var response handlers.PaginatedResponse
+		var response api.ListResponse[map[string]any]
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		// Extract payment data from paginated response
-		dataBytes, err := json.Marshal(response.Data)
-		require.NoError(t, err)
-		var payments []map[string]any
-		err = json.Unmarshal(dataBytes, &payments)
-		require.NoError(t, err)
-		require.Len(t, payments, 2, "Should have 2 payments")
+		assert.Equal(t, "list", response.Object, "Should have object: list")
+		require.Len(t, response.Data, 2, "Should have 2 payments")
 
 		// Verify payment details
 		paymentIDs := make(map[string]bool)
-		for _, p := range payments {
+		for _, p := range response.Data {
 			paymentIDs[p["id"].(string)] = true
 			// JSON unmarshals numbers as float64, but we compare against int64 value
 			assert.Equal(t, float64(999), p["amount"], "Amount should be 999 cents")
-			assert.Equal(t, "USD", p["currency"])
+			assert.Equal(t, "usd", p["currency"])
 		}
 		assert.True(t, paymentIDs[payment1.ID.String()], "Should include payment 1")
 		assert.True(t, paymentIDs[payment2.ID.String()], "Should include payment 2")
@@ -370,41 +358,5 @@ func TestGetMyBillingStatusEndpoint(t *testing.T) {
 		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusUnauthorized, w.Code)
-	})
-}
-
-// TestFlexFormURL tests the CCBill FlexForm URL generation
-func TestFlexFormURL(t *testing.T) {
-	suite, token, _ := setupTestSuiteWithAuth(t)
-
-	// Seed products
-	testProducts := suite.SeedProducts()
-	priceID := testProducts[0].Prices[0].ID
-
-	t.Run("requires authentication", func(t *testing.T) {
-		body := []byte(`{"price_id":"` + priceID.String() + `"}`)
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/flexform-url", nil)
-		req.Body = newRequestBody(body)
-		req.Header.Set("Content-Type", "application/json")
-		// No auth header
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusUnauthorized, w.Code)
-	})
-
-	t.Run("validates price_id parameter", func(t *testing.T) {
-		body := []byte(`{"price_id":"invalid-uuid"}`)
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("POST", "/v1/subscriptions/ccbill/flexform-url", nil)
-		req.Body = newRequestBody(body)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		// Should fail validation (400) or processing (500 in dev mode without CCBill config)
-		assert.Contains(t, []int{http.StatusBadRequest, http.StatusInternalServerError}, w.Code)
 	})
 }
