@@ -65,7 +65,7 @@ func TestGetNotificationsEmpty(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.Equal(t, float64(0), response["total_items"], "Total items should be 0")
+		assert.Equal(t, float64(0), response["total"], "Total should be 0")
 
 		data, ok := response["data"].([]interface{})
 		require.True(t, ok, "Data should be an array")
@@ -100,7 +100,8 @@ func TestGetNotifications(t *testing.T) {
 		err := json.Unmarshal(w.Body.Bytes(), &response)
 		require.NoError(t, err)
 
-		assert.GreaterOrEqual(t, response["total_items"].(float64), float64(2), "Should have at least 2 notifications")
+		total, _ := response["total"].(float64)
+		assert.GreaterOrEqual(t, total, float64(2), "Should have at least 2 notifications")
 
 		data, ok := response["data"].([]interface{})
 		require.True(t, ok)
@@ -130,12 +131,13 @@ func TestGetNotifications(t *testing.T) {
 		require.NoError(t, err)
 
 		// All our created notifications are unread (seen=false)
-		assert.GreaterOrEqual(t, response["total_items"].(float64), float64(2), "Should have at least 2 unread notifications")
+		total, _ := response["total"].(float64)
+		assert.GreaterOrEqual(t, total, float64(2), "Should have at least 2 unread notifications")
 	})
 
 	t.Run("supports pagination", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/me/notifications?page=1&page_size=1", nil)
+		req, _ := http.NewRequest("GET", "/v1/me/notifications?offset=0&limit=1", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -147,9 +149,10 @@ func TestGetNotifications(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify pagination fields
-		assert.Contains(t, response, "page", "Response should contain page")
-		assert.Contains(t, response, "page_size", "Response should contain page_size")
-		assert.Equal(t, float64(1), response["page"], "Page should be 1")
+		assert.Contains(t, response, "offset", "Response should contain offset")
+		assert.Contains(t, response, "limit", "Response should contain limit")
+		assert.Equal(t, float64(0), response["offset"], "Offset should be 0")
+		assert.Equal(t, float64(1), response["limit"], "Limit should be 1")
 	})
 }
 

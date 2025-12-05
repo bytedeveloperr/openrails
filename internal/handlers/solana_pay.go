@@ -26,7 +26,7 @@ type SolanaPayResponse struct {
 	ExpiresAt   int64  `json:"expires_at"` // unix timestamp
 }
 
-// SolanaPayStatusResponse is the response for GET /v1/solana/pay/status
+// SolanaPayStatusResponse is the response for GET /v1/solana/pay/:reference
 type SolanaPayStatusResponse struct {
 	Status    string  `json:"status"` // "pending", "confirmed", "expired"
 	PaymentID *string `json:"payment_id,omitempty"`
@@ -86,37 +86,8 @@ func CreateSolanaPay(r *Request) {
 	})
 }
 
-// GetSolanaPayStatus handles GET /v1/solana/pay/status
-// Checks the status of a pending Solana payment
-func GetSolanaPayStatus(r *Request) {
-	reference := r.GinCtx.Query("reference")
-	if reference == "" {
-		r.ErrorJSON(http.StatusBadRequest, "reference query parameter is required")
-		return
-	}
-
-	status, payment, err := r.State.SolanaPayService.GetPaymentStatus(r.Request.Context(), reference)
-	if err != nil {
-		log.WithError(err).WithField("reference", reference).Error("Failed to get payment status")
-		r.ErrorJSON(http.StatusInternalServerError, "Failed to check payment status")
-		return
-	}
-
-	resp := SolanaPayStatusResponse{
-		Status: status,
-	}
-
-	if payment != nil {
-		paymentID := api.FormatPaymentID(payment.ID)
-		resp.PaymentID = &paymentID
-		resp.Signature = &payment.TransactionID
-	}
-
-	r.SuccessJSON(resp)
-}
-
 // GetSolanaPayByReference handles GET /v1/solana/pay/:reference
-// Alternative endpoint for getting status by path param
+// Returns the status of a pending Solana payment by its reference key
 func GetSolanaPayByReference(r *Request) {
 	reference := r.GinCtx.Param("reference")
 	if reference == "" {

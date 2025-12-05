@@ -437,17 +437,8 @@ func (suite *TestContainerSuite) SetMockClock(t ...time.Time) *clockwork.FakeClo
 	}
 
 	// Solana services
-	if rt.SolanaPaymentIntentService != nil {
-		rt.SolanaPaymentIntentService.SetClock(mockClock)
-	}
-	if rt.SolanaVerificationService != nil {
-		rt.SolanaVerificationService.SetClock(mockClock)
-	}
 	if rt.SolanaPaymentService != nil {
 		rt.SolanaPaymentService.Clock = mockClock
-	}
-	if rt.SolanaWalletService != nil {
-		rt.SolanaWalletService.Clock = mockClock
 	}
 
 	// Vault and payment method services

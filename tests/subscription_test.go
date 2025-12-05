@@ -40,7 +40,7 @@ func TestGetProductsEndpoint(t *testing.T) {
 
 		// Verify list envelope
 		assert.Equal(t, "list", response.Object, "Should have object: list")
-		assert.GreaterOrEqual(t, response.TotalItems, int64(2), "Should have at least 2 total items")
+		assert.GreaterOrEqual(t, response.Total, int64(2), "Should have at least 2 total items")
 
 		// Verify products returned (at least the seeded ones)
 		require.GreaterOrEqual(t, len(response.Data), 2, "Should return at least 2 products")

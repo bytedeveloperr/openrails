@@ -86,20 +86,17 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		CCBillDataLink:   ccbillDataLinkClient,
 		NMIClients:       nmiClients,
 
-		SubscriptionService:        serviceInstances.SubscriptionService,
-		ProductService:             serviceInstances.ProductService,
-		PriceService:               serviceInstances.PriceService,
-		NotificationService:        serviceInstances.NotificationService,
-		PaymentMethodService:       serviceInstances.PaymentMethodService,
-		PaymentService:             serviceInstances.PurchaseService,
-		EntitlementService:         serviceInstances.EntitlementService,
-		VaultService:               serviceInstances.VaultService,
-		SolanaWalletService:        serviceInstances.SolanaWalletService,
-		SolanaPaymentService:       serviceInstances.SolanaPaymentService,
-		SolanaPaymentIntentService: serviceInstances.SolanaPaymentIntentService,
-		SolanaVerificationService:  serviceInstances.SolanaVerificationService,
-		SolanaPayService:           serviceInstances.SolanaPayService,
-		SolanaPayPoller:            serviceInstances.SolanaPayPoller,
+		SubscriptionService:  serviceInstances.SubscriptionService,
+		ProductService:       serviceInstances.ProductService,
+		PriceService:         serviceInstances.PriceService,
+		NotificationService:  serviceInstances.NotificationService,
+		PaymentMethodService: serviceInstances.PaymentMethodService,
+		PaymentService:       serviceInstances.PurchaseService,
+		EntitlementService:   serviceInstances.EntitlementService,
+		VaultService:         serviceInstances.VaultService,
+		SolanaPaymentService: serviceInstances.SolanaPaymentService,
+		SolanaPayService:     serviceInstances.SolanaPayService,
+		SolanaPayPoller:      serviceInstances.SolanaPayPoller,
 
 		UserSubscriptionService:   serviceInstances.UserSubscriptionService,
 		PublicSubscriptionService: serviceInstances.PublicSubscriptionService,
@@ -278,19 +275,16 @@ func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
 type servicesInstances struct {
 	SubscriptionService *services.SubscriptionService
 
-	ProductService             *services.ProductService
-	PriceService               *services.PriceService
-	NotificationService        *services.NotificationService
-	PaymentMethodService       *services.PaymentMethodService
-	PurchaseService            *services.PaymentService
-	EntitlementService         *services.EntitlementService
-	VaultService               *services.VaultService
-	SolanaWalletService        *services.SolanaWalletService
-	SolanaPaymentService       *services.SolanaPaymentService
-	SolanaPaymentIntentService *services.SolanaPaymentIntentService
-	SolanaVerificationService  *services.SolanaVerificationService
-	SolanaPayService           *services.SolanaPayService
-	SolanaPayPoller            *services.SolanaPayPoller
+	ProductService       *services.ProductService
+	PriceService         *services.PriceService
+	NotificationService  *services.NotificationService
+	PaymentMethodService *services.PaymentMethodService
+	PurchaseService      *services.PaymentService
+	EntitlementService   *services.EntitlementService
+	VaultService         *services.VaultService
+	SolanaPaymentService *services.SolanaPaymentService
+	SolanaPayService     *services.SolanaPayService
+	SolanaPayPoller      *services.SolanaPayPoller
 
 	UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService
@@ -316,12 +310,8 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	entitlementService := services.NewEntitlementService(database)
 	entitlementService.Clock = clock
 	profileRepo := repo.NewProfileRepo(database)
-	solanaWalletService := services.NewSolanaWalletService(database)
-	solanaWalletService.Clock = clock
 	solanaPaymentService := services.NewSolanaPaymentService(database, cfg, priceService, purchaseService, productService, entitlementService, nil)
 	solanaPaymentService.Clock = clock
-	solanaPaymentIntentService := services.NewSolanaPaymentIntentService(database, cfg, priceService)
-	solanaVerificationService := services.NewSolanaVerificationService(database, solanaWalletService)
 	// Note: solanaPayService and SolanaPayPoller need checkoutService, which is created later
 	// We'll create solanaPayService with nil checkoutService and set it after checkoutService is created
 	solanaPayService := services.NewSolanaPayService(database, redisClient, cfg, priceService, productService, nil)
@@ -444,10 +434,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		PurchaseService:              purchaseService,
 		EntitlementService:           entitlementService,
 		VaultService:                 vaultService,
-		SolanaWalletService:          solanaWalletService,
 		SolanaPaymentService:         solanaPaymentService,
-		SolanaPaymentIntentService:   solanaPaymentIntentService,
-		SolanaVerificationService:    solanaVerificationService,
 		SolanaPayService:             solanaPayService,
 		SolanaPayPoller:              solanaPayPoller,
 		UserSubscriptionService:      userSubscriptionService,

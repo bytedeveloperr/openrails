@@ -29,29 +29,15 @@ func (s *Server) registerPublicRoutes() {
 	webhooks := api.Group("/webhooks")
 	webhooks.POST("/:provider", s.wrap(handlers.Webhook))
 
-	// Payment Intents - Stripe-like pattern for Solana payments
-	// POST /payment-intents - Create a new payment intent (direct wallet flow)
-	// POST /payment-intents/qr - Create a new payment intent (QR/Solana Pay flow)
-	// GET /payment-intents/:id - Get payment intent status
-	// POST /payment-intents/:id/confirm - Confirm/submit a signed transaction
-	paymentIntents := api.Group("/payment-intents")
-	paymentIntents.Use(middleware.AuthRequired(s.authVerifier))
-	paymentIntents.POST("", s.wrap(handlers.CreatePaymentIntent))
-	paymentIntents.POST("/qr", s.wrap(handlers.CreatePaymentIntentQR))
-	paymentIntents.GET("/:id", s.wrap(handlers.GetPaymentIntent))
-	paymentIntents.POST("/:id/confirm", s.wrap(handlers.ConfirmPaymentIntent))
-
 	// Solana tokens endpoint (public, no auth required)
 	api.GET("/solana/tokens", s.wrap(handlers.GetSupportedTokens))
 
 	// Solana Pay - simplified Transfer Request flow with Redis-backed pending payments
 	// POST /v1/solana/pay - Create a new Solana Pay Transfer Request URL
-	// GET /v1/solana/pay/status?reference=REF - Check payment status
-	// GET /v1/solana/pay/:reference - Alternative status check by path
+	// GET /v1/solana/pay/:reference - Check payment status by reference
 	solanaPay := api.Group("/solana/pay")
 	solanaPay.Use(middleware.AuthRequired(s.authVerifier))
 	solanaPay.POST("", s.wrap(handlers.CreateSolanaPay))
-	solanaPay.GET("/status", s.wrap(handlers.GetSolanaPayStatus))
 	solanaPay.GET("/:reference", s.wrap(handlers.GetSolanaPayByReference))
 
 	me := api.Group("/me")
@@ -69,11 +55,6 @@ func (s *Server) registerPublicRoutes() {
 	me.PUT("/payment-methods/:id", s.wrap(handlers.UpdatePaymentMethod))
 	me.DELETE("/payment-methods/:id", s.wrap(handlers.DeletePaymentMethod))
 	me.PUT("/payment-methods/:id/activate", s.wrap(handlers.ActivatePaymentMethod))
-	me.GET("/wallets", s.wrap(handlers.ListSolanaWallets))
-	me.GET("/wallets/linked", s.wrap(handlers.GetSolanaWallet))
-	me.POST("/wallets/challenge", s.wrap(handlers.GenerateSolanaWalletChallenge))
-	me.POST("/wallets/verify", s.wrap(handlers.VerifySolanaWallet))
-	me.DELETE("/wallets", s.wrap(handlers.DeleteSolanaWallet))
 	me.GET("/notifications", s.wrap(handlers.GetNotifications))
 	me.GET("/notifications/unread-count", s.wrap(handlers.GetUnreadNotificationCount))
 	me.POST("/notifications/:id/read", s.wrap(handlers.MarkNotificationRead))

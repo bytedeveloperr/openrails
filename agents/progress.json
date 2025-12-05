@@ -864,6 +864,120 @@
       ],
       "passes": true,
       "completed_notes": "Moved ClickHouse event logging into lifecycle methods so all processors get consistent logging automatically. CreateMembership, RenewMembership, FailMembership, and CancelMembership now log to ClickHouse via EventLogService. NMI and CCBill webhook handlers still log webhook-specific data separately (complementary, not duplicate)."
+    },
+    {
+      "name": "simplify-solana-payment-flow",
+      "category": "refactor",
+      "description": "Simplified Solana payment flow - removed wallet linking/verification, payment intents, replaced with direct Solana Pay Transfer Request",
+      "context": {
+        "problem": "The Solana payment system was over-engineered with wallet verification challenges, payment intents, and complex state machines",
+        "solution": "Simplified to 3 endpoints: list tokens, create payment URL, check status. No wallet linking required."
+      },
+      "changes_made": [
+        "Deleted SolanaWallet and SolanaWalletChallenge models",
+        "Deleted SolanaPaymentIntent model",
+        "Deleted SolanaWalletService, SolanaVerificationService, SolanaPaymentIntentService",
+        "Removed all wallet/payment-intent endpoints from routes",
+        "Kept only: GET /v1/solana/tokens, POST /v1/solana/pay, GET /v1/solana/pay/status, GET /v1/solana/pay/:reference",
+        "Payment state stored in Redis with 15-minute TTL (no database table needed)",
+        "solana_transactions table retained to link payments to on-chain transactions"
+      ],
+      "new_flow": [
+        "1. POST /v1/solana/pay {price_id, token} → returns solana: URL + reference key",
+        "2. User scans QR/clicks URL, wallet creates and signs transaction",
+        "3. Frontend polls GET /v1/solana/pay/status?reference=... or GET /v1/solana/pay/:reference",
+        "4. Backend verifies transaction on-chain, creates payment + entitlements",
+        "5. Status returns 'completed' with payment_id and signature"
+      ],
+      "passes": true,
+      "completed_notes": "All 9 Solana tests pass. Flow is now much simpler - no wallet linking, no verification challenges, no payment intents. Just create payment URL → poll status → done."
+    },
+    {
+      "name": "fix-broken-integration-tests",
+      "category": "testing",
+      "description": "Multiple integration tests are failing due to outdated assertions, wrong field names, and test isolation issues",
+      "problems": {
+        "wrong_field_names": [
+          "Tests check for 'total_items' but API returns 'total'",
+          "Tests check for 'page' and 'page_size' but API uses 'offset' and 'limit'",
+          "Tests use 'page=1&page_size=1' query params but API expects 'offset=0&limit=1'"
+        ],
+        "product_seeding": [
+          "TestGetProductsEndpoint expects 2 products but SeedProducts may return more due to test isolation issues",
+          "Multiple test suites seed products independently causing count mismatches"
+        ],
+        "test_isolation": [
+          "TestTierGroupDetection panics with 'Fail in goroutine after TestAdminGrantsRequireAuth has completed'",
+          "Tests share database state and may interfere with each other",
+          "Cleanup functions (defer) may run after test context is gone"
+        ],
+        "nmi_config": [
+          "TestNMIRuntimeClientConfigured checks for real NMI endpoint but test uses mock URL"
+        ]
+      },
+      "affected_tests": [
+        "TestGetProductsEndpoint - expects 2 products, gets 4",
+        "TestGetNotificationsEmpty - checks total_items instead of total",
+        "TestGetNotifications - panics on nil total_items assertion",
+        "TestGetNotifications/supports_pagination - checks page/page_size instead of offset/limit",
+        "TestListPaymentMethodsEmpty - checks total_items and page instead of total",
+        "TestListPaymentMethods - panics on nil total_items assertion",
+        "TestTierGroupDetection - goroutine panic due to test isolation",
+        "TestNMIRuntimeClientConfigured - config mismatch"
+      ],
+      "fixes_applied": [
+        "[DONE] Changed total_items → total in notifications_test.go",
+        "[DONE] Changed total_items → total in payment_methods_test.go",
+        "[DONE] Changed page/page_size → offset/limit in notifications_test.go pagination test",
+        "[PARTIAL] Fixed some assertions to use safe type assertions (total, _ := response['total'].(float64))"
+      ],
+      "remaining_fixes": [
+        "Fix TestGetProductsEndpoint to not hardcode expected count or improve test isolation",
+        "Fix TestTierGroupDetection goroutine panic - likely need better cleanup or test ordering",
+        "Fix TestNMIRuntimeClientConfigured to accept mock URL or skip when not configured",
+        "Review all tests for other total_items/page/page_size references",
+        "Consider using test transactions with rollback for better isolation"
+      ],
+      "passes": false
+    },
+    {
+      "name": "test-architecture-improvements",
+      "category": "testing",
+      "description": "Tests should use real structs and functions from production code, not invent test-specific abstractions",
+      "philosophy": {
+        "principle": "Tests should verify actual production code behavior, not test-specific wrappers",
+        "goal": "When production code changes, tests should break if they're testing the affected behavior",
+        "anti_pattern": "Test helper structs that diverge from production models hide API changes and create maintenance burden"
+      },
+      "current_problems": [
+        "SubscriptionOptions helper struct uses different field names than models.Subscription (PeriodStart vs CurrentPeriodStartsAt)",
+        "Tests can pass while using wrong field names because helpers translate between them",
+        "When a model field is renamed/removed, tests may not break because helper abstracts it away",
+        "Developers get confused about which struct to use and what fields are available"
+      ],
+      "recommendations": [
+        "Use models.Subscription directly in tests instead of SubscriptionOptions",
+        "Use api.ListResponse[T] for parsing API responses instead of map[string]interface{}",
+        "Import and use the actual request/response structs from handlers",
+        "If a helper is needed, it should take the real model struct as input, not a parallel struct",
+        "Test assertions should use strongly-typed response parsing"
+      ],
+      "example_bad": {
+        "code": "suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{PeriodStart: now})",
+        "problem": "SubscriptionOptions.PeriodStart doesn't exist on models.Subscription"
+      },
+      "example_good": {
+        "code": "sub := &models.Subscription{CurrentPeriodStartsAt: now, ...}; suite.CreateTestSubscription(sub)",
+        "benefit": "Uses real model, compiler catches field name errors"
+      },
+      "refactoring_steps": [
+        "Audit all test helper structs (SubscriptionOptions, PaymentMethodOptions, etc.)",
+        "Replace helper structs with direct model usage where possible",
+        "Update CreateTestSubscriptionWithOptions to accept *models.Subscription",
+        "Use json.Unmarshal with actual API response types instead of map[string]interface{}",
+        "Add linter rule or CI check to discourage map[string]interface{} in tests"
+      ],
+      "passes": false
     }
   ]
 }

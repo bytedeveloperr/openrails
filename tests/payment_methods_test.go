@@ -89,8 +89,7 @@ func TestListPaymentMethodsEmpty(t *testing.T) {
 		require.NoError(t, err)
 
 		// Check pagination fields
-		assert.Equal(t, float64(0), response["total_items"], "Total items should be 0")
-		assert.Equal(t, float64(1), response["page"], "Page should be 1")
+		assert.Equal(t, float64(0), response["total"], "Total should be 0")
 
 		// Check data is empty array
 		data, ok := response["data"].([]interface{})
@@ -134,12 +133,12 @@ func TestListPaymentMethods(t *testing.T) {
 		require.NoError(t, err)
 
 		// Should return all active methods for this user
-		totalItems := int(response["total_items"].(float64))
-		assert.GreaterOrEqual(t, totalItems, 2, "Should have at least 2 payment methods")
+		total, _ := response["total"].(float64)
+		assert.GreaterOrEqual(t, int(total), 2, "Should have at least 2 payment methods")
 
 		data, ok := response["data"].([]interface{})
 		require.True(t, ok)
-		require.Len(t, data, totalItems, "Data length should match total_items")
+		require.Len(t, data, int(total), "Data length should match total")
 
 		// Verify our created methods are present
 		ids := make([]string, len(data))

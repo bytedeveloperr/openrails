@@ -164,83 +164,9 @@ func TestCleanupExpiredDataWorker(t *testing.T) {
 		assert.True(t, completed, "Cleanup job should complete within timeout")
 	})
 
-	t.Run("cleans up expired wallet challenges", func(t *testing.T) {
-		// Set up a mock clock 48 hours in the future
-		now := time.Now()
-		mockClock := suite.SetMockClock(now.Add(48 * time.Hour))
-
-		// Insert an expired wallet challenge (expired 24 hours ago relative to mock time)
-		expiredAt := mockClock.Now().Add(-26 * time.Hour)
-		challenge := &models.SolanaWalletChallenge{
-			ID:        uuid.New(),
-			UserID:    uuid.New().String(),
-			Address:   "TestWallet123",
-			Message:   "test-message",
-			Nonce:     "test-nonce",
-			ExpiresAt: expiredAt,
-			CreatedAt: now,
-		}
-		_, err := suite.BunDB.NewInsert().Model(challenge).Exec(ctx)
-		require.NoError(t, err)
-
-		// Run cleanup worker directly
-		worker := riverjobs.CleanupExpiredDataWorker{
-			DB:     suite.App.Runtime.DB,
-			Clock:  mockClock,
-			Config: riverjobs.DefaultCleanupConfig(),
-		}
-		err = worker.Work(ctx, &river.Job[riverjobs.CleanupExpiredDataArgs]{})
-		require.NoError(t, err)
-
-		// Verify challenge was deleted
-		var count int
-		err = suite.BunDB.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM billing.solana_wallet_challenges WHERE id = $1", challenge.ID).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, 0, count, "Expired wallet challenge should be deleted")
-	})
-
-	t.Run("cleans up expired payment intents", func(t *testing.T) {
-		// Set up a mock clock 8 days in the future
-		now := time.Now()
-		mockClock := suite.SetMockClock(now.Add(8 * 24 * time.Hour))
-
-		// Insert an expired payment intent (created 8 days ago relative to mock time)
-		expiredAt := mockClock.Now().Add(-8 * 24 * time.Hour)
-		userID := uuid.New().String()
-		intent := &models.SolanaPaymentIntent{
-			ID:              uuid.New(),
-			UserID:          userID,
-			PriceID:         uuid.New(),
-			FlowType:        "direct",
-			Token:           "SOL",
-			TokenMint:       "So11111111111111111111111111111111111111112",
-			Amount:          1000,
-			Currency:        "usd",
-			RecipientWallet: "TestWallet456",
-			Status:          "pending",
-			ExpiresAt:       &expiredAt,
-			CreatedAt:       mockClock.Now().Add(-8 * 24 * time.Hour),
-		}
-		_, err := suite.BunDB.NewInsert().Model(intent).Exec(ctx)
-		require.NoError(t, err)
-
-		// Run cleanup worker
-		worker := riverjobs.CleanupExpiredDataWorker{
-			DB:     suite.App.Runtime.DB,
-			Clock:  mockClock,
-			Config: riverjobs.DefaultCleanupConfig(),
-		}
-		err = worker.Work(ctx, &river.Job[riverjobs.CleanupExpiredDataArgs]{})
-		require.NoError(t, err)
-
-		// Verify intent was deleted
-		var count int
-		err = suite.BunDB.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM billing.solana_payment_intents WHERE id = $1", intent.ID).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, 0, count, "Expired payment intent should be deleted")
-	})
+	// NOTE: Tests for expired wallet challenges and payment intents were removed
+	// as those models (SolanaWalletChallenge, SolanaPaymentIntent) no longer exist.
+	// The cleanup worker may still have the code paths, but the tables don't exist.
 
 	t.Run("cleans up old seen notifications", func(t *testing.T) {
 		// Set up a mock clock 100 days in the future
@@ -280,19 +206,6 @@ func TestCleanupExpiredDataWorker(t *testing.T) {
 		// Use current time
 		mockClock := clockwork.NewRealClock()
 
-		// Insert recent wallet challenge (expires in 5 minutes)
-		challenge := &models.SolanaWalletChallenge{
-			ID:        uuid.New(),
-			UserID:    uuid.New().String(),
-			Address:   "RecentWallet",
-			Message:   "recent-message",
-			Nonce:     "recent-nonce",
-			ExpiresAt: mockClock.Now().Add(5 * time.Minute),
-			CreatedAt: mockClock.Now(),
-		}
-		_, err := suite.BunDB.NewInsert().Model(challenge).Exec(ctx)
-		require.NoError(t, err)
-
 		// Insert recent notification (just created)
 		notification := &models.NotificationQueue{
 			ID:        uuid.New(),
@@ -301,7 +214,7 @@ func TestCleanupExpiredDataWorker(t *testing.T) {
 			Seen:      false,
 			CreatedAt: mockClock.Now(),
 		}
-		_, err = suite.BunDB.NewInsert().Model(notification).Exec(ctx)
+		_, err := suite.BunDB.NewInsert().Model(notification).Exec(ctx)
 		require.NoError(t, err)
 
 		// Run cleanup worker
@@ -313,13 +226,6 @@ func TestCleanupExpiredDataWorker(t *testing.T) {
 		err = worker.Work(ctx, &river.Job[riverjobs.CleanupExpiredDataArgs]{})
 		require.NoError(t, err)
 
-		// Verify recent challenge was preserved
-		var challengeCount int
-		err = suite.BunDB.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM billing.solana_wallet_challenges WHERE id = $1", challenge.ID).Scan(&challengeCount)
-		require.NoError(t, err)
-		assert.Equal(t, 1, challengeCount, "Recent wallet challenge should be preserved")
-
 		// Verify recent notification was preserved
 		var notifCount int
 		err = suite.BunDB.QueryRowContext(ctx,
@@ -328,51 +234,6 @@ func TestCleanupExpiredDataWorker(t *testing.T) {
 		assert.Equal(t, 1, notifCount, "Recent notification should be preserved")
 
 		// Clean up test data
-		suite.BunDB.NewDelete().Model(challenge).WherePK().Exec(ctx)
 		suite.BunDB.NewDelete().Model(notification).WherePK().Exec(ctx)
-	})
-
-	t.Run("custom retention config works", func(t *testing.T) {
-		// Set up a mock clock 2 hours in the future
-		now := time.Now()
-		mockClock := suite.SetMockClock(now.Add(2 * time.Hour))
-
-		// Insert a challenge that expired 1 hour ago
-		expiredAt := mockClock.Now().Add(-1 * time.Hour)
-		challenge := &models.SolanaWalletChallenge{
-			ID:        uuid.New(),
-			UserID:    uuid.New().String(),
-			Address:   "CustomRetentionWallet",
-			Message:   "custom-message",
-			Nonce:     "custom-nonce",
-			ExpiresAt: expiredAt,
-			CreatedAt: now,
-		}
-		_, err := suite.BunDB.NewInsert().Model(challenge).Exec(ctx)
-		require.NoError(t, err)
-
-		// Run cleanup with very short retention (30 minutes)
-		worker := riverjobs.CleanupExpiredDataWorker{
-			DB:    suite.App.Runtime.DB,
-			Clock: mockClock,
-			Config: riverjobs.CleanupConfig{
-				WalletChallengeRetention:    30 * time.Minute, // 30 min retention (challenge expired 1h ago)
-				PaymentIntentRetention:      24 * time.Hour,
-				SolanaTransactionRetention:  24 * time.Hour,
-				NotificationSeenRetention:   24 * time.Hour,
-				NotificationUnseenRetention: 48 * time.Hour,
-				IdempotencyRequestRetention: 24 * time.Hour,
-				WebhookEventRetention:       24 * time.Hour,
-			},
-		}
-		err = worker.Work(ctx, &river.Job[riverjobs.CleanupExpiredDataArgs]{})
-		require.NoError(t, err)
-
-		// Verify challenge was deleted (expired 1h ago, retention is 30min)
-		var count int
-		err = suite.BunDB.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM billing.solana_wallet_challenges WHERE id = $1", challenge.ID).Scan(&count)
-		require.NoError(t, err)
-		assert.Equal(t, 0, count, "Challenge expired beyond custom retention should be deleted")
 	})
 }

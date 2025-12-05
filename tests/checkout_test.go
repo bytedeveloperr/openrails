@@ -511,13 +511,14 @@ func TestTierGroupUpgradeDetection(t *testing.T) {
 	periodStart := time.Now().Add(-10 * 24 * time.Hour)
 	periodEnd := time.Now().Add(20 * 24 * time.Hour)
 	suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
-		UserID:                userID,
-		PriceID:               premiumPriceID,
-		Status:                models.StatusActive,
-		Processor:             models.ProcessorMobius,
-		ProcessorSubID:        "premium-sub-123",
-		CurrentPeriodStartsAt: &periodStart,
-		CurrentPeriodEndsAt:   &periodEnd,
+		UserID:              userID,
+		PriceID:             premiumPriceID,
+		Status:              models.StatusActive,
+		Processor:           models.ProcessorMobius,
+		ProcessorSubID:      "premium-sub-123",
+		PeriodStart:         periodStart,
+		PeriodEnd:           periodEnd,
+		CurrentPeriodEndsAt: &periodEnd,
 	})
 
 	t.Run("detects upgrade when buying higher tier", func(t *testing.T) {
@@ -557,13 +558,14 @@ func TestTierGroupUpgradeDetection(t *testing.T) {
 		token2 := getTestIssuer().CreateToken(userID2, "tier-upgrade-skip@test.example.com")
 
 		suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
-			UserID:                userID2,
-			PriceID:               premiumPriceID,
-			Status:                models.StatusActive,
-			Processor:             models.ProcessorMobius,
-			ProcessorSubID:        "premium-sub-skip-456",
-			CurrentPeriodStartsAt: &periodStart,
-			CurrentPeriodEndsAt:   &periodEnd,
+			UserID:              userID2,
+			PriceID:             premiumPriceID,
+			Status:              models.StatusActive,
+			Processor:           models.ProcessorMobius,
+			ProcessorSubID:      "premium-sub-skip-456",
+			PeriodStart:         periodStart,
+			PeriodEnd:           periodEnd,
+			CurrentPeriodEndsAt: &periodEnd,
 		})
 
 		mock.Reset()
@@ -613,13 +615,14 @@ func TestTierGroupDowngradeDetection(t *testing.T) {
 	periodStart := time.Now().Add(-10 * 24 * time.Hour)
 	periodEnd := time.Now().Add(20 * 24 * time.Hour)
 	suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
-		UserID:                userID,
-		PriceID:               premiumPlusPriceID,
-		Status:                models.StatusActive,
-		Processor:             models.ProcessorMobius,
-		ProcessorSubID:        "premium-plus-sub-123",
-		CurrentPeriodStartsAt: &periodStart,
-		CurrentPeriodEndsAt:   &periodEnd,
+		UserID:              userID,
+		PriceID:             premiumPlusPriceID,
+		Status:              models.StatusActive,
+		Processor:           models.ProcessorMobius,
+		ProcessorSubID:      "premium-plus-sub-123",
+		PeriodStart:         periodStart,
+		PeriodEnd:           periodEnd,
+		CurrentPeriodEndsAt: &periodEnd,
 	})
 
 	t.Run("detects downgrade when buying lower tier", func(t *testing.T) {

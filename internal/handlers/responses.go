@@ -142,67 +142,10 @@ func billingCycleDaysToInterval(days int) (string, int) {
 
 // -------------------------------- Solana / Payments Responses --------------------------------
 
-// GeneratePaymentResponse represents a generated on-chain transaction with helper info
-type GeneratePaymentResponse struct {
-	Transaction  string `json:"transaction"`            // base64-encoded tx (placeholder if not available)
-	Amount       int64  `json:"amount"`                 // fiat price amount in cents
-	Currency     string `json:"currency"`               // fiat currency (e.g., usd)
-	TokenAmount  uint64 `json:"token_amount"`           // smallest unit amount
-	TokenSymbol  string `json:"token_symbol"`           // SOL/USDC/etc.
-	ExpiresAt    int64  `json:"expires_at"`             // unix epoch expiry
-	Instructions string `json:"instructions,omitempty"` // human-readable instructions
-	IntentID     string `json:"intent_id"`
-}
-
-// SubmitPaymentResponse represents the result of submitting a signed transaction
-type SubmitPaymentResponse struct {
-	PaymentID     string `json:"payment_id"`
-	TransactionID string `json:"transaction_id"`
-	Status        string `json:"status"`
-	Amount        int64  `json:"amount"` // Amount in cents
-	Currency      string `json:"currency"`
-	ProcessedAt   int64  `json:"processed_at"` // Unix epoch seconds
-	Message       string `json:"message"`
-	IntentID      string `json:"intent_id"`
-}
-
-// PaymentStatusResponse represents the status of a payment
-type PaymentStatusResponse struct {
-	PaymentID     string `json:"payment_id"`
-	TransactionID string `json:"transaction_id"`
-	Status        string `json:"status"`
-	Amount        int64  `json:"amount"` // Amount in cents
-	Currency      string `json:"currency"`
-	CreatedAt     int64  `json:"created_at"`             // Unix epoch seconds
-	ConfirmedAt   *int64 `json:"confirmed_at,omitempty"` // Unix epoch seconds
-}
-
 // ErrorResponse represents an error response
 type ErrorResponse struct {
 	Error   string `json:"error"`
 	Message string `json:"message,omitempty"`
-}
-
-// SolanaPayQRResponse contains the Solana Pay URL metadata
-type SolanaPayQRResponse struct {
-	URL         string `json:"url"`          // Solana Pay URL for QR code
-	Amount      int64  `json:"amount"`       // Amount in cents
-	TokenAmount string `json:"token_amount"` // human-readable token amount
-	TokenSymbol string `json:"token_symbol"` // SOL, USDC, etc.
-	Label       string `json:"label"`        // Merchant label
-	Message     string `json:"message"`      // Payment message
-	ExpiresAt   int64  `json:"expires_at"`   // Unix timestamp when QR expires
-	Reference   string `json:"reference"`
-	IntentID    string `json:"intent_id"`
-}
-
-// CheckSolanaPaymentResponse contains the payment check result
-type CheckSolanaPaymentResponse struct {
-	Status       string `json:"status"`               // pending, confirmed, failed
-	PaymentID    string `json:"payment_id,omitempty"` // Payment ID if confirmed
-	IntentID     string `json:"intent_id"`
-	Transaction  string `json:"transaction,omitempty"`
-	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // SupportedTokensResponse lists available Solana tokens from config

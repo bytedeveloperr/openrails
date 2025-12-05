@@ -64,12 +64,7 @@ func TestTierGroupDetection(t *testing.T) {
 		defer suite.CleanupSubscriptionsForUser(userID)
 
 		// Try to purchase Premium+ - should detect as upgrade
-		checkoutService := services.NewCheckoutService(
-			suite.DB, nil, nil, nil, nil,
-			suite.PriceService, suite.ProductService,
-			suite.SubscriptionService, suite.EntitlementService,
-			nil, nil, nil, nil, nil, nil,
-		)
+		checkoutService := suite.App.Runtime.CheckoutService
 
 		eligibility, err := checkoutService.CheckPurchaseEligibility(ctx, userID, premiumPlusPriceID)
 		require.NoError(t, err, "Should check eligibility without error")
@@ -89,12 +84,7 @@ func TestTierGroupDetection(t *testing.T) {
 		defer suite.CleanupSubscriptionsForUser(userID)
 
 		// Try to purchase Premium - should detect as downgrade
-		checkoutService := services.NewCheckoutService(
-			suite.DB, nil, nil, nil, nil,
-			suite.PriceService, suite.ProductService,
-			suite.SubscriptionService, suite.EntitlementService,
-			nil, nil, nil, nil, nil, nil,
-		)
+		checkoutService := suite.App.Runtime.CheckoutService
 
 		eligibility, err := checkoutService.CheckPurchaseEligibility(ctx, userID, premiumPriceID)
 		require.NoError(t, err, "Should check eligibility without error")
@@ -106,12 +96,7 @@ func TestTierGroupDetection(t *testing.T) {
 	t.Run("allows purchase when no existing subscription", func(t *testing.T) {
 		newUserID := "new-user-" + uuid.New().String()[:8]
 
-		checkoutService := services.NewCheckoutService(
-			suite.DB, nil, nil, nil, nil,
-			suite.PriceService, suite.ProductService,
-			suite.SubscriptionService, suite.EntitlementService,
-			nil, nil, nil, nil, nil, nil,
-		)
+		checkoutService := suite.App.Runtime.CheckoutService
 
 		eligibility, err := checkoutService.CheckPurchaseEligibility(ctx, newUserID, premiumPriceID)
 		require.NoError(t, err, "Should check eligibility without error")
@@ -120,8 +105,8 @@ func TestTierGroupDetection(t *testing.T) {
 	})
 }
 
-// TestProrationCalculation tests that proration is calculated correctly for upgrades
-func TestProrationCalculation(t *testing.T) {
+// TestTierProrationCalculation tests that proration is calculated correctly for tier upgrades
+func TestTierProrationCalculation(t *testing.T) {
 	suite := setupTestSuite(t)
 
 	// Seed tiered products
@@ -251,16 +236,8 @@ func TestScheduledDowngrade(t *testing.T) {
 		suite.CreateTestEntitlement(userID, "premium", &sub.ID, models.EntitlementSourceSubscription)
 		suite.CreateTestEntitlement(userID, "extra", &sub.ID, models.EntitlementSourceSubscription)
 
-		// Simulate renewal via lifecycle service
-		lifecycleService := services.NewSubscriptionLifecycleService(
-			suite.DB,
-			suite.ProductService,
-			suite.PriceService,
-			suite.EntitlementService,
-			nil, // NotificationService
-			suite.PaymentService,
-		)
-		lifecycleService.SetClock(suite.GetClock())
+		// Use lifecycle service from runtime
+		lifecycleService := suite.App.Runtime.SubscriptionLifecycleService
 
 		err = lifecycleService.RenewMembership(ctx, &services.RenewMembershipParams{
 			Processor:               models.ProcessorMobius,
@@ -316,8 +293,7 @@ func TestEntitlementChangesOnTierChange(t *testing.T) {
 
 		// Simulate upgrade to Premium+ (this would be done by checkout service)
 		// For this test, we verify the entitlement change logic in isolation
-		entService := services.NewEntitlementService(suite.DB)
-		entService.SetClock(suite.GetClock())
+		entService := suite.App.Runtime.EntitlementService
 
 		// Grant new "extra" entitlement
 		_, err := entService.GrantWindow(ctx, userID, "extra", now, nil, models.EntitlementSourceSubscription, &sub.ID)
@@ -357,8 +333,7 @@ func TestEntitlementChangesOnTierChange(t *testing.T) {
 		assert.Len(t, ents, 2, "Should have 2 entitlements before downgrade")
 
 		// Revoke "extra" entitlement (simulating downgrade)
-		entService := services.NewEntitlementService(suite.DB)
-		entService.SetClock(suite.GetClock())
+		entService := suite.App.Runtime.EntitlementService
 
 		err := entService.RevokeBySubscriptionAndName(ctx, sub.ID, "extra", now, models.EntitlementRevokeDowngrade)
 		require.NoError(t, err, "Should revoke extra entitlement")

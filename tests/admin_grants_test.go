@@ -3,6 +3,7 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -60,16 +61,17 @@ func TestAdminGrantFreeComp(t *testing.T) {
 	suite, adminToken := setupAdminTestSuite(t)
 
 	// Create a product and price for testing
+	ctx := context.Background()
 	product := &models.Product{
 		ID:          uuid.New(),
 		DisplayName: "Premium Access",
-		Description: strPtr("Full premium access"),
+		Description: "Full premium access",
 		IsActive:    true,
 		EntitlementsSpec: map[string]*int{
 			"premium_access": intPtr(30), // 30 days
 		},
 	}
-	_, err := suite.DB.GetDB().NewInsert().Model(product).Exec(suite.Ctx)
+	_, err := suite.BunDB.NewInsert().Model(product).Exec(ctx)
 	require.NoError(t, err)
 
 	price := &models.Price{
@@ -81,7 +83,7 @@ func TestAdminGrantFreeComp(t *testing.T) {
 		BillingCycleDays: intPtr(30),
 		IsActive:         true,
 	}
-	_, err = suite.DB.GetDB().NewInsert().Model(price).Exec(suite.Ctx)
+	_, err = suite.BunDB.NewInsert().Model(price).Exec(ctx)
 	require.NoError(t, err)
 
 	userID := uuid.New().String()
@@ -137,11 +139,11 @@ func TestAdminGrantFreeComp(t *testing.T) {
 
 		// Verify the entitlement was created with 7 days duration
 		var ent models.Entitlement
-		err = suite.DB.GetDB().NewSelect().
+		err = suite.BunDB.NewSelect().
 			Model(&ent).
 			Where("ent.user_id = ?", anotherUserID).
 			Where("ent.entitlement = ?", "premium_access").
-			Scan(suite.Ctx)
+			Scan(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, ent.EndAt)
 		// Should be approximately 7 days from now
@@ -168,11 +170,11 @@ func TestAdminGrantFreeComp(t *testing.T) {
 
 		// Verify the entitlement was created with no end date (indefinite)
 		var ent models.Entitlement
-		err = suite.DB.GetDB().NewSelect().
+		err = suite.BunDB.NewSelect().
 			Model(&ent).
 			Where("ent.user_id = ?", lifetimeUserID).
 			Where("ent.entitlement = ?", "premium_access").
-			Scan(suite.Ctx)
+			Scan(ctx)
 		require.NoError(t, err)
 		assert.Nil(t, ent.EndAt, "Indefinite grant should have nil EndAt")
 	})
@@ -183,16 +185,17 @@ func TestAdminGrantWithPayment(t *testing.T) {
 	suite, adminToken := setupAdminTestSuite(t)
 
 	// Create a product and price for testing
+	ctx := context.Background()
 	product := &models.Product{
 		ID:          uuid.New(),
 		DisplayName: "Premium Access",
-		Description: strPtr("Full premium access"),
+		Description: "Full premium access",
 		IsActive:    true,
 		EntitlementsSpec: map[string]*int{
 			"premium_access": intPtr(30),
 		},
 	}
-	_, err := suite.DB.GetDB().NewInsert().Model(product).Exec(suite.Ctx)
+	_, err := suite.BunDB.NewInsert().Model(product).Exec(ctx)
 	require.NoError(t, err)
 
 	price := &models.Price{
@@ -204,7 +207,7 @@ func TestAdminGrantWithPayment(t *testing.T) {
 		BillingCycleDays: intPtr(30),
 		IsActive:         true,
 	}
-	_, err = suite.DB.GetDB().NewInsert().Model(price).Exec(suite.Ctx)
+	_, err = suite.BunDB.NewInsert().Model(price).Exec(ctx)
 	require.NoError(t, err)
 
 	userID := uuid.New().String()
@@ -240,10 +243,10 @@ func TestAdminGrantWithPayment(t *testing.T) {
 		var payment models.Payment
 		paymentIDStr := resp["payment_id"].(string)
 		paymentID, _, _ := api.TryParseID(paymentIDStr)
-		err = suite.DB.GetDB().NewSelect().
+		err = suite.BunDB.NewSelect().
 			Model(&payment).
 			Where("purch.id = ?", paymentID).
-			Scan(suite.Ctx)
+			Scan(ctx)
 		require.NoError(t, err)
 
 		assert.Equal(t, int64(999), payment.Amount)
@@ -278,10 +281,10 @@ func TestAdminGrantWithPayment(t *testing.T) {
 		paymentID, _, _ := api.TryParseID(paymentIDStr)
 
 		var payment models.Payment
-		err = suite.DB.GetDB().NewSelect().
+		err = suite.BunDB.NewSelect().
 			Model(&payment).
 			Where("purch.id = ?", paymentID).
-			Scan(suite.Ctx)
+			Scan(ctx)
 		require.NoError(t, err)
 
 		assert.True(t, strings.HasPrefix(payment.TransactionID, "admin-grant-"), "Should generate admin-grant- prefixed transaction ID")
@@ -293,6 +296,7 @@ func TestListAdminGrants(t *testing.T) {
 	suite, adminToken := setupAdminTestSuite(t)
 
 	// Create a product and price
+	ctx := context.Background()
 	product := &models.Product{
 		ID:          uuid.New(),
 		DisplayName: "Test Product",
@@ -301,7 +305,7 @@ func TestListAdminGrants(t *testing.T) {
 			"test_access": intPtr(30),
 		},
 	}
-	_, err := suite.DB.GetDB().NewInsert().Model(product).Exec(suite.Ctx)
+	_, err := suite.BunDB.NewInsert().Model(product).Exec(ctx)
 	require.NoError(t, err)
 
 	price := &models.Price{
@@ -313,7 +317,7 @@ func TestListAdminGrants(t *testing.T) {
 		BillingCycleDays: intPtr(30),
 		IsActive:         true,
 	}
-	_, err = suite.DB.GetDB().NewInsert().Model(price).Exec(suite.Ctx)
+	_, err = suite.BunDB.NewInsert().Model(price).Exec(ctx)
 	require.NoError(t, err)
 
 	userID := uuid.New().String()
@@ -380,6 +384,7 @@ func TestGetAdminGrant(t *testing.T) {
 	suite, adminToken := setupAdminTestSuite(t)
 
 	// Create a product and price
+	ctx := context.Background()
 	product := &models.Product{
 		ID:          uuid.New(),
 		DisplayName: "Test Product",
@@ -388,7 +393,7 @@ func TestGetAdminGrant(t *testing.T) {
 			"test_access": intPtr(30),
 		},
 	}
-	_, err := suite.DB.GetDB().NewInsert().Model(product).Exec(suite.Ctx)
+	_, err := suite.BunDB.NewInsert().Model(product).Exec(ctx)
 	require.NoError(t, err)
 
 	price := &models.Price{
@@ -400,7 +405,7 @@ func TestGetAdminGrant(t *testing.T) {
 		BillingCycleDays: intPtr(30),
 		IsActive:         true,
 	}
-	_, err = suite.DB.GetDB().NewInsert().Model(price).Exec(suite.Ctx)
+	_, err = suite.BunDB.NewInsert().Model(price).Exec(ctx)
 	require.NoError(t, err)
 
 	userID := uuid.New().String()

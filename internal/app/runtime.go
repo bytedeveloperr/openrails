@@ -49,12 +49,9 @@ type Runtime struct {
 	EntitlementService *services.EntitlementService
 	AdminGrantService  *services.AdminGrantService
 
-	SolanaWalletService        *services.SolanaWalletService
-	SolanaPaymentService       *services.SolanaPaymentService
-	SolanaPaymentIntentService *services.SolanaPaymentIntentService
-	SolanaVerificationService  *services.SolanaVerificationService
-	SolanaPayService           *services.SolanaPayService
-	SolanaPayPoller            *services.SolanaPayPoller
+	SolanaPaymentService *services.SolanaPaymentService
+	SolanaPayService     *services.SolanaPayService
+	SolanaPayPoller      *services.SolanaPayPoller
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 	WebhookEventService          *services.WebhookEventService
