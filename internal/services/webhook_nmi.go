@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,7 +31,7 @@ type NMIWebhookService struct {
 	Processor                    string
 	DeadLetterService            *DeadLetterService
 	NMIClient                    *nmi.NMIClient
-	EventLogService          *EventLogService
+	EventLogService              *EventLogService
 	SubscriptionService          *SubscriptionService
 	PaymentService               *PaymentService
 	DeduplicationService         *DeduplicationService
@@ -368,12 +369,48 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 		return nil
 	}
 
+	// Extract payment info from the plan for the initial charge
+	var amountCents int64
+	var currency string
+
+	// Get amount from plan (in dollars as string, e.g., "19.00")
+	if body.Plan != nil && body.Plan.Amount.Trimmed() != "" {
+		amountFloat, err := strconv.ParseFloat(body.Plan.Amount.Trimmed(), 64)
+		if err != nil {
+			log.WithContext(ctx).
+				WithError(err).
+				WithField("plan_amount", body.Plan.Amount.Trimmed()).
+				Warn("Failed to parse plan amount; falling back to price amount")
+		} else {
+			amountCents = int64(amountFloat * 100)
+		}
+	}
+
+	// Fall back to price amount if plan amount not available
+	if amountCents == 0 && price.Amount > 0 {
+		amountCents = price.Amount
+	}
+
+	// Use price currency or default to USD (NMI doesn't include currency in subscription add events)
+	currency = strings.ToLower(strings.TrimSpace(price.Currency))
+	if currency == "" {
+		currency = "usd"
+	}
+
+	// Note: NMI subscription add events don't include a transaction ID.
+	// The initial transaction will come separately via transaction.sale.success webhook.
+	// We use the subscription ID as a reference for tracking.
+	transactionRef := "sub:" + nmiSubID
+
 	_, err = s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 		PriceID:                 price.ID,
 		UserID:                  subscription.UserID,
 		Processor:               models.ProcessorMobius,
 		ProcessorSubscriptionID: &subscription.ProcessorSubscriptionID,
 		UserEmail:               subscription.UserEmail,
+		TransactionID:           transactionRef,
+		Amount:                  amountCents,
+		Currency:                currency,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create membership: %w", err)
@@ -550,6 +587,9 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: &subscription.ProcessorSubscriptionID,
 			UserEmail:               subscription.UserEmail,
+			TransactionID:           txnID,
+			Amount:                  amountCents,
+			Currency:                currencyValue,
 		})
 		if err != nil {
 			return fmt.Errorf("failed to activate subscription: %w", err)

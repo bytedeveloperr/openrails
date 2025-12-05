@@ -19,6 +19,7 @@ const (
 	PrefixInvoice       = "inv_"
 	PrefixUser          = "usr_"
 	PrefixEvent         = "evt_"
+	PrefixAdminGrant    = "ag_"
 )
 
 // FormatProductID formats a UUID as a product ID (prod_xxx)
@@ -65,6 +66,11 @@ func FormatUserID(id string) string {
 // FormatEventID formats a UUID as an event ID (evt_xxx)
 func FormatEventID(id uuid.UUID) string {
 	return PrefixEvent + id.String()
+}
+
+// FormatAdminGrantID formats a UUID as an admin grant ID (ag_xxx)
+func FormatAdminGrantID(id uuid.UUID) string {
+	return PrefixAdminGrant + id.String()
 }
 
 // ParseProductID parses a prefixed product ID and returns the UUID
@@ -136,7 +142,7 @@ func TryParseID(id string) (uuid.UUID, bool, error) {
 	prefixes := []string{
 		PrefixProduct, PrefixPrice, PrefixSubscription,
 		PrefixPayment, PrefixPaymentMethod, PrefixPaymentIntent,
-		PrefixInvoice, PrefixUser, PrefixEvent,
+		PrefixInvoice, PrefixUser, PrefixEvent, PrefixAdminGrant,
 	}
 
 	for _, prefix := range prefixes {

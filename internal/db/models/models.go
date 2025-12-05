@@ -14,6 +14,7 @@ const (
 	ProcessorCCBill Processor = "ccbill" // CCBill processor (self-contained)
 	ProcessorSolana Processor = "solana" // Solana crypto payments (self-contained)
 	ProcessorPayPal Processor = "paypal" // PayPal processor (self-contained)
+	ProcessorAdmin  Processor = "admin"  // Admin-initiated payments (comps, manual payments via PayPal/cash/etc.)
 
 	// ProcessorNMI is kept for backwards compatibility with legacy database records.
 	// New code should use ProcessorMobius for the processor field.
@@ -35,6 +36,7 @@ var ModelRegistry = []any{
 	(*NotificationQueue)(nil),
 	(*Entitlement)(nil),
 	(*IdempotencyRequest)(nil),
+	(*AdminGrant)(nil),
 }
 
 func RegisterModels(db *bun.DB) {

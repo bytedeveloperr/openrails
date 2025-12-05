@@ -12,10 +12,10 @@ import (
 
 // UpdateStatusRequest is the request body for UpdateStatus handler
 type UpdateStatusRequest struct {
-	SubscriptionID string                      `json:"subscription_id" binding:"required"`
-	Status         models.SubscriptionStatus   `json:"status" binding:"required"`
-	CancelFeedback string                      `json:"cancel_feedback"`
-	CancelType     models.CancelType           `json:"cancel_type"`
+	SubscriptionID string                    `json:"subscription_id" binding:"required"`
+	Status         models.SubscriptionStatus `json:"status" binding:"required"`
+	CancelFeedback string                    `json:"cancel_feedback"`
+	CancelType     models.CancelType         `json:"cancel_type"`
 }
 
 func UpdateStatus(r *Request) {

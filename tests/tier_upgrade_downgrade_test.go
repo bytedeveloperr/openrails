@@ -126,16 +126,16 @@ func TestProrationCalculation(t *testing.T) {
 
 	// Seed tiered products
 	tieredProducts := suite.SeedTieredProducts()
-	premiumPrice := tieredProducts[0].Prices[0]   // $10/month
+	premiumPrice := tieredProducts[0].Prices[0]     // $10/month
 	premiumPlusPrice := tieredProducts[1].Prices[0] // $20/month
 
 	t.Run("calculates correct proration for mid-cycle upgrade", func(t *testing.T) {
 		// User on Premium ($10/mo), 15 days remaining, upgrades to Premium+ ($20/mo)
 		// Expected proration: ($20 - $10) * (15/30) = $5
 
-		oldAmount := premiumPrice.Amount       // 1000 cents ($10)
-		newAmount := premiumPlusPrice.Amount   // 2000 cents ($20)
-		billingCycle := 30                     // days
+		oldAmount := premiumPrice.Amount     // 1000 cents ($10)
+		newAmount := premiumPlusPrice.Amount // 2000 cents ($20)
+		billingCycle := 30                   // days
 		daysRemaining := 15
 
 		priceDiff := newAmount - oldAmount // 1000 cents ($10)
@@ -179,7 +179,7 @@ func TestScheduledDowngrade(t *testing.T) {
 
 	// Seed tiered products
 	tieredProducts := suite.SeedTieredProducts()
-	premiumPriceID := tieredProducts[0].Prices[0].ID    // $10/month, rank 1
+	premiumPriceID := tieredProducts[0].Prices[0].ID     // $10/month, rank 1
 	premiumPlusPriceID := tieredProducts[1].Prices[0].ID // $20/month, rank 2
 	premiumProduct := tieredProducts[0].Product
 	premiumPlusProduct := tieredProducts[1].Product
@@ -288,7 +288,7 @@ func TestEntitlementChangesOnTierChange(t *testing.T) {
 	// Seed tiered products
 	tieredProducts := suite.SeedTieredProducts()
 	premiumPriceID := tieredProducts[0].Prices[0].ID     // rank 1, entitlements: [premium]
-	premiumPlusPriceID := tieredProducts[1].Prices[0].ID  // rank 2, entitlements: [premium, extra]
+	premiumPlusPriceID := tieredProducts[1].Prices[0].ID // rank 2, entitlements: [premium, extra]
 
 	userID := "test-user-" + uuid.New().String()[:8]
 

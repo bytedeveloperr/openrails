@@ -21,8 +21,8 @@ const (
 type EntitlementRevokeReason string
 
 const (
-	EntitlementRevokeAdmin     EntitlementRevokeReason = "admin"
-	EntitlementRevokeDowngrade EntitlementRevokeReason = "downgrade"
+	EntitlementRevokeAdmin      EntitlementRevokeReason = "admin"
+	EntitlementRevokeDowngrade  EntitlementRevokeReason = "downgrade"
 	EntitlementRevokeChargeback EntitlementRevokeReason = "chargeback"
 )
 

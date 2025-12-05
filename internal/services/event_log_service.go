@@ -338,8 +338,8 @@ const (
 	PaymentEventVoidFailure PaymentEventType = "void_failure"
 
 	// Chargeback events
-	PaymentEventChargeback      PaymentEventType = "chargeback"
-	PaymentEventBatchProcessed  PaymentEventType = "batch_processed"
+	PaymentEventChargeback     PaymentEventType = "chargeback"
+	PaymentEventBatchProcessed PaymentEventType = "batch_processed"
 
 	// Subscription lifecycle events (for ClickHouse logging)
 	PaymentEventSubscriptionCancelled   PaymentEventType = "subscription_cancelled"
@@ -347,8 +347,8 @@ const (
 	PaymentEventSubscriptionReactivated PaymentEventType = "subscription_reactivated"
 
 	// Customer/billing info events
-	PaymentEventBillingDateChanged   PaymentEventType = "billing_date_changed"
-	PaymentEventCustomerDataUpdated  PaymentEventType = "customer_data_updated"
+	PaymentEventBillingDateChanged  PaymentEventType = "billing_date_changed"
+	PaymentEventCustomerDataUpdated PaymentEventType = "customer_data_updated"
 
 	// Unknown/fallback
 	PaymentEventUnknown PaymentEventType = "unknown"

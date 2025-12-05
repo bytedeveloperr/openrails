@@ -126,10 +126,10 @@ func UpdateSubscriptionPaymentMethod(r *Request) {
 	err = nmiClient.UpdateSubscriptionPaymentSource(subscription.ProcessorSubscriptionID, paymentMethod.VaultID)
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{
-			"subscription_id":         subscription.ID,
-			"processor_subscription":  subscription.ProcessorSubscriptionID,
-			"new_vault_id":            paymentMethod.VaultID,
-			"payment_method_id":       paymentMethod.ID,
+			"subscription_id":        subscription.ID,
+			"processor_subscription": subscription.ProcessorSubscriptionID,
+			"new_vault_id":           paymentMethod.VaultID,
+			"payment_method_id":      paymentMethod.ID,
 		}).Error("Failed to update subscription payment source with NMI")
 		r.ErrorJSON(http.StatusBadGateway, "Failed to update payment method with payment processor")
 		return
@@ -151,11 +151,11 @@ func UpdateSubscriptionPaymentMethod(r *Request) {
 
 	// 10. Log success for audit purposes
 	log.WithFields(log.Fields{
-		"subscription_id":         subscription.ID,
-		"processor_subscription":  subscription.ProcessorSubscriptionID,
-		"old_payment_method_id":   subscription.PaymentMethodID,
-		"new_payment_method_id":   paymentMethodID,
-		"user_id":                 user.ID,
+		"subscription_id":        subscription.ID,
+		"processor_subscription": subscription.ProcessorSubscriptionID,
+		"old_payment_method_id":  subscription.PaymentMethodID,
+		"new_payment_method_id":  paymentMethodID,
+		"user_id":                user.ID,
 	}).Info("Subscription payment method updated successfully")
 
 	// 11. Return success response with updated subscription info

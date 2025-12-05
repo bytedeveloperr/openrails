@@ -229,9 +229,9 @@ type NMIACUEventBody struct {
 // Note: NMI chargeback webhooks are batch-based and do NOT include transaction_id or subscription info
 // This makes automatic subscription termination impossible without additional API lookups
 type NMIChargebackBatchEventBody struct {
-	Merchant   *NMIMerchant          `json:"merchant"`
-	Processor  *NMIProcessorRef      `json:"processor"`
-	Batch      *NMIChargebackBatch   `json:"batch"`
+	Merchant    *NMIMerchant         `json:"merchant"`
+	Processor   *NMIProcessorRef     `json:"processor"`
+	Batch       *NMIChargebackBatch  `json:"batch"`
 	Chargebacks []NMIChargebackEntry `json:"chargebacks"`
 }
 
@@ -250,7 +250,7 @@ type NMIChargebackEntry struct {
 	ID           Stringish `json:"id"`
 	Date         string    `json:"date"`
 	CustomerName string    `json:"customer_name"`
-	CCNumber     string    `json:"cc_number"`      // Last 4 digits masked
+	CCNumber     string    `json:"cc_number"` // Last 4 digits masked
 	Amount       string    `json:"amount"`
 	ReasonCode   string    `json:"reason_code"`
 	Reason       string    `json:"reason"`

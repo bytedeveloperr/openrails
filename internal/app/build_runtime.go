@@ -111,7 +111,8 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		WebhookDispatcher:            serviceInstances.WebhookDispatcher,
 		DeduplicationService:         serviceInstances.DeduplicationService,
 
-		CheckoutService: serviceInstances.CheckoutService,
+		CheckoutService:   serviceInstances.CheckoutService,
+		AdminGrantService: serviceInstances.AdminGrantService,
 	}
 	runtime.WebhookProcessor = &services.WebhookProcessor{
 		Events:     runtime.WebhookEventService,
@@ -300,7 +301,8 @@ type servicesInstances struct {
 	WebhookEventService          *services.WebhookEventService
 	WebhookDispatcher            *services.WebhookDispatcher
 
-	CheckoutService *services.CheckoutService
+	CheckoutService   *services.CheckoutService
+	AdminGrantService *services.AdminGrantService
 }
 
 func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, nmiClients map[string]*nmi.NMIClient, redisClient *redis.Client, clock clockwork.Clock) *servicesInstances {
@@ -388,7 +390,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		NotificationService:          notificationService,
 		SubscriptionService:          subscriptionService,
 		PaymentService:               purchaseService,
-		EventLogService:          nil,
+		EventLogService:              nil,
 		SubscriptionLifecycleService: subscriptionLifecycleService,
 		ProfileRepo:                  profileRepo,
 		DeduplicationService:         deduplicationService,
@@ -423,6 +425,16 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		checkoutService,
 	)
 
+	// Create AdminGrantService for admin product grants
+	adminGrantService := services.NewAdminGrantService(
+		database,
+		priceService,
+		productService,
+		purchaseService,
+		entitlementService,
+	)
+	adminGrantService.Clock = clock
+
 	return &servicesInstances{
 		SubscriptionService:          subscriptionService,
 		ProductService:               productService,
@@ -446,6 +458,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		WebhookEventService:          webhookEventService,
 		WebhookDispatcher:            webhookDispatcher,
 		CheckoutService:              checkoutService,
+		AdminGrantService:            adminGrantService,
 	}
 }
 

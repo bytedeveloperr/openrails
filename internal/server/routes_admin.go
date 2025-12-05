@@ -30,6 +30,11 @@ func (s *Server) registerAdminRoutes() {
 	admin.POST("/users/:user_id/entitlements", s.wrap(handlers.GrantAdminEntitlement))
 	admin.DELETE("/users/:user_id/entitlements/:id", s.wrap(handlers.RevokeAdminEntitlement))
 
+	// Admin grants (product-based grants with audit trail)
+	admin.POST("/users/:user_id/grants", s.wrap(handlers.CreateAdminGrant))
+	admin.GET("/users/:user_id/grants", s.wrap(handlers.ListAdminGrantsByUser))
+	admin.GET("/grants/:id", s.wrap(handlers.GetAdminGrant))
+
 	// Metrics: GET /v1/admin/metrics?type=dashboard|daily|processor
 	admin.GET("/metrics", s.wrap(handlers.GetAdminMetrics))
 }

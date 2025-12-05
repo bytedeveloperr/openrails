@@ -318,7 +318,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 			"billing_phone_number": data.PhoneNumber,
 			"ip_address":           data.IPAddress,
 			// Additional transaction metadata for business intelligence
-			"affiliate_system":     data.AffiliateSystem,
+			"affiliate_system":      data.AffiliateSystem,
 			"lifetime_subscription": data.LifeTimeSubscription.Trimmed(),
 		}
 

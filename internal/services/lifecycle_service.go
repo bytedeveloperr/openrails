@@ -26,8 +26,8 @@ type SubscriptionLifecycleService struct {
 	PriceService        *PriceService
 	EntitlementService  *EntitlementService
 	NotificationService *NotificationService
-	PaymentService      *PaymentService   // For creating Payment records on renewal
-	EventLogService     *EventLogService  // For logging events to ClickHouse
+	PaymentService      *PaymentService  // For creating Payment records on renewal
+	EventLogService     *EventLogService // For logging events to ClickHouse
 }
 
 type CreateMembershipParams struct {
@@ -386,12 +386,12 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 			}
 
 			log.WithContext(ctx).WithFields(log.Fields{
-				"subscription_id":    subscription.ID,
-				"user_id":            subscription.UserID,
-				"old_price_id":       subscription.PriceID,
-				"new_price_id":       price.ID,
-				"old_product":        oldProduct.DisplayName,
-				"new_product":        newProduct.DisplayName,
+				"subscription_id": subscription.ID,
+				"user_id":         subscription.UserID,
+				"old_price_id":    subscription.PriceID,
+				"new_price_id":    price.ID,
+				"old_product":     oldProduct.DisplayName,
+				"new_product":     newProduct.DisplayName,
 			}).Info("Applying scheduled downgrade on renewal")
 
 			// Update subscription to new price and product
