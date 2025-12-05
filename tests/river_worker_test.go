@@ -17,6 +17,8 @@ import (
 	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 )
 
+// uuid is used by models for ID generation in cleanup tests
+
 // TestRiverWorkersStarted verifies that River workers are running in the test suite
 func TestRiverWorkersStarted(t *testing.T) {
 	suite := setupTestSuite(t)
@@ -39,7 +41,7 @@ func TestRiverJobEnqueue(t *testing.T) {
 	// Clear any existing jobs from periodic schedulers
 	suite.ClearJobQueue()
 
-	t.Run("can enqueue and process webhook retry job", func(t *testing.T) {
+	t.Run("can enqueue and process dunning job", func(t *testing.T) {
 		// Get the River client directly (it's already typed)
 		client := suite.App.Runtime.RiverClient
 		require.NotNil(t, client, "Should have River client")
@@ -47,9 +49,9 @@ func TestRiverJobEnqueue(t *testing.T) {
 		// Get initial completed count
 		initialCompleted := suite.GetCompletedJobCount()
 
-		// Enqueue a webhook retry job
+		// Enqueue a dunning job (webhooks are now processed synchronously, not via River)
 		ctx := context.Background()
-		_, err := client.Insert(ctx, riverjobs.WebhookRetryArgs{}, &river.InsertOpts{
+		_, err := client.Insert(ctx, riverjobs.DunningArgs{}, &river.InsertOpts{
 			Queue: riverjobs.QueueBilling,
 		})
 		require.NoError(t, err, "Should be able to enqueue job")
@@ -81,46 +83,9 @@ func TestRiverPeriodicJobs(t *testing.T) {
 	})
 }
 
-// TestWebhookProcessingFlow tests the webhook -> job -> processing flow
-func TestWebhookProcessingFlow(t *testing.T) {
-	suite := setupTestSuite(t)
-
-	// Clear job queue for clean state
-	suite.ClearJobQueue()
-
-	t.Run("webhook processing job can be enqueued", func(t *testing.T) {
-		client := suite.App.Runtime.RiverClient
-		require.NotNil(t, client)
-
-		// Create a webhook process job (this would normally be enqueued when a webhook is received)
-		// Note: We're just testing that the job infrastructure works, not the actual webhook processing
-		ctx := context.Background()
-
-		initialPending := suite.GetPendingJobCount()
-		initialCompleted := suite.GetCompletedJobCount()
-
-		// Enqueue a webhook process job with a fake event ID
-		// This will fail to find the event but proves the infrastructure works
-		_, err := client.Insert(ctx, riverjobs.WebhookProcessArgs{
-			EventID: uuid.MustParse("12345678-1234-1234-1234-123456789012"),
-		}, &river.InsertOpts{
-			Queue: riverjobs.QueueBilling,
-		})
-		require.NoError(t, err, "Should be able to enqueue webhook process job")
-
-		// Wait a moment for job to be picked up
-		time.Sleep(500 * time.Millisecond)
-
-		// Check that job was processed (even if it failed due to missing event)
-		// In River, failed jobs go to 'retryable' or 'discarded' state, not 'available'
-		finalPending := suite.GetPendingJobCount()
-		finalCompleted := suite.GetCompletedJobCount()
-
-		// Either the job completed (found no event to process) or moved to another state
-		t.Logf("Initial pending: %d, Final pending: %d", initialPending, finalPending)
-		t.Logf("Initial completed: %d, Final completed: %d", initialCompleted, finalCompleted)
-	})
-}
+// TestWebhookProcessingFlow has been removed.
+// Webhook processing is now synchronous-only - no async River jobs.
+// See: agents/progress.json "simplify-webhook-processing" for details.
 
 // TestDunningJobEnqueue tests enqueueing a dunning job
 func TestDunningJobEnqueue(t *testing.T) {

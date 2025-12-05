@@ -1078,6 +1078,355 @@
         "[DONE] Audit ManageSubscriptionService entry points to propagate the provided context to DB calls.",
         "[DONE] Add tests ensuring cancellation/timeout on request context stops handler work."
       ]
+    },
+    {
+      "name": "simplify-solana-pay-architecture",
+      "category": "refactor",
+      "description": "Simplify Solana Pay to use Redis for pending state, server-side polling, and eliminate complex state machine",
+      "summary": {
+        "overview": "Replaced complex SolanaPaymentIntent state machine with simpler architecture: Redis for ephemeral pending payments, background goroutine polling Solana every 500ms, Postgres only for confirmed payments.",
+        "endpoints": {
+          "POST /v1/solana/pay": "Generate Solana Pay Transfer Request URL, store in Redis",
+          "GET /v1/solana/pay/status": "Check payment status (pending/confirmed/expired)",
+          "GET /v1/solana/pay/:reference": "Alternative status check by path param"
+        },
+        "redis_structure": {
+          "pending_solana_payments": "SET of reference strings currently being polled",
+          "solana_pay:{reference}": "HASH with payment details, 15min TTL"
+        },
+        "poller": "SolanaPayPoller goroutine with 500ms ticker, batch RPC queries",
+        "latency": "~500-900ms from user signing tx to confirmed in our system"
+      },
+      "steps": [
+        "[DONE] Create SolanaPayService with Redis storage",
+        "[DONE] Create SolanaPayPoller goroutine with 500ms polling",
+        "[DONE] Create POST /v1/solana/pay handler",
+        "[DONE] Create GET /v1/solana/pay/status handler",
+        "[DONE] Create GET /v1/solana/pay/:reference handler",
+        "[DONE] Register routes in routes_public.go",
+        "[DONE] Integration with CheckoutService.RegisterPurchase() for entitlements"
+      ],
+      "completed_notes": "Implemented simplified Solana Pay architecture with Redis for pending payments, 500ms server-side polling, and Postgres only for confirmed payments. Routes registered in routes_public.go. Remaining cleanup (removing old SolanaPaymentIntent code) can be done separately."
+    },
+    {
+      "name": "remove-ccbill-alias-service",
+      "category": "refactor",
+      "description": "Completely removed CCBillAliasService - now using real usernames from JWT",
+      "rationale": [
+        "Users already have usernames in the profiles schema",
+        "Alias generation was unnecessary complexity",
+        "Makes it easier to identify users in CCBill's admin panel",
+        "Webhook resolution now queries profiles.users directly"
+      ],
+      "steps": [
+        "[DONE] Update checkout_service.go to use user.Username directly",
+        "[DONE] Add GetUserIDByUsername() to ProfileRepo for webhook resolution",
+        "[DONE] Update CCBillWebhookService to use ProfileRepo instead of CCBillAliasService",
+        "[DONE] Update WebhookDispatcher to use ProfileRepo instead of CCBillAliasService",
+        "[DONE] Remove CCBillAliasService from CheckoutService dependencies",
+        "[DONE] Remove CCBillAliasService from build_runtime.go and runtime.go",
+        "[DONE] Delete internal/services/ccbill_alias.go",
+        "[DONE] Delete internal/services/ccbill_alias_test.go",
+        "[DONE] Delete internal/db/repo/ccbill_username_alias.go",
+        "[DONE] Delete internal/db/models/ccbill_username_alias.go",
+        "[N/A] Create migration 009_drop_ccbill_aliases_table - table was never in migrations, not needed",
+        "[DONE] Update tests/testcontainer_suite.go to remove CCBillAliasService references",
+        "[DONE] Update tests/seed_data.go - replaced CreateCCBillAlias with CreateProfileUser"
+      ],
+      "completed_notes": "Completely removed CCBillAliasService. CCBill checkout now sends the real username from the JWT. Webhook resolution looks up user IDs directly from profiles.users.username via ProfileRepo.GetUserIDByUsername(). No migration needed as the ccbill_username_aliases table was never defined in migrations. Test helpers updated to seed profiles.users instead of the deleted alias table."
+    },
+    {
+      "name": "unify-payment-recording-across-processors",
+      "category": "refactor",
+      "description": "All processors should use unified methods for recording purchases and renewals",
+      "steps": [
+        "[DONE] CCBill now creates Payment records in handleNewSaleSuccess()",
+        "[DONE] CCBill now creates Payment records in handleRenewalSuccess()",
+        "[DONE] Add SubscriptionID field to RegisterPurchaseRequest",
+        "[DONE] Update RegisterPurchase() to set payment.subscription_id if provided",
+        "[DONE] Add TransactionID/Amount/Currency to RenewMembershipParams",
+        "[DONE] Update RenewMembership() to create Payment record internally",
+        "[DONE] Refactor NMI to let RenewMembership() create Payment",
+        "[DONE] Add payment fields to CreateMembershipParams",
+        "[DONE] Update CreateMembership() to create Payment record internally",
+        "[DONE] Refactor CCBill handleNewSaleSuccess to pass payment info to CreateMembership",
+        "[DONE] Refactor CCBill handleRenewalSuccess to pass payment info to RenewMembership"
+      ],
+      "completed_notes": "All Payment records are now created inside lifecycle methods (RenewMembership and CreateMembership). Added payment fields to both params structs. NMI and CCBill webhooks refactored to pass payment info to lifecycle methods instead of creating Payment records separately. Dunning worker already used the pattern. All processors now use the same unified code paths."
+    },
+    {
+      "name": "ccbill-payment-records-and-deduplication",
+      "category": "critical",
+      "description": "CCBill webhook handlers are missing Payment record creation and deduplication - causing revenue reporting gaps",
+      "steps": [
+        "[DONE] Add PaymentService and DeduplicationService fields to CCBillWebhookService struct",
+        "[DONE] Update WebhookDispatcher.processCCBill() to pass PaymentService and DeduplicationService",
+        "[DONE] Add deduplication check at start of handleNewSaleSuccess() using transactionID",
+        "[DONE] Add Payment record creation after CreateMembership() in handleNewSaleSuccess()",
+        "[DONE] Add deduplication check at start of handleRenewalSuccess() using transactionID",
+        "[DONE] Add Payment record creation after RenewMembership() in handleRenewalSuccess()",
+        "[DONE] build_runtime.go already had services - no changes needed",
+        "[DONE] Added IsDuplicate() method to DeduplicationService for standalone checks",
+        "[DONE] Added duplicate payment check via GetByTransactionID before creating Payment records",
+        "[DONE] Payment creation now handled by CreateMembership() and RenewMembership() internally",
+        "[DONE] All tests pass"
+      ],
+      "completed_notes": "CCBill webhook handlers now create Payment records via lifecycle methods and check for duplicates. Payment records are now created inside CreateMembership() and RenewMembership() for consistency with NMI. Deduplication checks use IsDuplicate() method on DeduplicationService."
+    },
+    {
+      "name": "ccbill-use-webhook-currency",
+      "category": "critical",
+      "description": "CCBill webhook handlers hardcode 'usd' currency instead of using actual currency from webhook data",
+      "steps": [
+        "[DONE] Create helper function normalizeCurrency(currencyCode) that extracts currency and normalizes to lowercase",
+        "[DONE] Update handleNewSaleSuccess to use data.BilledCurrencyCode instead of hardcoded 'usd'",
+        "[DONE] Update handleRenewalSuccess to use data.BilledCurrencyCode",
+        "[DONE] Update handleNewSaleFailure to use data.BilledCurrencyCode",
+        "[DONE] Update handleUpgradeSuccess to use data.BilledCurrencyCode",
+        "[DONE] Update handleUpgradeFailure to use data.BilledCurrencyCode",
+        "[DONE] Update handleRefund to use data.AccountingCurrencyCode",
+        "[DONE] Update handleVoid to use data.AccountingCurrencyCode (2 locations)",
+        "[DONE] Update handleChargeback to use data.AccountingCurrencyCode (2 locations)",
+        "[NOTE] handleRenewalFailure keeps 'usd' default - CCBill doesn't include currency in failure events",
+        "[DONE] Add fallback to 'usd' with warning log in normalizeCurrency helper"
+      ],
+      "completed_notes": "Added normalizeCurrency() helper function that extracts currency code from webhook data and normalizes to lowercase. Updated 12 locations from hardcoded 'usd' to use actual webhook currency fields. Uses BilledCurrencyCode for success events and AccountingCurrencyCode for refund/void/chargeback events. RenewalFailure event doesn't include currency in CCBill webhook format so it defaults to 'usd' with a comment explaining why."
+    },
+    {
+      "name": "ccbill-capture-card-information",
+      "category": "high",
+      "description": "CCBill webhook handlers ignore card information (Last4, CardType, ExpDate) that should be captured",
+      "steps": [
+        "[DONE] Chose metadata-only approach for now (simpler, provides audit trail)",
+        "[DONE] handleNewSaleSuccess: Added card_type, card_last4, card_exp_date, card_bin, avs_response, cvv2_response, three_d_secure to metadata",
+        "[DONE] handleNewSaleSuccess: Added card_type, card_last4, card_exp_date to BillingInfo",
+        "[DONE] handleUpgradeSuccess: Added same card fields to metadata and BillingInfo",
+        "[DONE] handleRenewalSuccess: Added card_type, card_last4, card_exp_date to metadata and BillingInfo",
+        "[FUTURE] Consider creating PaymentMethod records for CCBill cards for full management UI",
+        "[DONE] Log AVSResponse, CVV2Response, ThreeDSecure for fraud monitoring (in NewSaleSuccess and UpgradeSuccess metadata)",
+        "[DONE] Add card info to ClickHouse BillingInfo field",
+        "[NOTE] Tests verify no compilation errors; card data is logged to ClickHouse for querying"
+      ],
+      "completed_notes": "Implemented metadata-only approach. Card information (CardType, Last4, ExpDate, Bin, AVSResponse, CVV2Response, ThreeDSecure) is now captured in ClickHouse PaymentEventData.Metadata and BillingInfo fields for handleNewSaleSuccess, handleUpgradeSuccess, and handleRenewalSuccess. This provides an audit trail for fraud monitoring and dispute resolution. RenewalSuccess has fewer card fields available from CCBill (no Bin, AVS, CVV2, 3DS)."
+    },
+    {
+      "name": "ccbill-capture-billing-address",
+      "category": "medium",
+      "description": "CCBill webhook handlers ignore billing address information that could be useful",
+      "steps": [
+        "[DONE] Add billing address to ClickHouse PaymentEventData.Metadata in handleNewSaleSuccess",
+        "[DONE] Add billing address to handleUpgradeSuccess metadata",
+        "[DONE] IPAddress captured in metadata for fraud monitoring",
+        "[DONE] Add FirstName, LastName, Country to BillingInfo for quick lookup",
+        "[NOTE] RenewalSuccess doesn't have billing address in CCBill webhook format"
+      ],
+      "completed_notes": "Billing address fields (FirstName, LastName, Address1, City, State, Country, PostalCode, PhoneNumber, IPAddress) now captured in ClickHouse PaymentEventData.Metadata for handleNewSaleSuccess and handleUpgradeSuccess. BillingInfo also includes first_name, last_name, country for summary lookup. CCBill RenewalSuccess events don't include billing address so those are not captured."
+    },
+    {
+      "name": "webhook-use-processor-timestamps",
+      "category": "medium",
+      "description": "Webhook handlers use server time instead of processor timestamp for PurchasedAt",
+      "steps": [
+        "[DONE] Create helper function parseWebhookTimestamp(timestamp string) (time.Time, bool) - tries RFC3339, RFC3339Nano, and common variants",
+        "[DONE] Update CCBill handleNewSaleSuccess to use data.Timestamp for Payment.PurchasedAt",
+        "[DONE] Update CCBill handleRenewalSuccess to use data.Timestamp for Payment.PurchasedAt",
+        "[DONE] Fall back to s.now() only if timestamp parsing fails (with warning log)",
+        "[FUTURE] Update NMI handlers similarly (not done in this pass)",
+        "[NOTE] handleUpgradeSuccess doesn't create Payment records directly - handled elsewhere"
+      ],
+      "completed_notes": "Added parseWebhookTimestamp() helper function that tries multiple timestamp formats (RFC3339, RFC3339Nano, common variants). Updated handleNewSaleSuccess and handleRenewalSuccess to use webhook timestamp for Payment.PurchasedAt, falling back to server time if parsing fails. NMI handlers not updated in this pass but could be done separately."
+    },
+    {
+      "name": "ccbill-capture-transaction-metadata",
+      "category": "low",
+      "description": "CCBill webhook handlers ignore useful transaction metadata fields",
+      "steps": [
+        "[DONE] handleNewSaleSuccess: Added card_sub_type, affiliate_system, lifetime_subscription",
+        "[DONE] handleUpgradeSuccess: Added card_sub_type, affiliate_system, lifetime_subscription, sca_response_status",
+        "[NOTE] Low priority fields like ReservationID, ReferringURL, AccountingAmount not added - can be added if needed",
+        "[NOTE] AffiliateSystem captured in metadata; adding to Payment model would require migration"
+      ],
+      "completed_notes": "Added key business intelligence fields: card_sub_type (debit vs credit), affiliate_system (for tracking referrals), lifetime_subscription (for LTV calculations), sca_response_status (3D Secure compliance). Lower priority fields can be added later if needed."
+    },
+    {
+      "name": "ccbill-chargeback-missing-fields",
+      "category": "medium",
+      "description": "CCBill chargeback handler hardcodes 'unknown' for dispute_id and reason_code - CLARIFIED: CCBill doesn't provide these fields",
+      "steps": [
+        "[DONE] Checked CCBillChargebackEvent struct - no dispute_id or reason_code available",
+        "[DONE] Removed hardcoded 'unknown' values from metadata (they were adding noise)",
+        "[DONE] Added code comment explaining CCBill doesn't provide structured chargeback codes",
+        "[DONE] Added card info to chargeback metadata for fraud analysis (card_type, card_last4, card_exp_date, card_bin)",
+        "[NOTE] CCBill only provides free-text 'Reason' field, already captured as 'chargeback_reason'"
+      ],
+      "completed_notes": "Investigated CCBillChargebackEvent struct - it only has 'Reason' (free-text), not dispute_id or structured reason_code. Removed misleading 'unknown' values, added explanatory comments, and added card info (CardType, Last4, ExpDate, Bin) to chargeback metadata for fraud analysis."
+    },
+    {
+      "name": "simplify-webhook-processing",
+      "category": "refactor",
+      "description": "Remove async webhook retry mechanism - process webhooks synchronously only",
+      "context": {
+        "problem": "Async retry adds complexity without clear benefit. If webhook fails, CCBill/NMI will retry from their end.",
+        "solution": "Process webhooks synchronously, store to DB for audit logging, rely on payment processors to retry"
+      },
+      "files_modified": [
+        "internal/river/jobs_webhooks.go - removed WebhookProcessWorker and WebhookRetryWorker",
+        "internal/app/river_register.go - removed webhook worker registration and periodic job",
+        "internal/services/webhook_event_service.go - simplified to audit logging only (removed retry logic)",
+        "internal/services/webhook_processor.go - simplified to use Get() instead of BeginProcessing()",
+        "config/config.go - deprecated WebhookRetryConfig (kept for backwards compatibility)",
+        "tests/river_worker_test.go - removed webhook retry job tests"
+      ],
+      "steps": [
+        "[DONE] Remove WebhookRetryWorker from River jobs",
+        "[DONE] Remove WebhookProcessWorker from River jobs",
+        "[DONE] Remove webhook worker registration from river_register.go",
+        "[DONE] Remove webhook retry periodic job from buildRiverPeriodicJobs()",
+        "[DONE] Keep WebhookEventService for audit logging (simplified - removed retry methods)",
+        "[DONE] Remove ListRetryable(), BeginProcessing(), nextBackoff() methods",
+        "[DONE] Rename MarkFailure() to MarkFailed() (simpler signature)",
+        "[DONE] Deprecate WebhookRetryConfig in config.go",
+        "[DONE] Update tests to remove retry-related test cases"
+      ],
+      "completed_notes": "Webhook processing is now synchronous-only. Webhooks are stored to DB for audit logging, processed immediately, and marked as processed/failed. No background retry workers. Payment processors (CCBill, NMI) will retry failed webhooks from their end."
+    },
+    {
+      "name": "normalize-currency-lowercase",
+      "category": "refactor",
+      "description": "Normalize all currency values to lowercase to match Stripe's API pattern",
+      "steps": [
+        "[DONE] Change default currency from 'USD' to 'usd' throughout codebase",
+        "[DONE] Update seed data and test data to use lowercase currencies (EUR -> eur, JPY -> jpy)",
+        "[DONE] CCBill webhook handlers use normalizeCurrency() to lowercase incoming currency",
+        "[DONE] NMI webhook handlers use strings.ToLower() to normalize incoming currency",
+        "[DONE] API responses always return lowercase currency",
+        "[N/A] Migration seed data - no seed data in migrations",
+        "[DONE] Updated docs/api/endpoints.md to show lowercase currencies"
+      ],
+      "completed_notes": "All currency values are now normalized to lowercase throughout the codebase. Webhook handlers (CCBill and NMI) normalize incoming uppercase currencies from payment processors to lowercase before storing. Seed data in tests/seed_data.go uses lowercase. API documentation updated to reflect lowercase currency codes. NMI integration tests send uppercase 'USD' to NMI API (which is correct - NMI expects uppercase), but our internal storage uses lowercase."
+    },
+    {
+      "name": "standardize-pagination-format",
+      "category": "refactor",
+      "description": "Standardize all list endpoints to use Stripe-like pagination: object/data/total/limit/offset/has_more",
+      "target_format": {
+        "example": {
+          "object": "list",
+          "data": ["...items..."],
+          "total": 100,
+          "limit": 50,
+          "offset": 0,
+          "has_more": true
+        }
+      },
+      "endpoints_updated": [
+        "GET /v1/products - uses api.NewListResponse",
+        "GET /v1/prices - uses api.NewListResponse",
+        "GET /v1/me/subscriptions - uses SuccessJSONPaginated",
+        "GET /v1/me/payments - uses SuccessJSONPaginated",
+        "GET /v1/me/notifications - uses SuccessJSONPaginated",
+        "GET /v1/me/payment-methods - uses api.NewListResponse",
+        "GET /v1/admin/payments - uses SuccessJSONPaginated",
+        "GET /v1/admin/subscriptions - uses SuccessJSONPaginated",
+        "GET /v1/me/subscriptions/history - uses SuccessJSONPaginated"
+      ],
+      "completed_notes": "All list endpoints now use Stripe-like pagination format with object:'list', data, total, limit, offset, has_more. Two helper methods exist: api.NewListResponse (generic typed) and SuccessJSONPaginated (for dynamic data)."
+    },
+    {
+      "name": "prorated-upgrades-downgrades",
+      "category": "design",
+      "description": "Implement prorated upgrades and scheduled downgrades for subscription tier changes",
+      "features_implemented": [
+        "Tier group detection via Product.TierGroup and Product.TierRank",
+        "Upgrade detection: user on lower tier trying to purchase higher tier",
+        "Downgrade detection: user on higher tier trying to purchase lower tier",
+        "Proration calculation: (priceDiff) * (daysRemaining / cycleDays)",
+        "Immediate upgrades with prorated charge",
+        "Scheduled downgrades via Subscription.ScheduledPriceID - applied at renewal",
+        "Entitlement granting on upgrade (new entitlements from higher tier)",
+        "Entitlement revocation on downgrade (remove entitlements not in lower tier)"
+      ],
+      "files_modified": [
+        "internal/services/lifecycle_service.go - RenewMembership() now applies scheduled downgrades",
+        "internal/services/webhook_ccbill.go - updateEntitlementsForUpgrade() now uses RevokeBySubscriptionAndName",
+        "internal/db/models/subscription.go - ActivateWithPrice() now updates ProductID",
+        "internal/db/models/entitlement.go - Added EntitlementRevokeDowngrade, EntitlementRevokeChargeback constants",
+        "internal/services/entitlement_service.go - Added RevokeBySubscriptionAndName()",
+        "internal/db/repo/entitlement.go - Added RevokeBySubscriptionAndName()"
+      ],
+      "tests_added": [
+        "tests/tier_upgrade_downgrade_test.go - TestTierGroupDetection",
+        "tests/tier_upgrade_downgrade_test.go - TestProrationCalculation",
+        "tests/tier_upgrade_downgrade_test.go - TestScheduledDowngrade",
+        "tests/tier_upgrade_downgrade_test.go - TestEntitlementChangesOnTierChange"
+      ],
+      "completed_notes": "Full upgrade/downgrade system is implemented. Upgrades are immediate with proration charge. Downgrades are scheduled and applied at next renewal via RenewMembership(). Entitlements are correctly granted/revoked based on product tier differences. Fixed bug where ActivateWithPrice() wasn't updating ProductID, and fixed bug where updateEntitlementsForUpgrade() was revoking ALL entitlements instead of just specific ones."
+    },
+    {
+      "name": "merge-manage-subscription-service",
+      "category": "refactor",
+      "description": "Merge ManageSubscriptionService into AdminSubscriptionService - it's redundant technical debt",
+      "files_modified": [
+        "internal/services/admin_subscription_service.go - Added UpdateStatusParams struct and UpdateStatus method",
+        "internal/services/admin_subscription_service.go - Added ExtendSubscriptionByDuration method",
+        "internal/handlers/manage.go - Updated to use AdminSubscriptionService instead of ManageSubscriptionService",
+        "internal/services/lifecycle_service.go - Removed unused variables from FailMembership"
+      ],
+      "files_deleted": [
+        "internal/services/manage_subscription.go"
+      ],
+      "changes": [
+        "Added UpdateStatusParams struct with SubscriptionID, Status, CancelFeedback, CancelType fields",
+        "Added UpdateStatus() method to AdminSubscriptionService that handles status changes with validation",
+        "Added ExtendSubscriptionByDuration() method that ExtendSubscription() now calls internally",
+        "Updated manage.go handlers to use r.State.AdminSubscriptionService instead of creating ManageSubscriptionService",
+        "ManageSubscriptionService was never stored in runtime - handlers created it on-the-fly, now removed entirely"
+      ],
+      "completed_notes": "Consolidated ManageSubscriptionService into AdminSubscriptionService. The manage.go handlers now use AdminSubscriptionService directly. This eliminates redundant code and simplifies the service layer. Also fixed pre-existing unused variable warnings in lifecycle_service.go that were blocking the build."
+    },
+    {
+      "name": "update-subscription-payment-method",
+      "category": "feature",
+      "description": "Allow users to change which stored payment method their NMI subscription uses",
+      "files_created": [
+        "internal/handlers/update_subscription_payment_method.go",
+        "tests/update_subscription_payment_method_test.go"
+      ],
+      "files_modified": [
+        "internal/integrations/nmi/nmi.go - Added UpdateSubscriptionPaymentSource(subscriptionID, customerVaultID)",
+        "internal/handlers/requests.go - Added UpdateSubscriptionPaymentMethodBodyParams and request type",
+        "internal/server/routes_public.go - Added PUT /v1/me/subscriptions/payment-method route",
+        "tests/subscribe_endpoint_test.go - Added update_subscription handling to MockNMIServer",
+        "tests/seed_data.go - Added GetSubscriptionByID() and SetPaymentMethodInactive() helpers"
+      ],
+      "endpoint": "PUT /v1/me/subscriptions/payment-method",
+      "request_format": {
+        "subscription_id": "uuid",
+        "payment_method_id": "uuid"
+      },
+      "validations": [
+        "User must own the subscription (from JWT)",
+        "User must own the target payment method",
+        "Payment method must be active",
+        "Payment method must be NMI-backed",
+        "Subscription must be NMI-backed (not CCBill/Solana)",
+        "Subscription must be active or past_due (not cancelled)"
+      ],
+      "nmi_api_call": "recurring=update_subscription, subscription_id=X, customer_vault_id=Y",
+      "tests_added": [
+        "TestUpdateSubscriptionPaymentMethodRequiresAuth",
+        "TestUpdateSubscriptionPaymentMethodSuccess",
+        "TestUpdateSubscriptionPaymentMethodNotOwned",
+        "TestUpdateSubscriptionPaymentMethodNotOwnedPM",
+        "TestUpdateSubscriptionPaymentMethodInactive",
+        "TestUpdateSubscriptionPaymentMethodCancelledSub",
+        "TestUpdateSubscriptionPaymentMethodCCBillNotSupported",
+        "TestUpdateSubscriptionPaymentMethodNotFound",
+        "TestUpdateSubscriptionPaymentMethodInvalidRequest",
+        "TestUpdateSubscriptionPaymentMethodPastDue",
+        "TestUpdateSubscriptionPaymentMethodNMIFailure"
+      ],
+      "completed_notes": "Implemented PUT /v1/me/subscriptions/payment-method endpoint allowing users to swap the payment method (customer vault) used for their NMI subscription. Particularly useful for users with past_due subscriptions who need to update their card after a failed payment. Handler validates all ownership and state requirements, calls NMI API to update the subscription's customer_vault_id, then updates local DB. Comprehensive test coverage for all validation scenarios and error cases."
     }
   ]
 }

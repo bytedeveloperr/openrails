@@ -3,12 +3,15 @@ package handlers
 import (
 	"net/http"
 	"time"
+
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 )
 
 type BillingStatusResponse struct {
-	Subscription  any        `json:"subscription,omitempty"`
-	NextRenewalAt *time.Time `json:"next_renewal_at,omitempty"`
-	Entitlements  any        `json:"entitlements,omitempty"`
+	HasActiveSubscription bool       `json:"has_active_subscription"`
+	Subscription          any        `json:"subscription,omitempty"`
+	NextRenewalAt         *time.Time `json:"next_renewal_at,omitempty"`
+	Entitlements          any        `json:"entitlements,omitempty"`
 }
 
 func GetMyBillingStatus(r *Request) {
@@ -21,12 +24,17 @@ func GetMyBillingStatus(r *Request) {
 	// Subscription details
 	var sub any
 	var next *time.Time
+	var hasActive bool
 	if r.State.UserSubscriptionService != nil {
 		resp, err := r.State.UserSubscriptionService.GetUserSubscription(r.Request.Context(), user.ID)
 		if err == nil && resp != nil {
 			sub = resp
-			if resp.Subscription != nil && resp.Subscription.CurrentPeriodEndsAt != nil {
-				next = resp.Subscription.CurrentPeriodEndsAt
+			if resp.Subscription != nil {
+				// Check if subscription is active
+				hasActive = resp.Subscription.Status == models.StatusActive
+				if resp.Subscription.CurrentPeriodEndsAt != nil {
+					next = resp.Subscription.CurrentPeriodEndsAt
+				}
 			}
 		}
 	}
@@ -43,8 +51,9 @@ func GetMyBillingStatus(r *Request) {
 	}
 
 	r.SuccessJSON(BillingStatusResponse{
-		Subscription:  sub,
-		NextRenewalAt: next,
-		Entitlements:  ents,
+		HasActiveSubscription: hasActive,
+		Subscription:          sub,
+		NextRenewalAt:         next,
+		Entitlements:          ents,
 	})
 }

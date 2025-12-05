@@ -1,17 +1,33 @@
 {
   "issues": [
     {
-      "name": "normalize-currency-lowercase",
-      "category": "refactor",
-      "description": "Normalize all currency values to lowercase to match Stripe's API pattern",
-      "steps": [
-        "Change default currency from 'USD' to 'usd' throughout codebase",
-        "Update seed data and test data to use lowercase currencies",
-        "Update webhook handlers to normalize incoming currency to lowercase",
-        "Update any currency comparisons to be case-insensitive or expect lowercase",
-        "Ensure API responses always return lowercase currency",
-        "Update migration seed data if applicable",
-        "Run tests to verify no regressions"
+      "name": "post-charge-crash-safety",
+      "category": "critical",
+      "description": "Ensure process never crashes after charging a card - user must always get success response",
+      "context": {
+        "scenario": "User checkout → NMI.RunSale() succeeds (card charged) → subsequent step fails/panics → user sees error",
+        "problem": "If we charge a card and then crash before returning success, the user sees an error but their card was charged. This is catastrophic UX and could cause support issues, chargebacks, or lost trust.",
+        "critical_window": "Between NMI.RunSale() returning success and HTTP 200 being sent to user"
+      },
+      "requirements": [
+        "After a successful charge, ALL subsequent operations must be wrapped in recover() or equivalent",
+        "If RegisterPurchase() fails after charge, log the error but still return success to user",
+        "Payment record MUST be created even if entitlement granting fails",
+        "Consider: persist payment record BEFORE granting entitlements (two-phase)",
+        "Consider: background job to reconcile failed entitlement grants",
+        "Never let a panic propagate after card is charged"
+      ],
+      "affected_code": [
+        "internal/services/checkout_service.go - processNMISale()",
+        "internal/services/checkout_service.go - RegisterPurchase()",
+        "Any code path that charges a card synchronously"
+      ],
+      "audit_steps": [
+        "Review processNMISale() for panic safety after RunSale()",
+        "Ensure Payment record is created before entitlements",
+        "Add defer/recover around post-charge operations",
+        "Test: what happens if DB connection drops right after charge?",
+        "Test: what happens if entitlement service panics?"
       ],
       "passes": false
     },
@@ -42,22 +58,26 @@
       "category": "feature",
       "description": "Allow users to change which stored payment method their NMI subscription uses",
       "steps": [
-        "NMI Client:",
-        "  - Add UpdateSubscriptionPaymentSource(subscriptionID, newVaultID string) to internal/integrations/nmi/nmi.go",
-        "  - NMI API: recurring=update_subscription, subscription_id=X, customer_vault_id=Y",
-        "Handler:",
-        "  - Add PUT /v1/me/subscriptions/payment-method endpoint",
-        "  - Request: { payment_method_id: 'uuid' }",
-        "  - Validate user owns the subscription (from JWT)",
-        "  - Validate user owns the target payment method",
-        "  - Validate payment method is active and NMI-backed",
-        "  - Validate subscription is NMI-backed (not CCBill/Solana)",
-        "  - Call NMI to update subscription's customer_vault_id",
-        "  - Update local Subscription.PaymentMethodID in database",
-        "  - Return updated subscription",
-        "Write tests for payment method swap flow"
+        "[DONE] NMI Client:",
+        "[DONE]   - Added UpdateSubscriptionPaymentSource(subscriptionID, customerVaultID string) to internal/integrations/nmi/nmi.go",
+        "[DONE]   - NMI API: recurring=update_subscription, subscription_id=X, customer_vault_id=Y",
+        "[DONE] Handler:",
+        "[DONE]   - Added PUT /v1/me/subscriptions/payment-method endpoint",
+        "[DONE]   - Request: { subscription_id: 'uuid', payment_method_id: 'uuid' }",
+        "[DONE]   - Validates user owns the subscription (from JWT)",
+        "[DONE]   - Validates user owns the target payment method",
+        "[DONE]   - Validates payment method is active and NMI-backed",
+        "[DONE]   - Validates subscription is NMI-backed (not CCBill/Solana)",
+        "[DONE]   - Validates subscription is active or past_due (not cancelled)",
+        "[DONE]   - Calls NMI to update subscription's customer_vault_id",
+        "[DONE]   - Updates local Subscription.PaymentMethodID in database",
+        "[DONE]   - Returns success response with subscription and payment method IDs",
+        "[DONE] Tests written for payment method swap flow (tests/update_subscription_payment_method_test.go)",
+        "[DONE]   - Auth required, success case, ownership validation, inactive PM rejected",
+        "[DONE]   - Cancelled subscription rejected, CCBill not supported, not found cases, NMI failure handling"
       ],
-      "passes": false
+      "passes": true,
+      "completed_notes": "Implemented PUT /v1/me/subscriptions/payment-method endpoint allowing users to update which stored NMI payment method (customer vault) their subscription uses. Handler validates ownership of both subscription and payment method, checks that both are NMI-backed and active, calls NMI API to update, and updates local DB. Also allows updating past_due subscriptions which is useful for fixing failed payment methods. Tests cover all validation scenarios."
     },
     {
       "name": "unified-checkout-one-time-purchases",
@@ -284,405 +304,67 @@
       "passes": false
     },
     {
-      "name": "simplify-solana-pay-architecture",
-      "category": "refactor",
-      "description": "Simplify Solana Pay to use Redis for pending state, server-side polling, and eliminate the SolanaPaymentIntent model",
-      "spec": {
-        "overview": "Replace the complex SolanaPaymentIntent state machine with a simpler architecture: Redis for ephemeral pending payments, a background goroutine that polls Solana every 500ms for confirmations, and Postgres only for confirmed payments.",
-        "current_problems": [
-          "SolanaPaymentIntent table mirrors blockchain state unnecessarily",
-          "Complex state machine (pending → processing → confirmed/failed/expired)",
-          "Multiple endpoints for what should be simple operations",
-          "Frontend polling triggers blockchain checks (fragile if frontend disconnects)"
-        ],
-        "endpoints": {
-          "POST /v1/solana/pay": {
-            "request": "{ price_id, token }",
-            "response": "{ url, reference, amount, token_amount, token, expires_at }",
-            "behavior": [
-              "Generate random 32-byte reference (base58 encoded)",
-              "Calculate token amount from price using current quote",
-              "Build solana: Transfer Request URL with reference",
-              "Store in Redis HASH: solana_pay:{ref} → { user_id, price_id, amount, token, recipient, created_at } with 15min TTL",
-              "Add reference to Redis SET 'pending_solana_payments'",
-              "Return URL for frontend to display as QR"
-            ]
-          },
-          "GET /v1/solana/pay/status": {
-            "request": "?reference=REF123",
-            "response": "{ status: 'pending' | 'confirmed' | 'expired', payment_id?, signature? }",
-            "behavior": [
-              "Check Postgres for Payment with this reference - if found, return confirmed + payment_id + signature",
-              "Check Redis for solana_pay:{ref} - if not found, return expired",
-              "Otherwise return pending (poller handles actual blockchain checking)"
-            ]
+      "name": "admin-grants-and-offline-purchases",
+      "category": "feature",
+      "description": "Admin grants products to users (comps, contest winners, manual payments) via dedicated AdminGrant table",
+      "design": {
+        "concept": "Admin grants work like user purchases - admin picks a Price/Product, system derives entitlements from Product.EntitlementsSpec",
+        "data_model": {
+          "AdminGrant": {
+            "id": "uuid",
+            "user_id": "string - user receiving the grant",
+            "price_id": "uuid - product/price being granted",
+            "granted_by": "string - admin user ID who made the grant",
+            "reason": "string - 'comp', 'contest_winner', 'refund_compensation', 'partnership', 'manual_payment', etc.",
+            "payment_id": "uuid nullable - only if money was received (links to Payment record)",
+            "duration_days": "int nullable - override entitlement duration (null = use Product.EntitlementsSpec)",
+            "created_at": "timestamp"
           }
         },
-        "poller": {
-          "name": "SolanaPaymentPoller",
-          "type": "Goroutine with 500ms ticker (NOT a River job)",
-          "why_not_river": "River jobs have overhead, 500ms polling needs a lightweight goroutine",
-          "startup": "go StartSolanaPoller(ctx, state) in main.go alongside HTTP server",
-          "behavior": [
-            "Ticker fires every 500ms",
-            "SMEMBERS pending_solana_payments → get all pending references",
-            "If empty, continue (SMEMBERS on empty set is ~0.1ms, negligible)",
-            "Batch RPC: send single HTTP request with N getSignaturesForAddress queries",
-            "For each reference with signature found:",
-            "  - Fetch full transaction via getTransaction RPC",
-            "  - Verify amount, recipient, and token match expected values from Redis HASH",
-            "  - Create Payment record in Postgres (idempotent on signature)",
-            "  - Grant entitlements to user",
-            "  - SREM from pending_solana_payments SET",
-            "  - DEL solana_pay:{ref} HASH",
-            "For each reference with no signature:",
-            "  - Check if expired (created_at > 15min ago or HASH missing)",
-            "  - If expired, SREM from SET and continue",
-            "  - Otherwise, still pending, do nothing"
+        "flows": {
+          "free_comp": [
+            "1. Create AdminGrant record",
+            "2. Grant entitlements from Product.EntitlementsSpec (with optional duration override)",
+            "3. Entitlements have source_type='admin', source_id=admin_grant.ID"
           ],
-          "latency": "~500-900ms from user signing tx to confirmed in our system (400ms slot time + 0-500ms poll interval)"
-        },
-        "redis_structure": {
-          "pending_solana_payments": "SET of reference strings currently being polled",
-          "solana_pay:{reference}": "HASH { user_id, price_id, amount, token, recipient, created_at } with 15min TTL"
-        },
-        "frontend_polling": {
-          "description": "Frontend polls GET /v1/solana/pay/status every 500ms for low-latency UX",
-          "flow": [
-            "POST /v1/solana/pay → get { url, reference }",
-            "Display QR code with url",
-            "Poll GET /v1/solana/pay/status?reference=REF every 500ms",
-            "When status=confirmed → redirect to success page",
-            "When status=expired → show expiration message"
-          ],
-          "latency_analysis": "Backend polls Solana every 500ms, frontend polls backend every 500ms. Worst case: user signs → 500ms until backend sees it → 500ms until frontend sees it = ~1 second total. Best case: ~0ms if polls align perfectly."
-        },
-        "what_to_remove": [
-          "solana_payment_intents table and migration",
-          "SolanaPaymentIntent model",
-          "SolanaPaymentIntentService",
-          "SolanaPaymentIntentRepo",
-          "Intent state machine (pending/processing/confirmed/failed/expired)",
-          "POST /v1/payment-intents/* endpoints",
-          "GET /v1/payment-intents/:id endpoint"
-        ],
-        "what_to_keep": [
-          "Payment model and table (confirmed payments only)",
-          "SolanaTransaction model (audit trail of on-chain txs)",
-          "Entitlement granting logic",
-          "Token quote calculation (price → token amount)",
-          "Transaction verification logic (amount, recipient, token checks)"
-        ],
-        "benefits": [
-          "Simpler mental model: Redis for pending, Postgres for confirmed",
-          "No state machine to maintain",
-          "Server-side polling ensures payments processed even if frontend disconnects",
-          "Snappy UX: 500ms polling catches payments almost instantly",
-          "Efficient: batch RPC means 1 HTTP request regardless of pending count",
-          "Fewer database writes (only on confirmation)",
-          "Easier to reason about and debug"
-        ]
-      },
-      "passes": true,
-      "completed_notes": "Implemented simplified Solana Pay architecture with Redis for pending payments, 500ms server-side polling, and Postgres only for confirmed payments. Created POST /v1/solana/pay, GET /v1/solana/pay/status endpoints, SolanaPayService for Redis storage, and SolanaPayPoller goroutine. Remaining cleanup (removing old SolanaPaymentIntent code) can be done separately."
-    },
-    {
-      "name": "admin-grants-and-offline-purchases",
-      "category": "design",
-      "description": "Design and implement admin-granted entitlements and offline/manual payments (cash, comps, partnerships)",
-      "questions_to_answer": [
-        "What's the difference between an admin-granted entitlement and a one-off purchase?",
-        "Should admin grants create a Payment record or just an Entitlement?",
-        "How do we track the 'source' of an entitlement (subscription, one-off payment, admin grant, partnership)?",
-        "Should there be a 'reason' field for admin grants (comp, refund compensation, partnership, contest winner)?",
-        "How do offline payments (cash, check, wire) get recorded?",
-        "Do offline payments need a 'processor' value? (e.g., 'manual', 'cash', 'wire')",
-        "How does the CLI orphan-entitlements checker know an admin grant is intentional vs orphaned?"
-      ],
-      "key_insight": {
-        "problem": "Current admin grant endpoint grants raw entitlement names - admin must know internal entitlement strings",
-        "solution": "Admin should grant PRODUCTS (or prices), and the system derives entitlements from Product.EntitlementsSpec",
-        "benefits": [
-          "Admin doesn't need to know entitlement internals",
-          "If product's entitlements change, grants automatically use new spec",
-          "Consistent with how subscriptions and payments work",
-          "Audit trail shows 'granted Premium product' not 'granted premium_access entitlement'"
-        ],
-        "current_flow": "POST /v1/admin/users/:id/entitlements { entitlement: 'premium_access', days: 30 }",
-        "proposed_flow": "POST /v1/admin/users/:id/grants { product_id: 'prod_xxx', days: 30, reason: 'comp' }"
-      },
-      "current_state": {
-        "admin_grant_entitlement": "POST /v1/admin/users/:user_id/entitlements grants entitlement with optional duration_days",
-        "entitlement_source_type": "Entitlement has SourceType field: 'subscription', 'one_off', 'admin'",
-        "no_payment_for_admin": "Admin grants create Entitlement only, no Payment record",
-        "no_offline_payment_flow": "No way to record a cash/manual payment that grants entitlements"
-      },
-      "proposed_design": {
-        "entitlement_sources": [
-          "subscription - linked to active subscription, revoked when subscription ends",
-          "payment - linked to one-off Payment record (online or offline)",
-          "admin - manually granted, optional reason, no payment linkage",
-          "partnership - external deal, tracked separately"
-        ],
-        "offline_payment_endpoint": {
-          "endpoint": "POST /v1/admin/payments/manual",
-          "request": "{ user_id, price_id, amount, currency, payment_method: 'cash'|'wire'|'check'|'comp', notes }",
-          "behavior": [
-            "Create Payment record with processor='manual', no external transaction_id",
-            "Grant entitlements from the Price's Product.EntitlementsSpec",
-            "Return payment_id for audit trail"
+          "manual_payment": [
+            "1. Create Payment record with processor='admin', transaction_id (optional external ref)",
+            "2. Create AdminGrant record with payment_id pointing to Payment",
+            "3. Grant entitlements from Product.EntitlementsSpec",
+            "4. Entitlements have source_type='admin', source_id=admin_grant.ID"
           ]
         },
-        "admin_grant_vs_manual_payment": {
-          "admin_grant": "Quick entitlement grant without payment trail - for comps, bug compensation, testing",
-          "manual_payment": "Full payment record for offline money received - for cash, wire, partnerships with money"
+        "duration_logic": {
+          "null_or_omitted": "Use Product.EntitlementsSpec default duration",
+          "zero": "Indefinite (never expires)",
+          "positive_int": "Grant for N days"
+        }
+      },
+      "endpoint": {
+        "path": "POST /v1/admin/users/:user_id/grants",
+        "request": {
+          "price_id": "required - determines product & entitlements",
+          "reason": "required - arbitrary string explaining the grant",
+          "duration_days": "optional - override entitlement duration (null=use spec, 0=indefinite)",
+          "amount": "optional - if > 0, creates Payment record too",
+          "currency": "optional - defaults to price.Currency",
+          "transaction_id": "optional - external reference (PayPal ID, cash receipt, etc.)"
+        },
+        "response": {
+          "admin_grant_id": "uuid",
+          "payment_id": "uuid nullable",
+          "entitlements_granted": ["list of entitlement names"]
         }
       },
       "steps": [
-        "Decide: should admin grants require a reason/category?",
-        "Add 'manual' as valid processor for offline payments",
-        "Create POST /v1/admin/payments/manual endpoint",
-        "Update Payment model to allow nil transaction_id for manual payments",
-        "Ensure entitlement SourceType correctly distinguishes subscription vs payment vs admin",
-        "Update CLI orphan checker to handle admin/manual sources correctly",
-        "Write tests for manual payment flow",
-        "Document when to use admin grant vs manual payment"
-      ],
-      "passes": false
-    },
-    {
-      "name": "prorated-upgrades-downgrades",
-      "category": "design",
-      "description": "Design proration logic for subscription upgrades and downgrades between products/tiers",
-      "tier_group_design": {
-        "overview": "Add tier_group (string) and tier_rank (int) to Product model to define upgrade/downgrade relationships without needing a separate table",
-        "schema": {
-          "tier_group": "Nullable string grouping mutually-exclusive products (e.g., 'premium', 'pro'). Products in same group cannot be owned simultaneously - must upgrade/downgrade.",
-          "tier_rank": "Integer (default 0). Higher = more premium. Used to determine upgrade vs downgrade direction."
-        },
-        "example_products": [
-          { "name": "Premium Monthly", "tier_group": "premium", "tier_rank": 1, "entitlements": { "premium": 30 } },
-          { "name": "Premium+ Monthly", "tier_group": "premium", "tier_rank": 2, "entitlements": { "premium": 30, "extra": 30 } },
-          { "name": "Premium Ultimate", "tier_group": "premium", "tier_rank": 3, "entitlements": { "premium": 30, "extra": 30, "vip": 30 } },
-          { "name": "Addon Pack", "tier_group": null, "tier_rank": 0, "entitlements": { "addon_feature": 30 }, "note": "Standalone - can be owned alongside any premium tier" }
-        ],
-        "checkout_logic": [
-          "If product.TierGroup is set, check for existing active subscription in same tier group",
-          "If found and existingProduct.TierRank < newProduct.TierRank → route to processUpgrade()",
-          "If found and existingProduct.TierRank > newProduct.TierRank → route to processDowngrade()",
-          "If found and same rank → block as duplicate",
-          "If no tier group or no existing sub in group → normal checkout flow"
-        ],
-        "benefits": [
-          "No new table needed - just two columns on products",
-          "Semantic tier_group names are human-readable ('premium' vs UUID)",
-          "Flexible: standalone products (null tier_group) work independently",
-          "Clear upgrade/downgrade direction via tier_rank comparison"
-        ]
-      },
-      "scenarios": {
-        "upgrade": {
-          "example": "User on Premium ($10/mo, 15 days left) upgrades to Premium+ ($20/mo)",
-          "recommended_behavior": [
-            "Charge prorated difference immediately: ($20-$10) * (15/30) = $5",
-            "Grant Premium+ entitlements immediately",
-            "Keep same billing anchor date (next charge in 15 days at $20)",
-            "Cancel old NMI subscription, create new one (or update existing)"
-          ]
-        },
-        "downgrade": {
-          "example": "User on Premium+ ($20/mo, 15 days left) downgrades to Premium ($10/mo)",
-          "recommended_behavior": [
-            "Schedule downgrade for end of current period",
-            "Keep Premium+ entitlements until period ends",
-            "Set subscription.scheduled_price_id = new price",
-            "At renewal, switch to new price and grant new tier entitlements",
-            "No immediate refund (user paid for this period)"
-          ]
-        },
-        "mid_cycle_cancel_resubscribe": {
-          "example": "User cancels Premium, then resubscribes 10 days later to Premium+",
-          "behavior": "Treat as fresh subscription if previous is cancelled. No tier group check since cancelled sub is not 'active'."
-        }
-      },
-      "processor_considerations": {
-        "ccbill": {
-          "behavior": "CCBill handles upgrades via Package Upgrade flow",
-          "proration": "CCBill handles proration internally",
-          "our_role": "Receive webhook and update entitlements/subscription record accordingly",
-          "limitation": "Cannot schedule future start dates - upgrades are immediate only"
-        },
-        "nmi": {
-          "behavior": "NMI is just a gateway - we control subscription logic",
-          "proration": "We calculate and charge proration ourselves",
-          "approach": [
-            "For upgrades: Cancel old subscription, charge prorated difference via RunSale(), create new subscription",
-            "For downgrades: Store scheduled_price_id, on renewal webhook switch to new price"
-          ]
-        },
-        "solana": {
-          "behavior": "One-time payments, no recurring subscriptions",
-          "upgrade_path": "User buys higher tier product, gets delayed-start entitlement (existing dedup logic handles this)"
-        }
-      },
-      "implementation_steps": [
-        "[DONE] Add tier_group (string, nullable) and tier_rank (int, default 0) to Product model",
-        "[DONE] Create migration 007_add_product_tier_columns",
-        "[DONE] Add GetActiveSubscriptionByTierGroup(userID, tierGroup string) to repo/service",
-        "[DONE] Update checkout logic to detect upgrade/downgrade scenarios",
-        "[DONE] Implement processUpgrade() - immediate switch with proration charge",
-        "[DONE] Implement processDowngrade() - schedule for end of period",
-        "[DONE] Add scheduled_price_id column to Subscription for pending downgrades (migration 008)",
-        "[TODO] Update renewal webhook handler to apply scheduled downgrades",
-        "[DONE] Implement proration calculation: (priceDiff) * (daysRemaining / cycleDays)",
-        "[TODO] Handle CCBill upgrade webhooks",
-        "[DONE] Simplify CCBill checkout: POST /v1/me/checkout with processor=ccbill now returns FlexForm URL directly in redirect_url",
-        "[DONE] Simplify CCBill upgrades: checkout endpoint detects tier upgrades and returns upgrade FlexForm URL directly",
-        "[REMOVED] Deleted legacy endpoints /v1/subscriptions/ccbill/flexform-url and /ccbill/upgrade-url (use checkout instead)",
-        "[TODO] Write tests for tier group detection",
-        "[TODO] Write tests for proration calculations",
-        "[TODO] Write tests for upgrade/downgrade flows"
-      ],
-      "passes": false
-    },
-    {
-      "name": "remove-ccbill-alias-service",
-      "category": "refactor",
-      "description": "Completely removed CCBillAliasService - now using real usernames from JWT",
-      "rationale": [
-        "Users already have usernames in the profiles schema",
-        "Alias generation was unnecessary complexity",
-        "Makes it easier to identify users in CCBill's admin panel",
-        "Webhook resolution now queries profiles.users directly"
-      ],
-      "steps": [
-        "[DONE] Update checkout_service.go to use user.Username directly",
-        "[DONE] Add GetUserIDByUsername() to ProfileRepo for webhook resolution",
-        "[DONE] Update CCBillWebhookService to use ProfileRepo instead of CCBillAliasService",
-        "[DONE] Update WebhookDispatcher to use ProfileRepo instead of CCBillAliasService",
-        "[DONE] Remove CCBillAliasService from CheckoutService dependencies",
-        "[DONE] Remove CCBillAliasService from build_runtime.go and runtime.go",
-        "[DONE] Delete internal/services/ccbill_alias.go",
-        "[DONE] Delete internal/services/ccbill_alias_test.go",
-        "[DONE] Delete internal/db/repo/ccbill_username_alias.go",
-        "[DONE] Delete internal/db/models/ccbill_username_alias.go",
-        "[DONE] Create migration 009_drop_ccbill_aliases_table to drop the table",
-        "[DONE] Update tests/testcontainer_suite.go to remove CCBillAliasService references"
-      ],
-      "passes": true,
-      "completed_notes": "Completely removed CCBillAliasService. CCBill checkout now sends the real username from the JWT. Webhook resolution looks up user IDs directly from profiles.users.username via ProfileRepo.GetUserIDByUsername(). Migration 009 drops the now-unused ccbill_username_aliases table."
-    },
-    {
-      "name": "standardize-pagination-format",
-      "category": "refactor",
-      "description": "Standardize all list endpoints to use Stripe-like pagination: object/data/total/limit/offset/has_more",
-      "target_format": {
-        "example": {
-          "object": "list",
-          "data": ["...items..."],
-          "total": 100,
-          "limit": 50,
-          "offset": 0,
-          "has_more": true
-        },
-        "rationale": [
-          "Stripe-compatible API design",
-          "limit/offset maps directly to SQL LIMIT/OFFSET",
-          "object: 'list' makes responses self-describing",
-          "has_more is simple to calculate: offset + len(data) < total",
-          "Easy to evolve to cursor-based pagination later"
-        ]
-      },
-      "current_state": {
-        "style_1_page_based": {
-          "format": "{ data, total_items, page, page_size, total_pages }",
-          "endpoints": [
-            "GET /v1/products - uses api.ListResponse with page/page_size/total_pages",
-            "GET /v1/prices - uses api.ListResponse with page/page_size/total_pages",
-            "GET /v1/me/subscriptions - uses PaginatedResponse with total_items only",
-            "GET /v1/me/payments - uses PaginatedResponse with total_items only",
-            "GET /v1/me/notifications - uses PaginatedResponse with page/page_size",
-            "GET /v1/me/payment-methods - uses PaginatedResponse (page/page_size params)"
-          ]
-        },
-        "style_2_limit_offset": {
-          "format": "{ data, total, limit, offset }",
-          "endpoints": [
-            "GET /v1/admin/payments - uses SuccessJSONPaginated",
-            "GET /v1/admin/subscriptions - uses SuccessJSONPaginated"
-          ]
-        },
-        "no_pagination": {
-          "format": "{ wallets: [...] } or just array",
-          "endpoints": [
-            "GET /v1/me/wallets - returns { wallets: [] }, no pagination"
-          ]
-        }
-      },
-      "endpoints_to_update": [
-        {
-          "endpoint": "GET /v1/products",
-          "file": "internal/handlers/get_products.go",
-          "current": "api.ListResponse with page/page_size/total_pages",
-          "change": "Add limit/offset params, replace page fields with limit/offset/has_more"
-        },
-        {
-          "endpoint": "GET /v1/prices",
-          "file": "internal/handlers/get_prices.go",
-          "current": "api.ListResponse with page/page_size/total_pages",
-          "change": "Add limit/offset params, replace page fields with limit/offset/has_more"
-        },
-        {
-          "endpoint": "GET /v1/me/subscriptions",
-          "file": "internal/handlers/get_my_subscriptions.go",
-          "current": "PaginatedResponse with total_items only, params: limit/offset",
-          "change": "Add object:'list', has_more field"
-        },
-        {
-          "endpoint": "GET /v1/me/payments",
-          "file": "internal/handlers/get_user_payments.go",
-          "current": "PaginatedResponse with total_items only",
-          "change": "Add object:'list', limit/offset params, has_more field"
-        },
-        {
-          "endpoint": "GET /v1/me/notifications",
-          "file": "internal/handlers/notifications.go",
-          "current": "PaginatedResponse with page/page_size params",
-          "change": "Switch to limit/offset params, add object:'list', has_more"
-        },
-        {
-          "endpoint": "GET /v1/me/payment-methods",
-          "file": "internal/handlers/payment_methods.go",
-          "current": "Direct response, page/page_size params",
-          "change": "Switch to limit/offset, wrap in standard list response"
-        },
-        {
-          "endpoint": "GET /v1/admin/payments",
-          "file": "internal/handlers/admin_payments.go",
-          "current": "SuccessJSONPaginated with limit/offset (good!)",
-          "change": "Add object:'list', has_more field"
-        },
-        {
-          "endpoint": "GET /v1/admin/subscriptions",
-          "file": "internal/handlers/admin_users.go",
-          "current": "SuccessJSONPaginated with limit/offset (good!)",
-          "change": "Add object:'list', has_more field"
-        }
-      ],
-      "implementation_steps": [
-        "Update api.ListResponse to use limit/offset/has_more instead of page/page_size/total_pages",
-        "Update SuccessJSONPaginated to include object:'list' and has_more",
-        "Update PaginatedResponse struct or remove in favor of api.ListResponse",
-        "Update GET /v1/products to accept limit/offset params",
-        "Update GET /v1/prices to accept limit/offset params",
-        "Update GET /v1/me/subscriptions response format",
-        "Update GET /v1/me/payments response format and params",
-        "Update GET /v1/me/notifications to use limit/offset",
-        "Update GET /v1/me/payment-methods to use limit/offset",
-        "Update GET /v1/admin/payments response format",
-        "Update GET /v1/admin/subscriptions response format",
-        "Update tests to use new pagination format",
-        "Document standard pagination format in API docs"
+        "[TODO] Create AdminGrant model in internal/db/models/admin_grant.go",
+        "[TODO] Create migration for billing.admin_grants table",
+        "[TODO] Create AdminGrantRepo with Create, GetByID, ListByUserID methods",
+        "[TODO] Create AdminGrantService to handle grant logic",
+        "[TODO] Add ProcessorAdmin constant to models.go",
+        "[TODO] Create POST /v1/admin/users/:user_id/grants handler",
+        "[TODO] Wire up AdminGrantService in build_runtime.go",
+        "[TODO] Write tests for admin grant flow (free comp + manual payment)"
       ],
       "passes": false
     },
@@ -868,6 +550,64 @@
       "passes": false
     },
     {
+      "name": "service-api-endpoints",
+      "category": "feature",
+      "description": "Add X-API-Key authenticated endpoints for server-to-server calls (separate from public/admin)",
+      "context": {
+        "problem": "AuthKit and other backend services need to query billing data programmatically without a user JWT",
+        "use_cases": [
+          "AuthKit needs to fetch user entitlements during JWT token issuance (no user JWT available yet)",
+          "Backend services may need to check subscription status server-to-server",
+          "Future: inter-service communication for credits, usage tracking, etc."
+        ],
+        "solution": "Keep a separate private API endpoint (port 8060) with X-API-Key authentication for trusted server-to-server calls"
+      },
+      "design": {
+        "authentication": "X-API-Key header with shared secret (configured via BILLING_API_KEY env var)",
+        "endpoint_location": "Private port (8060) - NOT exposed to public internet, only internal Docker network",
+        "separation": {
+          "public_api": "Port 2053 - User JWT auth - /v1/me/*, /v1/products, etc.",
+          "admin_api": "Port 2053 - Admin JWT auth - /v1/admin/*",
+          "service_api": "Port 8060 - X-API-Key auth - /v1/service/* (internal only)"
+        }
+      },
+      "endpoints": [
+        {
+          "path": "GET /v1/service/users/:user_id/entitlements",
+          "description": "Get user's active entitlements (for AuthKit token enrichment)",
+          "params": "?at=RFC3339 (optional timestamp)",
+          "response": "Array of EntitlementRecord"
+        },
+        {
+          "path": "GET /v1/service/users/:user_id/subscription-status",
+          "description": "Check if user has active subscription",
+          "response": "{ has_active_subscription, subscription_id?, product_id?, status? }"
+        }
+      ],
+      "security_notes": [
+        "Private port should NEVER be exposed to public internet",
+        "API key should be long, random, and rotated periodically",
+        "Consider IP allowlisting in production (only allow from known service IPs)",
+        "Log all service API calls for audit",
+        "Rate limit to prevent abuse even from internal services"
+      ],
+      "implementation_steps": [
+        "[DONE] Create service API router on private port with X-API-Key middleware",
+        "[DONE] Implement GET /v1/service/users/:user_id/entitlements handler",
+        "[DONE] Implement GET /v1/service/users/:user_id/subscription-status handler",
+        "[DONE] Add APIKey config field and PrivatePort (default 8060) to config.go",
+        "[DONE] Add APIKeyRequired middleware with constant-time comparison",
+        "[DONE] Update main.go to start both public and private servers",
+        "[DONE] Update docker-compose to expose port 8060 only internally (no host binding)",
+        "[DONE] Update doujins ServiceClient to use /v1/service routes",
+        "[DONE] Update doujins docker-compose with BILLING_ADMIN_URL and BILLING_API_KEY",
+        "[DONE] Add GET /v1/admin/users/:user_id/entitlements for admin dashboard use",
+        "[N/A] hentai0 doesn't need service API - uses JWT auth for admin endpoints"
+      ],
+      "passes": true,
+      "completed_notes": "Implemented private service API on port 8060 with X-API-KEY auth. Added GET /v1/service/users/:user_id/entitlements and GET /v1/service/users/:user_id/subscription-status for server-to-server calls. Also added GET /v1/admin/users/:user_id/entitlements for admin dashboard lookups via JWT auth. doujins ServiceClient updated to use the new /v1/service routes. Docker-compose files updated with BILLING_ADMIN_URL=http://billing:8060 and BILLING_API_KEY env vars."
+    },
+    {
       "name": "admin-dashboard-metrics-overhaul",
       "category": "feature",
       "description": "Overhaul admin dashboard metrics to provide useful business intelligence",
@@ -975,6 +715,134 @@
         "Document all metrics definitions"
       ],
       "passes": false
+    },
+    {
+      "name": "fix-nmi-add-subscription-missing-payment-info",
+      "category": "bug",
+      "description": "NMI handleAddSubscription() doesn't pass payment info to CreateMembership(), so no Payment record is created for initial subscriptions",
+      "context": {
+        "problem": "handleAddSubscription() calls CreateMembership() without TransactionID, Amount, or Currency - meaning new NMI subscriptions don't create Payment records",
+        "comparison": "CCBill handleNewSaleSuccess() correctly passes all payment info to CreateMembership()",
+        "impact": "Initial NMI subscription payments are not recorded in the payments table, breaking revenue tracking"
+      },
+      "affected_code": [
+        "internal/services/webhook_nmi.go - handleAddSubscription()"
+      ],
+      "steps": [
+        "Extract transaction info from webhook payload in handleAddSubscription()",
+        "Pass TransactionID, Amount, Currency to CreateMembership()",
+        "Add tests to verify Payment record is created for new NMI subscriptions"
+      ],
+      "passes": false
+    },
+    {
+      "name": "add-nmi-refund-void-handlers",
+      "category": "feature",
+      "description": "Add NMI webhook handlers for refund and void events - NMI supports these but we don't handle them",
+      "context": {
+        "nmi_supports": "NMI webhooks support 'voids, refunds, and credits' per their docs",
+        "ccbill_has": "CCBill has handleRefund() and handleVoid() with subscription termination logic",
+        "current_state": "NMI only handles transaction.sale.success/failure, recurring.*, acu.*, and chargeback.batch.complete"
+      },
+      "event_types_to_add": [
+        "transaction.refund.success - Create refund payment record, optionally terminate subscription if >80% refunded",
+        "transaction.void.success - Log void event, update payment record if applicable"
+      ],
+      "steps": [
+        "[DONE] Add EventTypeNMIRefundSuccess and EventTypeNMIVoidSuccess constants",
+        "[DONE] Create handleRefundSuccess() handler matching CCBill's refund logic",
+        "[DONE] Create handleVoidSuccess() handler",
+        "[DONE] Add subscription termination logic for significant refunds (>=80%)",
+        "[DONE] Add event logging to ClickHouse for refund/void events",
+        "[TODO] Add refund tracking to payment records (amount_refunded field) - future enhancement"
+      ],
+      "passes": true
+    },
+    {
+      "name": "add-nmi-chargeback-subscription-termination",
+      "category": "feature",
+      "description": "NMI chargeback handler only logs batch events - should terminate subscriptions and revoke entitlements like CCBill does",
+      "context": {
+        "current_behavior": "handleChargebackComplete() only logs batch-level chargeback data to ClickHouse",
+        "ccbill_behavior": "handleChargeback() terminates subscription immediately and revokes all entitlements",
+        "problem": "NMI chargebacks don't trigger any subscription state changes",
+        "nmi_limitation": "NMI chargeback webhooks are batch-based and do NOT include transaction_id or subscription info, making automatic subscription termination impossible without additional API lookups"
+      },
+      "steps": [
+        "[DONE] Parse individual chargeback records from NMI batch webhook",
+        "[DONE] Add NMI chargeback batch types (NMIChargebackBatchEventBody, NMIChargebackEntry, etc.)",
+        "[DONE] Log individual chargeback events to ClickHouse with requires_manual_review flag",
+        "[N/A] Automatic subscription termination NOT POSSIBLE - NMI doesn't provide subscription linkage in chargeback data (unlike CCBill)",
+        "[NOTE] Manual review required to match chargebacks to subscriptions via cc_last4, customer_name, and amount"
+      ],
+      "passes": true,
+      "completed_notes": "NMI chargeback handler now parses batch data and logs individual chargebacks to ClickHouse. Automatic subscription termination is not possible because NMI doesn't include transaction_id or subscription_id in chargeback webhooks (unlike CCBill). Each chargeback is logged with requires_manual_review=true flag."
+    },
+    {
+      "name": "standardize-event-type-constants",
+      "category": "refactor",
+      "description": "Define all ClickHouse event types as constants in one place for consistency",
+      "context": {
+        "current_state": "Event types like 'charge_success', 'charge_failure', 'refund' are hardcoded strings scattered throughout",
+        "problem": "Easy to have typos, inconsistent naming (charge_failure vs payment_failure)"
+      },
+      "proposed_location": "internal/services/event_log_service.go or new internal/services/event_types.go",
+      "event_types": {
+        "payment_events": [
+          "PaymentEventChargeSuccess = 'charge_success'",
+          "PaymentEventChargeFailure = 'charge_failure'",
+          "PaymentEventRefund = 'refund'",
+          "PaymentEventRefundFailure = 'refund_failure'",
+          "PaymentEventVoid = 'void'",
+          "PaymentEventVoidFailure = 'void_failure'",
+          "PaymentEventChargeback = 'chargeback'",
+          "PaymentEventBatchProcessed = 'batch_processed'"
+        ],
+        "subscription_events": [
+          "PaymentEventSubscriptionCancelled = 'subscription_cancelled'",
+          "PaymentEventSubscriptionExpired = 'subscription_expired'",
+          "PaymentEventSubscriptionReactivated = 'subscription_reactivated'",
+          "PaymentEventBillingDateChanged = 'billing_date_changed'",
+          "PaymentEventCustomerDataUpdated = 'customer_data_updated'"
+        ]
+      },
+      "steps": [
+        "[DONE] Create PaymentEventType type alias and constants in event_log_service.go",
+        "[DONE] Update CCBill webhook handlers to use constants",
+        "[DONE] Update NMI webhook handlers to use constants",
+        "[DONE] Update dead_letter_service.go to use PaymentEventUnknown constant",
+        "[TODO] Add subscription lifecycle event logging to NMI (tracked in separate issue)"
+      ],
+      "passes": true,
+      "completed_notes": "Added PaymentEventType constants in event_log_service.go. Updated all event type string literals in webhook_nmi.go, webhook_ccbill.go, and dead_letter_service.go to use the new constants for consistency."
+    },
+    {
+      "name": "nmi-subscription-lifecycle-logging",
+      "category": "feature",
+      "description": "NMI doesn't log subscription lifecycle events to ClickHouse - CCBill logs create/cancel/expire/reactivate events",
+      "context": {
+        "ccbill_logs": [
+          "subscription_cancelled - when user/merchant cancels",
+          "subscription_expired - when subscription expires",
+          "subscription_reactivated - when reactivating cancelled sub",
+          "billing_date_changed - when billing date is modified",
+          "customer_data_updated - when customer info changes"
+        ],
+        "nmi_logs": "Only payment events (charge_success, charge_failure) - no subscription lifecycle events"
+      },
+      "impact": "Can't analyze subscription lifecycle metrics for NMI subscriptions in ClickHouse",
+      "steps": [
+        "[DONE] Move ClickHouse logging INTO lifecycle methods (CreateMembership, RenewMembership, CancelMembership, FailMembership)",
+        "[DONE] Add EventLogService field to SubscriptionLifecycleService",
+        "[DONE] CreateMembership logs charge_success event",
+        "[DONE] RenewMembership logs charge_success event with renewal metadata",
+        "[DONE] CancelMembership logs subscription_cancelled event",
+        "[DONE] FailMembership logs charge_failure or subscription_expired event",
+        "[DONE] All processors (CCBill, NMI, Solana) automatically get logging via lifecycle methods",
+        "[NOTE] Webhook handlers retain their own logging for webhook-specific context (payload, headers, IP)"
+      ],
+      "passes": true,
+      "completed_notes": "Moved ClickHouse event logging into lifecycle methods so all processors get consistent logging automatically. CreateMembership, RenewMembership, FailMembership, and CancelMembership now log to ClickHouse via EventLogService. NMI and CCBill webhook handlers still log webhook-specific data separately (complementary, not duplicate)."
     }
   ]
 }

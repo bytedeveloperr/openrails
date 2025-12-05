@@ -110,6 +110,7 @@ func (s *Subscription) ActivateWithPrice(price *Price) error {
 	s.CancelType = nil
 	s.CancelledAt = nil
 	s.PriceID = price.ID
+	s.ProductID = price.ProductID // Update product when price changes (upgrade/downgrade)
 	s.CancelFeedback = nil
 	s.Status = StatusActive
 

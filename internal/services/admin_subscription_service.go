@@ -255,8 +255,84 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 	return nil
 }
 
-// ExtendSubscription extends a subscription period (admin)
+// UpdateStatusParams contains parameters for updating subscription status
+type UpdateStatusParams struct {
+	SubscriptionID string
+	Status         models.SubscriptionStatus
+	CancelFeedback string            // Optional cancel feedback message
+	CancelType     models.CancelType // Optional cancel type
+}
+
+// UpdateStatus updates a subscription's status with appropriate side effects.
+// For cancellation, use CancelSubscription() instead for full NMI cancellation and entitlement revocation.
+// This method is for status changes that don't require external processor calls.
+func (s *AdminSubscriptionService) UpdateStatus(ctx context.Context, params *UpdateStatusParams) error {
+	subID, err := uuid.Parse(params.SubscriptionID)
+	if err != nil {
+		return fmt.Errorf("invalid subscription id: %w", err)
+	}
+
+	subscription, err := s.SubscriptionService.GetByID(ctx, subID)
+	if err != nil {
+		return fmt.Errorf("subscription not found: %w", err)
+	}
+
+	subscription.Status = params.Status
+	subscription.UpdatedAt = s.now()
+
+	switch params.Status {
+	case models.StatusActive:
+		if subscription.StartedAt.IsZero() {
+			subscription.StartedAt = s.now()
+		}
+	case models.StatusPastDue:
+		// StatusPastDue means payment failed but we're still trying to rebill
+		// No additional fields to set
+	case models.StatusCancelled:
+		if params.CancelFeedback != "" {
+			subscription.CancelFeedback = &params.CancelFeedback
+		}
+		if params.CancelType != "" {
+			subscription.CancelType = &params.CancelType
+		}
+		cancelledAt := s.now()
+		subscription.CancelledAt = &cancelledAt
+		subscription.EndedAt = &cancelledAt
+	}
+
+	if err := s.SubscriptionService.Update(ctx, subscription); err != nil {
+		return fmt.Errorf("failed to update subscription: %w", err)
+	}
+
+	// Add notification based on status change
+	switch params.Status {
+	case models.StatusCancelled, models.StatusPastDue:
+		notification := &models.NotificationQueue{
+			ID:        uuid.New(),
+			UserID:    subscription.UserID,
+			EventType: models.NotificationPremiumEnded,
+			Data:      map[string]any{"reason": string(PremiumEndReasonAdmin)},
+		}
+		if err := s.NotificationService.Create(ctx, notification); err != nil {
+			log.WithFields(log.Fields{
+				"subscription_id":   subscription.ID,
+				"user_id":           subscription.UserID,
+				"notification_type": notification.EventType,
+				"error":             err.Error(),
+			}).Error("Failed to create notification during subscription status update")
+		}
+	}
+
+	return nil
+}
+
+// ExtendSubscription extends a subscription period by days (admin)
 func (s *AdminSubscriptionService) ExtendSubscription(ctx context.Context, subscriptionID uuid.UUID, days int, reason string) error {
+	return s.ExtendSubscriptionByDuration(ctx, subscriptionID, time.Duration(days)*24*time.Hour)
+}
+
+// ExtendSubscriptionByDuration extends a subscription period by a duration (admin)
+func (s *AdminSubscriptionService) ExtendSubscriptionByDuration(ctx context.Context, subscriptionID uuid.UUID, duration time.Duration) error {
 	subscription, err := s.SubscriptionService.GetByID(ctx, subscriptionID)
 	if err != nil {
 		return fmt.Errorf("subscription not found: %w", err)
@@ -266,15 +342,12 @@ func (s *AdminSubscriptionService) ExtendSubscription(ctx context.Context, subsc
 		return fmt.Errorf("subscription is not active")
 	}
 
-	// Extend the subscription period
-	extension := time.Duration(days) * 24 * time.Hour
-
 	if subscription.CurrentPeriodEndsAt != nil {
-		newEndTime := subscription.CurrentPeriodEndsAt.Add(extension)
+		newEndTime := subscription.CurrentPeriodEndsAt.Add(duration)
 		subscription.CurrentPeriodEndsAt = &newEndTime
 	} else {
 		now := s.now()
-		newEndTime := now.Add(extension)
+		newEndTime := now.Add(duration)
 		subscription.CurrentPeriodEndsAt = &newEndTime
 		subscription.CurrentPeriodStartsAt = &now
 	}

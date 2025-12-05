@@ -23,6 +23,74 @@ type GrantEntitlementRequest struct {
 	Days        *int   `json:"days,omitempty"`                 // Optional: number of days (nil = indefinite)
 }
 
+// GetAdminUserEntitlements returns active entitlements for a user (admin action)
+// GET /v1/admin/users/:user_id/entitlements?at=RFC3339
+func GetAdminUserEntitlements(r *Request) {
+	var path AdminUserEntitlementsPath
+	if err := r.Inner().ShouldBindUri(&path); err != nil {
+		r.ErrorJSON(http.StatusBadRequest, err.Error())
+		return
+	}
+
+	svc := r.State.EntitlementService
+	if svc == nil {
+		r.ErrorJSON(http.StatusInternalServerError, "entitlement service unavailable")
+		return
+	}
+
+	// Optional: query at a specific time
+	atStr := r.GinCtx.Query("at")
+	queryTime := time.Now()
+	if r.State.Clock != nil {
+		queryTime = r.State.Clock.Now()
+	}
+	if atStr != "" {
+		parsed, err := time.Parse(time.RFC3339, atStr)
+		if err != nil {
+			r.ErrorJSON(http.StatusBadRequest, "invalid 'at' timestamp format; use RFC3339")
+			return
+		}
+		queryTime = parsed
+	}
+
+	entitlements, err := svc.ListActiveRecords(r.Request.Context(), path.UserID, queryTime)
+	if err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, "failed to fetch entitlements")
+		return
+	}
+
+	// Convert to response format (reusing ServiceEntitlementRecord for consistency)
+	result := make([]ServiceEntitlementRecord, 0, len(entitlements))
+	for _, e := range entitlements {
+		rec := ServiceEntitlementRecord{
+			ID:          e.ID.String(),
+			UserID:      e.UserID,
+			Entitlement: e.Entitlement,
+			StartAt:     e.StartAt,
+			SourceType:  string(e.SourceType),
+			CreatedAt:   e.CreatedAt,
+			UpdatedAt:   e.UpdatedAt,
+		}
+		if e.EndAt != nil {
+			rec.EndAt = e.EndAt
+		}
+		if e.SourceID != nil {
+			sourceStr := e.SourceID.String()
+			rec.SourceID = &sourceStr
+		}
+		if e.RevokedAt != nil {
+			rec.RevokedAt = e.RevokedAt
+		}
+		if e.RevokeReason != nil {
+			reasonStr := string(*e.RevokeReason)
+			rec.RevokeReason = &reasonStr
+		}
+		result = append(result, rec)
+	}
+
+	r.GinCtx.JSON(http.StatusOK, result)
+}
+
 // GrantAdminEntitlement grants an entitlement to a user (admin action)
 // POST /v1/admin/users/:user_id/entitlements
 func GrantAdminEntitlement(r *Request) {

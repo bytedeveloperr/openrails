@@ -16,7 +16,7 @@ func GetAdminMetrics(r *Request) {
 		metricsType = "dashboard" // default
 	}
 
-	svc := services.NewBillingAnalyticsService(r.State.DB)
+	svc := services.NewDashboardMetricsService(r.State.DB)
 
 	switch metricsType {
 	case "dashboard":

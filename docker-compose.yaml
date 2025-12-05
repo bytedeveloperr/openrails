@@ -237,6 +237,11 @@ services:
         condition: service_healthy
     ports:
       - "2053:2053"  # API (public endpoints + admin endpoints with JWT auth)
+    # Note: Port 8060 (private service API with X-API-Key auth) is exposed internally
+    # via Docker network only - not mapped to host. Other containers in local-doujins
+    # network can reach it at billing:8060 for server-to-server calls.
+    expose:
+      - "8060"  # Private/service API (X-API-KEY auth, internal only)
     environment:
       # Database connection (admin superuser)
       DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
@@ -250,7 +255,9 @@ services:
       CLICKHOUSE_DB: "analytics"
       CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
-    command: ["server"]
+      # Private service API key for server-to-server calls (X-API-KEY header)
+      API_KEY: "${BILLING_API_KEY:-dev-service-api-key-change-me}"
+    command: ["server", "--start-workers"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:2053/health/live"]
       interval: 30s

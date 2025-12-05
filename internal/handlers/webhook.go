@@ -300,12 +300,11 @@ func copyHeaders(src map[string]string) map[string]string {
 }
 
 // processWebhookSync processes a webhook event synchronously.
-// This is the preferred mode for webhook processing as it provides immediate feedback
-// to the payment processor and allows for simpler error handling and testing.
+// Webhook processing is now synchronous-only - no async retry mechanism.
+// Payment processors (CCBill, NMI) will retry failed webhooks from their end.
 func processWebhookSync(ctx context.Context, runtime *app.Runtime, eventID uuid.UUID) error {
 	if runtime == nil || runtime.WebhookProcessor == nil {
 		return fmt.Errorf("webhook processor unavailable")
 	}
-	_, err := runtime.WebhookProcessor.Process(ctx, eventID)
-	return err
+	return runtime.WebhookProcessor.Process(ctx, eventID)
 }

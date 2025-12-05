@@ -254,3 +254,32 @@ func (r *EntitlementRepo) RevokeByID(ctx context.Context, id uuid.UUID, now time
 	}
 	return nil
 }
+
+// RevokeBySubscriptionAndName revokes a specific entitlement by subscription ID and entitlement name.
+// Used during downgrades to revoke entitlements that the new tier doesn't include.
+func (r *EntitlementRepo) RevokeBySubscriptionAndName(ctx context.Context, subscriptionID uuid.UUID, entitlement string, revokeAt time.Time, reason models.EntitlementRevokeReason) error {
+	res, err := r.db.GetDB().NewUpdate().
+		Model((*models.Entitlement)(nil)).
+		Set("revoked_at = ?", revokeAt).
+		Set("revoke_reason = ?", reason).
+		Set("end_at = ?", revokeAt). // Also set end_at to terminate access
+		Set("updated_at = ?", revokeAt).
+		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
+		Where("ent.source_id = ?", subscriptionID).
+		Where("ent.entitlement = ?", entitlement).
+		Where("ent.revoked_at IS NULL"). // Only revoke if not already revoked
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		// Not finding an entitlement to revoke is not an error - it may have already been revoked
+		// or never existed for this subscription
+		return nil
+	}
+	return nil
+}

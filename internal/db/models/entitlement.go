@@ -21,7 +21,9 @@ const (
 type EntitlementRevokeReason string
 
 const (
-	EntitlementRevokeAdmin EntitlementRevokeReason = "admin"
+	EntitlementRevokeAdmin     EntitlementRevokeReason = "admin"
+	EntitlementRevokeDowngrade EntitlementRevokeReason = "downgrade"
+	EntitlementRevokeChargeback EntitlementRevokeReason = "chargeback"
 )
 
 // Entitlement models a temporal access window to a named entitlement (e.g., "premium")

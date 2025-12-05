@@ -30,7 +30,7 @@ type NMIWebhookService struct {
 	Processor                    string
 	DeadLetterService            *DeadLetterService
 	NMIClient                    *nmi.NMIClient
-	BillingEventService          *BillingEventService
+	EventLogService          *EventLogService
 	SubscriptionService          *SubscriptionService
 	PaymentService               *PaymentService
 	DeduplicationService         *DeduplicationService
@@ -54,9 +54,17 @@ const (
 	EventTypeNMIUpdateSubscription NMIWebhookEventType = "recurring.subscription.update"
 	EventTypeNMIDeleteSubscription NMIWebhookEventType = "recurring.subscription.delete"
 
-	// Transaction events
+	// Transaction events - sales
 	EventTypeNMITransactionSuccess NMIWebhookEventType = "transaction.sale.success"
 	EventTypeNMITransactionFailure NMIWebhookEventType = "transaction.sale.failure"
+
+	// Transaction events - refunds
+	EventTypeNMIRefundSuccess NMIWebhookEventType = "transaction.refund.success"
+	EventTypeNMIRefundFailure NMIWebhookEventType = "transaction.refund.failure"
+
+	// Transaction events - voids
+	EventTypeNMIVoidSuccess NMIWebhookEventType = "transaction.void.success"
+	EventTypeNMIVoidFailure NMIWebhookEventType = "transaction.void.failure"
 
 	// Automatic Card Updater (ACU) events
 	EventTypeNMIACUUpdated         NMIWebhookEventType = "acu.summary.automaticallyupdated"
@@ -87,6 +95,14 @@ func (s *NMIWebhookService) parseACUEventBody() (*NMIACUEventBody, error) {
 	var body NMIACUEventBody
 	if err := json.Unmarshal(s.Data.EventBody, &body); err != nil {
 		return nil, fmt.Errorf("failed to parse ACU event body: %w", err)
+	}
+	return &body, nil
+}
+
+func (s *NMIWebhookService) parseChargebackBatchEventBody() (*NMIChargebackBatchEventBody, error) {
+	var body NMIChargebackBatchEventBody
+	if err := json.Unmarshal(s.Data.EventBody, &body); err != nil {
+		return nil, fmt.Errorf("failed to parse chargeback batch event body: %w", err)
 	}
 	return &body, nil
 }
@@ -188,6 +204,25 @@ func transactionCurrency(body *NMITransactionEventBody) string {
 	return ""
 }
 
+func parseTransactionAmount(body *NMITransactionEventBody) (float64, error) {
+	if body == nil {
+		return 0, fmt.Errorf("nil transaction body")
+	}
+	amountStr := body.Amount.Trimmed()
+	if amountStr == "" && body.TransactionDetail != nil {
+		amountStr = body.TransactionDetail.Amount.Trimmed()
+	}
+	if amountStr == "" {
+		return 0, fmt.Errorf("no amount in transaction body")
+	}
+
+	var amount float64
+	if _, err := fmt.Sscanf(amountStr, "%f", &amount); err != nil {
+		return 0, fmt.Errorf("failed to parse amount '%s': %w", amountStr, err)
+	}
+	return amount, nil
+}
+
 type NMIBillingError struct {
 	Type    string                 `json:"type"`
 	Message string                 `json:"message"`
@@ -254,6 +289,19 @@ func (s *NMIWebhookService) handleWebhook(ctx context.Context) error {
 		return s.handleTransactionSaleSuccess(ctx)
 	case EventTypeNMITransactionFailure:
 		return s.handleTransactionSaleFailure(ctx)
+
+	// Refund events
+	case EventTypeNMIRefundSuccess:
+		return s.handleRefundSuccess(ctx)
+	case EventTypeNMIRefundFailure:
+		return s.handleRefundFailure(ctx)
+
+	// Void events
+	case EventTypeNMIVoidSuccess:
+		return s.handleVoidSuccess(ctx)
+	case EventTypeNMIVoidFailure:
+		return s.handleVoidFailure(ctx)
+
 	case EventTypeNMIACUUpdated, EventTypeNMIACUContactCustomer, EventTypeNMIACUClosedAccount:
 		return s.handleACUEvent(ctx)
 
@@ -467,6 +515,30 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		txnID = body.TransactionDetail.TransactionID.Trimmed()
 	}
 
+	// Calculate amount in cents for Payment record
+	var amountCents int64
+	if amountErr != nil {
+		log.WithContext(ctx).
+			WithField("transaction_id", txnID).
+			WithError(amountErr).
+			Warn("Failed to parse NMI transaction amount; falling back to price amount")
+		if subscription.Price != nil && subscription.Price.Amount > 0 {
+			amountCents = subscription.Price.Amount
+		}
+	} else {
+		amountCents = int64(amount * 100) // Convert dollars to cents
+	}
+
+	// Normalize currency
+	currencyValue := strings.ToLower(strings.TrimSpace(currency))
+	if currencyValue == "" {
+		if subscription.Price != nil && strings.TrimSpace(subscription.Price.Currency) != "" {
+			currencyValue = subscription.Price.Currency
+		} else {
+			currencyValue = "usd"
+		}
+	}
+
 	processed := false
 
 	// Activate or renew subscription based on current status
@@ -484,9 +556,13 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		}
 		processed = true
 	default:
+		// RenewMembership now creates the Payment record internally
 		if err := s.SubscriptionLifecycleService.RenewMembership(ctx, &RenewMembershipParams{
 			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: nmiSubID,
+			TransactionID:           txnID,
+			Amount:                  amountCents,
+			Currency:                currencyValue,
 		}); err != nil {
 			return fmt.Errorf("failed to renew subscription: %w", err)
 		}
@@ -497,76 +573,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		return nil
 	}
 
-	// Persist payment record if available
-	if s.PaymentService != nil && txnID != "" {
-		existing, err := s.PaymentService.GetByTransactionID(ctx, models.Processor(s.Processor), txnID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("failed to check existing payment: %w", err)
-		}
-		if err == nil && existing != nil {
-			log.WithContext(ctx).
-				WithFields(log.Fields{
-					"transaction_id":  txnID,
-					"subscription_id": subscription.ID,
-				}).Debug("NMI payment already recorded; skipping duplicate entry")
-		} else {
-			// Convert dollars to cents for storage
-			var amountCents int64
-			if amountErr != nil {
-				log.WithContext(ctx).
-					WithField("transaction_id", txnID).
-					WithError(amountErr).
-					Warn("Failed to parse NMI transaction amount; falling back to price amount")
-				if subscription.Price != nil && subscription.Price.Amount > 0 {
-					amountCents = subscription.Price.Amount
-				} else {
-					amountCents = 0
-				}
-			} else {
-				amountCents = int64(amount * 100) // Convert dollars to cents
-			}
-
-			if amountCents > 0 {
-				// Normalize incoming currency to lowercase (external data from NMI)
-				currencyValue := strings.ToLower(strings.TrimSpace(currency))
-				if currencyValue == "" {
-					if subscription.Price != nil && strings.TrimSpace(subscription.Price.Currency) != "" {
-						currencyValue = subscription.Price.Currency // Already normalized in our DB
-					} else {
-						currencyValue = "usd"
-					}
-				}
-
-				payment := &models.Payment{
-					ID:             uuid.New(),
-					UserID:         subscription.UserID,
-					PriceID:        subscription.PriceID,
-					SubscriptionID: &subscription.ID,
-					Processor:      models.ProcessorMobius,
-					TransactionID:  txnID,
-					Amount:         amountCents,
-					Currency:       currencyValue,
-					PurchasedAt:    s.now().UTC(),
-					CreatedAt:      s.now().UTC(),
-				}
-
-				if err := s.PaymentService.Create(ctx, payment); err != nil {
-					log.WithContext(ctx).
-						WithError(err).
-						WithFields(log.Fields{
-							"transaction_id":  txnID,
-							"subscription_id": subscription.ID,
-						}).Error("Failed to record NMI payment entry")
-				}
-			} else {
-				log.WithContext(ctx).
-					WithField("transaction_id", txnID).
-					Warn("Skipping payment record for NMI transaction due to missing amount")
-			}
-		}
-	}
-
-	if s.BillingEventService != nil {
+	if s.EventLogService != nil {
 		metadata := map[string]interface{}{
 			"event_type":      s.Data.EventType,
 			"action_source":   actionSource,
@@ -598,7 +605,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			EventID:        uuid.New(),
 			SubscriptionID: &subscription.ID,
 			UserID:         subscription.UserID,
-			EventType:      "charge_success",
+			EventType:      PaymentEventChargeSuccess,
 			Processor:      s.Processor,
 			Amount:         amountPtr,
 			Currency:       currency,
@@ -610,7 +617,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		if txnID != "" {
 			paymentEvent.ProcessorTransactionID = &txnID
 		}
-		if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEvent); err != nil {
+		if err := s.EventLogService.LogPaymentEvent(ctx, paymentEvent); err != nil {
 			log.WithContext(ctx).WithError(err).Error("Failed to log NMI payment event")
 		}
 	}
@@ -692,7 +699,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		return fmt.Errorf("failed to mark subscription as failed: %w", err)
 	}
 
-	if s.BillingEventService != nil && subscription != nil {
+	if s.EventLogService != nil && subscription != nil {
 		metadata := map[string]interface{}{
 			"event_type":      s.Data.EventType,
 			"previous_status": subscription.Status,
@@ -717,7 +724,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 			EventID:        uuid.New(),
 			SubscriptionID: &subscription.ID,
 			UserID:         subscription.UserID,
-			EventType:      "charge_failure",
+			EventType:      PaymentEventChargeFailure,
 			Processor:      s.Processor,
 			Amount:         amountPtr,
 			Currency:       transactionCurrency(body),
@@ -729,7 +736,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		if txnID := body.TransactionID.Trimmed(); txnID != "" {
 			paymentEvent.ProcessorTransactionID = &txnID
 		}
-		if err := s.BillingEventService.LogPaymentEvent(ctx, paymentEvent); err != nil {
+		if err := s.EventLogService.LogPaymentEvent(ctx, paymentEvent); err != nil {
 			log.WithContext(ctx).WithError(err).Error("Failed to log NMI payment failure event")
 		}
 	} else if subscription == nil {
@@ -767,36 +774,393 @@ func (s *NMIWebhookService) handleACUEvent(ctx context.Context) error {
 }
 
 func (s *NMIWebhookService) handleChargebackComplete(ctx context.Context) error {
-	// Chargeback events are typically batch operations containing multiple disputes
-	// For now, we'll just log them for administrative purposes
+	// NMI chargeback events are batch operations containing multiple disputes
+	// IMPORTANT: NMI chargebacks do NOT include transaction_id or subscription info,
+	// so automatic subscription termination is not possible. Manual intervention required.
+	log.WithContext(ctx).
+		WithField("eventType", s.Data.EventType).
+		Info("Processing NMI chargeback batch notification")
 
-	// Log chargeback batch completion to ClickHouse
-	if s.BillingEventService != nil {
-		metadata := map[string]interface{}{
-			"batch_type":   "chargeback",
-			"event_source": s.Processor,
-			"batch_status": "completed",
+	body, err := s.parseChargebackBatchEventBody()
+	if err != nil {
+		// Fall back to basic logging if parsing fails
+		log.WithContext(ctx).WithError(err).Warn("Failed to parse chargeback batch body; logging basic event")
+		if s.EventLogService != nil {
+			chargebackEventData := ChargebackEventData{
+				EventID:   uuid.New(),
+				EventType: PaymentEventBatchProcessed,
+				Processor: s.Processor,
+				BatchID:   s.Data.EventID,
+				Status:    "completed",
+				Metadata:  CreateMetadataJSON(map[string]interface{}{"parse_error": err.Error()}),
+				Timestamp: s.now(),
+			}
+			if logErr := s.EventLogService.LogChargebackEvent(ctx, chargebackEventData); logErr != nil {
+				log.WithError(logErr).Error("Failed to log chargeback batch event to ClickHouse")
+			}
+		}
+		return nil
+	}
+
+	now := s.now()
+	batchID := s.Data.EventID
+
+	// Log batch-level summary first
+	if s.EventLogService != nil {
+		var totalAmount string
+		var chargebackCount int
+		if body.Batch != nil {
+			totalAmount = body.Batch.TotalAmount
+			chargebackCount = body.Batch.Count
+		} else {
+			chargebackCount = len(body.Chargebacks)
+		}
+
+		batchMetadata := map[string]interface{}{
+			"batch_type":       "chargeback",
+			"event_source":     s.Processor,
+			"batch_status":     "completed",
+			"chargeback_count": chargebackCount,
+		}
+		if totalAmount != "" {
+			batchMetadata["total_amount"] = totalAmount
+		}
+		if body.Processor != nil {
+			batchMetadata["processor_id"] = body.Processor.ID.Trimmed()
+			batchMetadata["processor_name"] = body.Processor.Name.Trimmed()
 		}
 
 		chargebackEventData := ChargebackEventData{
 			EventID:   uuid.New(),
-			EventType: "batch_processed",
+			EventType: PaymentEventBatchProcessed,
 			Processor: s.Processor,
-			BatchID:   s.Data.EventID, // Use event ID as batch identifier
+			BatchID:   batchID,
 			Status:    "completed",
-			Metadata:  CreateMetadataJSON(metadata),
-			Timestamp: s.now(),
+			Metadata:  CreateMetadataJSON(batchMetadata),
+			Timestamp: now,
 		}
 
-		if err := s.BillingEventService.LogChargebackEvent(ctx, chargebackEventData); err != nil {
+		if err := s.EventLogService.LogChargebackEvent(ctx, chargebackEventData); err != nil {
 			log.WithError(err).Error("Failed to log chargeback batch event to ClickHouse")
+		}
+
+		// Log each individual chargeback for audit purposes
+		for i, cb := range body.Chargebacks {
+			cbMetadata := map[string]interface{}{
+				"batch_id":      batchID,
+				"chargeback_id": cb.ID.Trimmed(),
+				"date":          cb.Date,
+				"customer_name": cb.CustomerName,
+				"cc_last4":      cb.CCNumber, // Already masked by NMI
+				"reason_code":   cb.ReasonCode,
+				"reason":        cb.Reason,
+				"batch_index":   i,
+				// Note: No transaction_id or subscription_id available from NMI
+				"requires_manual_review": true,
+			}
+
+			// Parse amount if available
+			var amountPtr *float64
+			if cb.Amount != "" {
+				var amt float64
+				if _, parseErr := fmt.Sscanf(cb.Amount, "%f", &amt); parseErr == nil {
+					amountPtr = &amt
+				}
+			}
+
+			cbEventData := ChargebackEventData{
+				EventID:   uuid.New(),
+				EventType: PaymentEventChargeback,
+				Processor: s.Processor,
+				BatchID:   batchID,
+				Status:    "received",
+				Amount:    amountPtr,
+				Metadata:  CreateMetadataJSON(cbMetadata),
+				Timestamp: now,
+			}
+
+			if err := s.EventLogService.LogChargebackEvent(ctx, cbEventData); err != nil {
+				log.WithContext(ctx).
+					WithError(err).
+					WithField("chargeback_id", cb.ID.Trimmed()).
+					Error("Failed to log individual chargeback event to ClickHouse")
+			}
+		}
+	}
+
+	chargebackCount := len(body.Chargebacks)
+	if body.Batch != nil {
+		chargebackCount = body.Batch.Count
+	}
+
+	log.WithContext(ctx).WithFields(log.Fields{
+		"eventID":          s.Data.EventID,
+		"eventType":        s.Data.EventType,
+		"chargeback_count": chargebackCount,
+	}).Warn("NMI chargeback batch processed - manual review required for subscription termination")
+
+	return nil
+}
+
+// handleRefundSuccess processes NMI refund.success webhooks
+// Matches CCBill logic: if refund >= 80% of subscription price, terminate subscription
+func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
+	log.WithContext(ctx).
+		WithField("eventType", s.Data.EventType).
+		Info("Processing NMI refund notification")
+
+	body, err := s.parseTransactionEventBody()
+	if err != nil {
+		return err
+	}
+
+	txnID := body.TransactionID.Trimmed()
+	nmiSubID := transactionSubscriptionID(body)
+
+	// Parse refund amount
+	refundAmount, err := parseTransactionAmount(body)
+	if err != nil {
+		log.WithContext(ctx).WithError(err).Warn("Failed to parse refund amount")
+		refundAmount = 0
+	}
+
+	provider := strings.TrimSpace(strings.ToLower(s.Processor))
+	if provider == "" {
+		provider = "mobius"
+	}
+
+	// Try to find subscription - refund may be for a subscription payment
+	var subscription *models.Subscription
+	if nmiSubID != "" {
+		subscription, err = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			log.WithContext(ctx).WithError(err).WithField("processor_subscription_id", nmiSubID).
+				Warn("Failed to look up subscription for refund")
+		}
+	}
+
+	// Determine if we should terminate subscription based on refund amount
+	shouldTerminate := false
+	if subscription != nil && subscription.Price != nil && subscription.Price.Amount > 0 {
+		refundAmountCents := int64(refundAmount * 100)
+		refundPercentage := (refundAmountCents * 100) / subscription.Price.Amount
+		if refundPercentage >= 80 {
+			shouldTerminate = true
+		}
+	}
+
+	now := s.now()
+
+	if shouldTerminate && subscription != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id":  subscription.ID,
+			"refund_amount":    refundAmount,
+			"subscription_fee": float64(subscription.Price.Amount) / 100,
+		}).Warn("Terminating subscription due to significant refund (>=80%)")
+
+		// Use lifecycle service to cancel membership with immediate revocation
+		processor := models.Processor(s.Processor)
+		cancelReason := "Refund processed"
+		if err := s.SubscriptionLifecycleService.CancelMembership(ctx, &CancelMembershipParams{
+			Processor:               &processor,
+			ProcessorSubscriptionID: &nmiSubID,
+			CancelType:              models.CancelTypeMerchant,
+			CancelFeedback:          &cancelReason,
+			RevokeAccess:            true,
+		}); err != nil {
+			log.WithContext(ctx).WithError(err).Error("Failed to cancel membership after refund")
+		}
+	}
+
+	// Log refund event to ClickHouse
+	if s.EventLogService != nil && subscription != nil {
+		metadata := map[string]interface{}{
+			"transaction_id":          txnID,
+			"processor":               s.Processor,
+			"event_source":            "webhook",
+			"refund_amount":           refundAmount,
+			"subscription_terminated": shouldTerminate,
+		}
+
+		negativeAmount := -refundAmount
+		paymentEventData := PaymentEventData{
+			EventID:        uuid.New(),
+			SubscriptionID: &subscription.ID,
+			UserID:         subscription.UserID,
+			EventType:      PaymentEventRefund,
+			Processor:      s.Processor,
+			Amount:         &negativeAmount,
+			Currency:       transactionCurrency(body),
+			BillingInfo:    CreateMetadataJSON(map[string]interface{}{"refund": true}),
+			WebhookSource:  "webhook",
+			Metadata:       CreateMetadataJSON(metadata),
+			Timestamp:      now.UTC(),
+		}
+		if txnID != "" {
+			paymentEventData.ProcessorTransactionID = &txnID
+		}
+
+		if err := s.EventLogService.LogPaymentEvent(ctx, paymentEventData); err != nil {
+			log.WithContext(ctx).WithError(err).Error("Failed to log NMI refund event")
 		}
 	}
 
 	log.WithContext(ctx).WithFields(log.Fields{
-		"eventID":   s.Data.EventID,
-		"eventType": s.Data.EventType,
-	}).Info("Chargeback batch processing completed")
+		"transaction_id":          txnID,
+		"refund_amount":           refundAmount,
+		"subscription_terminated": shouldTerminate,
+	}).Info("NMI refund processed")
 
+	return nil
+}
+
+// handleRefundFailure logs failed refund attempts
+func (s *NMIWebhookService) handleRefundFailure(ctx context.Context) error {
+	log.WithContext(ctx).
+		WithField("eventType", s.Data.EventType).
+		Warn("Processing NMI refund failure notification")
+
+	body, err := s.parseTransactionEventBody()
+	if err != nil {
+		return err
+	}
+
+	txnID := body.TransactionID.Trimmed()
+
+	// Log refund failure for audit purposes
+	if s.EventLogService != nil {
+		metadata := map[string]interface{}{
+			"transaction_id": txnID,
+			"processor":      s.Processor,
+			"event_source":   "webhook",
+			"failure":        true,
+		}
+
+		paymentEventData := PaymentEventData{
+			EventID:       uuid.New(),
+			EventType:     PaymentEventRefundFailure,
+			Processor:     s.Processor,
+			BillingInfo:   CreateMetadataJSON(map[string]interface{}{"refund_failure": true}),
+			WebhookSource: "webhook",
+			Metadata:      CreateMetadataJSON(metadata),
+			Timestamp:     s.now().UTC(),
+		}
+		if txnID != "" {
+			paymentEventData.ProcessorTransactionID = &txnID
+		}
+
+		if err := s.EventLogService.LogPaymentEvent(ctx, paymentEventData); err != nil {
+			log.WithContext(ctx).WithError(err).Error("Failed to log NMI refund failure event")
+		}
+	}
+
+	log.WithContext(ctx).WithField("transaction_id", txnID).Info("NMI refund failure logged")
+	return nil
+}
+
+// handleVoidSuccess processes NMI void.success webhooks
+func (s *NMIWebhookService) handleVoidSuccess(ctx context.Context) error {
+	log.WithContext(ctx).
+		WithField("eventType", s.Data.EventType).
+		Info("Processing NMI void notification")
+
+	body, err := s.parseTransactionEventBody()
+	if err != nil {
+		return err
+	}
+
+	txnID := body.TransactionID.Trimmed()
+	nmiSubID := transactionSubscriptionID(body)
+
+	provider := strings.TrimSpace(strings.ToLower(s.Processor))
+	if provider == "" {
+		provider = "mobius"
+	}
+
+	// Try to find subscription
+	var subscription *models.Subscription
+	if nmiSubID != "" {
+		subscription, err = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			log.WithContext(ctx).WithError(err).WithField("processor_subscription_id", nmiSubID).
+				Warn("Failed to look up subscription for void")
+		}
+	}
+
+	// Log void event to ClickHouse
+	if s.EventLogService != nil {
+		metadata := map[string]interface{}{
+			"transaction_id": txnID,
+			"processor":      s.Processor,
+			"event_source":   "webhook",
+		}
+
+		paymentEventData := PaymentEventData{
+			EventID:       uuid.New(),
+			EventType:     PaymentEventVoid,
+			Processor:     s.Processor,
+			BillingInfo:   CreateMetadataJSON(map[string]interface{}{"void": true}),
+			WebhookSource: "webhook",
+			Metadata:      CreateMetadataJSON(metadata),
+			Timestamp:     s.now().UTC(),
+		}
+		if txnID != "" {
+			paymentEventData.ProcessorTransactionID = &txnID
+		}
+		if subscription != nil {
+			paymentEventData.SubscriptionID = &subscription.ID
+			paymentEventData.UserID = subscription.UserID
+		}
+
+		if err := s.EventLogService.LogPaymentEvent(ctx, paymentEventData); err != nil {
+			log.WithContext(ctx).WithError(err).Error("Failed to log NMI void event")
+		}
+	}
+
+	log.WithContext(ctx).WithField("transaction_id", txnID).Info("NMI void processed")
+	return nil
+}
+
+// handleVoidFailure logs failed void attempts
+func (s *NMIWebhookService) handleVoidFailure(ctx context.Context) error {
+	log.WithContext(ctx).
+		WithField("eventType", s.Data.EventType).
+		Warn("Processing NMI void failure notification")
+
+	body, err := s.parseTransactionEventBody()
+	if err != nil {
+		return err
+	}
+
+	txnID := body.TransactionID.Trimmed()
+
+	// Log void failure for audit purposes
+	if s.EventLogService != nil {
+		metadata := map[string]interface{}{
+			"transaction_id": txnID,
+			"processor":      s.Processor,
+			"event_source":   "webhook",
+			"failure":        true,
+		}
+
+		paymentEventData := PaymentEventData{
+			EventID:       uuid.New(),
+			EventType:     PaymentEventVoidFailure,
+			Processor:     s.Processor,
+			BillingInfo:   CreateMetadataJSON(map[string]interface{}{"void_failure": true}),
+			WebhookSource: "webhook",
+			Metadata:      CreateMetadataJSON(metadata),
+			Timestamp:     s.now().UTC(),
+		}
+		if txnID != "" {
+			paymentEventData.ProcessorTransactionID = &txnID
+		}
+
+		if err := s.EventLogService.LogPaymentEvent(ctx, paymentEventData); err != nil {
+			log.WithContext(ctx).WithError(err).Error("Failed to log NMI void failure event")
+		}
+	}
+
+	log.WithContext(ctx).WithField("transaction_id", txnID).Info("NMI void failure logged")
 	return nil
 }

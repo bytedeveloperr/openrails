@@ -12,14 +12,14 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// BillingAnalyticsService provides dashboard metrics by querying PostgreSQL
-type BillingAnalyticsService struct {
+// DashboardMetricsService provides dashboard metrics by querying PostgreSQL
+type DashboardMetricsService struct {
 	repo *repo.BillingAnalyticsRepo
 }
 
-// NewBillingAnalyticsService creates a new billing analytics service
-func NewBillingAnalyticsService(db *db.DB) *BillingAnalyticsService {
-	return &BillingAnalyticsService{repo: repo.NewBillingAnalyticsRepo(db)}
+// NewDashboardMetricsService creates a new dashboard metrics service
+func NewDashboardMetricsService(db *db.DB) *DashboardMetricsService {
+	return &DashboardMetricsService{repo: repo.NewBillingAnalyticsRepo(db)}
 }
 
 // DashboardMetrics contains all the dashboard metrics
@@ -46,7 +46,7 @@ type ProcessorMetrics struct {
 }
 
 // GetDashboardMetrics returns the 6 key dashboard metrics
-func (s *BillingAnalyticsService) GetDashboardMetrics(ctx context.Context) (*DashboardMetrics, error) {
+func (s *DashboardMetricsService) GetDashboardMetrics(ctx context.Context) (*DashboardMetrics, error) {
 	metrics := &DashboardMetrics{}
 
 	count, err := s.repo.CountActiveUsersWithoutAutoRenew(ctx)
@@ -74,7 +74,7 @@ func (s *BillingAnalyticsService) GetDashboardMetrics(ctx context.Context) (*Das
 }
 
 // GetDailyMetrics returns daily metrics for a specific date range
-func (s *BillingAnalyticsService) GetDailyMetrics(ctx context.Context, startDate, endDate time.Time) ([]DailyMetrics, error) {
+func (s *DashboardMetricsService) GetDailyMetrics(ctx context.Context, startDate, endDate time.Time) ([]DailyMetrics, error) {
 	var metrics []DailyMetrics
 
 	currentDate := startDate
@@ -112,7 +112,7 @@ func (s *BillingAnalyticsService) GetDailyMetrics(ctx context.Context, startDate
 }
 
 // GetMetricsByProcessor returns metrics broken down by payment processor
-func (s *BillingAnalyticsService) GetMetricsByProcessor(ctx context.Context) ([]ProcessorMetrics, error) {
+func (s *DashboardMetricsService) GetMetricsByProcessor(ctx context.Context) ([]ProcessorMetrics, error) {
 	var allMetrics []ProcessorMetrics
 
 	// Include all NMI-backed processors and CCBill

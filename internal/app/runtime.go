@@ -45,7 +45,7 @@ type Runtime struct {
 
 	EmailService *services.EmailService
 
-	BillingEventService *services.BillingEventService
+	EventLogService *services.EventLogService
 	EntitlementService  *services.EntitlementService
 
 	SolanaWalletService        *services.SolanaWalletService
@@ -95,8 +95,8 @@ func (r *Runtime) Close(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("failed to close db: %w", err))
 		}
 	}
-	if r.BillingEventService != nil {
-		if err := r.BillingEventService.Close(); err != nil {
+	if r.EventLogService != nil {
+		if err := r.EventLogService.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close billing event service: %w", err))
 		}
 	}

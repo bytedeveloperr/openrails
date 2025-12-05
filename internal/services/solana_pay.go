@@ -32,7 +32,7 @@ type PendingSolanaPayment struct {
 	UserID      string    `json:"user_id"`
 	PriceID     string    `json:"price_id"`
 	Amount      int64     `json:"amount"`   // cents (fiat equivalent)
-	Currency    string    `json:"currency"` // e.g., "USD"
+	Currency    string    `json:"currency"` // e.g., "usd"
 	Token       string    `json:"token"`    // e.g., "USDC"
 	TokenMint   string    `json:"token_mint"`
 	TokenAmount uint64    `json:"token_amount"` // token base units

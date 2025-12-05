@@ -21,8 +21,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// BillingEventService handles logging billing events to ClickHouse
-type BillingEventService struct {
+// EventLogService handles logging billing events to ClickHouse
+type EventLogService struct {
 	clickhouseConn driver.Conn
 	config         *config.ClickHouseConfig
 	spool          *spool.Spool
@@ -30,22 +30,22 @@ type BillingEventService struct {
 }
 
 // now returns the current time from the service's clock, or time.Now() if no clock is set.
-func (s *BillingEventService) now() time.Time {
+func (s *EventLogService) now() time.Time {
 	if s.Clock != nil {
 		return s.Clock.Now()
 	}
 	return time.Now()
 }
 
-// NewBillingEventService creates a new billing event service
-func NewBillingEventService(cfg *config.ClickHouseConfig) (*BillingEventService, error) {
+// NewEventLogService creates a new event log service
+func NewEventLogService(cfg *config.ClickHouseConfig) (*EventLogService, error) {
 	// Feature gate: presence of HTTPAddr indicates intent to use CH
 	if cfg == nil || cfg.HTTPAddr == "" {
 		log.Warn("ClickHouse HTTPAddr not configured - billing events will not be logged")
 		sp, _ := spool.New(defaultSpoolDir())
-		bes := &BillingEventService{spool: sp}
-		bes.startBackgroundFlush()
-		return bes, nil
+		svc := &EventLogService{spool: sp}
+		svc.startBackgroundFlush()
+		return svc, nil
 	}
 
 	// Try connect; if it fails, return service with nil conn so it can retry later
@@ -53,19 +53,19 @@ func NewBillingEventService(cfg *config.ClickHouseConfig) (*BillingEventService,
 	if err != nil {
 		log.WithError(err).Warn("ClickHouse unavailable at startup; will retry on use")
 		sp, _ := spool.New(defaultSpoolDir())
-		bes := &BillingEventService{clickhouseConn: nil, config: cfg, spool: sp}
-		bes.startBackgroundFlush()
-		return bes, nil
+		svc := &EventLogService{clickhouseConn: nil, config: cfg, spool: sp}
+		svc.startBackgroundFlush()
+		return svc, nil
 	}
 
 	sp, _ := spool.New(defaultSpoolDir())
-	bes := &BillingEventService{clickhouseConn: conn, config: cfg, spool: sp}
-	bes.startBackgroundFlush()
-	return bes, nil
+	svc := &EventLogService{clickhouseConn: conn, config: cfg, spool: sp}
+	svc.startBackgroundFlush()
+	return svc, nil
 }
 
 // ensureConn lazily (re)establishes the ClickHouse connection
-func (s *BillingEventService) ensureConn(ctx context.Context) error {
+func (s *EventLogService) ensureConn(ctx context.Context) error {
 	if s.config == nil || s.config.HTTPAddr == "" {
 		return fmt.Errorf("ClickHouse HTTPAddr not configured")
 	}
@@ -88,7 +88,7 @@ func (s *BillingEventService) ensureConn(ctx context.Context) error {
 }
 
 // Ready checks connectivity to ClickHouse and establishes a connection if needed.
-func (s *BillingEventService) Ready(ctx context.Context) error {
+func (s *EventLogService) Ready(ctx context.Context) error {
 	// Use a short timeout if the provided context has none
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
 		tctx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -102,7 +102,7 @@ func defaultSpoolDir() string {
 	return "/var/lib/doujins-billing/spool"
 }
 
-func (s *BillingEventService) startBackgroundFlush() {
+func (s *EventLogService) startBackgroundFlush() {
 	if s.spool == nil {
 		return
 	}
@@ -117,7 +117,7 @@ func (s *BillingEventService) startBackgroundFlush() {
 	}()
 }
 
-func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
+func (s *EventLogService) flushOnce(ctx context.Context, limit int) error {
 	if s.spool == nil {
 		return nil
 	}
@@ -299,7 +299,7 @@ func (s *BillingEventService) flushOnce(ctx context.Context, limit int) error {
 }
 
 // Close closes the ClickHouse connection
-func (s *BillingEventService) Close() error {
+func (s *EventLogService) Close() error {
 	if s.clickhouseConn != nil {
 		return s.clickhouseConn.Close()
 	}
@@ -318,6 +318,41 @@ type SubscriptionEventData struct {
 	Metadata                string    `json:"metadata"`
 	Timestamp               time.Time `json:"timestamp"`
 }
+
+// PaymentEventType defines standardized event types for payment logging.
+// All processors (CCBill, NMI/Mobius, Solana) should use these constants
+// to ensure consistent event type values across the system.
+type PaymentEventType = string
+
+const (
+	// Payment transaction events
+	PaymentEventChargeSuccess PaymentEventType = "charge_success"
+	PaymentEventChargeFailure PaymentEventType = "charge_failure"
+
+	// Refund events
+	PaymentEventRefund        PaymentEventType = "refund"
+	PaymentEventRefundFailure PaymentEventType = "refund_failure"
+
+	// Void events
+	PaymentEventVoid        PaymentEventType = "void"
+	PaymentEventVoidFailure PaymentEventType = "void_failure"
+
+	// Chargeback events
+	PaymentEventChargeback      PaymentEventType = "chargeback"
+	PaymentEventBatchProcessed  PaymentEventType = "batch_processed"
+
+	// Subscription lifecycle events (for ClickHouse logging)
+	PaymentEventSubscriptionCancelled   PaymentEventType = "subscription_cancelled"
+	PaymentEventSubscriptionExpired     PaymentEventType = "subscription_expired"
+	PaymentEventSubscriptionReactivated PaymentEventType = "subscription_reactivated"
+
+	// Customer/billing info events
+	PaymentEventBillingDateChanged   PaymentEventType = "billing_date_changed"
+	PaymentEventCustomerDataUpdated  PaymentEventType = "customer_data_updated"
+
+	// Unknown/fallback
+	PaymentEventUnknown PaymentEventType = "unknown"
+)
 
 // PaymentEventData represents data for payment events
 type PaymentEventData struct {
@@ -445,7 +480,7 @@ func redactAndTruncate(s string, max int) string {
 }
 
 // LogSubscriptionEvent logs a subscription lifecycle event
-func (s *BillingEventService) LogSubscriptionEvent(ctx context.Context, data SubscriptionEventData) error {
+func (s *EventLogService) LogSubscriptionEvent(ctx context.Context, data SubscriptionEventData) error {
 	if err := s.ensureConn(ctx); err != nil {
 		log.WithError(err).Warn("ClickHouse not available - spooling subscription event")
 		s.enqueue("subscription", data)
@@ -482,7 +517,7 @@ func (s *BillingEventService) LogSubscriptionEvent(ctx context.Context, data Sub
 }
 
 // LogPaymentEvent logs a payment transaction event
-func (s *BillingEventService) LogPaymentEvent(ctx context.Context, data PaymentEventData) error {
+func (s *EventLogService) LogPaymentEvent(ctx context.Context, data PaymentEventData) error {
 	if err := s.ensureConn(ctx); err != nil {
 		log.WithError(err).Warn("ClickHouse not available - spooling payment event")
 		s.enqueue("payment", data)
@@ -522,7 +557,7 @@ func (s *BillingEventService) LogPaymentEvent(ctx context.Context, data PaymentE
 }
 
 // LogTransactionEvent logs a transaction event
-func (s *BillingEventService) LogTransactionEvent(ctx context.Context, data TransactionEventData) error {
+func (s *EventLogService) LogTransactionEvent(ctx context.Context, data TransactionEventData) error {
 	// Map transaction event into payment_events to avoid separate table.
 	if err := s.ensureConn(ctx); err != nil {
 		log.WithError(err).Warn("ClickHouse not available - spooling transaction event")
@@ -581,7 +616,7 @@ func (s *BillingEventService) LogTransactionEvent(ctx context.Context, data Tran
 }
 
 // LogACUEvent logs an Automatic Card Updater event
-func (s *BillingEventService) LogACUEvent(ctx context.Context, data ACUEventData) error {
+func (s *EventLogService) LogACUEvent(ctx context.Context, data ACUEventData) error {
 	if err := s.ensureConn(ctx); err != nil {
 		log.WithError(err).Warn("ClickHouse not available - spooling ACU event")
 		s.enqueue("acu", data)
@@ -643,7 +678,7 @@ func (s *BillingEventService) LogACUEvent(ctx context.Context, data ACUEventData
 }
 
 // LogChargebackEvent logs a chargeback event
-func (s *BillingEventService) LogChargebackEvent(ctx context.Context, data ChargebackEventData) error {
+func (s *EventLogService) LogChargebackEvent(ctx context.Context, data ChargebackEventData) error {
 	if err := s.ensureConn(ctx); err != nil {
 		log.WithError(err).Warn("ClickHouse not available - spooling chargeback event")
 		s.enqueue("chargeback", data)
@@ -725,7 +760,7 @@ func CreateMetadataJSON(data map[string]interface{}) string {
 }
 
 // enqueue helper
-func (s *BillingEventService) enqueue(kind string, v interface{}) {
+func (s *EventLogService) enqueue(kind string, v interface{}) {
 	if s.spool == nil {
 		return
 	}
@@ -737,7 +772,7 @@ func (s *BillingEventService) enqueue(kind string, v interface{}) {
 }
 
 // insert helpers used by both direct logging and background flush
-func (s *BillingEventService) insertSubscription(ctx context.Context, data SubscriptionEventData) error {
+func (s *EventLogService) insertSubscription(ctx context.Context, data SubscriptionEventData) error {
 	query := `
         INSERT INTO subscription_events (
             event_id, subscription_id, user_id, event_type, processor,
@@ -758,7 +793,7 @@ func (s *BillingEventService) insertSubscription(ctx context.Context, data Subsc
 	)
 }
 
-func (s *BillingEventService) insertSubscriptionBatch(ctx context.Context, rows []SubscriptionEventData) error {
+func (s *EventLogService) insertSubscriptionBatch(ctx context.Context, rows []SubscriptionEventData) error {
 	batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO subscription_events (event_id, subscription_id, user_id, event_type, processor, processor_subscription_id, processor_transaction_id, metadata, timestamp) VALUES`)
 	if err != nil {
 		return err
@@ -771,7 +806,7 @@ func (s *BillingEventService) insertSubscriptionBatch(ctx context.Context, rows 
 	return batch.Send()
 }
 
-func (s *BillingEventService) insertPayment(ctx context.Context, data PaymentEventData) error {
+func (s *EventLogService) insertPayment(ctx context.Context, data PaymentEventData) error {
 	query := `
         INSERT INTO payment_events (
             event_id, subscription_id, user_id, event_type, processor,
@@ -795,7 +830,7 @@ func (s *BillingEventService) insertPayment(ctx context.Context, data PaymentEve
 	)
 }
 
-func (s *BillingEventService) insertPaymentBatch(ctx context.Context, rows []PaymentEventData) error {
+func (s *EventLogService) insertPaymentBatch(ctx context.Context, rows []PaymentEventData) error {
 	batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO payment_events (event_id, subscription_id, user_id, event_type, processor, processor_transaction_id, amount, currency, billing_info, webhook_source, metadata, timestamp) VALUES`)
 	if err != nil {
 		return err
@@ -808,7 +843,7 @@ func (s *BillingEventService) insertPaymentBatch(ctx context.Context, rows []Pay
 	return batch.Send()
 }
 
-func (s *BillingEventService) insertTransaction(ctx context.Context, d TransactionEventData) error {
+func (s *EventLogService) insertTransaction(ctx context.Context, d TransactionEventData) error {
 	// normalized mapping to payment_events; keep fields as-is
 	query := `
         INSERT INTO payment_events (
@@ -827,7 +862,7 @@ func (s *BillingEventService) insertTransaction(ctx context.Context, d Transacti
 	)
 }
 
-func (s *BillingEventService) insertACU(ctx context.Context, data ACUEventData) error {
+func (s *EventLogService) insertACU(ctx context.Context, data ACUEventData) error {
 	query := `
         INSERT INTO acu_events (
             event_id, subscription_id, user_id, event_type, processor,
@@ -851,7 +886,7 @@ func (s *BillingEventService) insertACU(ctx context.Context, data ACUEventData) 
 	)
 }
 
-func (s *BillingEventService) insertACUBatch(ctx context.Context, rows []ACUEventData) error {
+func (s *EventLogService) insertACUBatch(ctx context.Context, rows []ACUEventData) error {
 	batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO acu_events (event_id, subscription_id, user_id, event_type, processor, processor_subscription_id, card_info, update_status, requires_action, reason, metadata, timestamp) VALUES`)
 	if err != nil {
 		return err
@@ -864,7 +899,7 @@ func (s *BillingEventService) insertACUBatch(ctx context.Context, rows []ACUEven
 	return batch.Send()
 }
 
-func (s *BillingEventService) insertChargeback(ctx context.Context, data ChargebackEventData) error {
+func (s *EventLogService) insertChargeback(ctx context.Context, data ChargebackEventData) error {
 	query := `
         INSERT INTO chargeback_events (
             event_id, chargeback_id, batch_id, subscription_id, user_id, event_type, processor,
@@ -891,7 +926,7 @@ func (s *BillingEventService) insertChargeback(ctx context.Context, data Chargeb
 	)
 }
 
-func (s *BillingEventService) insertChargebackBatch(ctx context.Context, rows []ChargebackEventData) error {
+func (s *EventLogService) insertChargebackBatch(ctx context.Context, rows []ChargebackEventData) error {
 	batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO chargeback_events (event_id, chargeback_id, batch_id, subscription_id, user_id, event_type, processor, processor_transaction_id, amount, currency, chargeback_type, reason, status, metadata, timestamp) VALUES`)
 	if err != nil {
 		return err

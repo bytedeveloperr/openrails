@@ -146,7 +146,7 @@ func billingCycleDaysToInterval(days int) (string, int) {
 type GeneratePaymentResponse struct {
 	Transaction  string `json:"transaction"`            // base64-encoded tx (placeholder if not available)
 	Amount       int64  `json:"amount"`                 // fiat price amount in cents
-	Currency     string `json:"currency"`               // fiat currency (e.g., USD)
+	Currency     string `json:"currency"`               // fiat currency (e.g., usd)
 	TokenAmount  uint64 `json:"token_amount"`           // smallest unit amount
 	TokenSymbol  string `json:"token_symbol"`           // SOL/USDC/etc.
 	ExpiresAt    int64  `json:"expires_at"`             // unix epoch expiry
@@ -186,7 +186,7 @@ type ErrorResponse struct {
 // SolanaPayQRResponse contains the Solana Pay URL metadata
 type SolanaPayQRResponse struct {
 	URL         string `json:"url"`          // Solana Pay URL for QR code
-	Amount      int64  `json:"amount"`       // USD amount in cents
+	Amount      int64  `json:"amount"`       // Amount in cents
 	TokenAmount string `json:"token_amount"` // human-readable token amount
 	TokenSymbol string `json:"token_symbol"` // SOL, USDC, etc.
 	Label       string `json:"label"`        // Merchant label

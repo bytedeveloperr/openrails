@@ -4,37 +4,50 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
 )
 
 // WebhookProcessor orchestrates loading, dispatching, and updating webhook events.
+// Processing is now synchronous-only - no retry mechanism.
 type WebhookProcessor struct {
 	Events     *WebhookEventService
 	Dispatcher *WebhookDispatcher
 }
 
 // Process executes the webhook event identified by id.
-// It returns true when a retry has been scheduled.
-func (p *WebhookProcessor) Process(ctx context.Context, id uuid.UUID) (bool, error) {
+// Returns error if processing fails - caller should log but may still return success
+// to payment processor since they will retry on their end.
+func (p *WebhookProcessor) Process(ctx context.Context, id uuid.UUID) error {
 	if p == nil || p.Events == nil || p.Dispatcher == nil {
-		return false, fmt.Errorf("webhook processor not initialised")
+		return fmt.Errorf("webhook processor not initialised")
 	}
 
-	event, err := p.Events.BeginProcessing(ctx, id)
+	event, err := p.Events.Get(ctx, id)
 	if err != nil {
-		return false, fmt.Errorf("begin webhook processing: %w", err)
+		return fmt.Errorf("get webhook event: %w", err)
 	}
 
 	if err := p.Dispatcher.Process(ctx, event); err != nil {
-		retry, markErr := p.Events.MarkFailure(ctx, event, err)
-		if markErr != nil {
-			return retry, fmt.Errorf("mark webhook failure: %w", markErr)
+		// Mark as failed for audit trail
+		if markErr := p.Events.MarkFailed(ctx, id, err); markErr != nil {
+			return fmt.Errorf("processing failed and could not mark failure: %w (original: %v)", markErr, err)
 		}
-		return retry, err
+		return err
 	}
 
 	if err := p.Events.MarkProcessed(ctx, id); err != nil {
-		return false, fmt.Errorf("mark webhook success: %w", err)
+		return fmt.Errorf("mark webhook success: %w", err)
 	}
-	return false, nil
+	return nil
+}
+
+// ProcessDirect processes a webhook event directly without requiring it to be stored first.
+// This is for simplified synchronous processing.
+func (p *WebhookProcessor) ProcessDirect(ctx context.Context, event *models.WebhookEvent) error {
+	if p == nil || p.Dispatcher == nil {
+		return fmt.Errorf("webhook processor not initialised")
+	}
+
+	return p.Dispatcher.Process(ctx, event)
 }

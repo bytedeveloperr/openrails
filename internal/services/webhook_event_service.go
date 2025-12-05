@@ -6,26 +6,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
-	"github.com/uptrace/bun"
 )
 
 const (
-	WebhookStatusPending    = "pending"
-	WebhookStatusProcessing = "processing"
-	WebhookStatusProcessed  = "processed"
-	WebhookStatusFailed     = "failed"
-	WebhookStatusError      = "error"
+	WebhookStatusPending   = "pending"
+	WebhookStatusProcessed = "processed"
+	WebhookStatusFailed    = "failed"
 )
 
-// WebhookEventService persists webhook events and manages retry metadata.
+// WebhookEventService persists webhook events for audit logging.
+// Webhook processing is now synchronous-only - no retry mechanism.
+// Payment processors (CCBill, NMI) will retry failed webhooks from their end.
 type WebhookEventService struct {
 	db    *db.DB
-	retry config.WebhookRetryConfig
 	Clock clockwork.Clock
 }
 
@@ -38,8 +35,8 @@ func (s *WebhookEventService) now() time.Time {
 }
 
 // NewWebhookEventService constructs a new persistence service.
-func NewWebhookEventService(database *db.DB, retryCfg config.WebhookRetryConfig) *WebhookEventService {
-	return &WebhookEventService{db: database, retry: retryCfg}
+func NewWebhookEventService(database *db.DB) *WebhookEventService {
+	return &WebhookEventService{db: database}
 }
 
 // CreateWebhookEventParams holds the metadata for storing a webhook.
@@ -54,7 +51,7 @@ type CreateWebhookEventParams struct {
 	SignatureValid *bool
 }
 
-// Create stores the webhook event and returns the persisted record.
+// Create stores the webhook event for audit logging and returns the persisted record.
 func (s *WebhookEventService) Create(ctx context.Context, params CreateWebhookEventParams) (*models.WebhookEvent, error) {
 	if s == nil || s.db == nil {
 		return nil, fmt.Errorf("webhook event service not initialised")
@@ -71,19 +68,16 @@ func (s *WebhookEventService) Create(ctx context.Context, params CreateWebhookEv
 		return nil, fmt.Errorf("ip address is required")
 	}
 
-	nextAttempt := s.now()
 	event := &models.WebhookEvent{
-		Processor:          processor,
-		EventID:            nilIfEmpty(params.EventID),
-		EventType:          params.EventType,
-		Status:             WebhookStatusPending,
-		RawPayload:         string(params.Payload),
-		Headers:            params.Headers,
-		IPAddress:          params.IPAddress,
-		Signature:          nilIfEmpty(params.Signature),
-		SignatureValid:     params.SignatureValid,
-		ProcessingAttempts: 0,
-		NextAttemptAt:      &nextAttempt,
+		Processor:      processor,
+		EventID:        nilIfEmpty(params.EventID),
+		EventType:      params.EventType,
+		Status:         WebhookStatusPending,
+		RawPayload:     string(params.Payload),
+		Headers:        params.Headers,
+		IPAddress:      params.IPAddress,
+		Signature:      nilIfEmpty(params.Signature),
+		SignatureValid: params.SignatureValid,
 	}
 
 	if _, err := s.db.GetDB().NewInsert().Model(event).Returning("*").Exec(ctx); err != nil {
@@ -104,29 +98,6 @@ func (s *WebhookEventService) Get(ctx context.Context, id uuid.UUID) (*models.We
 	return event, nil
 }
 
-// BeginProcessing increments attempt counters and marks the event as processing.
-func (s *WebhookEventService) BeginProcessing(ctx context.Context, id uuid.UUID) (*models.WebhookEvent, error) {
-	if s == nil || s.db == nil {
-		return nil, fmt.Errorf("webhook event service not initialised")
-	}
-	now := s.now()
-	event := new(models.WebhookEvent)
-	err := s.db.GetDB().NewUpdate().Model(event).
-		Set("status = ?", WebhookStatusProcessing).
-		Set("processing_attempts = processing_attempts + 1").
-		Set("last_attempt_at = ?", now).
-		Set("updated_at = ?", now).
-		Set("next_attempt_at = NULL").
-		Where("id = ?", id).
-		Where("status IN (?)", bun.In([]string{WebhookStatusPending, WebhookStatusFailed})).
-		Returning("*").
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return event, nil
-}
-
 // MarkProcessed marks the webhook as processed successfully.
 func (s *WebhookEventService) MarkProcessed(ctx context.Context, id uuid.UUID) error {
 	if s == nil || s.db == nil {
@@ -136,7 +107,6 @@ func (s *WebhookEventService) MarkProcessed(ctx context.Context, id uuid.UUID) e
 	_, err := s.db.GetDB().NewUpdate().Model((*models.WebhookEvent)(nil)).
 		Set("status = ?", WebhookStatusProcessed).
 		Set("processed_at = ?", now).
-		Set("next_attempt_at = NULL").
 		Set("updated_at = ?", now).
 		Where("id = ?", id).
 		Exec(ctx)
@@ -146,73 +116,23 @@ func (s *WebhookEventService) MarkProcessed(ctx context.Context, id uuid.UUID) e
 	return nil
 }
 
-// MarkFailure updates the webhook state after a processing failure.
-// Returns true if the event should be retried.
-func (s *WebhookEventService) MarkFailure(ctx context.Context, event *models.WebhookEvent, failure error) (bool, error) {
+// MarkFailed marks the webhook as failed with error message.
+func (s *WebhookEventService) MarkFailed(ctx context.Context, id uuid.UUID, failure error) error {
 	if s == nil || s.db == nil {
-		return false, fmt.Errorf("webhook event service not initialised")
+		return fmt.Errorf("webhook event service not initialised")
 	}
-	if event == nil {
-		return false, fmt.Errorf("event is required")
-	}
-	attempts := event.ProcessingAttempts
-	shouldRetry := attempts < s.retry.MaxAttempts
-	status := WebhookStatusFailed
-	var nextAttempt *time.Time
 	now := s.now()
-	if shouldRetry {
-		backoff := s.nextBackoff(attempts)
-		scheduled := now.Add(backoff)
-		nextAttempt = &scheduled
-	} else {
-		status = WebhookStatusError
-	}
-
 	_, err := s.db.GetDB().NewUpdate().Model((*models.WebhookEvent)(nil)).
-		Set("status = ?", status).
+		Set("status = ?", WebhookStatusFailed).
 		Set("error_message = ?", truncateError(failure)).
-		Set("next_attempt_at = ?", nextAttempt).
 		Set("processing_result = ?", map[string]any{"error": truncateError(failure)}).
 		Set("updated_at = ?", now).
-		Where("id = ?", event.ID).
+		Where("id = ?", id).
 		Exec(ctx)
 	if err != nil {
-		return shouldRetry, fmt.Errorf("mark webhook failure: %w", err)
+		return fmt.Errorf("mark webhook failed: %w", err)
 	}
-	return shouldRetry, nil
-}
-
-// ListRetryable returns events that are ready to be retried.
-func (s *WebhookEventService) ListRetryable(ctx context.Context, limit int) ([]models.WebhookEvent, error) {
-	if s == nil || s.db == nil {
-		return nil, fmt.Errorf("webhook event service not initialised")
-	}
-	if limit <= 0 {
-		limit = s.retry.BatchSize
-	}
-	events := []models.WebhookEvent{}
-	now := s.now()
-	query := s.db.GetDB().NewSelect().Model(&events).
-		Where("status IN (?)", bun.In([]string{WebhookStatusPending, WebhookStatusFailed})).
-		Where("next_attempt_at IS NULL OR next_attempt_at <= ?", now).
-		OrderExpr("received_at ASC").
-		Limit(limit)
-	if err := query.Scan(ctx); err != nil {
-		return nil, err
-	}
-	return events, nil
-}
-
-func (s *WebhookEventService) nextBackoff(attempt int) time.Duration {
-	if attempt <= 0 {
-		return s.retry.InitialBackoff
-	}
-	multiplier := 1 << (attempt - 1)
-	backoff := time.Duration(multiplier) * s.retry.InitialBackoff
-	if backoff > s.retry.MaxBackoff {
-		backoff = s.retry.MaxBackoff
-	}
-	return backoff
+	return nil
 }
 
 func nilIfEmpty(val string) *string {

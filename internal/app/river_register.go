@@ -14,7 +14,7 @@ import (
 // buildRiverWorkers constructs the worker registry for River.
 func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error) {
 	workers := river.NewWorkers()
-	if err := river.AddWorkerSafely(workers, &riverjobs.DunningWorker{DB: r.DB, NMIClients: r.NMIClients}); err != nil {
+	if err := river.AddWorkerSafely(workers, &riverjobs.DunningWorker{DB: r.DB, NMIClients: r.NMIClients, EventLogService: r.EventLogService}); err != nil {
 		return nil, fmt.Errorf("add dunning worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.IdempotencyCleanupWorker{DB: r.DB}); err != nil {
@@ -23,12 +23,8 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 	if err := river.AddWorkerSafely(workers, &riverjobs.CCBillReconcileWorker{DB: r.DB, DataLink: r.CCBillDataLink}); err != nil {
 		return nil, fmt.Errorf("add ccbill reconcile worker: %w", err)
 	}
-	if err := river.AddWorkerSafely(workers, &riverjobs.WebhookProcessWorker{Processor: r.WebhookProcessor}); err != nil {
-		return nil, fmt.Errorf("add webhook process worker: %w", err)
-	}
-	if err := river.AddWorkerSafely(workers, &riverjobs.WebhookRetryWorker{Events: r.WebhookEventService, Processor: r.WebhookProcessor}); err != nil {
-		return nil, fmt.Errorf("add webhook retry worker: %w", err)
-	}
+	// Webhook processing is now synchronous-only - no background workers needed.
+	// Payment processors (CCBill, NMI) retry failed webhooks from their end.
 	clock := r.Clock
 	if clock == nil {
 		clock = clockwork.NewRealClock()
@@ -80,16 +76,8 @@ func (r *Runtime) buildRiverPeriodicJobs(ctx context.Context) ([]*river.Periodic
 		&river.PeriodicJobOpts{RunOnStart: false},
 	))
 
-	// Every minute: check for webhook retries
-	jobs = append(jobs, river.NewPeriodicJob(
-		river.PeriodicInterval(time.Minute),
-		func() (river.JobArgs, *river.InsertOpts) {
-			return riverjobs.WebhookRetryArgs{}, &river.InsertOpts{
-				Queue: riverjobs.QueueBilling,
-			}
-		},
-		&river.PeriodicJobOpts{RunOnStart: true},
-	))
+	// Webhook retry job removed - webhooks are now processed synchronously only.
+	// Payment processors (CCBill, NMI) will retry failed webhooks from their end.
 
 	// Every hour: cleanup expired data (wallet challenges, payment intents, etc.)
 	jobs = append(jobs, river.NewPeriodicJob(

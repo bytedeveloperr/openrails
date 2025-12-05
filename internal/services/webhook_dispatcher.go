@@ -24,7 +24,7 @@ type WebhookDispatcher struct {
 	NotificationService          *NotificationService
 	SubscriptionService          *SubscriptionService
 	PaymentService               *PaymentService
-	BillingEventService          *BillingEventService
+	EventLogService              *EventLogService
 	SubscriptionLifecycleService *SubscriptionLifecycleService
 	ProfileRepo                  *repo.ProfileRepo
 	DeduplicationService         *DeduplicationService
@@ -64,10 +64,12 @@ func (d *WebhookDispatcher) processCCBill(ctx context.Context, event *models.Web
 		PriceService:                 d.PriceService,
 		NotificationService:          d.NotificationService,
 		DeadLetterService:            &DeadLetterService{DB: d.DB, NotificationService: d.NotificationService},
-		BillingEventService:          d.BillingEventService,
+		EventLogService:              d.EventLogService,
 		SubscriptionService:          d.SubscriptionService,
 		SubscriptionLifecycleService: d.SubscriptionLifecycleService,
 		ProfileRepo:                  d.ProfileRepo,
+		PaymentService:               d.PaymentService,
+		DeduplicationService:         d.DeduplicationService,
 	}
 	return service.HandleCCBillWebhook(ctx)
 }
@@ -94,7 +96,7 @@ func (d *WebhookDispatcher) processNMI(ctx context.Context, event *models.Webhoo
 		Processor:                    provider,
 		DeadLetterService:            &DeadLetterService{DB: d.DB, NotificationService: d.NotificationService},
 		NMIClient:                    client,
-		BillingEventService:          d.BillingEventService,
+		EventLogService:              d.EventLogService,
 		SubscriptionService:          d.SubscriptionService,
 		PaymentService:               d.PaymentService,
 		DeduplicationService:         d.DeduplicationService,

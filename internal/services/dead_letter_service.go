@@ -151,7 +151,7 @@ func (s *DeadLetterService) LogProcessingFailure(ctx context.Context, processor,
 func (s *DeadLetterService) LogInvalidPayload(ctx context.Context, processor string, rawPayload json.RawMessage, validationError error, headers map[string]string, clientIP string) error {
 	return s.LogDeadLetter(ctx, LogDeadLetterParams{
 		Processor:        processor,
-		EventType:        "unknown",
+		EventType:        PaymentEventUnknown,
 		RawPayload:       rawPayload,
 		FailureReason:    "Invalid or malformed payload",
 		ProcessingError:  validationError.Error(),
@@ -165,7 +165,7 @@ func (s *DeadLetterService) LogInvalidPayload(ctx context.Context, processor str
 func (s *DeadLetterService) LogAuthenticationFailure(ctx context.Context, processor string, rawPayload json.RawMessage, authError error, headers map[string]string, clientIP string) error {
 	return s.LogDeadLetter(ctx, LogDeadLetterParams{
 		Processor:        processor,
-		EventType:        "unknown",
+		EventType:        PaymentEventUnknown,
 		RawPayload:       rawPayload,
 		FailureReason:    "Authentication failed",
 		ProcessingError:  authError.Error(),

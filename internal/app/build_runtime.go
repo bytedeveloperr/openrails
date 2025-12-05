@@ -126,14 +126,15 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	// }
 
 	if cfg.ClickHouse != nil {
-		if bes, err := services.NewBillingEventService(cfg.ClickHouse); err != nil {
-			log.WithError(err).Warn("BillingEventService init failed; analytics disabled")
+		if bes, err := services.NewEventLogService(cfg.ClickHouse); err != nil {
+			log.WithError(err).Warn("EventLogService init failed; analytics disabled")
 		} else {
-			runtime.BillingEventService = bes
+			runtime.EventLogService = bes
 		}
 	}
 
-	runtime.WebhookDispatcher.BillingEventService = runtime.BillingEventService
+	runtime.WebhookDispatcher.EventLogService = runtime.EventLogService
+	runtime.SubscriptionLifecycleService.EventLogService = runtime.EventLogService
 
 	return runtime, nil
 }
@@ -330,6 +331,8 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		priceService,
 		entitlementService,
 		notificationService,
+		purchaseService, // For creating Payment records on renewal
+		nil,             // EventLogService - set later in buildRuntime after ClickHouse init
 	)
 	subscriptionLifecycleService.Clock = clock
 
@@ -375,7 +378,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	)
 
 	deduplicationService := services.NewDeduplicationService(database)
-	webhookEventService := services.NewWebhookEventService(database, cfg.GetWebhookRetryConfig())
+	webhookEventService := services.NewWebhookEventService(database)
 	webhookEventService.Clock = clock
 	webhookDispatcher := &services.WebhookDispatcher{
 		DB:                           database,
@@ -385,7 +388,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		NotificationService:          notificationService,
 		SubscriptionService:          subscriptionService,
 		PaymentService:               purchaseService,
-		BillingEventService:          nil,
+		EventLogService:          nil,
 		SubscriptionLifecycleService: subscriptionLifecycleService,
 		ProfileRepo:                  profileRepo,
 		DeduplicationService:         deduplicationService,

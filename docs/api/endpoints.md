@@ -46,7 +46,7 @@ Admin routes are not rate limited by the application but should live behind netw
         {
           "id": "59aa6fd2-4350-4d7c-9a9c-7f08d5149cb5",
           "amount": 4.99,
-          "currency": "USD",
+          "currency": "usd",
           "billing_cycle_days": 30
         }
       ]
@@ -59,7 +59,7 @@ Admin routes are not rate limited by the application but should live behind netw
         {
           "id": "3a58fb2f-0bec-4f0f-98a4-6aa45723b67d",
           "amount": 9.99,
-          "currency": "USD",
+          "currency": "usd",
           "billing_cycle_days": 30
         }
       ]
@@ -160,7 +160,7 @@ Admin routes are not rate limited by the application but should live behind netw
       "current_period_starts_at": "2025-01-01T12:00:00Z",
       "current_period_ends_at": "2025-02-01T12:00:00Z"
     },
-    "price": { "id": "3a58fb2f-0bec-4f0f-98a4-6aa45723b67d", "amount": 9.99, "currency": "USD" },
+    "price": { "id": "3a58fb2f-0bec-4f0f-98a4-6aa45723b67d", "amount": 9.99, "currency": "usd" },
     "product": { "id": "64ba7b37-3d1d-4e38-9de0-1f209d148c51", "name": "Premium" }
   }
   ```
@@ -197,7 +197,7 @@ Admin routes are not rate limited by the application but should live behind netw
         "processor": "solana",
         "transaction_id": "3zY..aP",
         "amount": 4.99,
-        "currency": "USD",
+        "currency": "usd",
         "purchased_at": "2025-01-10T08:30:12Z"
       }
     ],
@@ -350,7 +350,7 @@ Admin routes are not rate limited by the application but should live behind netw
     "transaction_id": "3zY..aP",
     "status": "confirmed",
     "amount": 9.99,
-    "currency": "USD",
+    "currency": "usd",
     "processed_at": "2025-01-10T08:30:12Z",
     "intent_id": "9645f7c7-4d05-4d74-94f5-32e602a880a3",
     "message": "Payment recorded"

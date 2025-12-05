@@ -35,9 +35,10 @@ func (DunningArgs) Kind() string { return KindDunning }
 // updates the database after each attempt for idempotency.
 type DunningWorker struct {
 	river.WorkerDefaults[DunningArgs]
-	DB         *db.DB
-	Clock      clockwork.Clock
-	NMIClients map[string]*nmi.NMIClient
+	DB              *db.DB
+	Clock           clockwork.Clock
+	NMIClients      map[string]*nmi.NMIClient
+	EventLogService *services.EventLogService
 }
 
 func (DunningWorker) Kind() string { return KindDunning }
@@ -86,8 +87,8 @@ func (w *DunningWorker) Work(ctx context.Context, job *river.Job[DunningArgs]) e
 	productSvc := services.NewProductService(w.DB)
 	entitlementSvc := services.NewEntitlementService(w.DB)
 	notifSvc := services.NewNotificationService(w.DB, nil)
-	lifecycle := services.NewSubscriptionLifecycleService(w.DB, productSvc, priceSvc, entitlementSvc, notifSvc)
 	paymentSvc := services.NewPaymentService(w.DB)
+	lifecycle := services.NewSubscriptionLifecycleService(w.DB, productSvc, priceSvc, entitlementSvc, notifSvc, paymentSvc, w.EventLogService)
 
 	successCount := 0
 	failCount := 0

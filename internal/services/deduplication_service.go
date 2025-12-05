@@ -21,6 +21,34 @@ func NewDeduplicationService(db *db.DB) *DeduplicationService {
 	return &DeduplicationService{idem: NewIdempotencyService(db)}
 }
 
+// IsDuplicate checks if a webhook with this eventID has already been processed successfully.
+// Returns true if the webhook should be skipped (already processed), false otherwise.
+func (s *DeduplicationService) IsDuplicate(ctx context.Context, processor string, eventID string) (bool, error) {
+	trimmedEventID := strings.TrimSpace(eventID)
+	if trimmedEventID == "" {
+		return false, nil // No event ID, can't deduplicate
+	}
+
+	op := fmt.Sprintf("webhook.%s.event", processor)
+	req, exists, err := s.idem.Begin(ctx, op, trimmedEventID, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to check idempotency: %w", err)
+	}
+	if exists && strings.EqualFold(req.Status, "success") {
+		return true, nil // Already processed successfully
+	}
+
+	// If we got here, we claimed this eventID - mark it as successful immediately
+	// since we're just using this for duplicate detection
+	if req != nil {
+		if err := s.idem.Complete(ctx, req.ID, nil); err != nil {
+			log.WithContext(ctx).WithError(err).Warn("failed to mark webhook idempotency as complete")
+		}
+	}
+
+	return false, nil
+}
+
 // ProcessWebhook handles webhook deduplication and processing coordination.
 // Returns (shouldProcess, webhookRecord, error)
 func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, eventType string, processor models.Processor, payload interface{}, processingFunc func(ctx context.Context) error) error {

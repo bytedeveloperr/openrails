@@ -25,42 +25,9 @@ func (s *Server) registerPublicRoutes() {
 	api.GET("/products", s.wrap(handlers.GetProducts))
 	api.GET("/prices", s.wrap(handlers.GetPrices))
 
-	subscriptions := api.Group("/subscriptions")
-	// Legacy route - kept for backwards compatibility
-	subscriptions.GET("/products", s.wrap(handlers.GetProducts))
-
-	subscriptions.Use(middleware.AuthRequired(s.authVerifier))
-	// Legacy endpoints - use POST /v1/me/checkout instead
-	subscriptions.POST("/cancel", s.wrap(handlers.CancelSubscription))
-	subscriptions.GET("/active", s.wrap(handlers.GetSubscription))
-	subscriptions.GET("/history", s.wrap(handlers.GetSubscriptionHistory))
-	subscriptions.GET("/purchases", s.wrap(handlers.GetUserPayments))
-
 	// Webhooks - single provider path (mobius/ccbill/solana)
 	webhooks := api.Group("/webhooks")
 	webhooks.POST("/:provider", s.wrap(handlers.Webhook))
-
-	pms := api.Group("/payment-methods")
-	pms.Use(middleware.AuthRequired(s.authVerifier))
-	pms.POST("", s.wrap(handlers.CreatePaymentMethod))
-	pms.GET("", s.wrap(handlers.ListPaymentMethods))
-	pms.PUT(":id", s.wrap(handlers.UpdatePaymentMethod))
-	pms.DELETE(":id", s.wrap(handlers.DeletePaymentMethod))
-	pms.PUT(":id/activate", s.wrap(handlers.ActivatePaymentMethod))
-
-	notifications := api.Group("/notifications")
-	notifications.Use(middleware.AuthRequired(s.authVerifier))
-	notifications.GET("", s.wrap(handlers.GetNotifications))
-	notifications.GET("/unread-count", s.wrap(handlers.GetUnreadNotificationCount))
-	notifications.POST(":id/read", s.wrap(handlers.MarkNotificationRead))
-
-	wallet := api.Group("/wallet/solana")
-	wallet.Use(middleware.AuthRequired(s.authVerifier))
-	wallet.GET("", s.wrap(handlers.ListSolanaWallets))
-	wallet.GET("/linked", s.wrap(handlers.GetSolanaWallet))
-	wallet.POST("/challenge", s.wrap(handlers.GenerateSolanaWalletChallenge))
-	wallet.POST("/verify", s.wrap(handlers.VerifySolanaWallet))
-	wallet.DELETE("", s.wrap(handlers.DeleteSolanaWallet))
 
 	// Payment Intents - Stripe-like pattern for Solana payments
 	// POST /payment-intents - Create a new payment intent (direct wallet flow)
@@ -74,18 +41,18 @@ func (s *Server) registerPublicRoutes() {
 	paymentIntents.GET("/:id", s.wrap(handlers.GetPaymentIntent))
 	paymentIntents.POST("/:id/confirm", s.wrap(handlers.ConfirmPaymentIntent))
 
-	// Solana - legacy routes kept for backwards compatibility, will be removed
-	solana := api.Group("/solana")
-	solana.GET("/tokens", s.wrap(handlers.GetSupportedTokens))
-	solana.Use(middleware.AuthRequired(s.authVerifier))
-	solana.POST("/generate", s.wrap(handlers.GeneratePayment)) // Use POST /payment-intents instead
-	solana.POST("/submit", s.wrap(handlers.SubmitPayment))     // Use POST /payment-intents/:id/confirm instead
-	solana.POST("/qr", s.wrap(handlers.GenerateSolanaPayQR))   // Use POST /payment-intents/qr instead
-	solana.GET("/check", s.wrap(handlers.CheckSolanaPayment))  // Use GET /payment-intents/:id instead
-	// New Solana Pay Transfer Request flow
-	solana.POST("/pay", s.wrap(handlers.CreateSolanaPay))
-	solana.GET("/pay/status", s.wrap(handlers.GetSolanaPayStatus))
-	solana.GET("/pay/:reference", s.wrap(handlers.GetSolanaPayByReference))
+	// Solana tokens endpoint (public, no auth required)
+	api.GET("/solana/tokens", s.wrap(handlers.GetSupportedTokens))
+
+	// Solana Pay - simplified Transfer Request flow with Redis-backed pending payments
+	// POST /v1/solana/pay - Create a new Solana Pay Transfer Request URL
+	// GET /v1/solana/pay/status?reference=REF - Check payment status
+	// GET /v1/solana/pay/:reference - Alternative status check by path
+	solanaPay := api.Group("/solana/pay")
+	solanaPay.Use(middleware.AuthRequired(s.authVerifier))
+	solanaPay.POST("", s.wrap(handlers.CreateSolanaPay))
+	solanaPay.GET("/status", s.wrap(handlers.GetSolanaPayStatus))
+	solanaPay.GET("/:reference", s.wrap(handlers.GetSolanaPayByReference))
 
 	me := api.Group("/me")
 	me.Use(middleware.AuthRequired(s.authVerifier))
@@ -94,6 +61,7 @@ func (s *Server) registerPublicRoutes() {
 	me.POST("/checkout", s.wrap(handlers.Checkout))
 	// New user-scoped endpoints
 	me.GET("/subscriptions", s.wrap(handlers.GetMySubscriptions))
+	me.PUT("/subscriptions/payment-method", s.wrap(handlers.UpdateSubscriptionPaymentMethod))
 	me.POST("/subscriptions/cancel", s.wrap(handlers.CancelSubscription))
 	me.GET("/payments", s.wrap(handlers.GetUserPayments))
 	me.GET("/payment-methods", s.wrap(handlers.ListPaymentMethods))

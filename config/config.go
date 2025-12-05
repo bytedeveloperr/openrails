@@ -46,7 +46,9 @@ const ConfigContextKey string = "config"
 type Config struct {
 	Env         string            `koanf:"env,omitempty"`
 	Port        FlexiblePort      `koanf:"port,omitempty"`
+	PrivatePort FlexiblePort      `koanf:"private_port,omitempty"` // Private/service API port (default 8060)
 	Host        string            `koanf:"host,omitempty"`
+	APIKey      string            `koanf:"api_key,omitempty"` // Shared secret for service-to-service auth (X-API-KEY header)
 	NMI         *NMIConfig        `koanf:"nmi,omitempty"`
 	CCBill      *CCBillConfig     `koanf:"ccbill,omitempty"`
 	Webhooks    *WebhookConfig    `koanf:"webhooks,omitempty"`
@@ -295,10 +297,15 @@ type RateLimit struct {
 	Window time.Duration `koanf:"window"`
 }
 
+// WebhookConfig is kept for backwards compatibility but webhook retry is no longer used.
+// Webhook processing is now synchronous-only - payment processors retry on their end.
 type WebhookConfig struct {
+	// Deprecated: Retry config is no longer used. Webhooks are processed synchronously.
 	Retry WebhookRetryConfig `koanf:"retry"`
 }
 
+// WebhookRetryConfig is deprecated - webhook retry mechanism has been removed.
+// Keeping the struct for backwards compatibility with existing config files.
 type WebhookRetryConfig struct {
 	MaxAttempts    int           `koanf:"max_attempts"`
 	InitialBackoff time.Duration `koanf:"initial_backoff"`
@@ -329,61 +336,21 @@ func Validate(cfg *Config) error {
 		return fmt.Errorf("database config validation failed: %w", err)
 	}
 
-	if err := validateWebhookConfig(cfg); err != nil {
-		return fmt.Errorf("webhook config validation failed: %w", err)
-	}
+	// Note: Webhook retry config validation removed - webhooks are now synchronous-only
 
 	return nil
 }
 
+// validateWebhookConfig is deprecated - webhook retry config is no longer used.
+// Keeping as no-op for backwards compatibility.
 func validateWebhookConfig(cfg *Config) error {
-	retry := cfg.GetWebhookRetryConfig()
-	if retry.MaxAttempts < 1 {
-		return fmt.Errorf("max_attempts must be at least 1")
-	}
-	if retry.InitialBackoff <= 0 {
-		return fmt.Errorf("initial_backoff must be positive")
-	}
-	if retry.MaxBackoff < retry.InitialBackoff {
-		return fmt.Errorf("max_backoff must be greater than or equal to initial_backoff")
-	}
-	if retry.BatchSize < 1 {
-		return fmt.Errorf("batch_size must be at least 1")
-	}
 	return nil
 }
 
-func defaultWebhookRetryConfig() WebhookRetryConfig {
-	return WebhookRetryConfig{
-		MaxAttempts:    5,
-		InitialBackoff: time.Minute,
-		MaxBackoff:     time.Hour,
-		BatchSize:      100,
-	}
-}
-
+// GetWebhookRetryConfig is deprecated - webhook retry mechanism has been removed.
+// Returns empty config. Kept for backwards compatibility.
 func (cfg *Config) GetWebhookRetryConfig() WebhookRetryConfig {
-	defaults := defaultWebhookRetryConfig()
-	if cfg == nil || cfg.Webhooks == nil {
-		return defaults
-	}
-	retry := cfg.Webhooks.Retry
-	if retry.MaxAttempts <= 0 {
-		retry.MaxAttempts = defaults.MaxAttempts
-	}
-	if retry.InitialBackoff <= 0 {
-		retry.InitialBackoff = defaults.InitialBackoff
-	}
-	if retry.MaxBackoff <= 0 {
-		retry.MaxBackoff = defaults.MaxBackoff
-	}
-	if retry.MaxBackoff < retry.InitialBackoff {
-		retry.MaxBackoff = retry.InitialBackoff
-	}
-	if retry.BatchSize <= 0 {
-		retry.BatchSize = defaults.BatchSize
-	}
-	return retry
+	return WebhookRetryConfig{}
 }
 
 // validateNMI validates NMI-specific configuration
@@ -556,9 +523,10 @@ func validateDatabase(cfg *DBConfig) error {
 // GetDefaultBillingConfig returns a billing configuration with sensible defaults
 func GetDefaultBillingConfig() *Config {
 	return &Config{
-		Env:  "development",
-		Host: "0.0.0.0",
-		Port: 2053,
+		Env:         "development",
+		Host:        "0.0.0.0",
+		Port:        2053,
+		PrivatePort: 8060, // Private/service API port (internal only)
 		DB: &DBConfig{
 			Host:     "localhost",
 			Port:     "5432",

@@ -138,6 +138,12 @@ func (s *EntitlementService) RevokeByID(ctx context.Context, id uuid.UUID, reaso
 	return s.repo.RevokeByID(ctx, id, now, reason)
 }
 
+// RevokeBySubscriptionAndName revokes a specific entitlement by subscription and name.
+// Used during downgrades to revoke entitlements that the new tier doesn't include.
+func (s *EntitlementService) RevokeBySubscriptionAndName(ctx context.Context, subscriptionID uuid.UUID, entitlement string, revokeAt time.Time, reason models.EntitlementRevokeReason) error {
+	return s.repo.RevokeBySubscriptionAndName(ctx, subscriptionID, entitlement, revokeAt, reason)
+}
+
 // GrantEntitlement creates a new entitlement for a user (admin action)
 // If endAt is nil, the entitlement is indefinite (until manually revoked)
 func (s *EntitlementService) GrantEntitlement(ctx context.Context, userID, entitlement string, endAt *time.Time) (*models.Entitlement, error) {

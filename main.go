@@ -167,18 +167,38 @@ func runServer(cmd *cobra.Command, args []string) error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	srv := &http.Server{
+	// Public API server (user/admin JWT auth)
+	publicSrv := &http.Server{
 		Handler: billingServer.Handler(),
 		Addr:    fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 	}
 
-	// Start server in a goroutine
+	// Private/Service API server (X-API-KEY auth for server-to-server calls)
+	var privateSrv *http.Server
+	if cfg.PrivatePort > 0 {
+		privateSrv = &http.Server{
+			Handler: billingServer.PrivateHandler(),
+			Addr:    fmt.Sprintf("%s:%d", cfg.Host, cfg.PrivatePort),
+		}
+	}
+
+	// Start public server in a goroutine
 	go func() {
-		log.Infof("Starting billing server on %s", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.WithError(err).Fatal("Failed to start server")
+		log.Infof("Starting public billing server on %s", publicSrv.Addr)
+		if err := publicSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.WithError(err).Fatal("Failed to start public server")
 		}
 	}()
+
+	// Start private/service server in a goroutine (if configured)
+	if privateSrv != nil {
+		go func() {
+			log.Infof("Starting private/service billing server on %s", privateSrv.Addr)
+			if err := privateSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.WithError(err).Fatal("Failed to start private server")
+			}
+		}()
+	}
 
 	// Wait for interrupt signal to gracefully shutdown the server
 	<-sigChan
@@ -187,8 +207,13 @@ func runServer(cmd *cobra.Command, args []string) error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.WithError(err).Error("Server forced to shutdown")
+	if err := publicSrv.Shutdown(shutdownCtx); err != nil {
+		log.WithError(err).Error("Public server forced to shutdown")
+	}
+	if privateSrv != nil {
+		if err := privateSrv.Shutdown(shutdownCtx); err != nil {
+			log.WithError(err).Error("Private server forced to shutdown")
+		}
 	}
 
 	if err := billingServer.Close(shutdownCtx); err != nil {

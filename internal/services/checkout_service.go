@@ -920,12 +920,13 @@ type UpgradeResponse struct {
 // RegisterPurchaseRequest contains everything needed to record a completed one-time purchase.
 // This is the universal entry point for all processors after payment is confirmed.
 type RegisterPurchaseRequest struct {
-	UserID        string    // User who made the purchase
-	PriceID       uuid.UUID // Price that was purchased
-	Processor     string    // "solana", "mobius", "ccbill"
-	TransactionID string    // Processor's transaction/signature ID
-	Amount        int64     // Amount in smallest unit (cents for USD, lamports for SOL)
-	Currency      string    // "USD", "USDC", "SOL", etc.
+	UserID         string     // User who made the purchase
+	PriceID        uuid.UUID  // Price that was purchased
+	Processor      string     // "solana", "mobius", "ccbill"
+	TransactionID  string     // Processor's transaction/signature ID
+	Amount         int64      // Amount in smallest unit (cents for usd, lamports for SOL)
+	Currency       string     // "usd", "USDC", "SOL", etc.
+	SubscriptionID *uuid.UUID // Optional: link payment to subscription (for subscription renewals/purchases)
 }
 
 // RegisterPurchaseResponse contains the result of a registered purchase
@@ -1006,15 +1007,16 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 	// Create payment record
 	paymentID := uuid.New()
 	payment := &models.Payment{
-		ID:            paymentID,
-		UserID:        req.UserID,
-		PriceID:       price.ID,
-		Processor:     models.Processor(req.Processor),
-		TransactionID: req.TransactionID,
-		Amount:        amount,
-		Currency:      currency,
-		PurchasedAt:   now,
-		CreatedAt:     now,
+		ID:             paymentID,
+		UserID:         req.UserID,
+		PriceID:        price.ID,
+		SubscriptionID: req.SubscriptionID, // Link to subscription if provided
+		Processor:      models.Processor(req.Processor),
+		TransactionID:  req.TransactionID,
+		Amount:         amount,
+		Currency:       currency,
+		PurchasedAt:    now,
+		CreatedAt:      now,
 	}
 
 	if err := s.PaymentService.Create(ctx, payment); err != nil {

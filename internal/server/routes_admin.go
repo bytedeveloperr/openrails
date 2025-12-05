@@ -26,6 +26,7 @@ func (s *Server) registerAdminRoutes() {
 
 	// User management
 	admin.GET("/users/:user_id", s.wrap(handlers.GetAdminUserBillingProfile))
+	admin.GET("/users/:user_id/entitlements", s.wrap(handlers.GetAdminUserEntitlements))
 	admin.POST("/users/:user_id/entitlements", s.wrap(handlers.GrantAdminEntitlement))
 	admin.DELETE("/users/:user_id/entitlements/:id", s.wrap(handlers.RevokeAdminEntitlement))
 

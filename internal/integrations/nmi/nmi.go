@@ -109,7 +109,7 @@ type AddSubscriptionResponse struct {
 type SaleParams struct {
 	CustomerVaultID  string
 	Amount           int64  // Amount in cents
-	Currency         string // e.g., "USD"
+	Currency         string // e.g., "usd"
 	OrderDescription string
 	OrderID          string // Optional order reference
 }
@@ -602,6 +602,49 @@ func (c *NMIClient) UpdateRecurringSubscription(subscriptionID, planAmount strin
 	}
 
 	return response, nil
+}
+
+// UpdateSubscriptionPaymentSource changes which customer vault (payment method) a subscription uses.
+// This allows users to switch to a different stored card for their recurring subscription.
+// NMI API: recurring=update_subscription, subscription_id=X, customer_vault_id=Y
+func (c *NMIClient) UpdateSubscriptionPaymentSource(subscriptionID, customerVaultID string) error {
+	if err := c.checkConfiguration(); err != nil {
+		return err
+	}
+
+	if subscriptionID == "" {
+		return errors.New("subscription ID is required")
+	}
+	if customerVaultID == "" {
+		return errors.New("customer vault ID is required")
+	}
+
+	values := url.Values{
+		"recurring":         {"update_subscription"},
+		"security_key":      {c.SecurityKey},
+		"subscription_id":   {subscriptionID},
+		"customer_vault_id": {customerVaultID},
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return err
+	}
+
+	output, err := url.ParseQuery(response)
+	if err != nil {
+		return fmt.Errorf("failed to parse response: %s", response)
+	}
+
+	if output.Get("response") != "1" {
+		return fmt.Errorf("failed to update subscription payment source: %s", output.Get("responsetext"))
+	}
+
+	return nil
 }
 
 func (c *NMIClient) DeleteRecurringSubscription(subscriptionID string) error {

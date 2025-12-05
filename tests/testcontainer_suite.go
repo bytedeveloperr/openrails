@@ -12,9 +12,11 @@ import (
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/app"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/migrate"
 	"github.com/doujins-org/doujins-billing/internal/server"
 
+	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
 	_ "github.com/lib/pq" // PostgreSQL driver for schema creation
 	"github.com/redis/go-redis/v9"
@@ -466,9 +468,9 @@ func (suite *TestContainerSuite) SetMockClock(t ...time.Time) *clockwork.FakeClo
 		rt.EmailService.Clock = mockClock
 	}
 
-	// Billing event service (analytics)
-	if rt.BillingEventService != nil {
-		rt.BillingEventService.Clock = mockClock
+	// Event log service (ClickHouse audit logging)
+	if rt.EventLogService != nil {
+		rt.EventLogService.Clock = mockClock
 	}
 
 	return mockClock
@@ -541,4 +543,13 @@ func (suite *TestContainerSuite) ClearJobQueue() {
 	if err != nil {
 		suite.t.Logf("Error clearing job queue: %v", err)
 	}
+}
+
+// GetPrice retrieves a price by ID from the database.
+func (suite *TestContainerSuite) GetPrice(priceID uuid.UUID) *models.Price {
+	suite.t.Helper()
+	price := new(models.Price)
+	err := suite.BunDB.NewSelect().Model(price).Where("id = ?", priceID).Scan(suite.ctx)
+	require.NoError(suite.t, err, "Failed to get price by ID")
+	return price
 }

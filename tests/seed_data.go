@@ -31,7 +31,6 @@ const (
 	// CCBillTestUserID is the user ID we map the first test username to (must be a valid UUID)
 	CCBillTestUserID = "cccccccc-cccc-cccc-cccc-cccccccc0001"
 	// CCBillTestUserID2 is the user ID we map the second test username to (must be a valid UUID)
-	// Note: ccbill_username_aliases has unique constraint on user_id, so each alias needs different user
 	CCBillTestUserID2 = "cccccccc-cccc-cccc-cccc-cccccccc0002"
 	// CCBillTestSubscriptionID is the subscriptionId from saved webhook payloads
 	CCBillTestSubscriptionID = "0125217202000000017"
@@ -105,7 +104,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222224"),
 					DisplayName:      "Monthly - €8.99",
 					Amount:           899, // Amount in cents (€8.99)
-					Currency:         "EUR",
+					Currency:         "eur",
 					BillingCycleDays: intPtr(30),
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -122,7 +121,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222225"),
 					DisplayName:      "Monthly - ¥1,200",
 					Amount:           1200, // Amount in yen (no decimals for JPY)
-					Currency:         "JPY",
+					Currency:         "jpy",
 					BillingCycleDays: intPtr(30),
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -214,7 +213,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444446"),
 					DisplayName:      "Pro Monthly - €17.99",
 					Amount:           1799, // Amount in cents (€17.99)
-					Currency:         "EUR",
+					Currency:         "eur",
 					BillingCycleDays: intPtr(30),
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -267,7 +266,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("66666666-6666-6666-6666-666666666667"),
 					DisplayName:      "Lifetime - €269.99",
 					Amount:           26999, // Amount in cents (€269.99)
-					Currency:         "EUR",
+					Currency:         "eur",
 					BillingCycleDays: nil, // One-time purchase
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -284,7 +283,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					ID:               uuid.MustParse("66666666-6666-6666-6666-666666666668"),
 					DisplayName:      "Lifetime - ¥39,800",
 					Amount:           39800, // Amount in yen
-					Currency:         "JPY",
+					Currency:         "jpy",
 					BillingCycleDays: nil, // One-time purchase
 					Processors: map[string]map[string]string{
 						string(models.ProcessorMobius): {
@@ -877,6 +876,11 @@ func (suite *TestContainerSuite) GetSubscription(id uuid.UUID) *models.Subscript
 	return &sub
 }
 
+// GetSubscriptionByID is an alias for GetSubscription for clearer test readability
+func (suite *TestContainerSuite) GetSubscriptionByID(id uuid.UUID) *models.Subscription {
+	return suite.GetSubscription(id)
+}
+
 // GetSubscriptionByUserID retrieves the active subscription for a user
 func (suite *TestContainerSuite) GetSubscriptionByUserID(userID string) *models.Subscription {
 	suite.t.Helper()
@@ -944,6 +948,19 @@ func (suite *TestContainerSuite) GetPaymentMethodsByUserID(userID string) []*mod
 	require.NoError(suite.t, err, "Failed to get payment methods for user %s", userID)
 
 	return pms
+}
+
+// SetPaymentMethodInactive sets a payment method to inactive
+func (suite *TestContainerSuite) SetPaymentMethodInactive(id uuid.UUID) {
+	suite.t.Helper()
+	ctx := context.Background()
+
+	_, err := suite.BunDB.NewUpdate().
+		Model((*models.PaymentMethod)(nil)).
+		Set("is_active = ?", false).
+		Where("id = ?", id).
+		Exec(ctx)
+	require.NoError(suite.t, err, "Failed to set payment method %s inactive", id)
 }
 
 // GetEntitlementsByUserID retrieves all active entitlements for a user
@@ -1129,42 +1146,33 @@ func (suite *TestContainerSuite) GetSubscriptionByProcessorID(processorSubID str
 	return &sub
 }
 
-// CreateCCBillAlias creates a CCBill username alias mapping for testing
-// This simulates what happens when a user starts the FlexForm checkout flow
-func (suite *TestContainerSuite) CreateCCBillAlias(alias string, userID string) *models.CCBillUsernameAlias {
+// CreateProfileUser creates a profile user for testing CCBill webhook resolution.
+// CCBill webhooks include the username, which we resolve to user_id via profiles.users.
+func (suite *TestContainerSuite) CreateProfileUser(userID string, username string) {
 	suite.t.Helper()
 	ctx := context.Background()
 	now := time.Now()
 
-	aliasModel := &models.CCBillUsernameAlias{
-		Alias:     alias,
-		UserID:    userID,
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
-
-	_, err := suite.BunDB.NewInsert().Model(aliasModel).
-		On("CONFLICT (alias) DO UPDATE").
-		Set("user_id = EXCLUDED.user_id").
-		Set("updated_at = EXCLUDED.updated_at").
-		Exec(ctx)
-	require.NoError(suite.t, err, "Failed to create CCBill alias")
-
-	return aliasModel
+	// Insert into profiles.users table (profiles schema, not billing schema)
+	_, err := suite.BunDB.NewRaw(`
+		INSERT INTO profiles.users (id, username, email, email_verified, is_active, created_at, updated_at)
+		VALUES (?, ?, ?, true, true, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET username = EXCLUDED.username, updated_at = EXCLUDED.updated_at
+	`, userID, username, username+"@test.example.com", now, now).Exec(ctx)
+	require.NoError(suite.t, err, "Failed to create profile user")
 }
 
-// SeedCCBillTestData seeds all data needed for CCBill webhook replay tests
-// This creates the alias mappings that connect webhook payloads to test users
-// Note: Each alias maps to a different user because ccbill_username_aliases has
-// a unique constraint on user_id (one alias per user)
+// SeedCCBillTestData seeds all data needed for CCBill webhook replay tests.
+// This creates profile users that connect webhook payloads to test users.
+// CCBill webhooks include usernames which are resolved via profiles.users.
 func (suite *TestContainerSuite) SeedCCBillTestData() {
 	suite.t.Helper()
 
-	// Create CCBill alias mappings (usernames from webhooks → test user IDs)
+	// Create profile users (usernames from webhooks → test user IDs)
 	// CCBillTestUsername is used in newsalesuccess.json
-	suite.CreateCCBillAlias(CCBillTestUsername, CCBillTestUserID)
+	suite.CreateProfileUser(CCBillTestUserID, CCBillTestUsername)
 	// CCBillTestUsername2 is used in other webhooks (upgrade, reactivation, billingdatechange, etc.)
-	suite.CreateCCBillAlias(CCBillTestUsername2, CCBillTestUserID2)
+	suite.CreateProfileUser(CCBillTestUserID2, CCBillTestUsername2)
 }
 
 // SeedCCBillTestDataWithSubscription seeds CCBill test data including an active subscription

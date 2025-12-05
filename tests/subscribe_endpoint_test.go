@@ -77,6 +77,9 @@ func (m *MockNMIServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 		response = fmt.Sprintf("response=1&responsetext=SUCCESS&subscription_id=%s&transactionid=%s&authcode=123456&type=sale", subID, txnID)
 	} else if recurring == "delete_subscription" {
 		response = "response=1&responsetext=SUCCESS"
+	} else if recurring == "update_subscription" {
+		// Update subscription response (used for payment method changes)
+		response = "response=1&responsetext=SUCCESS"
 	} else if recurring == "rebill_subscription" {
 		txnID := fmt.Sprintf("txn_%d", atomic.AddInt32(&m.SubscriptionIDGen, 1))
 		response = fmt.Sprintf("response=1&responsetext=SUCCESS&transactionid=%s", txnID)

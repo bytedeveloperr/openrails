@@ -447,3 +447,20 @@ type CheckoutRequest struct {
 func (r *CheckoutRequest) Body() any {
 	return &r.CheckoutBodyParams
 }
+
+// -------------------------------- UpdateSubscriptionPaymentMethod Request --------------------------------
+// PUT /v1/me/subscriptions/payment-method - Update which payment method a subscription uses
+
+type UpdateSubscriptionPaymentMethodBodyParams struct {
+	SubscriptionID  string `json:"subscription_id" binding:"required,uuid"`
+	PaymentMethodID string `json:"payment_method_id" binding:"required,uuid"`
+}
+
+type UpdateSubscriptionPaymentMethodRequest struct {
+	BaseRequest
+	UpdateSubscriptionPaymentMethodBodyParams
+}
+
+func (r *UpdateSubscriptionPaymentMethodRequest) Body() any {
+	return &r.UpdateSubscriptionPaymentMethodBodyParams
+}
