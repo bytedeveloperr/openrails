@@ -122,16 +122,12 @@ Admin routes are not rate limited by the application but should live behind netw
 
 ### POST /v1/subscriptions/ccbill/flexform-url
 - **Auth:** bearer token
-- **Description:** Generates an iframe URL for CCBill FlexForm.
+- **Description:** Generates a hosted checkout URL for CCBill (client should redirect).
 - **Body:** `{"price_id": "uuid", "first_name": "...", "last_name": "...", "address1": "...", "city": "...", "state": "...", "zip_code": "...", "country": "US"}`
 - **Response:**
   ```json
   {
-    "iframe_url": "https://sandbox-api.ccbill.com/wap-frontflex/flexforms/...",
-    "width": "100%",
-    "height": "600px",
-    "success_url": "https://example.com/billing/success",
-    "decline_url": "https://example.com/billing/decline"
+    "redirect_url": "https://sandbox-api.ccbill.com/wap-frontflex/flexforms/..."
   }
   ```
 
@@ -568,7 +564,7 @@ Admin handler also exposes `GET/HEAD /health` for internal monitoring.
 
 ### CCBill
 - **Endpoint:** `POST /v1/webhooks/ccbill`
-- **Security:** Source IP must match configured allow-list (default ranges under `ccbill.webhook_ips`).
+- **Security:** Source IP must match the built-in CCBill IP allow-list.
 - **Payload:** Form-encoded fields documented by CCBill (event type via `eventType` query string).
 - **Behaviour:** Deduplicates, validates IP, pushes subscription/payment updates via
   `CCBillWebhookService`.

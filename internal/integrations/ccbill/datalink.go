@@ -24,6 +24,8 @@ type DataLinkClient struct {
 	HTTPClient   *http.Client
 }
 
+const defaultDataLinkBaseURL = "https://datalink.ccbill.com"
+
 type CCBillRecord struct {
 	TransactionType string
 	ClientAccNum    string
@@ -38,13 +40,8 @@ type CCBillRecord struct {
 }
 
 func NewDataLinkClient(cfg *config.CCBillConfig) *DataLinkClient {
-	baseURL := cfg.DataLinkURL
-	if baseURL == "" {
-		baseURL = "https://datalink.ccbill.com"
-	}
-
 	return &DataLinkClient{
-		BaseURL:      baseURL,
+		BaseURL:      defaultDataLinkBaseURL,
 		ClientAccNum: cfg.ClientAccNum,
 		Username:     cfg.DataLinkUsername,
 		Password:     cfg.DataLinkPassword,

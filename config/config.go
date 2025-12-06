@@ -203,32 +203,15 @@ func firstNonEmpty(values ...string) string {
 
 type CCBillConfig struct {
 	Salt               string `koanf:"salt"`
-	Language           string `koanf:"language"`
 	FormID             string `koanf:"form_id"`
 	FormName           string `koanf:"form_name"`
-	CurrencyCode       string `koanf:"currency_code"`
 	ClientSubAcc       string `koanf:"client_sub_acc"`
 	ClientAccNum       string `koanf:"client_acc_num"`
 	SubscriptionTypeId string `koanf:"subscription_type_id"`
 	TestMode           bool   `koanf:"test_mode"`
 
-	// Webhook secret (optional; typically IP + salt verification is used)
-	WebhookSecret string `koanf:"webhook_secret"`
-
-	// FlexForm integration settings
-	BaseFlexFormURL string `koanf:"base_flexform_url"`
-	IFrameWidth     string `koanf:"iframe_width"`  // Default: "100%"
-	IFrameHeight    string `koanf:"iframe_height"` // Default: "600px"
-
-	// Optional success/decline URLs for post-payment navigation
-	SuccessURL string `koanf:"success_url"`
-	DeclineURL string `koanf:"decline_url"`
-
-	DataLinkURL      string `koanf:"datalink_url"`
 	DataLinkUsername string `koanf:"datalink_username"`
 	DataLinkPassword string `koanf:"datalink_password"`
-
-	WebhookIPs []string `koanf:"webhook_ips"`
 }
 
 type RedisConfig struct {
@@ -419,38 +402,8 @@ func validateCCBill(cfg *CCBillConfig) error {
 		return fmt.Errorf("ccbill form name or form ID is required")
 	}
 
-	// Validate FlexForm URL
-	if cfg.BaseFlexFormURL != "" {
-		if _, err := url.Parse(cfg.BaseFlexFormURL); err != nil {
-			return fmt.Errorf("invalid ccbill base flexform URL: %w", err)
-		}
-	}
-
-	// Validate success/decline URLs if provided
-	if cfg.SuccessURL != "" {
-		if _, err := url.Parse(cfg.SuccessURL); err != nil {
-			return fmt.Errorf("invalid ccbill success URL: %w", err)
-		}
-	}
-	if cfg.DeclineURL != "" {
-		if _, err := url.Parse(cfg.DeclineURL); err != nil {
-			return fmt.Errorf("invalid ccbill decline URL: %w", err)
-		}
-	}
-
-	// Validate DataLink configuration if provided
-	if cfg.DataLinkURL != "" {
-		if _, err := url.Parse(cfg.DataLinkURL); err != nil {
-			return fmt.Errorf("invalid ccbill datalink URL: %w", err)
-		}
-
-		if cfg.DataLinkUsername == "" || cfg.DataLinkPassword == "" {
-			return fmt.Errorf("datalink username and password are required when datalink URL is provided")
-		}
-
-		if cfg.ClientAccNum == "" {
-			return fmt.Errorf("client account number is required when datalink URL is provided")
-		}
+	if (cfg.DataLinkUsername == "") != (cfg.DataLinkPassword == "") {
+		return fmt.Errorf("both datalink username and password must be provided when configuring DataLink access")
 	}
 
 	return nil

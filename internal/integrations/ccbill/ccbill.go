@@ -28,34 +28,34 @@ type GenerateFlexFormURLParams struct {
 	PriceID string `json:"price_id"`
 }
 
-// FlexFormResponse contains the data needed to embed a CCBill FlexForm in an iFrame
+// FlexFormResponse contains the hosted checkout URL for CCBill.
 type FlexFormResponse struct {
-	IFrameURL  string `json:"iframe_url"`
-	Width      string `json:"width"`
-	Height     string `json:"height"`
-	SuccessURL string `json:"success_url"`
-	DeclineURL string `json:"decline_url"`
+	RedirectURL string `json:"redirect_url"`
 }
 
 type CCBillClient struct {
-	config *config.CCBillConfig
-	ApiURL string
+	config          *config.CCBillConfig
+	flexFormBaseURL string
 }
 
 const (
-	CCBillDevAPIURL  = "https://sandbox-api.ccbill.com/wap-frontflex/flexforms/75383d6a-41d4-4bd0-ac12-6c8c37fde5e5"
-	CCBillProdAPIURL = "https://api.ccbill.com/wap-frontflex/flexforms/75383d6a-41d4-4bd0-ac12-6c8c37fde5e5"
+	sandboxFlexFormBase = "https://sandbox-api.ccbill.com/wap-frontflex/flexforms"
+	prodFlexFormBase    = "https://api.ccbill.com/wap-frontflex/flexforms"
+	defaultIFrameWidth  = "100%"
+	defaultIFrameHeight = "600px"
+	defaultLanguage     = "English"
+	defaultCurrencyCode = "840" // USD
 )
 
 func NewClient(cfg *config.CCBillConfig, isProd bool) *CCBillClient {
-	apiURL := CCBillDevAPIURL
-	if isProd {
-		apiURL = CCBillProdAPIURL
+	baseURL := sandboxFlexFormBase
+	if !cfg.TestMode && isProd {
+		baseURL = prodFlexFormBase
 	}
 
 	return &CCBillClient{
-		config: cfg,
-		ApiURL: apiURL,
+		config:          cfg,
+		flexFormBaseURL: strings.TrimRight(baseURL, "/"),
 	}
 }
 
@@ -70,8 +70,8 @@ func (c *CCBillClient) GenerateFlexFormURL(params *GenerateFlexFormURLParams) (*
 		"clientAccnum": {c.config.ClientAccNum},
 		"clientSubacc": {c.config.ClientSubAcc},
 		"formName":     {c.config.FormName},
-		"language":     {c.config.Language},
-		"currencyCode": {c.config.CurrencyCode},
+		"language":     {defaultLanguage},
+		"currencyCode": {defaultCurrencyCode},
 
 		// Customer information
 		"email":          {params.Email},
@@ -92,16 +92,9 @@ func (c *CCBillClient) GenerateFlexFormURL(params *GenerateFlexFormURLParams) (*
 		q.Set("signature", c.generateCCBillSignature(sigInput))
 	}
 
-	baseURL := c.config.BaseFlexFormURL
-	flexFormURL := fmt.Sprintf("%s/%s?%s", strings.TrimRight(baseURL, "/"), params.FlexID, q.Encode())
+	flexFormURL := fmt.Sprintf("%s/%s?%s", c.flexFormBaseURL, params.FlexID, q.Encode())
 
-	return &FlexFormResponse{
-		IFrameURL:  flexFormURL,
-		Width:      c.getConfigOrDefault(c.config.IFrameWidth, "100%"),
-		Height:     c.getConfigOrDefault(c.config.IFrameHeight, "600px"),
-		SuccessURL: c.config.SuccessURL,
-		DeclineURL: c.config.DeclineURL,
-	}, nil
+	return &FlexFormResponse{RedirectURL: flexFormURL}, nil
 }
 
 func (c *CCBillClient) generateCCBillSignature(query url.Values) string {
@@ -122,14 +115,6 @@ func (c *CCBillClient) createSignatureInput(params url.Values) string {
 
 func (c *CCBillClient) Config() *config.CCBillConfig {
 	return c.config
-}
-
-func (c *CCBillClient) getConfigOrDefault(configValue, defaultValue string) string {
-	if configValue == "" {
-		return defaultValue
-	}
-
-	return configValue
 }
 
 // GenerateUpgradeFlexFormURLParams contains parameters for generating CCBill upgrade FlexForm URLs
@@ -164,8 +149,8 @@ func (c *CCBillClient) GenerateUpgradeFlexFormURL(params *GenerateUpgradeFlexFor
 		"clientAccnum":           {c.config.ClientAccNum},
 		"clientSubacc":           {c.config.ClientSubAcc},
 		"formName":               {c.config.FormName},
-		"language":               {c.config.Language},
-		"currencyCode":           {c.config.CurrencyCode},
+		"language":               {defaultLanguage},
+		"currencyCode":           {defaultCurrencyCode},
 		"email":                  {params.Email},
 		"username":               {params.Username},
 		"originalSubscriptionId": {params.OriginalSubscriptionID},
@@ -177,14 +162,7 @@ func (c *CCBillClient) GenerateUpgradeFlexFormURL(params *GenerateUpgradeFlexFor
 		q.Set("signature", c.generateCCBillSignature(sigInput))
 	}
 
-	baseURL := c.config.BaseFlexFormURL
-	flexFormURL := fmt.Sprintf("%s/%s?%s", strings.TrimRight(baseURL, "/"), params.FlexID, q.Encode())
+	flexFormURL := fmt.Sprintf("%s/%s?%s", c.flexFormBaseURL, params.FlexID, q.Encode())
 
-	return &FlexFormResponse{
-		IFrameURL:  flexFormURL,
-		Width:      c.getConfigOrDefault(c.config.IFrameWidth, "100%"),
-		Height:     c.getConfigOrDefault(c.config.IFrameHeight, "600px"),
-		SuccessURL: c.config.SuccessURL,
-		DeclineURL: c.config.DeclineURL,
-	}, nil
+	return &FlexFormResponse{RedirectURL: flexFormURL}, nil
 }

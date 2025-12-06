@@ -178,11 +178,7 @@ type CancelSubscriptionResponse struct {
 }
 
 type GenerateFlexFormURLResponse struct {
-	IFrameURL  string `json:"iframe_url" binding:"required"`
-	Width      string `json:"width" binding:"required"`
-	Height     string `json:"height" binding:"required"`
-	SuccessURL string `json:"success_url,omitempty"`
-	DeclineURL string `json:"decline_url,omitempty"`
+	RedirectURL string `json:"redirect_url" binding:"required"`
 }
 
 // -------------------------------- Enhanced Billing History Responses --------------------------------

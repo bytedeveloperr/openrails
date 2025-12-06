@@ -47,41 +47,22 @@ billing_api_key: "change-me-in-dev"
 
 # CCBill payment processor configuration
 ccbill:
-  # Basic CCBill settings
+  # Required CCBill identifiers
   client_acc_num: "your-ccbill-account-number"
   client_sub_acc: "your-ccbill-subaccount"
   # salt: set via env CCBILL_SALT
-  
-  # Form configuration
+
+  # Form configuration (must match CCBill portal)
   form_id: "your-flexform-id"
   form_name: "your-form-name"
-  language: "English"
-  currency_code: "840" # USD
   subscription_type_id: "0001"
-  
-  # Test mode
+
+  # Toggle sandbox vs production FlexForm hosts
   test_mode: true
-  webhook_secret: "" # optional: IP + salt verification used by default
-  
-  # FlexForm integration
-  base_flexform_url: "https://api.ccbill.com/wap-frontflex/flexforms/"
-  iframe_width: "100%"
-  iframe_height: "600px"
-  success_url: "https://your-frontend-domain.com/billing/success"
-  decline_url: "https://your-frontend-domain.com/billing/decline"
-  
-  # DataLink API for transaction data (supply creds via env)
-  datalink_url: "https://datalink.ccbill.com/data/main.cgi"
+
+  # DataLink credentials (enable reconcile worker when provided)
   # datalink_username: set via env CCBILL_DATALINK_USERNAME
   # datalink_password: set via env CCBILL_DATALINK_PASSWORD
-  # datalink_client_acc_num: set via env CCBILL_DATALINK_CLIENT_ACC_NUM
-  
-  # Webhook security - CCBill IP addresses
-  webhook_ips:
-    - "64.38.212.8"
-    - "64.38.215.8"
-    - "64.38.240.8"
-    - "64.38.241.8"
 
 # NMI payment processor configuration
 nmi:

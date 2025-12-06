@@ -494,7 +494,7 @@ func (s *CheckoutService) processCCBillSubscription(
 		Status:      "redirect_required",
 		Action:      "new",
 		Message:     "Redirect to CCBill payment form",
-		RedirectURL: response.IFrameURL,
+		RedirectURL: response.RedirectURL,
 	}, nil
 }
 
@@ -561,7 +561,7 @@ func (s *CheckoutService) processCCBillUpgrade(
 		Status:         "redirect_required",
 		Action:         "upgrade",
 		Message:        "Redirect to CCBill upgrade form",
-		RedirectURL:    response.IFrameURL,
+		RedirectURL:    response.RedirectURL,
 		SubscriptionID: &existingSub.ID,
 	}, nil
 }

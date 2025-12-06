@@ -174,8 +174,8 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			"message": "CCBill payments now use FlexForm integration",
 			"instructions": map[string]string{
 				"step1": "Generate FlexForm URL using POST /v1/subscriptions/ccbill/flexform-url",
-				"step2": "Embed the returned iframe_url in your frontend",
-				"step3": "User completes payment in the embedded CCBill form",
+				"step2": "Redirect the user to the returned redirect_url",
+				"step3": "User completes payment on the hosted CCBill page",
 				"step4": "Subscription will be activated via webhook upon successful payment",
 			},
 			"flexform_endpoint": "/v1/subscriptions/ccbill/flexform-url",

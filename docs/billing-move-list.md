@@ -73,7 +73,7 @@ Notes: Implement in `internal/services/*` using `internal/db` directly; do not c
 
 ## 9) Configuration (Move to Billing; Remove from Backend)
 - [x] Define billing-only configs in billing service
-  - [x] CCBill: salt, form info, datalink credentials, webhook_secret, test_mode, base_flexform_url, success/decline URLs
+  - [x] CCBill: salt, form info, datalink credentials, test_mode toggle
   - [x] NMI: security_key, tokenization_key, webhook_secret, test_mode
   - [x] Solana: rpc_endpoint, recipient_wallet, supported tokens
 - [x] Remove from backend example envs and example config any variables now owned by billing (processor secrets/settings removed)
