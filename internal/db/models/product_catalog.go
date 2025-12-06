@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -67,9 +68,11 @@ type Price struct {
 
 // Processor config key constants (used in the Processors JSONB map)
 const (
-	ProcessorKeyPlanID   = "plan_id"
-	ProcessorKeyPriceID  = "price_id"
-	ProcessorKeyProvider = "provider"
+	ProcessorKeyPlanID         = "plan_id"
+	ProcessorKeyPriceID        = "price_id"
+	ProcessorKeyProvider       = "provider"
+	ProcessorKeyCCBillFormName = "form_name"
+	ProcessorKeyCCBillFlexID   = "flex_id"
 )
 
 // GetProcessorConfig returns the configuration for a specific processor, or nil if not configured
@@ -125,14 +128,21 @@ func (p *Price) GetNMIConfigForProcessor(processorName string) (planID string, o
 	return planID, planID != ""
 }
 
-// GetCCBillConfig returns the CCBill processor configuration
-func (p *Price) GetCCBillConfig() (priceID string, ok bool) {
+// GetCCBillFlexForm returns the CCBill flexform configuration (form name + flex ID)
+func (p *Price) GetCCBillFlexForm() (formName, flexID string, ok bool) {
 	config := p.GetProcessorConfig(ProcessorCCBill)
 	if config == nil {
-		return "", false
+		return "", "", false
 	}
-	priceID = config[ProcessorKeyPriceID]
-	return priceID, priceID != ""
+	formName = strings.TrimSpace(config[ProcessorKeyCCBillFormName])
+	flexID = strings.TrimSpace(config[ProcessorKeyCCBillFlexID])
+	if flexID == "" {
+		flexID = strings.TrimSpace(config[ProcessorKeyPriceID]) // legacy storage
+	}
+	if formName == "" || flexID == "" {
+		return "", "", false
+	}
+	return formName, flexID, true
 }
 
 // GetSolanaConfig returns the Solana processor configuration
@@ -169,9 +179,11 @@ func (p *Price) SetNMIConfigForProcessor(processorName, planID string) {
 }
 
 // SetCCBillConfig sets the CCBill processor configuration
-func (p *Price) SetCCBillConfig(priceID string) {
+func (p *Price) SetCCBillConfig(formName, flexID string) {
 	p.SetProcessorConfig(ProcessorCCBill, map[string]string{
-		ProcessorKeyPriceID: priceID,
+		ProcessorKeyCCBillFormName: formName,
+		ProcessorKeyCCBillFlexID:   flexID,
+		ProcessorKeyPriceID:        flexID, // keep legacy key populated for backwards compatibility
 	})
 }
 

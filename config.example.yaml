@@ -53,8 +53,6 @@ ccbill:
   # salt: set via env CCBILL_SALT
 
   # Form configuration (must match CCBill portal)
-  form_id: "your-flexform-id"
-  form_name: "your-form-name"
   subscription_type_id: "0001"
 
   # Toggle sandbox vs production FlexForm hosts

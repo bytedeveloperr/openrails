@@ -450,8 +450,8 @@ func (s *CheckoutService) processCCBillSubscription(
 	}
 
 	// Validate price has CCBill configuration
-	ccbillPriceID, hasCCBill := price.GetCCBillConfig()
-	if !hasCCBill || ccbillPriceID == "" {
+	formName, flexID, hasCCBill := price.GetCCBillFlexForm()
+	if !hasCCBill {
 		return nil, fmt.Errorf("price %s is not configured for CCBill", price.ID)
 	}
 
@@ -477,7 +477,8 @@ func (s *CheckoutService) processCCBillSubscription(
 		State:         req.State,
 		ZipCode:       req.Zip,
 		Country:       req.Country,
-		FlexID:        ccbillPriceID,
+		FlexID:        flexID,
+		FormName:      formName,
 	}
 
 	response, err := ccbillClient.GenerateFlexFormURL(flexFormParams)
@@ -520,8 +521,8 @@ func (s *CheckoutService) processCCBillUpgrade(
 	}
 
 	// Validate new price has CCBill configuration
-	ccbillPriceID, hasCCBill := newPrice.GetCCBillConfig()
-	if !hasCCBill || ccbillPriceID == "" {
+	formName, flexID, hasCCBill := newPrice.GetCCBillFlexForm()
+	if !hasCCBill {
 		return nil, fmt.Errorf("target price %s is not configured for CCBill", newPrice.ID)
 	}
 
@@ -540,7 +541,8 @@ func (s *CheckoutService) processCCBillUpgrade(
 	upgradeParams := &ccbill.GenerateUpgradeFlexFormURLParams{
 		Username:               user.Username,
 		Email:                  *user.Email,
-		FlexID:                 ccbillPriceID,
+		FormName:               formName,
+		FlexID:                 flexID,
 		OriginalSubscriptionID: existingSub.ProcessorSubscriptionID,
 	}
 

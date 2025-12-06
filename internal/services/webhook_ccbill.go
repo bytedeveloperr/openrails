@@ -88,6 +88,20 @@ func parseWebhookTimestamp(timestamp string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+func (s *CCBillWebhookService) ensureFlexFormMatches(price *models.Price, flexID, formName string) error {
+	expectedFormName, expectedFlexID, ok := price.GetCCBillFlexForm()
+	if !ok {
+		return fmt.Errorf("price %s is missing CCBill flexform configuration", price.ID)
+	}
+	if strings.TrimSpace(flexID) != expectedFlexID {
+		return fmt.Errorf("payment form id mismatch: got %s, want %s", flexID, expectedFlexID)
+	}
+	if strings.TrimSpace(formName) != expectedFormName {
+		return fmt.Errorf("payment form name mismatch: got %s, want %s", formName, expectedFormName)
+	}
+	return nil
+}
+
 func (s *CCBillWebhookService) resolveUserID(ctx context.Context, username string) (string, error) {
 	if s.ProfileRepo == nil {
 		return "", fmt.Errorf("profile repo is not configured")
@@ -228,20 +242,13 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		return fmt.Errorf("invalid billedAmount: %f - must be greater than 0", billedAmount)
 	}
 
-	// Validate form configuration
-	cfg := s.CCBillClient.Config()
-	if formID != cfg.FormID {
-		return fmt.Errorf("payment form id mismatch: got %s, want %s", formID, cfg.FormID)
-	}
-
-	if formName != cfg.FormName {
-		return fmt.Errorf("payment form name mismatch: got %s, want %s", formName, cfg.FormName)
-	}
-
 	// Get price information
 	price, err := s.PriceService.GetByCCBillPriceID(ctx, data.FlexID)
 	if err != nil {
 		return fmt.Errorf("failed to find price for CCBill price ID %s: %w", data.FlexID, err)
+	}
+	if err := s.ensureFlexFormMatches(price, formID, formName); err != nil {
+		return err
 	}
 
 	// Validate amount - convert billedAmount (dollars) to cents for comparison
@@ -370,6 +377,7 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 	failureCode := data.FailureCode
 	transactionID := data.TransactionID
 	failureReason := data.FailureReason
+	price, priceLookupErr := s.PriceService.GetByCCBillPriceID(ctx, data.FlexID)
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		userID, err := s.resolveUserID(ctx, data.Username)
@@ -377,21 +385,16 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 			return err
 		}
 
-		// Validate form configuration
-		cfg := s.CCBillClient.Config()
-		if formID != cfg.FormID {
-			log.WithContext(ctx).WithFields(log.Fields{
-				"received_form_id": formID,
-				"expected_form_id": cfg.FormID,
-				"email":            email,
-			}).Warn("Payment form ID mismatch in new sale failure")
-		}
-		if formName != cfg.FormName {
-			log.WithContext(ctx).WithFields(log.Fields{
-				"received_form_name": formName,
-				"expected_form_name": cfg.FormName,
-				"email":              email,
-			}).Warn("Payment form name mismatch in new sale failure")
+		if priceLookupErr != nil {
+			log.WithContext(ctx).WithError(priceLookupErr).WithFields(log.Fields{
+				"flex_id": formID,
+				"email":   email,
+			}).Warn("Unable to validate CCBill form for new sale failure")
+		} else if err := s.ensureFlexFormMatches(price, formID, formName); err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"flex_id": formID,
+				"email":   email,
+			}).Warn("Payment form mismatch in new sale failure")
 		}
 
 		// Log payment failure event to ClickHouse
@@ -495,6 +498,9 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		newPrice, err := priceService.GetByCCBillPriceID(ctx, data.FlexID)
 		if err != nil {
 			return fmt.Errorf("failed to find new price for CCBill price ID %s: %w", data.FlexID, err)
+		}
+		if err := s.ensureFlexFormMatches(newPrice, flexID, formName); err != nil {
+			return err
 		}
 
 		// Validate the billed amount matches the new price - convert dollars to cents

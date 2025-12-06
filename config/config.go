@@ -203,8 +203,6 @@ func firstNonEmpty(values ...string) string {
 
 type CCBillConfig struct {
 	Salt               string `koanf:"salt"`
-	FormID             string `koanf:"form_id"`
-	FormName           string `koanf:"form_name"`
 	ClientSubAcc       string `koanf:"client_sub_acc"`
 	ClientAccNum       string `koanf:"client_acc_num"`
 	SubscriptionTypeId string `koanf:"subscription_type_id"`
@@ -396,10 +394,6 @@ func validateCCBill(cfg *CCBillConfig) error {
 
 	if cfg.ClientSubAcc == "" {
 		return fmt.Errorf("ccbill client sub account is required")
-	}
-
-	if cfg.FormName == "" && cfg.FormID == "" {
-		return fmt.Errorf("ccbill form name or form ID is required")
 	}
 
 	if (cfg.DataLinkUsername == "") != (cfg.DataLinkPassword == "") {

@@ -23,9 +23,10 @@ type GenerateFlexFormURLParams struct {
 	ZipCode       string `json:"zipcode"`
 	Country       string `json:"country"`
 
-	FlexID  string `json:"flex_id"`
-	UserID  string `json:"user_id"`
-	PriceID string `json:"price_id"`
+	FlexID   string `json:"flex_id"`
+	FormName string `json:"form_name"`
+	UserID   string `json:"user_id"`
+	PriceID  string `json:"price_id"`
 }
 
 // FlexFormResponse contains the hosted checkout URL for CCBill.
@@ -64,12 +65,18 @@ func (c *CCBillClient) GenerateFlexFormURL(params *GenerateFlexFormURLParams) (*
 	if params.Username == "" || params.Email == "" {
 		return nil, fmt.Errorf("username and email are required")
 	}
+	if params.FormName == "" {
+		return nil, fmt.Errorf("form name is required")
+	}
+	if params.FlexID == "" {
+		return nil, fmt.Errorf("flex_id is required")
+	}
 
 	// Build FlexForm URL parameters
 	q := url.Values{
 		"clientAccnum": {c.config.ClientAccNum},
 		"clientSubacc": {c.config.ClientSubAcc},
-		"formName":     {c.config.FormName},
+		"formName":     {params.FormName},
 		"language":     {defaultLanguage},
 		"currencyCode": {defaultCurrencyCode},
 
@@ -124,7 +131,8 @@ type GenerateUpgradeFlexFormURLParams struct {
 	Email    string `json:"email"`
 
 	// The new pricing tier to upgrade to
-	FlexID string `json:"flex_id"`
+	FlexID   string `json:"flex_id"`
+	FormName string `json:"form_name"`
 
 	// The existing CCBill subscription ID to upgrade
 	OriginalSubscriptionID string `json:"original_subscription_id"`
@@ -135,6 +143,9 @@ type GenerateUpgradeFlexFormURLParams struct {
 func (c *CCBillClient) GenerateUpgradeFlexFormURL(params *GenerateUpgradeFlexFormURLParams) (*FlexFormResponse, error) {
 	if params.Username == "" || params.Email == "" {
 		return nil, fmt.Errorf("username and email are required")
+	}
+	if params.FormName == "" {
+		return nil, fmt.Errorf("form name (target price) is required")
 	}
 	if params.FlexID == "" {
 		return nil, fmt.Errorf("flex_id (target price) is required")
@@ -148,7 +159,7 @@ func (c *CCBillClient) GenerateUpgradeFlexFormURL(params *GenerateUpgradeFlexFor
 	q := url.Values{
 		"clientAccnum":           {c.config.ClientAccNum},
 		"clientSubacc":           {c.config.ClientSubAcc},
-		"formName":               {c.config.FormName},
+		"formName":               {params.FormName},
 		"language":               {defaultLanguage},
 		"currencyCode":           {defaultCurrencyCode},
 		"email":                  {params.Email},
