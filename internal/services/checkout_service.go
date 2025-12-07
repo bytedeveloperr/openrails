@@ -12,6 +12,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	"github.com/doujins-org/doujins-billing/internal/jobs"
 	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -89,6 +90,7 @@ type CheckoutService struct {
 	NMIClients           map[string]*nmi.NMIClient
 	Clock                clockwork.Clock
 	Config               *config.Config
+	FulfillmentEnqueuer  jobs.FulfillmentEnqueuer // Optional: for durable fulfillment retries
 }
 
 // now returns the current time from the service's clock, or time.Now() if no clock is set.
@@ -732,6 +734,12 @@ func (s *CheckoutService) processNMISale(
 		return nil, fmt.Errorf("payment failed: %w", err)
 	}
 
+	// ============================================================
+	// CRITICAL: Card has been charged. From this point forward,
+	// we MUST return success to the user no matter what fails.
+	// Failing to do so would show an error to a user who was charged.
+	// ============================================================
+
 	// Use RegisterPurchase to record payment and grant entitlements
 	result, err := s.RegisterPurchase(ctx, &RegisterPurchaseRequest{
 		UserID:        user.ID,
@@ -742,8 +750,64 @@ func (s *CheckoutService) processNMISale(
 		Currency:      price.Currency,
 	})
 	if err != nil {
-		log.WithError(err).WithField("transaction_id", saleResp.TransactionID).Error("failed to register purchase after successful NMI sale")
-		return nil, fmt.Errorf("payment processed but failed to register: %w", err)
+		// CRITICAL: Card was charged but RegisterPurchase failed.
+		// We must:
+		// 1. Try to create a payment record directly (so we don't lose track of the charge)
+		// 2. Enqueue a fulfillment job to grant entitlements later
+		// 3. Return success to the user
+		logEntry := log.WithError(err).WithFields(log.Fields{
+			"transaction_id": saleResp.TransactionID,
+			"user_id":        user.ID,
+			"price_id":       price.ID,
+			"amount":         price.Amount,
+			"currency":       price.Currency,
+		})
+		logEntry.Error("CRITICAL: failed to register purchase after successful NMI charge")
+
+		// Try to create payment record directly for tracking
+		now := s.now()
+		paymentID := uuid.New()
+		payment := &models.Payment{
+			ID:            paymentID,
+			UserID:        user.ID,
+			PriceID:       price.ID,
+			Processor:     models.ProcessorMobius,
+			TransactionID: saleResp.TransactionID,
+			Amount:        price.Amount,
+			Currency:      price.Currency,
+			PurchasedAt:   now,
+			CreatedAt:     now,
+		}
+		if createErr := s.PaymentService.Create(ctx, payment); createErr != nil {
+			logEntry.WithError(createErr).Error("CRITICAL: also failed to create fallback payment record")
+		}
+
+		// Enqueue fulfillment job for background retry if enqueuer is available
+		if s.FulfillmentEnqueuer != nil {
+			fulfillmentArgs := jobs.NewFulfillPaymentArgsForEntitlements(
+				paymentID,
+				user.ID,
+				price.ID,
+				saleResp.TransactionID,
+				price.Amount,
+				price.Currency,
+				err.Error(),
+			)
+			if enqueueErr := s.FulfillmentEnqueuer.EnqueueFulfillment(ctx, fulfillmentArgs); enqueueErr != nil {
+				logEntry.WithError(enqueueErr).Error("CRITICAL: failed to enqueue fulfillment job")
+			} else {
+				logEntry.Info("Enqueued fulfillment job for background retry")
+			}
+		}
+
+		// Return success with transaction ID - user was charged, they must NOT retry.
+		return &CheckoutResponse{
+			Status:        "success",
+			Action:        "new",
+			Message:       "Payment processed successfully. Your access will be activated shortly.",
+			TransactionID: saleResp.TransactionID,
+			PaymentID:     &paymentID,
+		}, nil
 	}
 
 	return &CheckoutResponse{
@@ -1165,6 +1229,13 @@ func (s *CheckoutService) processUpgrade(
 		// Don't fail the upgrade - the old sub will just not renew
 	}
 
+	// ============================================================
+	// CRITICAL: If proration was charged (prorationAmount > 0), card has been
+	// charged. From this point forward, we MUST return success to the user
+	// no matter what fails. We log errors but always return success.
+	// ============================================================
+	cardCharged := prorationAmount > 0
+
 	// Step 3: Create new subscription at NMI
 	newSubscriptionID := uuid.New()
 	nmiPlanID, _, _ := newPrice.GetNMIConfig()
@@ -1193,6 +1264,63 @@ func (s *CheckoutService) processUpgrade(
 
 	resp, err := client.AddRecurringSubscription(params)
 	if err != nil {
+		if cardCharged {
+			// CRITICAL: User was already charged proration, must return success
+			logEntry := log.WithError(err).WithFields(log.Fields{
+				"user_id":               user.ID,
+				"old_subscription_id":   existingSub.ID,
+				"proration_transaction": prorationTransactionID,
+				"proration_amount":      prorationAmount,
+				"new_price_id":          newPrice.ID,
+			})
+			logEntry.Error("CRITICAL: failed to create NMI subscription after charging proration")
+
+			// Try to record the proration payment at minimum
+			paymentID := uuid.New()
+			payment := &models.Payment{
+				ID:             paymentID,
+				UserID:         user.ID,
+				PriceID:        newPrice.ID,
+				SubscriptionID: &existingSub.ID,
+				Processor:      models.ProcessorMobius,
+				TransactionID:  prorationTransactionID,
+				Amount:         prorationAmount,
+				Currency:       newPrice.Currency,
+				PurchasedAt:    now,
+				CreatedAt:      now,
+			}
+			if createErr := s.PaymentService.Create(ctx, payment); createErr != nil {
+				logEntry.WithError(createErr).Error("CRITICAL: also failed to create proration payment record")
+			}
+
+			// Enqueue fulfillment job - this will require manual intervention since
+			// we need to create NMI subscription, but at least it's tracked
+			if s.FulfillmentEnqueuer != nil {
+				fulfillmentArgs := jobs.FulfillPaymentArgs{
+					FulfillmentType: jobs.FulfillmentCreateSubscription,
+					PaymentID:       paymentID,
+					UserID:          user.ID,
+					PriceID:         newPrice.ID,
+					TransactionID:   prorationTransactionID,
+					Amount:          prorationAmount,
+					Currency:        newPrice.Currency,
+					SubscriptionID:  &existingSub.ID,
+					OriginalError:   err.Error(),
+				}
+				if enqueueErr := s.FulfillmentEnqueuer.EnqueueFulfillment(ctx, fulfillmentArgs); enqueueErr != nil {
+					logEntry.WithError(enqueueErr).Error("CRITICAL: failed to enqueue fulfillment job")
+				} else {
+					logEntry.Info("Enqueued fulfillment job for manual review")
+				}
+			}
+
+			return &CheckoutResponse{
+				Status:        "success",
+				Action:        "upgrade",
+				Message:       fmt.Sprintf("Upgrade payment of $%.2f processed. Your new plan will be activated shortly.", float64(prorationAmount)/100.0),
+				TransactionID: prorationTransactionID,
+			}, nil
+		}
 		return nil, fmt.Errorf("failed to create upgraded subscription: %w", err)
 	}
 
@@ -1206,6 +1334,7 @@ func (s *CheckoutService) processUpgrade(
 	if err := s.SubscriptionService.Update(ctx, existingSub); err != nil {
 		log.WithError(err).WithField("subscription_id", existingSub.ID).
 			Error("failed to mark old subscription as cancelled during upgrade")
+		// Don't fail - continue with the upgrade
 	}
 
 	// Create new subscription record
@@ -1236,10 +1365,26 @@ func (s *CheckoutService) processUpgrade(
 	}
 
 	if err := s.SubscriptionService.Create(ctx, newSubscription); err != nil {
-		return nil, fmt.Errorf("failed to save upgraded subscription: %w", err)
+		// CRITICAL: At this point, user was charged AND NMI subscription was created
+		// Log but return success - the NMI subscription exists, we just failed to save locally
+		log.WithError(err).WithFields(log.Fields{
+			"user_id":               user.ID,
+			"new_subscription_id":   newSubscriptionID,
+			"nmi_subscription_id":   resp.SubscriptionID,
+			"proration_transaction": prorationTransactionID,
+		}).Error("CRITICAL: failed to save subscription to DB after NMI creation - requires manual reconciliation")
+
+		return &CheckoutResponse{
+			Status:         "success",
+			Action:         "upgrade",
+			Message:        fmt.Sprintf("Upgraded to %s. Prorated charge: $%.2f", newProduct.DisplayName, float64(prorationAmount)/100.0),
+			SubscriptionID: &newSubscriptionID,
+			TransactionID:  prorationTransactionID,
+		}, nil
 	}
 
 	// Step 5: Update entitlements immediately (grant new tier entitlements)
+	// These are best-effort - log errors but don't fail
 	if s.EntitlementService != nil && newProduct.EntitlementsSpec != nil {
 		for entitlementName, durationDays := range newProduct.EntitlementsSpec {
 			var endAt *time.Time
@@ -1263,6 +1408,7 @@ func (s *CheckoutService) processUpgrade(
 					"entitlement":     entitlementName,
 					"subscription_id": newSubscriptionID,
 				}).Error("failed to grant upgraded entitlement")
+				// Don't fail - entitlements can be granted manually if needed
 			}
 		}
 	}

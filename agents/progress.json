@@ -3,33 +3,71 @@
     {
       "name": "post-charge-crash-safety",
       "category": "critical",
-      "description": "Ensure process never crashes after charging a card - user must always get success response",
+      "description": "Ensure process never crashes after charging a card - user must always get success response. Implements durable payment flow.",
       "context": {
         "scenario": "User checkout → NMI.RunSale() succeeds (card charged) → subsequent step fails/panics → user sees error",
         "problem": "If we charge a card and then crash before returning success, the user sees an error but their card was charged. This is catastrophic UX and could cause support issues, chargebacks, or lost trust.",
         "critical_window": "Between NMI.RunSale() returning success and HTTP 200 being sent to user"
       },
-      "requirements": [
-        "After a successful charge, ALL subsequent operations must be wrapped in recover() or equivalent",
-        "If RegisterPurchase() fails after charge, log the error but still return success to user",
-        "Payment record MUST be created even if entitlement granting fails",
-        "Consider: persist payment record BEFORE granting entitlements (two-phase)",
-        "Consider: background job to reconcile failed entitlement grants",
-        "Never let a panic propagate after card is charged"
+      "durable_payment_flow": {
+        "description": "Job-based durable pattern - when post-charge ops fail, enqueue a retry job",
+        "steps": [
+          "1. Charge card → If fails, return error (safe to retry)",
+          "2. Record payment → Create Payment record with all context",
+          "3. Try post-charge operation (grant entitlements, renew membership, etc.)",
+          "4. If step 3 fails → Enqueue FulfillPaymentJob with all context needed to retry",
+          "5. Return success → User sees success, won't retry",
+          "6. FulfillPaymentWorker picks up job and retries the failed operation"
+        ],
+        "why_not_scanning": [
+          "Scanning workers (check DB for inconsistent state) are inefficient and implicit",
+          "Job-based approach is explicit - we know exactly what failed and what to retry",
+          "More efficient - no periodic DB scans, just process the queue",
+          "More auditable - job history shows exactly what failed and when"
+        ]
+      },
+      "card_charging_locations": [
+        "internal/services/checkout_service.go:processNMISale() - one-time purchases",
+        "internal/services/checkout_service.go:processUpgrade() - tier upgrade proration",
+        "internal/river/jobs_dunning.go:processSubscription() - subscription rebills"
       ],
-      "affected_code": [
-        "internal/services/checkout_service.go - processNMISale()",
-        "internal/services/checkout_service.go - RegisterPurchase()",
-        "Any code path that charges a card synchronously"
-      ],
-      "audit_steps": [
-        "Review processNMISale() for panic safety after RunSale()",
-        "Ensure Payment record is created before entitlements",
-        "Add defer/recover around post-charge operations",
-        "Test: what happens if DB connection drops right after charge?",
-        "Test: what happens if entitlement service panics?"
-      ],
-      "passes": false
+      "current_state": {
+        "done": [
+          "processNMISale(): After successful charge, return success even if RegisterPurchase fails",
+          "processUpgrade(): After successful proration charge, return success even if subsequent steps fail",
+          "jobs_dunning.go: Create Payment record BEFORE RenewMembership, continue even if either fails",
+          "Created FulfillPaymentWorker (internal/river/jobs_fulfill_payment.go)",
+          "Created internal/jobs package to avoid import cycles",
+          "Wire up FulfillPaymentWorker in river_register.go",
+          "Update processNMISale to enqueue FulfillPaymentJob on RegisterPurchase failure",
+          "Update processUpgrade to enqueue FulfillPaymentJob on post-charge failures",
+          "Update jobs_dunning.go to enqueue FulfillPaymentJob on RenewMembership failure",
+          "Remove old ReconcilePaymentsWorker periodic job from river_register.go"
+        ],
+        "todo": []
+      },
+      "fulfill_payment_worker": {
+        "file": "internal/river/jobs_fulfill_payment.go",
+        "fulfillment_types": [
+          "grant_entitlements - for one-time purchases",
+          "renew_membership - for subscription rebills",
+          "create_subscription - for upgrade scenarios (complex, may need manual review)"
+        ],
+        "job_args": {
+          "fulfillment_type": "what operation to perform",
+          "payment_id": "the payment that was created",
+          "user_id": "user who made the payment",
+          "price_id": "what they purchased",
+          "transaction_id": "NMI transaction ID",
+          "amount": "how much was charged",
+          "currency": "currency code",
+          "subscription_id": "optional - for subscription-related fulfillments",
+          "processor_subscription_id": "optional - NMI subscription ID",
+          "original_error": "the error that caused the initial failure"
+        }
+      },
+      "passes": true,
+      "completed_notes": "Fully implemented durable payment flow. When a card is charged but post-charge operations fail: (1) Payment record is created, (2) FulfillPaymentJob is enqueued via River for background retry, (3) Success is returned to user. FulfillPaymentWorker handles grant_entitlements, renew_membership, and create_subscription fulfillment types. Uses LazyFulfillmentEnqueuer pattern to handle River client initialization timing."
     },
     {
       "name": "nmi-test-account-integration",
@@ -207,7 +245,8 @@
         "  - Rate limit search queries",
         "NOTE: Billing service searches its own data. Full user profile search (username, etc) lives in main doujins API."
       ],
-      "passes": false
+      "passes": false,
+      "status": "not_started"
     },
     {
       "name": "admin-rate-limiting",
@@ -225,43 +264,8 @@
         "Log all rate limit events for security audit",
         "BENEFIT: Limits blast radius - attacker can only affect ~5-10 users before getting locked out"
       ],
-      "passes": false
-    },
-    {
-      "name": "solana-devnet-integration-tests",
-      "category": "testing-infra",
-      "description": "Add real Solana devnet integration tests that move test SOL/tokens on-chain",
-      "steps": [
-        "SETUP COMPLEXITY: Medium-high. Requires funded devnet wallet and handling rate limits/faucet availability.",
-        "Create test wallet keypair specifically for integration tests (store in config or env)",
-        "Fund test wallet via Solana devnet faucet (solana airdrop) - may need retry logic due to rate limits",
-        "Create test for full payment flow: generate intent -> sign transaction -> submit -> verify on-chain",
-        "Use devnet RPC endpoint (https://api.devnet.solana.com or Helius/QuickNode devnet)",
-        "Test SOL transfer: create intent for X lamports, sign with test wallet, submit, verify balance changes",
-        "Test SPL token transfer: create test SPL token on devnet, test token payment flow",
-        "Handle devnet instability: add retries, longer timeouts, skip tests if devnet unavailable",
-        "Consider using localnet (solana-test-validator) for faster/more reliable tests as alternative",
-        "Add -tags=devnet build tag to separate from unit tests (expensive/slow to run)",
-        "Document devnet wallet setup and faucet requirements in README"
-      ],
-      "passes": false
-    },
-    {
-      "name": "remove-wallet-verification-requirement",
-      "category": "refactor",
-      "description": "Remove mandatory wallet verification before Solana payments - it's unnecessary since transaction signatures already prove ownership",
-      "steps": [
-        "CURRENT: User must link+verify wallet via challenge/sign before making a payment",
-        "PROBLEM: This is an unnecessary step - the transaction signature itself proves wallet ownership",
-        "Update CreatePaymentIntent to accept any wallet address (not just verified ones)",
-        "Update ConfirmPaymentIntent to verify the signed transaction's fee payer matches the claimed wallet",
-        "Keep wallet linking endpoints for optional UX convenience (remember wallets) but don't require verification for payments",
-        "Update GeneratePayment handler similarly",
-        "Remove isVerified checks from payment flows",
-        "Update tests to reflect new behavior (payments work without pre-verification)",
-        "BENEFIT: Simpler UX - users can pay immediately without linking wallet first"
-      ],
-      "passes": false
+      "passes": false,
+      "status": "not_started"
     },
     {
       "name": "solana-pay-transaction-request",
@@ -279,29 +283,8 @@
         "BENEFIT: Enables complex transactions (swaps, multi-instruction), sponsored fees, and server-side transaction building",
         "Write tests for transaction request flow"
       ],
-      "passes": false
-    },
-    {
-      "name": "solana-sponsored-transactions",
-      "category": "feature",
-      "description": "Allow merchant to pay Solana transaction fees so users don't need SOL in their wallet",
-      "steps": [
-        "CURRENT: User is fee payer - must have SOL for transaction fees (~0.000005 SOL)",
-        "TARGET: Merchant pays fees - users can pay with just USDC/tokens, no SOL needed",
-        "Create separate 'fee payer' wallet (distinct from recipient wallet to limit blast radius)",
-        "Add fee_payer_wallet and fee_payer_private_key to Solana config (or use KMS reference)",
-        "Integrate with AWS KMS or GCP Cloud HSM for secure private key storage (never store raw key in config)",
-        "Update BuildPaymentTransaction to set merchant as fee payer (account[0])",
-        "Server signs transaction first with fee payer key, then returns partially-signed tx to user",
-        "User signs as token sender, transaction now has both signatures",
-        "Add rate limiting specifically for sponsored transactions to prevent abuse/draining",
-        "Add monitoring/alerting for fee payer wallet balance (alert when low)",
-        "Add config flag to enable/disable sponsored transactions (default off)",
-        "Consider using Helius or Jito for fee sponsorship as simpler alternative to self-managed keys",
-        "TRADEOFF: Adds complexity and security burden (private key on server) but improves UX significantly",
-        "Write tests for sponsored transaction flow"
-      ],
-      "passes": false
+      "passes": false,
+      "status": "not_started"
     },
     {
       "name": "admin-grants-and-offline-purchases",
@@ -563,7 +546,8 @@
         "Write tests for FIFO consumption order",
         "Document credit system in API docs"
       ],
-      "passes": false
+      "passes": false,
+      "status": "not_started"
     },
     {
       "name": "service-api-endpoints",
@@ -730,7 +714,8 @@
         "Write comprehensive tests with seeded data",
         "Document all metrics definitions"
       ],
-      "passes": false
+      "passes": false,
+      "status": "not_started"
     },
     {
       "name": "fix-nmi-add-subscription-missing-payment-info",
@@ -866,33 +851,6 @@
       "completed_notes": "Moved ClickHouse event logging into lifecycle methods so all processors get consistent logging automatically. CreateMembership, RenewMembership, FailMembership, and CancelMembership now log to ClickHouse via EventLogService. NMI and CCBill webhook handlers still log webhook-specific data separately (complementary, not duplicate)."
     },
     {
-      "name": "simplify-solana-payment-flow",
-      "category": "refactor",
-      "description": "Simplified Solana payment flow - removed wallet linking/verification, payment intents, replaced with direct Solana Pay Transfer Request",
-      "context": {
-        "problem": "The Solana payment system was over-engineered with wallet verification challenges, payment intents, and complex state machines",
-        "solution": "Simplified to 3 endpoints: list tokens, create payment URL, check status. No wallet linking required."
-      },
-      "changes_made": [
-        "Deleted SolanaWallet and SolanaWalletChallenge models",
-        "Deleted SolanaPaymentIntent model",
-        "Deleted SolanaWalletService, SolanaVerificationService, SolanaPaymentIntentService",
-        "Removed all wallet/payment-intent endpoints from routes",
-        "Kept only: GET /v1/solana/tokens, POST /v1/solana/pay, GET /v1/solana/pay/status, GET /v1/solana/pay/:reference",
-        "Payment state stored in Redis with 15-minute TTL (no database table needed)",
-        "solana_transactions table retained to link payments to on-chain transactions"
-      ],
-      "new_flow": [
-        "1. POST /v1/solana/pay {price_id, token} → returns solana: URL + reference key",
-        "2. User scans QR/clicks URL, wallet creates and signs transaction",
-        "3. Frontend polls GET /v1/solana/pay/status?reference=... or GET /v1/solana/pay/:reference",
-        "4. Backend verifies transaction on-chain, creates payment + entitlements",
-        "5. Status returns 'completed' with payment_id and signature"
-      ],
-      "passes": true,
-      "completed_notes": "All 9 Solana tests pass. Flow is now much simpler - no wallet linking, no verification challenges, no payment intents. Just create payment URL → poll status → done."
-    },
-    {
       "name": "fix-broken-integration-tests",
       "category": "testing",
       "description": "Multiple integration tests are failing due to outdated assertions, wrong field names, and test isolation issues",
@@ -938,7 +896,96 @@
         "Review all tests for other total_items/page/page_size references",
         "Consider using test transactions with rollback for better isolation"
       ],
-      "passes": false
+      "passes": false,
+      "status": "in_progress"
+    },
+    {
+      "name": "prevent-duplicate-subscriptions",
+      "category": "critical",
+      "description": "Fix race conditions and logic gaps that could allow duplicate active subscriptions for the same user/product",
+      "context": {
+        "problem": "Multiple code paths can create subscriptions, and application-level checks have race conditions that could allow duplicates",
+        "impact": "User could be charged twice for overlapping subscription periods - support nightmare, chargebacks, lost trust"
+      },
+      "issues_identified": [
+        {
+          "id": 1,
+          "severity": "HIGH",
+          "title": "CreateMembership only checks most recent subscription",
+          "location": "lifecycle_service.go:163-165",
+          "description": "GetLatestByUserID returns only the most recent subscription by created_at. If user has cancelled Sub A and active Sub B, and GetLatestByUserID returns Sub A (cancelled), the check passes and creates a THIRD subscription.",
+          "fix": "Use GetActiveSubscription or query for ANY active subscription, not just the latest"
+        },
+        {
+          "id": 2,
+          "severity": "HIGH",
+          "title": "No database-level uniqueness constraint on recurring subscriptions",
+          "description": "No unique index prevents (user_id + status='active' + product_id) for recurring subscriptions. Note: this only applies to recurring products - one-time purchases don't create subscription records (they create Payment + Entitlement directly). For recurring subscriptions, two concurrent requests can both pass application-level checks and both INSERT.",
+          "fix": "Add partial unique index: CREATE UNIQUE INDEX ON subscriptions(user_id, product_id) WHERE status IN ('active', 'pending'). This constraint only affects recurring subscriptions, which is the correct behavior."
+        },
+        {
+          "id": 3,
+          "severity": "MEDIUM",
+          "title": "FulfillPaymentWorker can create duplicate NMI subscriptions",
+          "location": "jobs_fulfill_payment.go:340",
+          "description": "If job runs twice (River retry), first run creates NMI subscription but fails before saving locally. Second run checks local DB (empty), creates ANOTHER NMI subscription. Two subscriptions at NMI both charging user.",
+          "fix": "Query NMI by customerid+planid before creating new subscription, or use idempotency key with NMI"
+        },
+        {
+          "id": 4,
+          "severity": "MEDIUM",
+          "title": "CCBill double-click creates multiple transactions",
+          "description": "User clicks Pay, CCBill processes, webhook creates Sub A. User's browser slow, clicks Pay again. CCBill creates another transaction. Second webhook arrives - protected by CreateMembership check BUT see issue #1.",
+          "fix": "Fixed by fixing issue #1"
+        },
+        {
+          "id": 5,
+          "severity": "MEDIUM",
+          "title": "FulfillPaymentWorker race with webhooks",
+          "description": "Checkout fails after NMI subscription created, job enqueued. Meanwhile webhook arrives and creates subscription. Job runs and might create duplicate if different product/tier.",
+          "mitigation": "Already mitigated by tier group checks, but should add processor_subscription_id check"
+        }
+      ],
+      "recommended_fixes": [
+        {
+          "priority": 1,
+          "action": "Fix CreateMembership to use GetActiveSubscription",
+          "files": ["internal/services/lifecycle_service.go"]
+        },
+        {
+          "priority": 2,
+          "action": "Add database partial unique index on (user_id, product_id) WHERE status IN ('active', 'pending')",
+          "files": ["migrations/postgres/XXX_add_subscription_unique_constraint.up.sql"]
+        },
+        {
+          "priority": 3,
+          "action": "FulfillPaymentWorker: Query NMI before creating subscription",
+          "files": ["internal/river/jobs_fulfill_payment.go"]
+        },
+        {
+          "priority": 4,
+          "action": "Add processor_subscription_id uniqueness check in fulfillment worker",
+          "files": ["internal/river/jobs_fulfill_payment.go"]
+        }
+      ],
+      "alternative_approach": {
+        "name": "Durable Execution Framework",
+        "description": "Current approach requires manual idempotency checks everywhere. Could use Temporal, Hatchet, or Restate for automatic durable execution guarantees.",
+        "benefits": [
+          "Automatic exactly-once execution",
+          "No manual idempotency logic needed",
+          "Built-in retry with state persistence",
+          "Workflow visibility and debugging"
+        ],
+        "options": [
+          "Temporal - Full-featured, self-hosted or cloud, steep learning curve",
+          "Hatchet - Open source Temporal alternative, simpler",
+          "Restate - Lightweight, embeddable",
+          "DBOS - Uses Postgres as durability layer, minimal infrastructure"
+        ]
+      },
+      "passes": false,
+      "status": "not_started"
     },
     {
       "name": "test-architecture-improvements",
@@ -977,7 +1024,143 @@
         "Use json.Unmarshal with actual API response types instead of map[string]interface{}",
         "Add linter rule or CI check to discourage map[string]interface{} in tests"
       ],
-      "passes": false
+      "passes": false,
+      "status": "not_started"
+    },
+    {
+      "name": "durable-workflow-execution",
+      "category": "architecture",
+      "description": "Evaluate and potentially adopt embedded durable workflow execution for critical payment flows",
+      "context": {
+        "problem": "Current approach requires manual idempotency checks scattered throughout codebase. Edge cases can slip through, and crash recovery depends on job queues plus manual retry logic.",
+        "goal": "Workflows that are deterministic, automatically resume from crash point, and never double-execute external API calls",
+        "requirements": [
+          "EMBEDDED library - no external containers/services to host",
+          "Deterministic execution flow",
+          "Track execution progress through steps",
+          "Replay/resume from crash point",
+          "Record outcomes of external APIs to avoid re-execution"
+        ]
+      },
+      "how_durable_execution_works": {
+        "determinism": "Workflow code must be deterministic - no random, no time.Now(), no map iteration, no select",
+        "event_sourcing": "Every step's result is persisted to a log (event history)",
+        "replay": "On crash/restart, replay events to rebuild state without re-executing side effects",
+        "activities": "Side effects (API calls, DB writes) are wrapped as 'activities' - executed once, result cached",
+        "idempotency": "Built-in - if activity already executed, cached result is returned on replay"
+      },
+      "embedded_go_libraries": {
+        "go_workflows": {
+          "repo": "github.com/cschleiden/go-workflows",
+          "maturity": "Production-ready, 391 stars, 57 releases, v1.4.1 (Nov 2025)",
+          "backends": ["SQLite", "MySQL", "PostgreSQL", "Redis", "In-memory"],
+          "pros": [
+            "Supports PostgreSQL (we already use it)",
+            "Mature with active development",
+            "Type-safe activity execution",
+            "Can run worker in same process or separate"
+          ],
+          "cons": [
+            "Workflow code must follow determinism rules",
+            "Learning curve for deterministic programming"
+          ]
+        },
+        "durabletask_go": {
+          "repo": "github.com/microsoft/durabletask-go",
+          "maturity": "Work-in-progress, NOT production ready per Microsoft",
+          "backends": ["SQLite only (more can be added)"],
+          "pros": [
+            "Backed by Microsoft, used in Azure Durable Functions",
+            "gRPC endpoint for multi-language support"
+          ],
+          "cons": [
+            "Not production ready",
+            "SQLite only - would need to implement PostgreSQL backend",
+            "API not stable"
+          ]
+        }
+      },
+      "build_vs_adopt": {
+        "build_own": {
+          "description": "Create a lightweight durable execution library tailored to our needs",
+          "components": [
+            "WorkflowEngine - orchestrates execution, handles replay",
+            "EventLog table - stores (workflow_id, step_id, step_type, input, output, created_at)",
+            "Activity wrapper - executes external calls, persists results",
+            "Replay logic - on resume, read event log, skip already-executed steps",
+            "Determinism checker - runtime validation that workflow is deterministic"
+          ],
+          "schema": {
+            "workflow_executions": "(id, workflow_type, workflow_id, status, started_at, completed_at, error)",
+            "workflow_events": "(id, execution_id, sequence, event_type, step_name, input_json, output_json, created_at)"
+          },
+          "pros": [
+            "Tailored to our exact needs",
+            "No external dependency",
+            "Can start simple and grow"
+          ],
+          "cons": [
+            "Significant engineering effort",
+            "Must get determinism/replay right (hard)",
+            "Maintenance burden"
+          ]
+        },
+        "adopt_go_workflows": {
+          "description": "Use go-workflows library with PostgreSQL backend",
+          "effort": "Medium - integrate library, refactor payment flows to workflow pattern",
+          "pros": [
+            "Battle-tested replay/determinism logic",
+            "PostgreSQL backend already available",
+            "Active community and maintenance"
+          ],
+          "cons": [
+            "Additional dependency",
+            "Must learn workflow patterns"
+          ]
+        }
+      },
+      "example_checkout_workflow": {
+        "description": "What checkout would look like with durable execution",
+        "pseudo_code": [
+          "func CheckoutWorkflow(ctx workflow.Context, args CheckoutArgs) error {",
+          "    // Step 1: Validate (deterministic, no persistence needed)",
+          "    if err := validateArgs(args); err != nil { return err }",
+          "",
+          "    // Step 2: Charge card (ACTIVITY - persisted)",
+          "    chargeResult := workflow.ExecuteActivity(ctx, ChargeCardActivity, args.PaymentMethod, args.Amount)",
+          "    if chargeResult.Err != nil { return chargeResult.Err }",
+          "",
+          "    // Step 3: Create payment record (ACTIVITY - persisted)",
+          "    paymentResult := workflow.ExecuteActivity(ctx, CreatePaymentActivity, chargeResult.TransactionID, args)",
+          "",
+          "    // Step 4: Grant entitlements (ACTIVITY - persisted)",
+          "    workflow.ExecuteActivity(ctx, GrantEntitlementsActivity, args.UserID, args.ProductID)",
+          "",
+          "    // If we crash after Step 2 but before Step 4:",
+          "    // - Replay reads event log: Step 2 already done, return cached chargeResult",
+          "    // - Continue from Step 3 with persisted state",
+          "    return nil",
+          "}"
+        ]
+      },
+      "candidate_workflows": [
+        "Checkout flow (charge → record → grant entitlements)",
+        "Subscription upgrade (charge proration → cancel old → create new)",
+        "Dunning/rebill (charge → renew or → escalate failure)",
+        "Refund flow (refund at processor → revoke entitlements → update records)"
+      ],
+      "implementation_steps": [
+        "Evaluate go-workflows with a simple PoC (non-critical path first)",
+        "Create PoC: Wrap a simple workflow (e.g., refund) with go-workflows",
+        "Benchmark: Measure overhead of event persistence",
+        "Decide: Adopt go-workflows OR design custom lightweight solution",
+        "If adopting: Create workflow definitions for checkout, upgrade, dunning",
+        "If building: Design minimal event log schema and replay engine",
+        "Migrate FulfillPaymentWorker logic into durable workflows",
+        "Add monitoring/visibility for workflow executions"
+      ],
+      "passes": false,
+      "status": "not_started"
     }
   ]
 }

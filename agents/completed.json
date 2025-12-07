@@ -1427,6 +1427,55 @@
         "TestUpdateSubscriptionPaymentMethodNMIFailure"
       ],
       "completed_notes": "Implemented PUT /v1/me/subscriptions/payment-method endpoint allowing users to swap the payment method (customer vault) used for their NMI subscription. Particularly useful for users with past_due subscriptions who need to update their card after a failed payment. Handler validates all ownership and state requirements, calls NMI API to update the subscription's customer_vault_id, then updates local DB. Comprehensive test coverage for all validation scenarios and error cases."
+    },
+    {
+      "name": "simplify-solana-payment-flow",
+      "category": "refactor",
+      "description": "Simplified Solana payment flow - removed wallet linking/verification, payment intents, replaced with direct Solana Pay Transfer Request",
+      "context": {
+        "problem": "The Solana payment system was over-engineered with wallet verification challenges, payment intents, and complex state machines",
+        "solution": "Simplified to 3 endpoints: list tokens, create payment URL, check status. No wallet linking required."
+      },
+      "changes_made": [
+        "Deleted SolanaWallet and SolanaWalletChallenge models",
+        "Deleted SolanaPaymentIntent model",
+        "Deleted SolanaWalletService, SolanaVerificationService, SolanaPaymentIntentService",
+        "Removed all wallet/payment-intent endpoints from routes",
+        "Kept only: GET /v1/solana/tokens, POST /v1/solana/pay, GET /v1/solana/pay/:reference",
+        "Payment state stored in Redis with 15-minute TTL (no database table needed)",
+        "solana_transactions table retained to link payments to on-chain transactions"
+      ],
+      "new_flow": [
+        "1. POST /v1/solana/pay {price_id, token} → returns solana: URL + reference key",
+        "2. User scans QR/clicks URL, wallet creates and signs transaction",
+        "3. Frontend polls GET /v1/solana/pay/:reference",
+        "4. Backend verifies transaction on-chain, creates payment + entitlements",
+        "5. Status returns 'confirmed' with payment_id and signature"
+      ],
+      "implementation_notes": {
+        "ttl": "15-minute TTL on Redis pending payments - our business logic, not in Solana Pay spec",
+        "polling": "Server-side poller checks every 500ms for confirmed transactions",
+        "official_sdk_comparison": "Official @solana/pay SDK examples poll forever with no timeout - our TTL is better practice"
+      },
+      "completed_notes": "All 9 Solana tests pass. Flow is now much simpler - no wallet linking, no verification challenges, no payment intents. Just create payment URL → poll status → done."
+    },
+    {
+      "name": "remove-wallet-verification-requirement",
+      "category": "refactor",
+      "description": "Removed mandatory wallet verification before Solana payments - transaction signatures prove ownership",
+      "context": {
+        "problem": "Users had to link+verify wallet via challenge/sign before making a payment - unnecessary friction",
+        "solution": "Completely removed wallet verification. Transaction signature itself proves wallet ownership."
+      },
+      "changes_made": [
+        "Deleted SolanaWallet model and migrations",
+        "Deleted SolanaWalletChallenge model",
+        "Deleted SolanaWalletService and SolanaVerificationService",
+        "Removed all wallet linking/verification endpoints",
+        "POST /v1/solana/pay accepts any price_id + token, no wallet pre-registration needed",
+        "User's wallet is implicit in the transaction they sign"
+      ],
+      "completed_notes": "Completed as part of simplify-solana-payment-flow. Users can now pay immediately without linking wallet first. The wallet address comes from the transaction the user signs, not from a pre-registered wallet record."
     }
   ]
 }

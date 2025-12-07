@@ -14,6 +14,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/jonboulle/clockwork"
 )
@@ -60,6 +61,8 @@ type Runtime struct {
 	WebhookProcessor             *services.WebhookProcessor
 
 	CheckoutService *services.CheckoutService
+
+	FulfillmentEnqueuer *riverjobs.LazyFulfillmentEnqueuer
 
 	riverStarted bool
 }
@@ -124,6 +127,11 @@ func (r *Runtime) InitRiver(ctx context.Context) error {
 	}
 	r.RiverClient = client
 	r.riverPool = pool
+
+	// Wire up the fulfillment enqueuer now that we have a River client
+	if r.FulfillmentEnqueuer != nil {
+		r.FulfillmentEnqueuer.SetEnqueuer(riverjobs.NewRiverFulfillmentEnqueuer(client))
+	}
 	return nil
 }
 

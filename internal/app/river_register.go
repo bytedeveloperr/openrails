@@ -14,7 +14,12 @@ import (
 // buildRiverWorkers constructs the worker registry for River.
 func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error) {
 	workers := river.NewWorkers()
-	if err := river.AddWorkerSafely(workers, &riverjobs.DunningWorker{DB: r.DB, NMIClients: r.NMIClients, EventLogService: r.EventLogService}); err != nil {
+	if err := river.AddWorkerSafely(workers, &riverjobs.DunningWorker{
+		DB:                  r.DB,
+		NMIClients:          r.NMIClients,
+		EventLogService:     r.EventLogService,
+		FulfillmentEnqueuer: r.FulfillmentEnqueuer,
+	}); err != nil {
 		return nil, fmt.Errorf("add dunning worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.IdempotencyCleanupWorker{DB: r.DB}); err != nil {
@@ -35,6 +40,12 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 		Config: riverjobs.DefaultCleanupConfig(),
 	}); err != nil {
 		return nil, fmt.Errorf("add cleanup expired data worker: %w", err)
+	}
+	if err := river.AddWorkerSafely(workers, &riverjobs.FulfillPaymentWorker{
+		DB:         r.DB,
+		NMIClients: r.NMIClients,
+	}); err != nil {
+		return nil, fmt.Errorf("add fulfill payment worker: %w", err)
 	}
 	return workers, nil
 }
