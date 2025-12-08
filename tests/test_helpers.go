@@ -89,7 +89,7 @@ func setupTestSuite(t *testing.T) *TestContainerSuite {
 // The token is signed by the test issuer and will validate against the JWKS endpoint.
 func setupTestServerWithAuth(t *testing.T) (*server.Server, string) {
 	srv := setupTestServer(t)
-	token := getTestIssuer().CreateToken("test-user-billing-12345", "test@billing.example.com")
+	token := getTestIssuer().CreateToken("test-user-billing-12345", "test@billing.doujins.com")
 	return srv, token
 }
 
@@ -109,7 +109,7 @@ func setupTestSuiteWithAuth(t *testing.T) (*TestContainerSuite, string, string) 
 // This is the same as setupTestServerWithAuth since all tokens use RS256.
 func setupTestServerWithRSAuth(t *testing.T) (*server.Server, string) {
 	srv := setupTestServer(t)
-	token := getTestIssuer().CreateToken("test-user-billing-rs256", "rs256@billing.example.com")
+	token := getTestIssuer().CreateToken("test-user-billing-rs256", "rs256@billing.doujins.com")
 	return srv, token
 }
 

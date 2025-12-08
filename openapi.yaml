@@ -1,0 +1,1180 @@
+openapi: 3.0.3
+info:
+  title: Doujins Billing API
+  version: 1.0.0
+  description: |
+    HTTP surface for the Doujins billing service. The spec describes the currently
+    deployed endpoints (public catalog, authenticated user flows, admin APIs, processor webhooks,
+    and the internal service-to-service entitlement lookup).
+servers:
+  - url: https://billing.doujins.com
+    description: Primary public API
+  - url: https://billing-internal.doujins.com
+    description: Private service API (port 8060)
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-KEY
+  schemas:
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+          example: prod_01HZX1...
+        object:
+          type: string
+          example: product
+        name:
+          type: string
+        description:
+          type: string
+        active:
+          type: boolean
+        created:
+          type: integer
+          format: int64
+        updated:
+          type: integer
+          format: int64
+        prices:
+          type: array
+          items:
+            $ref: '#/components/schemas/Price'
+    Price:
+      type: object
+      properties:
+        id:
+          type: string
+          example: price_01HZX6...
+        object:
+          type: string
+          example: price
+        name:
+          type: string
+        amount:
+          type: integer
+          description: Amount in cents
+        currency:
+          type: string
+          example: usd
+        recurring:
+          $ref: '#/components/schemas/RecurringInfo'
+        product:
+          type: string
+        active:
+          type: boolean
+        created:
+          type: integer
+          format: int64
+    RecurringInfo:
+      type: object
+      properties:
+        interval:
+          type: string
+          enum: [day, week, month, year]
+        interval_count:
+          type: integer
+    ListResponseProducts:
+      type: object
+      properties:
+        object:
+          type: string
+          example: list
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        has_more:
+          type: boolean
+    ListResponsePrices:
+      type: object
+      properties:
+        object:
+          type: string
+          example: list
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Price'
+        total:
+          type: integer
+        limit:
+          type: integer
+        offset:
+          type: integer
+        has_more:
+          type: boolean
+    SubscriptionSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [pending, active, past_due, cancelled]
+        processor:
+          type: string
+          enum: [mobius, ccbill, solana]
+        current_period_starts_at:
+          type: string
+          format: date-time
+        current_period_ends_at:
+          type: string
+          format: date-time
+        canceled_at:
+          type: string
+          format: date-time
+          nullable: true
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+        object:
+          type: string
+          example: payment
+        amount:
+          type: integer
+        amount_refunded:
+          type: integer
+        currency:
+          type: string
+        processor:
+          type: string
+        transaction_id:
+          type: string
+        subscription:
+          type: string
+          nullable: true
+        refunded:
+          type: boolean
+        created:
+          type: integer
+          format: int64
+    PaymentMethod:
+      type: object
+      properties:
+        id:
+          type: string
+        processor:
+          type: string
+        brand:
+          type: string
+        last_four:
+          type: string
+        exp_month:
+          type: integer
+        exp_year:
+          type: integer
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+        event_type:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+        seen:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+    Entitlement:
+      type: object
+      properties:
+        entitlement:
+          type: string
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+          nullable: true
+        source_type:
+          type: string
+        source_id:
+          type: string
+    CheckoutRequest:
+      type: object
+      required: [price_id, processor]
+      properties:
+        price_id:
+          type: string
+        processor:
+          type: string
+          enum: [mobius, ccbill, solana]
+        payment_method_id:
+          type: string
+        payment_token:
+          type: string
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+        last_name:
+          type: string
+        address1:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        country:
+          type: string
+    CheckoutResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        message:
+          type: string
+        subscription_id:
+          type: string
+        payment_id:
+          type: string
+        transaction_id:
+          type: string
+        redirect_url:
+          type: string
+        delayed_start:
+          type: string
+          format: date-time
+    UpdateSubscriptionPaymentMethodRequest:
+      type: object
+      required: [subscription_id, payment_method_id]
+      properties:
+        subscription_id:
+          type: string
+        payment_method_id:
+          type: string
+    CancelSubscriptionRequest:
+      type: object
+      properties:
+        feedback:
+          type: string
+          maxLength: 500
+    CreatePaymentMethodRequest:
+      type: object
+      required: [payment_token, first_name, last_name, address1, city, zip, country]
+      properties:
+        payment_token:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        address1:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        country:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        company:
+          type: string
+        address2:
+          type: string
+        provider:
+          type: string
+    UpdatePaymentMethodRequest:
+      type: object
+      required: [payment_token]
+      properties:
+        payment_token:
+          type: string
+        first_name:
+          type: string
+        last_name:
+          type: string
+        address1:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        country:
+          type: string
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        company:
+          type: string
+        address2:
+          type: string
+        provider:
+          type: string
+    SolanaPayRequest:
+      type: object
+      required: [price_id, token]
+      properties:
+        price_id:
+          type: string
+        token:
+          type: string
+    SolanaPayResponse:
+      type: object
+      properties:
+        url:
+          type: string
+        reference:
+          type: string
+        amount:
+          type: integer
+        currency:
+          type: string
+        token_amount:
+          type: string
+        token:
+          type: string
+        expires_at:
+          type: integer
+          format: int64
+    SolanaPayStatusResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, confirmed, expired]
+        payment_id:
+          type: string
+        signature:
+          type: string
+    NotificationReadResponse:
+      type: object
+      properties:
+        message:
+          type: string
+    AdminGrant:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        product_id:
+          type: string
+        reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+paths:
+  /:
+    get:
+      summary: Service banner
+      responses:
+        '200':
+          description: Banner payload
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /health/live:
+    get:
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Liveness OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /health/ready:
+    get:
+      summary: Readiness probe
+      responses:
+        '200':
+          description: Ready
+        '503':
+          description: Not ready
+  /healthz:
+    get:
+      summary: Kubernetes liveness alias
+      responses:
+        '200':
+          description: OK
+  /readyz:
+    get:
+      summary: Kubernetes readiness alias
+      responses:
+        '200':
+          description: Ready
+        '503':
+          description: Not ready
+  /v1/products:
+    get:
+      summary: List products
+      parameters:
+        - in: query
+          name: active
+          schema:
+            type: boolean
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of products
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListResponseProducts'
+  /v1/prices:
+    get:
+      summary: List prices
+      parameters:
+        - in: query
+          name: active
+          schema:
+            type: boolean
+        - in: query
+          name: currency
+          schema:
+            type: string
+        - in: query
+          name: product
+          schema:
+            type: string
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [recurring, one_time]
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: List of prices
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListResponsePrices'
+  /v1/solana/tokens:
+    get:
+      summary: List supported Solana tokens
+      responses:
+        '200':
+          description: Token definitions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    symbol:
+                      type: string
+                    name:
+                      type: string
+                    mint:
+                      type: string
+                    decimals:
+                      type: integer
+                    enabled:
+                      type: boolean
+  /v1/webhooks/{provider}:
+    post:
+      summary: Processor webhook receiver
+      parameters:
+        - in: path
+          name: provider
+          required: true
+          schema:
+            type: string
+            enum: [ccbill, mobius, solana]
+      responses:
+        '200':
+          description: Webhook accepted
+        '400':
+          description: Unknown provider
+        '401':
+          description: Signature missing/invalid
+        '403':
+          description: Source not authorised
+  /v1/solana/pay:
+    post:
+      summary: Create Solana Pay transfer request
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SolanaPayRequest'
+      responses:
+        '200':
+          description: Transfer request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SolanaPayResponse'
+        '400':
+          description: Invalid request
+        '401':
+          description: Authentication required
+  /v1/solana/pay/{reference}:
+    get:
+      summary: Get Solana Pay status by reference
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: reference
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Status payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SolanaPayStatusResponse'
+        '400':
+          description: Missing reference
+        '401':
+          description: Authentication required
+  /v1/me/status:
+    get:
+      summary: Current premium status
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Status payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  is_premium:
+                    type: boolean
+                  subscription:
+                    $ref: '#/components/schemas/SubscriptionSummary'
+                  entitlements:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Entitlement'
+        '401':
+          description: Authentication required
+  /v1/me/checkout:
+    post:
+      summary: Unified checkout
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutRequest'
+      responses:
+        '200':
+          description: Checkout accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutResponse'
+        '400':
+          description: Validation failure
+        '401':
+          description: Authentication required
+        '409':
+          description: Purchase blocked
+  /v1/me/subscriptions:
+    get:
+      summary: Subscription history
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Subscription list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SubscriptionSummary'
+                  total_items:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          description: Authentication required
+  /v1/me/subscriptions/payment-method:
+    put:
+      summary: Change payment method for an NMI subscription
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSubscriptionPaymentMethodRequest'
+      responses:
+        '200':
+          description: Updated
+        '400':
+          description: Validation error
+        '401':
+          description: Authentication required
+  /v1/me/subscriptions/cancel:
+    post:
+      summary: Cancel current subscription
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelSubscriptionRequest'
+      responses:
+        '200':
+          description: Cancelled
+        '401':
+          description: Authentication required
+        '422':
+          description: Requires external cancellation
+  /v1/me/payments:
+    get:
+      summary: List user payments
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Payment list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payment'
+                  total_items:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          description: Authentication required
+  /v1/me/payment-methods:
+    get:
+      summary: List stored payment methods
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+        - in: query
+          name: include_inactive
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Payment method list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PaymentMethod'
+                  total_items:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        '401':
+          description: Authentication required
+    post:
+      summary: Create payment method
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePaymentMethodRequest'
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethod'
+        '400':
+          description: Validation error
+        '401':
+          description: Authentication required
+  /v1/me/payment-methods/{id}:
+    put:
+      summary: Update payment method
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePaymentMethodRequest'
+      responses:
+        '200':
+          description: Updated method
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethod'
+        '400':
+          description: Validation error
+        '401':
+          description: Authentication required
+    delete:
+      summary: Delete payment method
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Deleted
+        '401':
+          description: Authentication required
+  /v1/me/payment-methods/{id}/activate:
+    put:
+      summary: Reactivate payment method
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Activated
+        '401':
+          description: Authentication required
+  /v1/me/notifications:
+    get:
+      summary: List notifications
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: page_size
+          schema:
+            type: integer
+        - in: query
+          name: seen
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Notification list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Notification'
+                  total_items:
+                    type: integer
+        '401':
+          description: Authentication required
+  /v1/me/notifications/unread-count:
+    get:
+      summary: Unread notification count
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Count
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  unread_count:
+                    type: integer
+        '401':
+          description: Authentication required
+  /v1/me/notifications/{id}/read:
+    post:
+      summary: Mark notification read
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Marked as read
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationReadResponse'
+        '401':
+          description: Authentication required
+  /v1/admin/subscriptions:
+    get:
+      summary: Admin subscription listing
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Subscription list
+        '403':
+          description: Admin role required
+  /v1/admin/subscriptions/{id}:
+    get:
+      summary: Admin subscription detail
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Subscription detail
+        '403':
+          description: Admin role required
+  /v1/admin/subscriptions/{id}/extend:
+    put:
+      summary: Extend subscription
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                duration:
+                  type: string
+                  example: 72h
+      responses:
+        '200':
+          description: Extended
+  /v1/admin/subscriptions/{id}/cancel:
+    post:
+      summary: Cancel subscription (admin)
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Cancelled
+  /v1/admin/payments:
+    get:
+      summary: Admin payment listing
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Payment list
+  /v1/admin/payments/{id}:
+    get:
+      summary: Payment detail (admin)
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payment detail
+  /v1/admin/payments/{id}/refund:
+    post:
+      summary: Create refund
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                amount:
+                  type: integer
+      responses:
+        '200':
+          description: Refund initiated
+  /v1/admin/users/{user_id}:
+    get:
+      summary: Get billing profile for a user
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Billing profile
+  /v1/admin/users/{user_id}/entitlements:
+    get:
+      summary: List entitlements for a user
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Entitlement list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Entitlement'
+    post:
+      summary: Grant entitlement
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Entitlement'
+      responses:
+        '200':
+          description: Granted
+  /v1/admin/users/{user_id}/entitlements/{id}:
+    delete:
+      summary: Revoke entitlement
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Revoked
+  /v1/admin/users/{user_id}/grants:
+    get:
+      summary: List admin grants for a user
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Grant list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminGrant'
+    post:
+      summary: Create admin grant
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminGrant'
+      responses:
+        '200':
+          description: Created
+  /v1/admin/grants/{id}:
+    get:
+      summary: Fetch grant detail
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Grant detail
+  /v1/admin/metrics:
+    get:
+      summary: Retrieve billing metrics
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: type
+          schema:
+            type: string
+            enum: [dashboard, daily, processor]
+        - in: query
+          name: start
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Metrics payload
+  /v1/users/{user_id}/entitlements:
+    get:
+      summary: Service-to-service entitlement lookup
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Entitlements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Entitlement'
+        '401':
+          description: API key missing or invalid

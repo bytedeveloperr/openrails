@@ -1,581 +1,211 @@
 # Billing Service API Reference
 
-This document describes the HTTP endpoints exposed by the billing service. Routes are grouped by
-purpose. Unless otherwise noted, responses are JSON encoded and errors follow the form:
+The billing service exposes a small set of HTTP APIs split across public catalog routes, authenticated
+user routes, administrative endpoints, and a private service-to-service surface. All responses are
+JSON encoded and use the standard error envelope:
 
 ```json
 {
-  "error": "human_readable_code",
-  "message": "optional detail"
+  "error": "machine_readable_code",
+  "message": "human readable description"
 }
 ```
 
-## Authentication & Headers
+## Authentication & Security
 
-- **User endpoints** require a bearer token issued by your IdP (see `auth.*` config). Pass using
-  `Authorization: Bearer <token>`.
-- **Admin endpoints** listen on the private handler and require `X-API-KEY` to match
-  `billing_api_key`. These routes do **not** establish a user context; operations act directly on the
-  supplied identifiers.
-- **Webhooks** are public; callers must supply the appropriate gateway/provider secrets
-  (e.g., IP allow-list for CCBill, HMAC signature for NMI).
+| Surface | How to authenticate |
+|---------|---------------------|
+| Public catalog (`/`, `/v1/products`, `/v1/prices`, `/v1/solana/tokens`, health probes) | No auth required |
+| User routes (`/v1/solana/pay`, `/v1/me/*`) | `Authorization: Bearer <JWT>` issued by AuthKit |
+| Admin routes (`/v1/admin/*`) | Same JWT header, user must have the `admin` role |
+| Service API (private port 8060, `/v1/users/:user_id/entitlements`) | `X-API-KEY` header matching `config.api_key` |
+| Webhooks (`/v1/webhooks/:provider`) | Provider-specific verification (CCBill IP allow-list, NMI HMAC, Solana reference check) |
 
-## Rate Limiting
+Unless stated otherwise, list endpoints use the Stripe-like envelope defined in `pkg/api.ListResponse`:
+`{ object: "list", data: [...], total, limit, offset, has_more }`.
 
-Public routes are throttled by the configured `rate_limits` block. Typical defaults:
+## Health & Service Banner
 
-- `SubscribeLimit`: 10 requests/minute (burst 3)
-- `PaymentLimit`: 20 requests/minute (burst 5)
-- `WebhookLimit`: 100 requests/minute (burst 20)
+### GET /
+Returns a short JSON banner (`{"service":"billing","status":"ok","endpoints":[...]}`) so load
+balancers can confirm the API is reachable.
 
-Admin routes are not rate limited by the application but should live behind network controls.
+### GET /health/live, /healthz
+Unconditional liveness probes.
 
-## Subscriptions (Public API)
+### GET /health/ready, /readyz
+Runs readiness checks against Postgres, Redis, and the AuthKit verifier. Returns 200 when all checks
+pass, or 503 with `{ status: "not_ready", checks: {...} }`.
 
-### GET /v1/subscriptions/products
-- **Auth:** none
-- **Description:** Lists purchasable products with active prices.
-- **Response:**
-  ```json
-  [
-    {
-      "id": "d6b3d03b-bcaa-4c9d-9b4d-6e8f6d0b0e25",
-      "name": "Basic Membership",
-      "description": "Essential access to the standard catalog and community features.",
-      "prices": [
-        {
-          "id": "59aa6fd2-4350-4d7c-9a9c-7f08d5149cb5",
-          "amount": 4.99,
-          "currency": "usd",
-          "billing_cycle_days": 30
-        }
-      ]
-    },
-    {
-      "id": "76c8cdf4-821a-4f12-baff-8c58cbe69d03",
-      "name": "Premium Membership",
-      "description": "Everything in Basic plus premium catalog access and enhanced perks.",
-      "prices": [
-        {
-          "id": "3a58fb2f-0bec-4f0f-98a4-6aa45723b67d",
-          "amount": 9.99,
-          "currency": "usd",
-          "billing_cycle_days": 30
-        }
-      ]
-    }
-  ]
-  ```
+## Public Catalog Endpoints
 
-### GET /v1/subscriptions/page-data
-- **Auth:** none
-- **Description:** Aggregate payload used by the subscription landing page (product catalog, feature flags, etc.).
-- **Response:**
-  ```json
-  {
-    "products": [...],
-    "promo_banner": {
-      "title": "Limited offer",
-      "cta": "Subscribe now"
-    }
-  }
-  ```
+### GET /v1/products
+Lists products with embedded active prices. Query parameters mirror Stripe's `/v1/products`:
+`active` (default `true`, only honoured for admins), `limit` (1-100, default 20), `offset` (>=0).
+Response: `ListResponse<Product>`.
 
-### POST /v1/subscriptions/:processor
-- **Auth:** bearer token
-- **Description:** Starts a subscription checkout for the requested processor (`mobius`, `ccbill`, `solana`).
-- **Body:**
-  ```json
-  {
-    "price_id": "uuid",
-    "processor": "mobius",
-    "email": "user@example.com",
-    "first_name": "Jane",
-    "last_name": "Doe",
-    "address1": "...",
-    "city": "...",
-    "state": "...",
-    "zip": "...",
-    "country": "...",
-    "payment_token": "collectjs token (mobius/nmi)",
-    "payment_method_id": "existing saved method"
-  }
-  ```
-- **Notes:**
-  - Processors: `mobius` (uses NMI gateway for card payments), `ccbill` (redirect flow), `solana` (crypto).
-  - `email` is optional; when omitted we do not persist an email on the subscription and notification emails are skipped.
-  - For **mobius** checkouts supply either `payment_token` (from Collect.js) **or** `payment_method_id`. When a token is provided the service creates & persists a payment method before charging with its customer vault ID. The new method becomes immediately available for future purchases.
-- **Response:**
-  ```json
-  {
-    "status": "redirect_required",
-    "message": "CCBill payments now use FlexForm integration",
-    "flexform_endpoint": "/v1/subscriptions/ccbill/flexform-url"
-  }
-  ```
-  ```json
-  {
-    "subscription_id": "1d65d4f2-12d0-42ed-aaa6-1c93a98a84bb",
-    "status": "pending"
-  }
-  ```
+### GET /v1/prices
+Lists price objects. Query parameters: `active`, `currency`, `product` (product ID), `type`
+(`recurring` or `one_time`), plus `limit`/`offset`. Response: `ListResponse<Price>`.
 
-### POST /v1/subscriptions/ccbill/flexform-url
-- **Auth:** bearer token
-- **Description:** Generates a hosted checkout URL for CCBill (client should redirect).
-- **Body:** `{"price_id": "uuid", "first_name": "...", "last_name": "...", "address1": "...", "city": "...", "state": "...", "zip_code": "...", "country": "US"}`
-- **Response:**
-  ```json
-  {
-    "redirect_url": "https://sandbox-api.ccbill.com/wap-frontflex/flexforms/..."
-  }
-  ```
-
-### POST /v1/subscriptions/cancel
-- **Auth:** bearer token
-- **Description:** Cancels the caller's active subscription.
-- **Body:** `{ "feedback": "optional notes" }`
-- **Response:**
-  ```json
-  {
-    "success": true,
-    "message": "subscription cancelled successfully"
-  }
-  ```
-
-### GET /v1/subscriptions/active
-- **Auth:** bearer token
-- **Description:** Returns the enriched subscription record for the authenticated user. If none exists, a message is returned and HTTP 200.
-- **Response:**
-  ```json
-  {
-    "subscription": {
-      "id": "dc8f2cee-b9bb-4a91-9e84-5bcc1a4fd0ba",
-      "status": "active",
-      "processor": "nmi",
-      "current_period_starts_at": "2025-01-01T12:00:00Z",
-      "current_period_ends_at": "2025-02-01T12:00:00Z"
-    },
-    "price": { "id": "3a58fb2f-0bec-4f0f-98a4-6aa45723b67d", "amount": 9.99, "currency": "usd" },
-    "product": { "id": "64ba7b37-3d1d-4e38-9de0-1f209d148c51", "name": "Premium" }
-  }
-  ```
-
-### GET /v1/subscriptions/history
-- **Auth:** bearer token
-- **Query:** `limit` (1-100, default 10), `offset` (>=0), `status` (optional filter).
-- **Description:** Paginated subscription history.
-- **Response:**
-  ```json
-  {
-    "data": [
-      {
-        "id": "dc8f2cee-b9bb-4a91-9e84-5bcc1a4fd0ba",
-        "status": "cancelled",
-        "processor": "nmi",
-        "current_period_starts_at": "2024-11-01T12:00:00Z",
-        "current_period_ends_at": "2024-12-01T12:00:00Z"
-      }
-    ],
-    "total_items": 4
-  }
-  ```
-
-### GET /v1/subscriptions/purchases
-- **Auth:** bearer token
-- **Query:** `limit` (1-100, default 10), `offset` (>=0), `type` (gateway filter, e.g., `solana`).
-- **Response:**
-  ```json
-  {
-    "data": [
-      {
-        "id": "5a76f178-4a9e-4fa2-8554-0cc6e0c0bfe4",
-        "processor": "solana",
-        "transaction_id": "3zY..aP",
-        "amount": 4.99,
-        "currency": "usd",
-        "purchased_at": "2025-01-10T08:30:12Z"
-      }
-    ],
-    "total_items": 2
-  }
-  ```
-
-### POST /v1/webhooks/:provider
-- **Auth:** none (processor-specific security applies)
-- **Path:** `POST /v1/webhooks/:provider` where provider is `ccbill`, `mobius`, or `solana`.
-- **Description:** Ingests processor webhook callbacks. Payload format depends on provider:
-  - `ccbill`: `application/x-www-form-urlencoded` with IP allow-list checking.
-  - `mobius`: JSON body with HMAC signature (`X-Signature`, `X-NMI-Signature`, or `X-Mobius-Signature`).
-- **Response:** 200 on success, 401 for missing/invalid signatures, 403 if a CCBill request fails IP validation, 400 for unrecognised providers.
-
-## Payment Methods
-
-### GET /v1/payment-methods
-- **Auth:** bearer token
-- **Query:** `page`, `page_size` (1-500, default 20), `include_inactive` (bool).
-- **Response:**
-  ```json
-  {
-    "data": [
-      {
-        "id": "6d073ea2-12ac-4a35-8d39-7affc3439c99",
-        "processor": "nmi",
-        "vault_id": "cust-123",
-        "last_four": "4242",
-        "is_active": true
-      }
-    ],
-    "page": 1,
-    "page_size": 20,
-    "total_items": 1,
-    "total_pages": 1
-  }
-  ```
-
-### PUT /v1/payment-methods/:id
-- **Auth:** bearer token
-- **Path:** `id` = payment method UUID.
-- **Body:**
-  ```json
-  {
-    "payment_token": "collect-js-token",
-    "first_name": "Jane",
-    "last_name": "Doe",
-    "address1": "123 Main St",
-    "city": "New York",
-    "state": "NY",
-    "zip": "10001",
-    "country": "US",
-    "provider": "mobius"
-  }
-  ```
-- **Description:** Replaces the stored NMI vault details using a tokenized Collect.js payload. The payment token is required; all other fields are optional and update the vault metadata when provided.
-- **Response:**
-  ```json
-  {
-    "id": "6d073ea2-12ac-4a35-8d39-7affc3439c99",
-    "processor": "nmi",
-    "vault_id": "cust-123",
-    "is_active": true,
-    "updated_at": "2025-01-12T10:00:00Z"
-  }
-  ```
-
-### DELETE /v1/payment-methods/:id
-- **Auth:** bearer token
-- **Path:** `id` = payment method UUID.
-- **Response:**
-  ```json
-  {
-    "success": true,
-    "message": "Payment method deleted successfully"
-  }
-  ```
-
-### PUT /v1/payment-methods/:id/activate
-- **Auth:** bearer token
-- **Description:** Marks the specified method as active after validation.
-- **Response:**
-  ```json
-  {
-    "success": true,
-    "message": "Payment method activated successfully"
-  }
-  ```
-
-## Notifications
-
-### GET /v1/notifications
-- **Auth:** bearer token
-- **Query:** `page` (>=1), `page_size` (1-100, default 20), `seen` (`true`/`false`).
-- **Response:**
-  ```json
-  {
-    "data": [
-      {
-        "id": "6afefc80-76e5-4955-9d0d-4cb90f1a7381",
-        "event_type": "premium_renewed",
-        "data": { "period": "monthly" },
-        "seen": false,
-        "created_at": "2025-01-01T12:00:00Z"
-      }
-    ],
-    "total_items": 5,
-    "page": 1,
-    "page_size": 20
-  }
-  ```
-
-### GET /v1/notifications/unread-count
-- **Auth:** bearer token
-- **Response:**
-  ```json
-  { "unread_count": 3 }
-  ```
-
-### POST /v1/notifications/:id/read
-- **Auth:** bearer token
-- **Description:** Marks the notification as read. Body is empty.
-- **Response:**
-  ```json
-  { "message": "notification marked as read" }
-  ```
-
-## Solana Wallets & Payments
+### GET /v1/prices?product=prod_xxx
+Same endpoint; explicitly documenting that product filters accept either the `prod_` prefixed ID or a
+raw UUID.
 
 ### GET /v1/solana/tokens
-- **Auth:** none
-- **Description:** Returns configured Solana token metadata.
-- **Response:** `{ "tokens": [{ "symbol", "name", "mint", "decimals", "price" }] }`
+Returns the currently enabled Solana tokens from configuration so clients can present token choices
+(`[{ symbol, name, mint, decimals, enabled }]`).
 
-### POST /v1/solana/generate
-- **Auth:** bearer token
-- **Body:** `{ "price_id": "uuid", "token": "SOL", "user_wallet": "base58" }`
-- **Description:** Builds a direct wallet payment intent and pre-signs a transaction scaffold.
-- **Response:** `GeneratePaymentResponse` (base64 transaction, fiat/token amounts, intent ID, expiry).
+### POST /v1/webhooks/{provider}
+Receives processor webhooks. `provider` is `ccbill`, `mobius`, or `solana`.
+- `ccbill`: form-encoded payload, verified via source IP ranges and optional signature.
+- `mobius`/`nmi`: JSON body with `X-Signature`/`X-NMI-Signature` header.
+- `solana`: JSON envelope emitted by the Solana Pay poller when on-chain confirmation occurs.
+Returns 200 on success, 401/403 for auth failures, 400 if the provider path is unknown.
 
-### POST /v1/solana/submit
-- **Auth:** bearer token
-- **Body:** `{ "signed_transaction": "base64", "price_id": "uuid", "intent_id": "uuid", "memo": "optional" }`
-- **Description:** Verifies/broadcasts the signed transaction, settles it via the subscription lifecycle, and records the payment.
-- **Response:**
-  ```json
-  {
-    "payment_id": "pay_5a76f178-4a9e-4fa2-8554-0cc6e0c0bfe4",
-    "transaction_id": "3zY..aP",
-    "status": "confirmed",
-    "amount": 9.99,
-    "currency": "usd",
-    "processed_at": "2025-01-10T08:30:12Z",
-    "intent_id": "9645f7c7-4d05-4d74-94f5-32e602a880a3",
-    "message": "Payment recorded"
-  }
-  ```
+## Solana Pay (Authenticated)
 
-### POST /v1/solana/qr
-- **Auth:** bearer token
-- **Body:** `{ "price_id": "uuid", "token": "USDC", "user_wallet": "base58" }`
-- **Description:** Creates a Solana Pay intent and returns the QR-compatible URL plus metadata.
-- **Response:**
-  ```json
-  {
-    "url": "solana:...",
-    "amount": 9.99,
-    "token_amount": "9.990000",
-    "token_symbol": "USDC",
-    "label": "Doujins Purchase",
-    "message": "",
-    "expires_at": 1736205600,
-    "reference": "4vW...",
-    "intent_id": "b4f3b659-8a10-4603-b77c-4d9c8cb49a6c"
-  }
-  ```
+### POST /v1/solana/pay
+Creates a Solana Pay transfer request for a recurring price.
+- Auth: bearer token
+- Body: `{ "price_id": "price_...", "token": "USDC" }`
+- Response: `{ url, reference, amount, currency, token_amount, token, expires_at }`
 
-### GET /v1/solana/check
-- **Auth:** bearer token
-- **Query:** `reference` (required), `memo` (optional).
-- **Description:** Polls for a Solana Pay transfer referencing the supplied key. If confirmed, the intent is processed and the payment is recorded.
-- **Response:**
-  ```json
-  {
-    "status": "confirmed",
-    "payment_id": "5a76f178-4a9e-4fa2-8554-0cc6e0c0bfe4",
-    "intent_id": "b4f3b659-8a10-4603-b77c-4d9c8cb49a6c",
-    "transaction": "3zY..aP"
-  }
-  ```
+### GET /v1/solana/pay/{reference}
+Polls the status of a Solana Pay request created above. Returns `{ status: "pending|confirmed|expired", payment_id?, signature? }`.
 
-## Access Status
+## Authenticated User API (`/v1/me`)
 
-### GET /v1/access
-- **Auth:** bearer token
-- **Description:** Lists every active premium access grant (subscription-backed or one-off entitlement). This is the canonical endpoint for determining whether the user currently has premium access—even if they paid via Solana or another non-recurring flow.
-- **Response:**
-  ```json
-  {
-    "is_premium": true,
-    "access": [
-      {
-        "kind": "subscription",
-        "entitlement": "premium",
-        "subscription_id": "c8a3c8c0-6521-4ab7-a8a6-5e7ab7d64943",
-        "processor": "nmi",
-        "processor_subscription_id": "sub_123",
-        "start_at": "2025-01-01T00:00:00Z",
-        "end_at": "2025-02-01T00:00:00Z"
-      },
-      {
-        "kind": "entitlement",
-        "entitlement": "premium",
-        "source_type": "one_off",
-        "source_id": "5a76f178-4a9e-4fa2-8554-0cc6e0c0bfe4",
-        "start_at": "2025-02-10T08:30:12Z",
-        "end_at": "2025-03-12T08:30:12Z"
-      }
-    ],
-  }
-  ```
-
-### POST /v1/wallet/solana/challenge
-- **Auth:** bearer token
-- **Body:** `{ "wallet": "base58" }`
-- **Description:** Ensures a wallet record exists and returns a challenge (`message`, `nonce`, expiry) for signature verification.
-- **Response:**
-  ```json
-  {
-    "message": "Sign this to verify",
-    "expires_at": 1736205600,
-    "wallet": "AT3...",
-    "nonce": "c9d3f2"
-  }
-  ```
-
-### POST /v1/wallet/solana/verify
-- **Auth:** bearer token
-- **Body:** `{ "wallet": "base58", "signature": "base58", "message": "optional" }`
-- **Description:** Validates the signature and marks the wallet as verified.
-- **Response:**
-  ```json
-  {
-    "verified": true,
-    "wallet": "AT3...",
-    "verified_at": "2025-01-10T08:30:12Z"
-  }
-  ```
-
-### GET /v1/wallet/solana
-- **Auth:** bearer token
-- **Description:** Lists wallets linked to the account.
-- **Response:**
-  ```json
-  {
-    "wallets": [
-      {
-        "address": "AT3...",
-        "is_verified": true,
-        "linked_at": "2025-01-09T12:00:00Z"
-      }
-    ]
-  }
-  ```
-
-### GET /v1/wallet/solana/linked
-- **Auth:** bearer token
-- **Description:** Returns the primary (most recently linked) wallet.
-- **Response:**
-  ```json
-  {
-    "wallet": {
-      "address": "AT3...",
-      "is_verified": true,
-      "linked_at": "2025-01-09T12:00:00Z"
-    }
-  }
-  ```
-
-### DELETE /v1/wallet/solana
-- **Auth:** bearer token
-- **Query:** `wallet` (required base58 address).
-- **Description:** Removes a linked wallet record.
-- **Response:**
-  ```json
-  {
-    "deleted": true,
-    "wallet": "AT3..."
-  }
-  ```
-
-## Billing Status
+Every endpoint in this section requires a valid JWT for the current user.
 
 ### GET /v1/me/status
-- **Auth:** bearer token
-- **Description:** Summarises premium status, subscription record, next renewal date, and active entitlements.
-- **Response:**
-  ```json
-  {
-    "is_premium": true,
-    "subscription": {
-      "id": "dc8f2cee-b9bb-4a91-9e84-5bcc1a4fd0ba",
-      "status": "active"
-    },
-    "next_renewal_at": "2025-02-01T12:00:00Z",
-    "entitlements": [
-      {
-        "entitlement": "premium",
-        "start_at": "2025-01-01T12:00:00Z",
-        "end_at": null
-      }
-    ]
-  }
-  ```
+Aggregated premium status: active subscription (if any), next renewal date, and active entitlements.
+Response mirrors `handlers.GetMyBillingStatus` and includes `is_premium`, `subscription`, and
+`entitlements` arrays.
 
-## Webhook Replay Tooling
+### POST /v1/me/checkout
+Unified checkout entry point for subscriptions and one-time purchases.
+- Body (fields optional unless noted):
+  - `price_id` (required) – target price UUID or prefixed ID
+  - `processor` (required) – `mobius`, `ccbill`, or `solana`
+  - `payment_method_id` or `payment_token` for Mobius/NMI purchases
+  - Billing details: `email`, `first_name`, `last_name`, `address1`, `city`, `state`, `zip`, `country`
+- Response: `{ status: success|redirect_required|blocked|pending, message, subscription_id?, payment_id?, transaction_id?, redirect_url?, delayed_start? }`
 
-The service includes internal tooling (`internal/services/webhook/replay_service.go`) for replaying archived events. These are not exposed over HTTP but are valuable when triaging webhook issues.
+### GET /v1/me/subscriptions
+History of the caller’s subscriptions. Query params: `status` (`active`, `cancelled`, `past_due`,
+`all`), `limit`, `offset`. Response: paginated array of subscription summaries (`{ id, status,
+processor, current_period_starts_at, current_period_ends_at, canceled_at? }`).
 
-## Health Probes
+### PUT /v1/me/subscriptions/payment-method
+Request body `{ "subscription_id": "sub_uuid", "payment_method_id": "pm_uuid" }`. Updates the card
+vault entry used for an NMI-backed subscription (CCBill subscriptions cannot be reassigned). Returns
+`{ message: "payment method updated" }`.
 
-- `GET /health/live` → `{"status": "ok", "service": "billing"}`
-- `GET /health/ready` → checks Postgres (and Redis if configured); returns 200 or 503.
+### POST /v1/me/subscriptions/cancel
+Body `{ "feedback": "optional text" }`. Cancels the user’s active subscription or returns
+`{ error, support_url }` when the subscription is managed externally (e.g., CCBill requires portal
+cancellation).
 
-Admin handler also exposes `GET/HEAD /health` for internal monitoring.
+### GET /v1/me/payments
+Lists one-off payments. Query params: `type` (processor filter), `limit`, `offset`. Response:
+`ListResponse<Payment>`.
 
-## Admin Endpoints (API key required)
+### GET /v1/me/payment-methods
+Query params: `limit`, `offset`, `include_inactive`. Response: list of stored payment methods with
+fields `{ id, processor, last_four, brand, exp_month, exp_year, is_active, created_at }`.
 
-> **Note:** Admin routes currently reuse some user handlers. For example `GET /v1/subscriptions/:id/details`
-> dispatches to the user-oriented handler and therefore expects a user context. Invocation without a
-> bearer token will return 401. The request/response contracts below describe the logical intent of
-> each endpoint even where additional wiring work may be pending.
+### POST /v1/me/payment-methods
+Body includes `payment_token` (Collect.js token) plus billing details (`first_name`, `last_name`,
+`address1`, `city`, `state`, `zip`, `country`, optional `email`, `phone`, `company`, `address2`,
+`provider`). Creates and immediately activates an NMI vault record. Response: payment method object.
 
-### PUT /v1/subscriptions/:id/extend
-- **Auth:** `X-API-KEY`
-- **Body:** `{ "subscription_id": "uuid", "duration": "72h3m" }` (Go `time.Duration` string).
-- **Description:** Extends the current billing period by the supplied duration. The path parameter is ignored; the body `subscription_id` is required.
-- **Response:** `{ "message": "subscription extended successfully" }`
+### PUT /v1/me/payment-methods/{id}
+Body accepts a new `payment_token` and optional billing fields (all pointers). Replaces the stored
+vault card for the referenced method. Returns updated payment method.
 
-### POST /v1/subscriptions/:id/cancel
-- **Auth:** `X-API-KEY`
-- **Description:** Currently wired to the customer-facing cancel handler; without a bearer token the call returns 401. When invoked with user context it cancels the caller’s subscription.
+### DELETE /v1/me/payment-methods/{id}
+Soft-deletes the stored method. Response `{ success: true }`.
 
-### GET /v1/subscriptions/:id/details
-- **Auth:** `X-API-KEY`
-- **Description:** Routed to the user subscription handler; expects a user context. For admin usage, prefer querying the database or adding a dedicated handler that accepts the path ID.
+### PUT /v1/me/payment-methods/{id}/activate
+Re-verifies and marks the method active. Response `{ success: true }`.
 
-### GET /v1/subscriptions/dashboard-metrics
-- **Auth:** `X-API-KEY`
-- **Description:** Returns aggregate metrics (totals, revenue, active subscribers) for dashboards.
+### GET /v1/me/notifications
+Query params: `page` (>=1), `page_size` (1-100, default 20), `seen` (`true`/`false`). Response list of
+notifications `{ id, event_type, data, seen, created_at }`.
 
-### GET /v1/subscriptions/daily-metrics
-- **Auth:** `X-API-KEY`
-- **Query:** `start=YYYY-MM-DD`, `end=YYYY-MM-DD` (required).
-- **Description:** Returns per-day subscription and revenue metrics within the window.
+### GET /v1/me/notifications/unread-count
+Returns `{ unread_count: <int> }`.
 
-### GET /v1/subscriptions/processor-metrics
-- **Auth:** `X-API-KEY`
-- **Description:** Splits metrics by processor (`ccbill`, `mobius`, `solana`, etc.).
+### POST /v1/me/notifications/{id}/read
+Marks the notification as read. Empty body, response `{ message: "notification marked as read" }`.
 
-### GET /v1/users/:user_id/entitlements
-- **Auth:** `X-API-KEY`
-- **Description:** Lists active entitlements for the supplied user ID at the current time.
-- **Response:** Array of entitlement records `{ entitlement, start_at, end_at, source_type, source_id }`.
+## Admin API (`/v1/admin`, JWT + `admin` role)
 
-## Webhooks (Processor Specific)
+### GET /v1/admin/subscriptions
+List subscriptions with extensive filtering (limit/offset/status query params). Response:
+`ListResponse<SubscriptionObject>`.
 
-### CCBill
-- **Endpoint:** `POST /v1/webhooks/ccbill`
-- **Security:** Source IP must match the built-in CCBill IP allow-list.
-- **Payload:** Form-encoded fields documented by CCBill (event type via `eventType` query string).
-- **Behaviour:** Deduplicates, validates IP, pushes subscription/payment updates via
-  `CCBillWebhookService`.
+### GET /v1/admin/subscriptions/{id}
+Detailed subscription record including lifecycle metadata and linked user information.
 
-### Mobius (NMI Gateway)
-- **Endpoint:** `POST /v1/webhooks/mobius`
-- **Security:** HMAC signature header `X-Signature`, `X-NMI-Signature`, or `X-Mobius-Signature`; optional test mode bypass.
-- **Payload:** JSON event mirroring NMI webhook schema (recurring subscription events).
-- **Behaviour:** Signature verification (unless test mode), lifecycle updates, ClickHouse logging.
+### PUT /v1/admin/subscriptions/{id}/extend
+Body `{ "duration": "72h30m" }` (Go duration string). Extends the current billing period.
 
----
+### POST /v1/admin/subscriptions/{id}/cancel
+Immediate cancellation of the referenced subscription.
 
-For additional integration details (e.g., webhook replay, billing analytics schemas) refer to the
-source under `internal/services/webhook` and `internal/services/billing_event_service.go`.
+### GET /v1/admin/payments
+List of payments with filtering by processor, status, date range, etc. Response: list envelope of
+`Payment` objects.
+
+### GET /v1/admin/payments/{id}
+Full payment detail including refund history.
+
+### POST /v1/admin/payments/{id}/refund
+Body `{ "amount": 1234 }` (optional – defaults to full refund). Initiates a refund via the underlying
+processor.
+
+### GET /v1/admin/users/{user_id}
+Returns the user’s billing profile (current subscription, payment methods, entitlements).
+
+### GET /v1/admin/users/{user_id}/entitlements
+Lists all entitlements (subscription-derived or manually granted).
+
+### POST /v1/admin/users/{user_id}/entitlements
+Body `{ "entitlement": "premium", "start_at": "2024-01-01T00:00:00Z", "end_at": null }`. Grants a manual
+entitlement with audit trail support.
+
+### DELETE /v1/admin/users/{user_id}/entitlements/{id}
+Revokes the referenced admin entitlement.
+
+### POST /v1/admin/users/{user_id}/grants
+Creates a structured grant record (product-based, includes reason/audit info). Body mirrors the
+`AdminGrant` struct.
+
+### GET /v1/admin/users/{user_id}/grants
+Lists grants issued to the user.
+
+### GET /v1/admin/grants/{id}
+Fetches a single grant record.
+
+### GET /v1/admin/metrics
+Returns dashboard/daily/processor metrics depending on `type` query param (defaults to
+`dashboard`). For `type=daily`, supply `start`/`end` (YYYY-MM-DD). Response contains counts,
+revenue, and processor breakdowns used by the admin UI.
+
+## Private Service-to-Service API (port 8060)
+
+### GET /v1/users/{user_id}/entitlements
+Header `X-API-KEY` must match `config.api_key`. Returns active entitlements so other services can
+check premium status: `[{ entitlement, start_at, end_at, source_type, source_id }]`.
+
+## Webhook Notes
+
+- **CCBill**: Must originate from the published IP ranges; the handler also validates `formName`/
+  `flexId` against the price metadata.
+- **Mobius/NMI**: Supply `X-Signature`/`X-NMI-Signature`. When test mode is enabled via config the
+  signature check is bypassed.
+- **Solana**: Called internally by the Solana Pay poller when an on-chain reference confirms.
+
+Refer to `internal/services/webhook` for processor-specific payload schemas.
