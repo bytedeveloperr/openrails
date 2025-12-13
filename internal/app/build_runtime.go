@@ -118,12 +118,17 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		Dispatcher: runtime.WebhookDispatcher,
 	}
 
-	// River client will be initialized later in StartWorkers with proper worker registration
-	// if client, err := buildRiverClient(cfg); err != nil {
-	// 	log.WithError(err).Warn("River client init failed; workers disabled")
-	// } else {
-	// 	runtime.RiverClient = client
-	// }
+	// River producer is always initialized in the runtime so HTTP handlers can enqueue jobs
+	// even when workers run in a separate process.
+	if producer, pool, err := buildRiverProducer(cfg); err != nil {
+		return nil, fmt.Errorf("init river producer: %w", err)
+	} else {
+		runtime.RiverProducer = producer
+		runtime.riverProducerPool = pool
+		if runtime.FulfillmentEnqueuer != nil {
+			runtime.FulfillmentEnqueuer.SetEnqueuer(riverjobs.NewRiverFulfillmentEnqueuer(producer))
+		}
+	}
 
 	if cfg.ClickHouse != nil {
 		if bes, err := services.NewEventLogService(cfg.ClickHouse); err != nil {
@@ -137,6 +142,32 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	runtime.SubscriptionLifecycleService.EventLogService = runtime.EventLogService
 
 	return runtime, nil
+}
+
+func buildRiverProducer(cfg *config.Config) (*river.Client[pgx.Tx], *pgxpool.Pool, error) {
+	if cfg.DB == nil {
+		return nil, nil, fmt.Errorf("missing database configuration for River producer")
+	}
+	dbURL := cfg.DB.GetConnectionString()
+	if dbURL == "" {
+		return nil, nil, fmt.Errorf("missing database configuration for River producer (DB_URL or DB_HOST/DB_PORT/etc.)")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed creating pgx pool for River producer: %w", err)
+	}
+
+	client, err := river.NewClient[pgx.Tx](riverpgxv5.New(pool), &river.Config{
+		Schema:              "billing",
+		SkipUnknownJobCheck: true,
+	})
+	if err != nil {
+		pool.Close()
+		return nil, nil, fmt.Errorf("failed creating River producer client: %w", err)
+	}
+	return client, pool, nil
 }
 
 func createDatabase(cfg *config.Config) (*db.DB, error) {

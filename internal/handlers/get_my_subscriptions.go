@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/doujins-org/doujins-billing/internal/middleware"
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 )
@@ -15,8 +15,8 @@ import (
 //   - limit: max results (1-100, default 10)
 //   - offset: pagination offset (default 0)
 func GetMySubscriptions(r *Request) {
-	userCtx := middleware.GetUserContext(r.GinCtx)
-	if userCtx.User == nil {
+	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
+	if !ok || cl.UserID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
@@ -52,7 +52,7 @@ func GetMySubscriptions(r *Request) {
 
 	subscriptions, _, err := r.State.UserSubscriptionService.GetUserSubscriptionHistory(
 		r.Request.Context(),
-		userCtx.User.ID,
+		cl.UserID,
 		queryOpts,
 	)
 	if err != nil {

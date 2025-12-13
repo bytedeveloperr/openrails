@@ -222,7 +222,7 @@ type RedisConfig struct {
 // Billing is a JWT verifier (not issuer) - it validates tokens issued by doujins/hentai0.
 type AuthConfig struct {
 	Issuers          []string `koanf:"issuers"`           // List of expected token issuers (e.g., ["https://doujins.com", "https://hentai0.com"])
-	ExpectedAudience string   `koanf:"expected_audience"` // Expected audience claim (e.g., "billing-app")
+	ExpectedAudience string   `koanf:"expected_audience"` // Accept token only if it contains this audience (e.g., "billing-app")
 }
 
 type SolanaConfig struct {

@@ -15,6 +15,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/handlers"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/doujins-org/ginapi/response"
 )
 
 // TestGetProductsEndpoint tests the public products endpoint returns seeded products
@@ -34,22 +35,22 @@ func TestGetProductsEndpoint(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
 
 		// Parse list response with pagination
-		var response api.ListResponse[api.ProductObject]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		var resp response.List[api.ProductObject]
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
 		require.NoError(t, err, "Should parse response JSON")
 
 		// Verify list envelope
-		assert.Equal(t, "list", response.Object, "Should have object: list")
-		assert.GreaterOrEqual(t, response.Total, int64(2), "Should have at least 2 total items")
+		assert.Equal(t, "list", resp.Object, "Should have object: list")
+		assert.GreaterOrEqual(t, resp.Total, int64(2), "Should have at least 2 total items")
 
 		// Verify products returned (at least the seeded ones)
-		require.GreaterOrEqual(t, len(response.Data), 2, "Should return at least 2 products")
+		require.GreaterOrEqual(t, len(resp.Data), 2, "Should return at least 2 products")
 
 		// Find premium-monthly product by name (Stripe uses name instead of slug)
 		var monthlyProduct *api.ProductObject
-		for i, p := range response.Data {
+		for i, p := range resp.Data {
 			if p.Name == "Premium Monthly" {
-				monthlyProduct = &response.Data[i]
+				monthlyProduct = &resp.Data[i]
 				break
 			}
 		}
@@ -71,15 +72,15 @@ func TestGetProductsEndpoint(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 
-		var response api.ListResponse[api.ProductObject]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		var resp response.List[api.ProductObject]
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
 		require.NoError(t, err)
 
 		// Find yearly product and verify pricing
 		var yearlyProduct *api.ProductObject
-		for i, p := range response.Data {
+		for i, p := range resp.Data {
 			if p.Name == "Premium Yearly" {
-				yearlyProduct = &response.Data[i]
+				yearlyProduct = &resp.Data[i]
 				break
 			}
 		}
@@ -111,12 +112,12 @@ func TestGetActiveSubscriptionEndpoint(t *testing.T) {
 		// User without subscription should get 200 with empty list
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response api.ListResponse[any]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		var resp response.List[any]
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
 		require.NoError(t, err)
 
-		assert.Equal(t, "list", response.Object, "Should have object: list")
-		assert.Empty(t, response.Data, "Should have no active subscriptions for new user")
+		assert.Equal(t, "list", resp.Object, "Should have object: list")
+		assert.Empty(t, resp.Data, "Should have no active subscriptions for new user")
 	})
 
 	t.Run("returns active subscription details", func(t *testing.T) {
@@ -132,16 +133,16 @@ func TestGetActiveSubscriptionEndpoint(t *testing.T) {
 		require.Equal(t, http.StatusOK, w.Code)
 
 		// Parse list response
-		var response api.ListResponse[json.RawMessage]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		var resp response.List[json.RawMessage]
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
 		require.NoError(t, err)
 
-		assert.Equal(t, "list", response.Object, "Should have object: list")
-		require.Len(t, response.Data, 1, "Should have 1 active subscription")
+		assert.Equal(t, "list", resp.Object, "Should have object: list")
+		require.Len(t, resp.Data, 1, "Should have 1 active subscription")
 
 		// Extract subscription data
 		var subscriptions []services.UserSubscriptionResponse
-		dataBytes, err := json.Marshal(response.Data)
+		dataBytes, err := json.Marshal(resp.Data)
 		require.NoError(t, err)
 		err = json.Unmarshal(dataBytes, &subscriptions)
 		require.NoError(t, err)
@@ -182,12 +183,12 @@ func TestGetSubscriptionHistoryEndpoint(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response api.ListResponse[any]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		var resp response.List[any]
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
 		require.NoError(t, err)
 
-		assert.Equal(t, "list", response.Object, "Should have object: list")
-		assert.Empty(t, response.Data, "Should have no subscriptions for new user")
+		assert.Equal(t, "list", resp.Object, "Should have object: list")
+		assert.Empty(t, resp.Data, "Should have no subscriptions for new user")
 	})
 
 	t.Run("returns subscription history with multiple subscriptions", func(t *testing.T) {
@@ -209,16 +210,16 @@ func TestGetSubscriptionHistoryEndpoint(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 
-		var response api.ListResponse[map[string]any]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		var resp response.List[map[string]any]
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
 		require.NoError(t, err)
 
-		assert.Equal(t, "list", response.Object, "Should have object: list")
-		require.Len(t, response.Data, 2, "Should have 2 subscriptions in history")
+		assert.Equal(t, "list", resp.Object, "Should have object: list")
+		require.Len(t, resp.Data, 2, "Should have 2 subscriptions in history")
 
 		// Verify we have both active and cancelled subscriptions
 		var hasActive, hasCancelled bool
-		for _, sub := range response.Data {
+		for _, sub := range resp.Data {
 			status := sub["status"].(string)
 			if status == string(models.StatusActive) {
 				hasActive = true
@@ -251,12 +252,12 @@ func TestGetUserPaymentsEndpoint(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, w.Code)
 
-		var response api.ListResponse[any]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		var resp response.List[any]
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
 		require.NoError(t, err)
 
-		assert.Equal(t, "list", response.Object, "Should have object: list")
-		assert.Empty(t, response.Data, "Should have no payments for new user")
+		assert.Equal(t, "list", resp.Object, "Should have object: list")
+		assert.Empty(t, resp.Data, "Should have no payments for new user")
 	})
 
 	t.Run("returns payment history", func(t *testing.T) {
@@ -273,16 +274,16 @@ func TestGetUserPaymentsEndpoint(t *testing.T) {
 
 		require.Equal(t, http.StatusOK, w.Code)
 
-		var response api.ListResponse[map[string]any]
-		err := json.Unmarshal(w.Body.Bytes(), &response)
+		var resp response.List[map[string]any]
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
 		require.NoError(t, err)
 
-		assert.Equal(t, "list", response.Object, "Should have object: list")
-		require.Len(t, response.Data, 2, "Should have 2 payments")
+		assert.Equal(t, "list", resp.Object, "Should have object: list")
+		require.Len(t, resp.Data, 2, "Should have 2 payments")
 
 		// Verify payment details
 		paymentIDs := make(map[string]bool)
-		for _, p := range response.Data {
+		for _, p := range resp.Data {
 			paymentIDs[p["id"].(string)] = true
 			// JSON unmarshals numbers as float64, but we compare against int64 value
 			assert.Equal(t, float64(999), p["amount"], "Amount should be 999 cents")

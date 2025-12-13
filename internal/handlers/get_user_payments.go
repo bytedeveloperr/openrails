@@ -4,15 +4,15 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/doujins-org/doujins-billing/internal/middleware"
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 )
 
 // GetUserPayments retrieves the user's one-off payments
 func GetUserPayments(r *Request) {
-	userCtx := middleware.GetUserContext(r.GinCtx)
-	if userCtx.User == nil {
+	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
+	if !ok || cl.UserID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
@@ -43,7 +43,7 @@ func GetUserPayments(r *Request) {
 
 	payments, _, err := r.State.UserSubscriptionService.GetUserPayments(
 		r.Request.Context(),
-		userCtx.User.ID,
+		cl.UserID,
 		queryOpts,
 	)
 	if err != nil {

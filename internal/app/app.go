@@ -19,7 +19,7 @@ type App struct {
 	Runtime      *Runtime
 	Cache        cache.Cache
 	RedisClient  *redis.Client
-	AuthVerifier auth.Verifier
+	AuthProvider auth.Provider
 
 	stopRedisMonitor context.CancelFunc
 }
@@ -44,9 +44,9 @@ func Bootstrap(cfg *config.Config) (*App, error) {
 		}
 	}
 
-	verifier, err := auth.NewVerifier(cfg.Auth)
+	authProvider, err := auth.NewProvider(cfg.Auth)
 	if err != nil {
-		return nil, fmt.Errorf("build auth verifier: %w", err)
+		return nil, fmt.Errorf("build auth provider: %w", err)
 	}
 
 	runtime, err := buildRuntime(cfg)
@@ -69,7 +69,7 @@ func Bootstrap(cfg *config.Config) (*App, error) {
 		Runtime:          runtime,
 		Cache:            switchable,
 		RedisClient:      runtime.RedisClient,
-		AuthVerifier:     verifier,
+		AuthProvider:     authProvider,
 		stopRedisMonitor: stop,
 	}, nil
 }

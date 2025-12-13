@@ -4,9 +4,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/doujins-org/doujins-billing/internal/middleware"
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/doujins-org/ginapi/response"
 	"github.com/google/uuid"
 )
 
@@ -45,8 +46,7 @@ func GetPrices(r *Request) {
 		filter.Active = req.Active
 	} else {
 		// Requesting inactive prices - only admins can do this
-		userCtx := middleware.GetUserContext(r.GinCtx)
-		if userCtx != nil && userCtx.HasRole("admin") {
+		if cl, ok := authgin.ClaimsFromGin(r.GinCtx); ok && cl.HasRole("admin") {
 			filter.Active = req.Active
 		} else {
 			// Silently ignore for non-admins, show active only
@@ -84,5 +84,5 @@ func GetPrices(r *Request) {
 		priceObjects[i] = PriceToAPI(p)
 	}
 
-	r.SuccessJSON(api.NewListResponse(priceObjects, totalItems, req.Limit, req.Offset))
+	r.SuccessJSON(response.NewList(priceObjects, totalItems, req.Limit, req.Offset))
 }

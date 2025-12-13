@@ -22,7 +22,7 @@ type Dependencies struct {
 	Cache        cache.Cache
 	Runtime      *app.Runtime
 	Redis        *redis.Client
-	AuthVerifier auth.Verifier
+	AuthProvider auth.Provider
 }
 
 type Server struct {
@@ -30,7 +30,7 @@ type Server struct {
 	cache        cache.Cache
 	runtime      *app.Runtime
 	rdb          *redis.Client
-	authVerifier auth.Verifier
+	authProvider auth.Provider
 
 	publicHandler  *gin.Engine
 	privateHandler *gin.Engine // Private/service API (X-API-KEY auth)
@@ -46,8 +46,8 @@ func New(deps Dependencies) (*Server, error) {
 	if deps.Cache == nil {
 		return nil, fmt.Errorf("server cache is required")
 	}
-	if deps.AuthVerifier == nil {
-		return nil, fmt.Errorf("auth verifier is required")
+	if deps.AuthProvider == nil {
+		return nil, fmt.Errorf("auth provider is required")
 	}
 
 	s := &Server{
@@ -55,7 +55,7 @@ func New(deps Dependencies) (*Server, error) {
 		cache:        deps.Cache,
 		runtime:      deps.Runtime,
 		rdb:          deps.Redis,
-		authVerifier: deps.AuthVerifier,
+		authProvider: deps.AuthProvider,
 	}
 
 	s.setupHandlers()
@@ -100,15 +100,6 @@ func (s *Server) PrivateHandler() http.Handler { return s.privateHandler }
 func (s *Server) Close(_ context.Context) error {
 	log.Info("Billing HTTP server shut down")
 	return nil
-}
-
-// StartWorkers starts River background workers within this server process.
-func (s *Server) StartWorkers(ctx context.Context) {
-	if s.runtime == nil {
-		log.Warn("No state available; skipping worker startup")
-		return
-	}
-	s.runtime.StartWorkers(ctx)
 }
 
 func (s *Server) Cfg() *config.Config {

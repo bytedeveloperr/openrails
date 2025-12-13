@@ -216,7 +216,7 @@ services:
     networks:
       - local-doujins
 
-  # Billing service (server + in-process workers)
+  # Billing service (HTTP server only)
   billing:
     profiles: ["all", "billing"]
     build:
@@ -257,7 +257,40 @@ services:
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
       # Private service API key for server-to-server calls (X-API-KEY header)
       API_KEY: "${BILLING_API_KEY:-dev-service-api-key-change-me}"
-    command: ["server", "--start-workers"]
+    command: ["server"]
+
+  # Billing workers (River + other background loops)
+  billing-worker:
+    profiles: ["all", "billing"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
+      billing-migrate:
+        condition: service_completed_successfully
+      garnet:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
+      REDIS_ADDR: "garnet:6379"
+      REDIS_PASSWORD: ""
+      REDIS_DB: "0"
+      CLICKHOUSE_HTTP_ADDR: "http://clickhouse:8123"
+      CLICKHOUSE_CLIENT_ADDR: "clickhouse:9000"
+      CLICKHOUSE_DB: "analytics"
+      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
+      API_KEY: "${BILLING_API_KEY:-dev-service-api-key-change-me}"
+    command: ["worker"]
+    networks:
+      - local-doujins
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:2053/health/live"]
       interval: 30s

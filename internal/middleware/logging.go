@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -136,10 +137,10 @@ func BillingAuditLog() gin.HandlerFunc {
 			}
 
 			// Add user information if available
-			if userCtx := GetUserContext(c); userCtx != nil {
-				fields["user_id"] = userCtx.User.ID
-				if userCtx.User.Email != nil {
-					fields["user_email"] = userCtx.User.Email
+			if cl, ok := authgin.ClaimsFromGin(c); ok && cl.UserID != "" {
+				fields["user_id"] = cl.UserID
+				if cl.Email != "" {
+					fields["user_email"] = cl.Email
 				}
 			}
 

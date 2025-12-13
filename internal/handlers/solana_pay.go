@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/doujins-org/doujins-billing/internal/middleware"
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -49,18 +49,17 @@ func CreateSolanaPay(r *Request) {
 		return
 	}
 
-	// Get authenticated user
-	userCtx := middleware.GetUserContext(r.GinCtx)
-	if userCtx.User == nil {
+	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
+	if !ok || cl.UserID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "Authentication required")
 		return
 	}
 
 	// Generate Solana Pay URL
-	result, err := r.State.SolanaPayService.GeneratePayment(r.Request.Context(), userCtx.User.ID, priceID, req.Token)
+	result, err := r.State.SolanaPayService.GeneratePayment(r.Request.Context(), cl.UserID, priceID, req.Token)
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{
-			"user_id":  userCtx.User.ID,
+			"user_id":  cl.UserID,
 			"price_id": priceID,
 			"token":    req.Token,
 		}).Error("Failed to generate Solana Pay URL")
@@ -69,7 +68,7 @@ func CreateSolanaPay(r *Request) {
 	}
 
 	log.WithFields(log.Fields{
-		"user_id":   userCtx.User.ID,
+		"user_id":   cl.UserID,
 		"price_id":  priceID,
 		"token":     req.Token,
 		"reference": result.Reference,

@@ -3,8 +3,9 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/doujins-org/doujins-billing/internal/middleware"
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/doujins-org/ginapi/response"
 )
 
 // GetProducts retrieves products and prices for subscription.
@@ -26,8 +27,7 @@ func GetProducts(r *Request) {
 	includeInactive := false
 	if req.Active != nil && !*req.Active {
 		// Only admins can view inactive products
-		userCtx := middleware.GetUserContext(r.GinCtx)
-		if userCtx != nil && userCtx.HasRole("admin") {
+		if cl, ok := authgin.ClaimsFromGin(r.GinCtx); ok && cl.HasRole("admin") {
 			includeInactive = true
 		}
 		// Non-admins requesting active=false are silently shown active products only
@@ -50,6 +50,6 @@ func GetProducts(r *Request) {
 		productObjects[i] = ProductToAPI(p.Product, p.Prices)
 	}
 
-	response := api.NewListResponse(productObjects, result.TotalItems, req.Limit, req.Offset)
-	r.SuccessJSON(response)
+	listResp := response.NewList(productObjects, result.TotalItems, req.Limit, req.Offset)
+	r.SuccessJSON(listResp)
 }

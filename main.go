@@ -15,6 +15,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/app"
+	"github.com/doujins-org/doujins-billing/internal/audit"
 	"github.com/doujins-org/doujins-billing/internal/migrate"
 	"github.com/doujins-org/doujins-billing/internal/server"
 )
@@ -49,7 +50,6 @@ func main() {
 		RunE:    runServer,
 		Short:   "Start the billing service server",
 	}
-	serverCmd.Flags().Bool("start-workers", false, "Start River workers inside the server process")
 
 	workerCmd := &cobra.Command{
 		Use:   "worker",
@@ -111,10 +111,20 @@ func main() {
 		},
 	}
 
+	auditCmd := &cobra.Command{
+		Use:   "audit",
+		Short: "Run consistency audit on the billing database",
+		RunE:  runAudit,
+	}
+	auditCmd.Flags().String("format", "table", "Output format: table, json, csv")
+	auditCmd.Flags().String("user-id", "", "Filter to specific user ID")
+	auditCmd.Flags().String("severity", "", "Filter by minimum severity: CRITICAL, HIGH, MEDIUM, LOW")
+	auditCmd.Flags().StringSlice("category", nil, "Filter by category (can be repeated)")
+
 	pgMigrateCmd.AddCommand(pgMigrateUpCmd)
 	chMigrateCmd.AddCommand(chMigrateUpCmd)
 	migrateCmd.AddCommand(migrateUpCmd)
-	rootCmd.AddCommand(serverCmd, workerCmd, migrateCmd, pgMigrateCmd, chMigrateCmd)
+	rootCmd.AddCommand(serverCmd, workerCmd, migrateCmd, pgMigrateCmd, chMigrateCmd, auditCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		log.WithError(err).Fatal("Failed to execute command")
@@ -146,23 +156,12 @@ func runServer(cmd *cobra.Command, args []string) error {
 		Cache:        application.Cache,
 		Runtime:      application.Runtime,
 		Redis:        application.RedisClient,
-		AuthVerifier: application.AuthVerifier,
+		AuthProvider: application.AuthProvider,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create billing server: %w", err)
 	}
 	cleanupOnError = false
-
-	startWorkers, err := cmd.Flags().GetBool("start-workers")
-	if err != nil {
-		return fmt.Errorf("read start-workers flag: %w", err)
-	}
-	if startWorkers {
-		log.Info("Starting River workers within server process")
-		billingServer.StartWorkers(cmd.Context())
-	} else {
-		log.Info("Server start-workers flag not set; skipping River workers")
-	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -242,37 +241,91 @@ func runWorker(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	billingServer, err := server.New(server.Dependencies{
-		Config:       application.Config,
-		Cache:        application.Cache,
-		Runtime:      application.Runtime,
-		Redis:        application.RedisClient,
-		AuthVerifier: application.AuthVerifier,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to create billing server: %w", err)
-	}
-	cleanupOnError = false
-
-	// Start only background workers (no HTTP server)
-	billingServer.StartWorkers(cmd.Context())
-
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	<-sigChan
-	log.Info("Shutdown signal received, stopping workers...")
+	cleanupOnError = false
+
+	// Start only background workers (no HTTP server). Fail fast if River cannot start.
+	workerCtx, cancel := context.WithCancel(cmd.Context())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- application.Runtime.RunWorkers(workerCtx)
+	}()
+
+	select {
+	case err := <-errCh:
+		cancel()
+		if err := application.Close(context.Background()); err != nil {
+			log.WithError(err).Error("Application cleanup failed")
+		}
+		return err
+	case <-sigChan:
+		log.Info("Shutdown signal received, stopping workers...")
+		cancel()
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	if err := billingServer.Close(shutdownCtx); err != nil {
-		log.WithError(err).Error("Error during billing server cleanup")
-	}
 	if err := application.Close(shutdownCtx); err != nil {
 		log.WithError(err).Error("Application shutdown encountered issues")
 	}
 
+	workerErr := <-errCh
+	if workerErr != nil && workerErr != context.Canceled {
+		return workerErr
+	}
+
 	log.Info("Billing service workers shutdown complete")
+	return nil
+}
+
+func runAudit(cmd *cobra.Command, args []string) error {
+	cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
+	application, err := app.Bootstrap(cfg)
+	if err != nil {
+		return fmt.Errorf("bootstrap application: %w", err)
+	}
+	defer func() {
+		if err := application.Close(context.Background()); err != nil {
+			log.WithError(err).Error("Application cleanup failed")
+		}
+	}()
+
+	// Parse flags
+	format, _ := cmd.Flags().GetString("format")
+	userID, _ := cmd.Flags().GetString("user-id")
+	severityStr, _ := cmd.Flags().GetString("severity")
+	categories, _ := cmd.Flags().GetStringSlice("category")
+
+	opts := audit.Options{
+		UserID:     userID,
+		Format:     format,
+		Categories: categories,
+	}
+
+	if severityStr != "" {
+		opts.Severity = audit.Severity(severityStr)
+	}
+
+	// Create checker and run audit
+	checker := audit.NewChecker(application.Runtime.DB.GetDB())
+	findings, summary, err := checker.Run(cmd.Context(), opts)
+	if err != nil {
+		return fmt.Errorf("audit failed: %w", err)
+	}
+
+	// Format and output results
+	formatter := audit.GetFormatter(format)
+	if err := formatter.Format(os.Stdout, findings, summary); err != nil {
+		return fmt.Errorf("format output: %w", err)
+	}
+
+	// Return non-zero exit if critical issues found
+	if summary.BySeverity[audit.SeverityCritical] > 0 {
+		os.Exit(1)
+	}
+
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/doujins-org/ginapi/response"
 )
 
 type GetSubscriptionResponse = services.UserSubscriptionResponse
@@ -11,10 +12,10 @@ type GetSubscriptionResponse = services.UserSubscriptionResponse
 type SubscribeResponse = services.SubscribeResponse
 
 // GetProductsResponse is now a Stripe-like list response
-type GetProductsResponse = api.ListResponse[api.ProductObject]
+type GetProductsResponse = response.List[api.ProductObject]
 
 // GetPricesResponse is a Stripe-like list response for prices
-type GetPricesResponse = api.ListResponse[api.PriceObject]
+type GetPricesResponse = response.List[api.PriceObject]
 
 // ProductToAPI converts a models.Product to api.ProductObject
 func ProductToAPI(p *models.Product, prices []*models.Price) api.ProductObject {

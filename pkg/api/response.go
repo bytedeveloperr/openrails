@@ -4,30 +4,6 @@ import (
 	"time"
 )
 
-// ListResponse is a generic Stripe-like list response wrapper.
-// Uses limit/offset pagination which maps directly to SQL and is more flexible than page-based.
-type ListResponse[T any] struct {
-	Object  string `json:"object"`   // Always "list"
-	Data    []T    `json:"data"`     // The list of items
-	Total   int64  `json:"total"`    // Total number of items across all pages
-	Limit   int    `json:"limit"`    // Maximum items requested
-	Offset  int    `json:"offset"`   // Number of items skipped
-	HasMore bool   `json:"has_more"` // Whether there are more items after this page
-}
-
-// NewListResponse creates a standardized list response with has_more calculated automatically
-func NewListResponse[T any](data []T, total int64, limit, offset int) ListResponse[T] {
-	hasMore := int64(offset+len(data)) < total
-	return ListResponse[T]{
-		Object:  "list",
-		Data:    data,
-		Total:   total,
-		Limit:   limit,
-		Offset:  offset,
-		HasMore: hasMore,
-	}
-}
-
 // ProductObject represents a product resource
 type ProductObject struct {
 	ID          string        `json:"id"`

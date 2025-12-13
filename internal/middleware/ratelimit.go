@@ -10,12 +10,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/doujins-org/ginapi/response"
 	"github.com/gin-gonic/gin"
 	redis "github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/pkg/message"
 )
 
 // RateLimitStore holds in-memory counters as a fallback when Redis is unavailable.
@@ -87,7 +87,7 @@ func RateLimit(rateLimiterConfig *config.RateLimitsConfig, rdb *redis.Client) gi
 				"method":    c.Request.Method,
 				"bucket":    bucket,
 			}).Warn("Rate limit exceeded")
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, message.Message("Rate limit exceeded"))
+			response.TooManyRequests(c, "Rate limit exceeded")
 			return
 		}
 

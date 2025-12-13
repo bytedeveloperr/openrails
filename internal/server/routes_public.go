@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/doujins-org/doujins-billing/internal/handlers"
-	"github.com/doujins-org/doujins-billing/internal/middleware"
 )
 
 func (s *Server) registerPublicRoutes() {
@@ -22,8 +21,8 @@ func (s *Server) registerPublicRoutes() {
 	api := s.publicHandler.Group("/v1")
 
 	// Products and Prices - public catalog endpoints
-	api.GET("/products", s.wrap(handlers.GetProducts))
-	api.GET("/prices", s.wrap(handlers.GetPrices))
+	api.GET("/products", s.authProvider.Optional(), s.wrap(handlers.GetProducts))
+	api.GET("/prices", s.authProvider.Optional(), s.wrap(handlers.GetPrices))
 
 	// Webhooks - single provider path (mobius/ccbill/solana)
 	webhooks := api.Group("/webhooks")
@@ -36,12 +35,12 @@ func (s *Server) registerPublicRoutes() {
 	// POST /v1/solana/pay - Create a new Solana Pay Transfer Request URL
 	// GET /v1/solana/pay/:reference - Check payment status by reference
 	solanaPay := api.Group("/solana/pay")
-	solanaPay.Use(middleware.AuthRequired(s.authVerifier))
+	solanaPay.Use(s.authProvider.Required())
 	solanaPay.POST("", s.wrap(handlers.CreateSolanaPay))
 	solanaPay.GET("/:reference", s.wrap(handlers.GetSolanaPayByReference))
 
 	me := api.Group("/me")
-	me.Use(middleware.AuthRequired(s.authVerifier))
+	me.Use(s.authProvider.Required())
 	me.GET("/status", s.wrap(handlers.GetMyBillingStatus))
 	// Unified checkout endpoint - handles both subscriptions and one-time purchases
 	me.POST("/checkout", s.wrap(handlers.Checkout))
@@ -106,7 +105,7 @@ func (s *Server) readyHandler(c *gin.Context) {
 	}
 
 	// Check AuthKit verifier (critical for authentication)
-	if s.authVerifier == nil {
+	if s.authProvider == nil {
 		checks["authkit"] = "not_initialized"
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
 		return

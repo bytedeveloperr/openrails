@@ -52,6 +52,9 @@ type TestContainerSuite struct {
 
 	// Context for container operations
 	ctx context.Context
+
+	workersCancel context.CancelFunc
+	workersErrCh  chan error
 }
 
 // NewTestContainerSuite creates a new test container suite
@@ -280,14 +283,19 @@ func (suite *TestContainerSuite) initializeServer() {
 		Cache:        application.Cache,
 		Runtime:      application.Runtime,
 		Redis:        application.RedisClient,
-		AuthVerifier: application.AuthVerifier,
+		AuthProvider: application.AuthProvider,
 	})
 	require.NoError(suite.t, err)
 
 	suite.Server = billingServer
 
-	// Start workers
-	suite.Server.StartWorkers(suite.ctx)
+	// Start workers in-process for the integration suite (separate from HTTP server).
+	workersCtx, cancel := context.WithCancel(context.Background())
+	suite.workersCancel = cancel
+	suite.workersErrCh = make(chan error, 1)
+	go func() {
+		suite.workersErrCh <- suite.App.Runtime.RunWorkers(workersCtx)
+	}()
 
 	// Create HTTP server
 	httpServer := &http.Server{
@@ -330,6 +338,16 @@ func (suite *TestContainerSuite) waitForServerReady() {
 // Cleanup cleans up all test containers and resources
 func (suite *TestContainerSuite) Cleanup() {
 	suite.t.Helper()
+
+	if suite.workersCancel != nil {
+		suite.workersCancel()
+	}
+	if suite.workersErrCh != nil {
+		select {
+		case <-suite.workersErrCh:
+		case <-time.After(2 * time.Second):
+		}
+	}
 
 	// Stop HTTP server
 	if suite.httpServer != nil {

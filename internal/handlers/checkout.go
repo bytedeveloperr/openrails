@@ -5,7 +5,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/middleware"
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
@@ -56,8 +56,8 @@ func Checkout(r *Request) {
 		return
 	}
 
-	userCtx := middleware.GetUserContext(r.GinCtx)
-	if userCtx.User == nil {
+	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
+	if !ok || cl.UserID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
@@ -84,10 +84,20 @@ func Checkout(r *Request) {
 		Country:         req.Country,
 	}
 
-	resp, err := r.State.CheckoutService.Checkout(r.Request.Context(), checkoutReq, userCtx.User)
+	user := &services.UserIdentity{
+		ID:       cl.UserID,
+		Username: cl.Username,
+		Roles:    cl.Roles,
+	}
+	if cl.Email != "" {
+		email := cl.Email
+		user.Email = &email
+	}
+
+	resp, err := r.State.CheckoutService.Checkout(r.Request.Context(), checkoutReq, user)
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{
-			"user_id":   userCtx.User.ID,
+			"user_id":   cl.UserID,
 			"price_id":  req.PriceID,
 			"processor": req.Processor,
 		}).Error("Checkout failed")

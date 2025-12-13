@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/doujins-org/doujins-billing/internal/middleware"
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
@@ -15,15 +15,15 @@ func CancelSubscription(r *Request) {
 		return
 	}
 
-	userCtx := middleware.GetUserContext(r.GinCtx)
-	if userCtx.User == nil {
+	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
+	if !ok || cl.UserID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
 
 	if err := r.State.UserSubscriptionService.CancelUserSubscription(
 		r.Request.Context(),
-		userCtx.User.ID,
+		cl.UserID,
 		req.Feedback,
 	); err != nil {
 		// Check if this is a CCBill cancellation error with support URL

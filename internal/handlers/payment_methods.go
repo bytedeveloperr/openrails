@@ -10,7 +10,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/doujins-org/ginapi/response"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
@@ -227,7 +227,7 @@ func ListPaymentMethods(r *Request) {
 		return
 	}
 
-	r.SuccessJSON(api.NewListResponse(PaymentMethodsToAPI(methods), totalItems, req.Limit, req.Offset))
+	r.SuccessJSON(response.NewList(PaymentMethodsToAPI(methods), totalItems, req.Limit, req.Offset))
 }
 
 // DeletePaymentMethod removes a payment method by ID

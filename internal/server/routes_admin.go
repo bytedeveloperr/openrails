@@ -1,8 +1,8 @@
 package server
 
 import (
+	authpolicy "github.com/doujins-org/doujins-billing/internal/auth/policy"
 	"github.com/doujins-org/doujins-billing/internal/handlers"
-	"github.com/doujins-org/doujins-billing/internal/middleware"
 )
 
 func (s *Server) registerAdminRoutes() {
@@ -10,8 +10,8 @@ func (s *Server) registerAdminRoutes() {
 	// These routes were previously on a separate port with API key auth.
 	// Now they're unified on the main server with proper JWT-based authorization.
 	admin := s.publicHandler.Group("/v1/admin")
-	admin.Use(middleware.AuthRequired(s.authVerifier))
-	admin.Use(middleware.AdminRequired())
+	admin.Use(s.authProvider.Required())
+	admin.Use(authpolicy.AdminRequired())
 
 	// Subscription management
 	admin.GET("/subscriptions", s.wrap(handlers.GetAdminSubscriptions))

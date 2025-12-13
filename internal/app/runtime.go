@@ -29,8 +29,11 @@ type Runtime struct {
 	CCBillRESTClient *ccbill.RESTClient
 	CCBillDataLink   *ccbill.DataLinkClient
 	NMIClients       map[string]*nmi.NMIClient
-	RiverClient      *river.Client[pgx.Tx]
-	riverPool        *pgxpool.Pool
+	// RiverProducer is an enqueue-only River client. It should never be started.
+	RiverProducer     *river.Client[pgx.Tx]
+	riverProducerPool *pgxpool.Pool
+	RiverClient       *river.Client[pgx.Tx]
+	riverPool         *pgxpool.Pool
 
 	SubscriptionService  *services.SubscriptionService
 	ProductService       *services.ProductService
@@ -91,6 +94,10 @@ func (r *Runtime) Close(ctx context.Context) error {
 		r.riverPool.Close()
 		r.riverPool = nil
 	}
+	if r.riverProducerPool != nil {
+		r.riverProducerPool.Close()
+		r.riverProducerPool = nil
+	}
 	if r.DB != nil {
 		if err := r.DB.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close db: %w", err))
@@ -127,50 +134,37 @@ func (r *Runtime) InitRiver(ctx context.Context) error {
 	}
 	r.RiverClient = client
 	r.riverPool = pool
-
-	// Wire up the fulfillment enqueuer now that we have a River client
-	if r.FulfillmentEnqueuer != nil {
-		r.FulfillmentEnqueuer.SetEnqueuer(riverjobs.NewRiverFulfillmentEnqueuer(client))
-	}
 	return nil
 }
 
-// StartWorkers spins up background workers using the River queue system.
-func (r *Runtime) StartWorkers(ctx context.Context) {
+// RunWorkers starts River workers (and other background loops) and blocks until ctx is done.
+// This is intended to run in a dedicated worker process, not inside the HTTP server.
+func (r *Runtime) RunWorkers(ctx context.Context) error {
 	if r == nil {
-		return
-	}
-	if !r.riverStarted {
-		if err := r.InitRiver(ctx); err != nil {
-			log.WithError(err).Error("Failed to initialize River client")
-			return
-		}
-		if r.RiverClient != nil {
-			// Build periodic jobs
-			periodicJobs, err := r.buildRiverPeriodicJobs(ctx)
-			if err != nil {
-				log.WithError(err).Error("Failed to configure River periodic jobs")
-				return
-			}
-			// Add periodic jobs to the client
-			for _, job := range periodicJobs {
-				r.RiverClient.PeriodicJobs().Add(job)
-			}
-
-			r.riverStarted = true
-			go func() {
-				log.Info("Starting River background workers in-server")
-				if err := r.RiverClient.Start(ctx); err != nil {
-					log.WithError(err).Error("River workers stopped with error")
-				} else {
-					log.Info("River workers stopped")
-				}
-			}()
-		}
+		return fmt.Errorf("runtime is nil")
 	}
 
-	// Start Solana Pay poller if configured
-	if r.SolanaPayPoller != nil && r.Config.Solana != nil {
+	if err := r.InitRiver(ctx); err != nil {
+		return err
+	}
+	if r.RiverClient == nil {
+		return fmt.Errorf("river client not initialized")
+	}
+
+	periodicJobs, err := r.buildRiverPeriodicJobs(ctx)
+	if err != nil {
+		return fmt.Errorf("configure periodic jobs: %w", err)
+	}
+	for _, job := range periodicJobs {
+		r.RiverClient.PeriodicJobs().Add(job)
+	}
+
+	// Start Solana Pay poller if configured.
+	if r.SolanaPayPoller != nil && r.Config != nil && r.Config.Solana != nil {
 		go r.SolanaPayPoller.Start(ctx)
 	}
+
+	r.riverStarted = true
+	log.Info("Starting River background workers")
+	return r.RiverClient.Start(ctx)
 }

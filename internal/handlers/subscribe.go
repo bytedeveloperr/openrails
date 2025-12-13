@@ -6,8 +6,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/middleware"
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/processors"
+	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
 func Subscribe(r *Request) {
@@ -31,13 +32,24 @@ func Subscribe(r *Request) {
 		}
 	}
 
-	userCtx := middleware.GetUserContext(r.GinCtx)
-	if userCtx.User == nil {
+	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
+	if !ok || cl.UserID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
 
-	res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.SubscribeData, userCtx.User)
+	user := &services.UserIdentity{
+		ID:       cl.UserID,
+		Email:    nil,
+		Username: cl.Username,
+		Roles:    cl.Roles,
+	}
+	if cl.Email != "" {
+		email := cl.Email
+		user.Email = &email
+	}
+
+	res, err := r.State.SubscriptionService.Subscribe(r.Request.Context(), &req.SubscribeData, user)
 	if err != nil {
 		log.WithError(err).Error("failed to subscribe")
 		r.ErrorJSON(500, "Internal server error")

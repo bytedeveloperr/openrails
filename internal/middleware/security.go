@@ -6,11 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/doujins-org/ginapi/response"
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/doujins-org/doujins-billing/pkg/message"
 )
 
 // CORS middleware with billing service specific settings
@@ -70,7 +69,7 @@ func InternalIPWhitelist() gin.HandlerFunc {
 		ip := net.ParseIP(clientIP)
 		if ip == nil {
 			log.WithField("client_ip", clientIP).Error("Failed to parse client IP")
-			c.JSON(http.StatusForbidden, message.Message("Access denied"))
+			response.ForbiddenWithMessage(c, "Access denied")
 			c.Abort()
 			return
 		}
@@ -86,7 +85,7 @@ func InternalIPWhitelist() gin.HandlerFunc {
 
 		if !isInternal {
 			log.WithField("client_ip", clientIP).Warn("External IP attempted to access internal endpoint")
-			c.JSON(http.StatusForbidden, message.Message("Access denied"))
+			response.ForbiddenWithMessage(c, "Access denied")
 			c.Abort()
 			return
 		}
@@ -128,7 +127,7 @@ func WebhookIPWhitelist(allowedIPs []string) gin.HandlerFunc {
 		ip := net.ParseIP(clientIP)
 		if ip == nil {
 			log.WithField("client_ip", clientIP).Error("Failed to parse client IP")
-			c.JSON(http.StatusForbidden, message.Message("Access denied"))
+			response.ForbiddenWithMessage(c, "Access denied")
 			c.Abort()
 			return
 		}
@@ -150,7 +149,7 @@ func WebhookIPWhitelist(allowedIPs []string) gin.HandlerFunc {
 		}
 
 		log.WithField("client_ip", clientIP).Warn("Webhook request from non-whitelisted IP")
-		c.JSON(http.StatusForbidden, message.Message("Access denied"))
+		response.ForbiddenWithMessage(c, "Access denied")
 		c.Abort()
 	}
 }
