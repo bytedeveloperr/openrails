@@ -133,21 +133,6 @@ type ManualRebillResponse struct {
 	ErrorMessage  string
 }
 
-// SubscriptionQueryFilter contains filters for searching NMI subscriptions
-type SubscriptionQueryFilter struct {
-	CustomerID     string // Our user ID (passed as customer_id when creating subscription)
-	PlanID         string // NMI plan ID
-	SubscriptionID string // Specific subscription ID
-}
-
-// SubscriptionInfo represents a subscription returned from NMI query
-type SubscriptionInfo struct {
-	SubscriptionID string
-	PlanID         string
-	CustomerID     string
-	Status         string // "active", "cancelled", etc.
-}
-
 func resolveWebhookSecret(provider string, cfg *config.NMIProviderSettings) string {
 	upperProvider := strings.ToUpper(provider)
 	secrets := []string{
@@ -824,40 +809,6 @@ func (c *NMIClient) GetSubscriptionData(subscriptionID string) (string, error) {
 	if subscriptionID != "" {
 		values.Set("subscription_id", subscriptionID)
 	}
-
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
-	response, err := c.sendQueryRequest(values)
-	if err != nil {
-		return "", err
-	}
-
-	return response, nil
-}
-
-// SearchSubscriptions queries NMI for subscriptions matching the given filter.
-// Returns raw XML response that can be parsed for subscription details.
-// NMI Query API supports filtering by: subscription_id, plan_id, customer_id (merchant_defined_field)
-func (c *NMIClient) SearchSubscriptions(filter SubscriptionQueryFilter) (string, error) {
-	if err := c.checkConfiguration(); err != nil {
-		return "", err
-	}
-
-	values := url.Values{
-		"Servicert_type": {"recurring"},
-		"security_key":   {c.SecurityKey},
-	}
-
-	if filter.SubscriptionID != "" {
-		values.Set("subscription_id", filter.SubscriptionID)
-	}
-	if filter.PlanID != "" {
-		values.Set("plan_id", filter.PlanID)
-	}
-	// Note: NMI stores customer_id as a merchant-defined field, not directly queryable.
-	// We'll need to filter results client-side if searching by customer_id.
 
 	if !c.IsProd {
 		values.Set("test_mode", "enabled")

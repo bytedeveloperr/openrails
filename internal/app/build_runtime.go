@@ -21,7 +21,6 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/processors"
-	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	clickhousemigrations "github.com/doujins-org/doujins-billing/migrations/clickhouse"
 	postgresmigrations "github.com/doujins-org/doujins-billing/migrations/postgres"
@@ -109,9 +108,8 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		WebhookDispatcher:            serviceInstances.WebhookDispatcher,
 		DeduplicationService:         serviceInstances.DeduplicationService,
 
-		CheckoutService:     serviceInstances.CheckoutService,
-		AdminGrantService:   serviceInstances.AdminGrantService,
-		FulfillmentEnqueuer: serviceInstances.FulfillmentEnqueuer,
+		CheckoutService:   serviceInstances.CheckoutService,
+		AdminGrantService: serviceInstances.AdminGrantService,
 	}
 	runtime.WebhookProcessor = &services.WebhookProcessor{
 		Events:     runtime.WebhookEventService,
@@ -125,9 +123,6 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 	} else {
 		runtime.RiverProducer = producer
 		runtime.riverProducerPool = pool
-		if runtime.FulfillmentEnqueuer != nil {
-			runtime.FulfillmentEnqueuer.SetEnqueuer(riverjobs.NewRiverFulfillmentEnqueuer(producer))
-		}
 	}
 
 	if cfg.ClickHouse != nil {
@@ -328,9 +323,8 @@ type servicesInstances struct {
 	WebhookEventService          *services.WebhookEventService
 	WebhookDispatcher            *services.WebhookDispatcher
 
-	CheckoutService     *services.CheckoutService
-	AdminGrantService   *services.AdminGrantService
-	FulfillmentEnqueuer *riverjobs.LazyFulfillmentEnqueuer
+	CheckoutService   *services.CheckoutService
+	AdminGrantService *services.AdminGrantService
 }
 
 func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbill.RESTClient, nmiClients map[string]*nmi.NMIClient, redisClient *redis.Client, clock clockwork.Clock) *servicesInstances {
@@ -422,9 +416,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		NMIClients:                   nmiClients,
 	}
 
-	// Create lazy fulfillment enqueuer - will be initialized after River client is ready
-	fulfillmentEnqueuer := riverjobs.NewLazyFulfillmentEnqueuer()
-
 	// Create checkout service for unified checkout endpoint
 	checkoutService := services.NewCheckoutService(
 		subscriptionService,
@@ -439,7 +430,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		cfg,
 	)
 	checkoutService.Clock = clock
-	checkoutService.FulfillmentEnqueuer = fulfillmentEnqueuer
 
 	// Wire up checkoutService to solanaPayService for eligibility checks
 	solanaPayService.SetCheckoutService(checkoutService)
@@ -484,7 +474,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		WebhookDispatcher:            webhookDispatcher,
 		CheckoutService:              checkoutService,
 		AdminGrantService:            adminGrantService,
-		FulfillmentEnqueuer:          fulfillmentEnqueuer,
 	}
 }
 

@@ -11,9 +11,11 @@ import (
 // PM-1: Active subscription with inactive payment method
 type CheckActiveSubscriptionInactivePaymentMethod struct{}
 
-func (c *CheckActiveSubscriptionInactivePaymentMethod) ID() string       { return "PM-1" }
-func (c *CheckActiveSubscriptionInactivePaymentMethod) Name() string     { return "active_subscription_inactive_payment_method" }
-func (c *CheckActiveSubscriptionInactivePaymentMethod) Category() string { return "payment_method" }
+func (c *CheckActiveSubscriptionInactivePaymentMethod) ID() string { return "PM-1" }
+func (c *CheckActiveSubscriptionInactivePaymentMethod) Name() string {
+	return "active_subscription_inactive_payment_method"
+}
+func (c *CheckActiveSubscriptionInactivePaymentMethod) Category() string   { return "payment_method" }
 func (c *CheckActiveSubscriptionInactivePaymentMethod) Severity() Severity { return SeverityHigh }
 
 func (c *CheckActiveSubscriptionInactivePaymentMethod) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -76,9 +78,9 @@ func (c *CheckActiveSubscriptionInactivePaymentMethod) Run(ctx context.Context, 
 // PM-2: Expired card with active subscription
 type CheckExpiredCardActiveSubscription struct{}
 
-func (c *CheckExpiredCardActiveSubscription) ID() string       { return "PM-2" }
-func (c *CheckExpiredCardActiveSubscription) Name() string     { return "expired_card_active_subscription" }
-func (c *CheckExpiredCardActiveSubscription) Category() string { return "payment_method" }
+func (c *CheckExpiredCardActiveSubscription) ID() string         { return "PM-2" }
+func (c *CheckExpiredCardActiveSubscription) Name() string       { return "expired_card_active_subscription" }
+func (c *CheckExpiredCardActiveSubscription) Category() string   { return "payment_method" }
 func (c *CheckExpiredCardActiveSubscription) Severity() Severity { return SeverityMedium }
 
 func (c *CheckExpiredCardActiveSubscription) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -151,9 +153,9 @@ func (c *CheckExpiredCardActiveSubscription) Run(ctx context.Context, db bun.IDB
 // PM-3: Orphan payment method reference
 type CheckOrphanPaymentMethodReference struct{}
 
-func (c *CheckOrphanPaymentMethodReference) ID() string       { return "PM-3" }
-func (c *CheckOrphanPaymentMethodReference) Name() string     { return "orphan_payment_method_reference" }
-func (c *CheckOrphanPaymentMethodReference) Category() string { return "payment_method" }
+func (c *CheckOrphanPaymentMethodReference) ID() string         { return "PM-3" }
+func (c *CheckOrphanPaymentMethodReference) Name() string       { return "orphan_payment_method_reference" }
+func (c *CheckOrphanPaymentMethodReference) Category() string   { return "payment_method" }
 func (c *CheckOrphanPaymentMethodReference) Severity() Severity { return SeverityHigh }
 
 func (c *CheckOrphanPaymentMethodReference) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -205,9 +207,9 @@ func (c *CheckOrphanPaymentMethodReference) Run(ctx context.Context, db bun.IDB,
 // PM-4: Processor mismatch
 type CheckProcessorMismatch struct{}
 
-func (c *CheckProcessorMismatch) ID() string       { return "PM-4" }
-func (c *CheckProcessorMismatch) Name() string     { return "processor_mismatch" }
-func (c *CheckProcessorMismatch) Category() string { return "payment_method" }
+func (c *CheckProcessorMismatch) ID() string         { return "PM-4" }
+func (c *CheckProcessorMismatch) Name() string       { return "processor_mismatch" }
+func (c *CheckProcessorMismatch) Category() string   { return "payment_method" }
 func (c *CheckProcessorMismatch) Severity() Severity { return SeverityHigh }
 
 func (c *CheckProcessorMismatch) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {

@@ -23,13 +23,13 @@ const (
 type EntityType string
 
 const (
-	EntitySubscription   EntityType = "subscription"
-	EntityEntitlement    EntityType = "entitlement"
-	EntityPayment        EntityType = "payment"
-	EntityPaymentMethod  EntityType = "payment_method"
-	EntityAdminGrant     EntityType = "admin_grant"
-	EntityProduct        EntityType = "product"
-	EntityPrice          EntityType = "price"
+	EntitySubscription  EntityType = "subscription"
+	EntityEntitlement   EntityType = "entitlement"
+	EntityPayment       EntityType = "payment"
+	EntityPaymentMethod EntityType = "payment_method"
+	EntityAdminGrant    EntityType = "admin_grant"
+	EntityProduct       EntityType = "product"
+	EntityPrice         EntityType = "price"
 )
 
 // Finding represents a single consistency issue found during audit
@@ -48,12 +48,12 @@ type Finding struct {
 
 // Summary provides aggregate statistics for the audit
 type Summary struct {
-	TotalFindings    int            `json:"total_findings"`
+	TotalFindings    int              `json:"total_findings"`
 	BySeverity       map[Severity]int `json:"by_severity"`
 	ByCategory       map[string]int   `json:"by_category"`
-	AutoFixable      int            `json:"auto_fixable"`
-	ManualReviewOnly int            `json:"manual_review_only"`
-	Duration         time.Duration  `json:"duration"`
+	AutoFixable      int              `json:"auto_fixable"`
+	ManualReviewOnly int              `json:"manual_review_only"`
+	Duration         time.Duration    `json:"duration"`
 }
 
 // Options configures the audit run
@@ -109,11 +109,11 @@ func (c *Checker) registerAllChecks() {
 		// These cannot be prevented by constraints as they involve relationships
 		// between subscriptions and entitlements tables
 		// =====================================================================
-		&CheckActiveSubscriptionMissingEntitlements{}, // S-E-1
-		&CheckOrphanSubscriptionEntitlements{},        // S-E-2
+		&CheckActiveSubscriptionMissingEntitlements{},   // S-E-1
+		&CheckOrphanSubscriptionEntitlements{},          // S-E-2
 		&CheckCancelledSubscriptionActiveEntitlements{}, // S-E-3
-		&CheckWrongEntitlementEndDate{},               // S-E-4
-		&CheckEntitlementSourceMismatch{},             // S-E-5
+		&CheckWrongEntitlementEndDate{},                 // S-E-4
+		&CheckEntitlementSourceMismatch{},               // S-E-5
 
 		// =====================================================================
 		// Payment-Entitlement checks (cross-table business logic)
@@ -165,10 +165,10 @@ func (c *Checker) registerAllChecks() {
 		// =====================================================================
 		// Admin grant checks (cross-table business logic)
 		// =====================================================================
-		&CheckAdminGrantMissingEntitlements{},       // AG-1
-		&CheckOrphanAdminEntitlements{},             // AG-2
-		&CheckRevokedAdminGrantActiveEntitlement{},  // AG-3
-		&CheckExpiredAdminGrantActiveEntitlement{},  // AG-4
+		&CheckAdminGrantMissingEntitlements{},      // AG-1
+		&CheckOrphanAdminEntitlements{},            // AG-2
+		&CheckRevokedAdminGrantActiveEntitlement{}, // AG-3
+		&CheckExpiredAdminGrantActiveEntitlement{}, // AG-4
 
 		// =====================================================================
 		// Temporal checks

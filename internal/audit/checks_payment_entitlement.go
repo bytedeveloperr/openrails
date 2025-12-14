@@ -13,9 +13,11 @@ import (
 // P-E-1: Completed one-off payment missing entitlements
 type CheckCompletedPaymentMissingEntitlements struct{}
 
-func (c *CheckCompletedPaymentMissingEntitlements) ID() string       { return "P-E-1" }
-func (c *CheckCompletedPaymentMissingEntitlements) Name() string     { return "completed_payment_missing_entitlements" }
-func (c *CheckCompletedPaymentMissingEntitlements) Category() string { return "payment_entitlement" }
+func (c *CheckCompletedPaymentMissingEntitlements) ID() string { return "P-E-1" }
+func (c *CheckCompletedPaymentMissingEntitlements) Name() string {
+	return "completed_payment_missing_entitlements"
+}
+func (c *CheckCompletedPaymentMissingEntitlements) Category() string   { return "payment_entitlement" }
 func (c *CheckCompletedPaymentMissingEntitlements) Severity() Severity { return SeverityHigh }
 
 func (c *CheckCompletedPaymentMissingEntitlements) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -90,9 +92,9 @@ func (c *CheckCompletedPaymentMissingEntitlements) Run(ctx context.Context, db b
 // P-E-2: Orphan one-off entitlements
 type CheckOrphanOneOffEntitlements struct{}
 
-func (c *CheckOrphanOneOffEntitlements) ID() string       { return "P-E-2" }
-func (c *CheckOrphanOneOffEntitlements) Name() string     { return "orphan_one_off_entitlements" }
-func (c *CheckOrphanOneOffEntitlements) Category() string { return "payment_entitlement" }
+func (c *CheckOrphanOneOffEntitlements) ID() string         { return "P-E-2" }
+func (c *CheckOrphanOneOffEntitlements) Name() string       { return "orphan_one_off_entitlements" }
+func (c *CheckOrphanOneOffEntitlements) Category() string   { return "payment_entitlement" }
 func (c *CheckOrphanOneOffEntitlements) Severity() Severity { return SeverityMedium }
 
 func (c *CheckOrphanOneOffEntitlements) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -164,9 +166,11 @@ func (c *CheckOrphanOneOffEntitlements) Run(ctx context.Context, db bun.IDB, opt
 // P-E-3: Refunded payment with active entitlements
 type CheckRefundedPaymentActiveEntitlements struct{}
 
-func (c *CheckRefundedPaymentActiveEntitlements) ID() string       { return "P-E-3" }
-func (c *CheckRefundedPaymentActiveEntitlements) Name() string     { return "refunded_payment_active_entitlements" }
-func (c *CheckRefundedPaymentActiveEntitlements) Category() string { return "payment_entitlement" }
+func (c *CheckRefundedPaymentActiveEntitlements) ID() string { return "P-E-3" }
+func (c *CheckRefundedPaymentActiveEntitlements) Name() string {
+	return "refunded_payment_active_entitlements"
+}
+func (c *CheckRefundedPaymentActiveEntitlements) Category() string   { return "payment_entitlement" }
 func (c *CheckRefundedPaymentActiveEntitlements) Severity() Severity { return SeverityHigh }
 
 func (c *CheckRefundedPaymentActiveEntitlements) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {

@@ -35,11 +35,10 @@ func (DunningArgs) Kind() string { return KindDunning }
 // updates the database after each attempt for idempotency.
 type DunningWorker struct {
 	river.WorkerDefaults[DunningArgs]
-	DB                  *db.DB
-	Clock               clockwork.Clock
-	NMIClients          map[string]*nmi.NMIClient
-	EventLogService     *services.EventLogService
-	FulfillmentEnqueuer FulfillmentEnqueuer // Optional: for durable fulfillment retries
+	DB              *db.DB
+	Clock           clockwork.Clock
+	NMIClients      map[string]*nmi.NMIClient
+	EventLogService *services.EventLogService
 }
 
 func (DunningWorker) Kind() string { return KindDunning }
@@ -177,14 +176,16 @@ func (w *DunningWorker) processSubscription(
 		return false
 	}
 
-	// ============================================================
-	// CRITICAL: Card has been charged (rebillResp.Success == true).
-	// From this point forward, we MUST record the payment and consider
-	// this a success, even if subsequent operations fail.
-	// ============================================================
+	// Success: renew membership window and create a payment record
+	if err := lifecycle.RenewMembership(ctx, &services.RenewMembershipParams{
+		Processor:               models.ProcessorMobius,
+		ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
+	}); err != nil {
+		logEntry.WithError(err).Error("renew membership after successful rebill")
+		return false
+	}
 
-	// Create payment record FIRST (before RenewMembership) to ensure we never
-	// lose track of a successful charge
+	// Create payment record
 	var amount int64
 	currency := "usd"
 	if sub.Price != nil {
@@ -209,48 +210,7 @@ func (w *DunningWorker) processSubscription(
 		CreatedAt:      now,
 	}
 	if err := paymentSvc.Create(ctx, pay); err != nil {
-		// CRITICAL: Failed to record payment after successful charge
-		// Log with all context needed for manual reconciliation
-		logEntry.WithError(err).WithFields(log.Fields{
-			"transaction_id": rebillResp.TransactionID,
-			"amount":         amount,
-			"currency":       currency,
-		}).Error("CRITICAL: failed to create payment record after successful rebill - requires manual reconciliation")
-		// Don't return false - the charge succeeded, continue with renewal
-	}
-
-	// Renew membership window (extend entitlements, update subscription period)
-	if err := lifecycle.RenewMembership(ctx, &services.RenewMembershipParams{
-		Processor:               models.ProcessorMobius,
-		ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
-	}); err != nil {
-		// CRITICAL: Failed to renew after successful charge
-		// The payment record was created above, so we have a record of the charge
-		logEntry.WithError(err).WithFields(log.Fields{
-			"transaction_id": rebillResp.TransactionID,
-			"payment_id":     pay.ID,
-		}).Error("CRITICAL: failed to renew membership after successful rebill")
-
-		// Enqueue fulfillment job for background retry if enqueuer is available
-		if w.FulfillmentEnqueuer != nil {
-			fulfillmentArgs := NewFulfillPaymentArgsForRenewal(
-				pay.ID,
-				sub.UserID,
-				sub.PriceID,
-				rebillResp.TransactionID,
-				amount,
-				currency,
-				sub.ID,
-				sub.ProcessorSubscriptionID,
-				err.Error(),
-			)
-			if enqueueErr := w.FulfillmentEnqueuer.EnqueueFulfillment(ctx, fulfillmentArgs); enqueueErr != nil {
-				logEntry.WithError(enqueueErr).Error("CRITICAL: failed to enqueue fulfillment job")
-			} else {
-				logEntry.Info("Enqueued fulfillment job for background retry")
-			}
-		}
-		// Still return true - the charge succeeded and payment was recorded
+		logEntry.WithError(err).Warn("create payment record for rebill")
 	}
 
 	logEntry.Info("Dunning: rebill successful")

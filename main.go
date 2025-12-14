@@ -57,45 +57,9 @@ func main() {
 		Short: "Start the billing service background workers",
 	}
 
-	pgMigrateCmd := &cobra.Command{
-		Use:   "pg-migrate",
-		Short: "Postgres database migration commands",
-	}
-
-	pgMigrateUpCmd := &cobra.Command{
-		Use:   "up",
-		Short: "Apply all Postgres migrations (AuthKit → River → Billing)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
-			ctx := cmd.Context()
-			if err := migrate.RunPostgres(ctx, cfg); err != nil {
-				return fmt.Errorf("postgres migrations failed: %w", err)
-			}
-			return nil
-		},
-	}
-
-	chMigrateCmd := &cobra.Command{
-		Use:   "ch-migrate",
-		Short: "ClickHouse database migration commands",
-	}
-
-	chMigrateUpCmd := &cobra.Command{
-		Use:   "up",
-		Short: "Apply all ClickHouse migrations (Billing analytics)",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
-			ctx := cmd.Context()
-			if err := migrate.RunClickHouse(ctx, cfg); err != nil {
-				return fmt.Errorf("clickhouse migrations failed: %w", err)
-			}
-			return nil
-		},
-	}
-
 	migrateCmd := &cobra.Command{
 		Use:   "migrate",
-		Short: "All database migration commands (Postgres and ClickHouse)",
+		Short: "Manage all database tables (Postgres and ClickHouse)",
 	}
 
 	migrateUpCmd := &cobra.Command{
@@ -111,6 +75,33 @@ func main() {
 		},
 	}
 
+	migratePgCmd := &cobra.Command{
+		Use:   "pg",
+		Short: "Apply all Postgres migrations (AuthKit → River → Billing)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
+			ctx := cmd.Context()
+			if err := migrate.RunPostgres(ctx, cfg); err != nil {
+				return fmt.Errorf("postgres migrations failed: %w", err)
+			}
+			return nil
+		},
+	}
+
+	migrateChCmd := &cobra.Command{
+		Use:     "ch",
+		Aliases: []string{"clickhouse"},
+		Short:   "Apply all ClickHouse migrations (Billing analytics)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
+			ctx := cmd.Context()
+			if err := migrate.RunClickHouse(ctx, cfg); err != nil {
+				return fmt.Errorf("clickhouse migrations failed: %w", err)
+			}
+			return nil
+		},
+	}
+
 	auditCmd := &cobra.Command{
 		Use:   "audit",
 		Short: "Run consistency audit on the billing database",
@@ -121,10 +112,8 @@ func main() {
 	auditCmd.Flags().String("severity", "", "Filter by minimum severity: CRITICAL, HIGH, MEDIUM, LOW")
 	auditCmd.Flags().StringSlice("category", nil, "Filter by category (can be repeated)")
 
-	pgMigrateCmd.AddCommand(pgMigrateUpCmd)
-	chMigrateCmd.AddCommand(chMigrateUpCmd)
-	migrateCmd.AddCommand(migrateUpCmd)
-	rootCmd.AddCommand(serverCmd, workerCmd, migrateCmd, pgMigrateCmd, chMigrateCmd, auditCmd)
+	migrateCmd.AddCommand(migrateUpCmd, migratePgCmd, migrateChCmd)
+	rootCmd.AddCommand(serverCmd, workerCmd, migrateCmd, auditCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		log.WithError(err).Fatal("Failed to execute command")

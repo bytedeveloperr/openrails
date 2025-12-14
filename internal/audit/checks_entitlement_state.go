@@ -12,9 +12,9 @@ import (
 // ES-1: Revoked without reason
 type CheckRevokedWithoutReason struct{}
 
-func (c *CheckRevokedWithoutReason) ID() string       { return "ES-1" }
-func (c *CheckRevokedWithoutReason) Name() string     { return "revoked_without_reason" }
-func (c *CheckRevokedWithoutReason) Category() string { return "entitlement_state" }
+func (c *CheckRevokedWithoutReason) ID() string         { return "ES-1" }
+func (c *CheckRevokedWithoutReason) Name() string       { return "revoked_without_reason" }
+func (c *CheckRevokedWithoutReason) Category() string   { return "entitlement_state" }
 func (c *CheckRevokedWithoutReason) Severity() Severity { return SeverityLow }
 
 func (c *CheckRevokedWithoutReason) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -67,9 +67,9 @@ func (c *CheckRevokedWithoutReason) Run(ctx context.Context, db bun.IDB, opts Op
 // ES-2: Reason without revocation
 type CheckReasonWithoutRevocation struct{}
 
-func (c *CheckReasonWithoutRevocation) ID() string       { return "ES-2" }
-func (c *CheckReasonWithoutRevocation) Name() string     { return "reason_without_revocation" }
-func (c *CheckReasonWithoutRevocation) Category() string { return "entitlement_state" }
+func (c *CheckReasonWithoutRevocation) ID() string         { return "ES-2" }
+func (c *CheckReasonWithoutRevocation) Name() string       { return "reason_without_revocation" }
+func (c *CheckReasonWithoutRevocation) Category() string   { return "entitlement_state" }
 func (c *CheckReasonWithoutRevocation) Severity() Severity { return SeverityLow }
 
 func (c *CheckReasonWithoutRevocation) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -122,9 +122,9 @@ func (c *CheckReasonWithoutRevocation) Run(ctx context.Context, db bun.IDB, opts
 // ES-3: Invalid time window
 type CheckInvalidTimeWindow struct{}
 
-func (c *CheckInvalidTimeWindow) ID() string       { return "ES-3" }
-func (c *CheckInvalidTimeWindow) Name() string     { return "invalid_time_window" }
-func (c *CheckInvalidTimeWindow) Category() string { return "entitlement_state" }
+func (c *CheckInvalidTimeWindow) ID() string         { return "ES-3" }
+func (c *CheckInvalidTimeWindow) Name() string       { return "invalid_time_window" }
+func (c *CheckInvalidTimeWindow) Category() string   { return "entitlement_state" }
 func (c *CheckInvalidTimeWindow) Severity() Severity { return SeverityHigh }
 
 func (c *CheckInvalidTimeWindow) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -179,18 +179,20 @@ func (c *CheckInvalidTimeWindow) Run(ctx context.Context, db bun.IDB, opts Optio
 // ES-5: Multiple indefinite entitlements
 type CheckMultipleIndefiniteEntitlements struct{}
 
-func (c *CheckMultipleIndefiniteEntitlements) ID() string       { return "ES-5" }
-func (c *CheckMultipleIndefiniteEntitlements) Name() string     { return "multiple_indefinite_entitlements" }
-func (c *CheckMultipleIndefiniteEntitlements) Category() string { return "entitlement_state" }
+func (c *CheckMultipleIndefiniteEntitlements) ID() string { return "ES-5" }
+func (c *CheckMultipleIndefiniteEntitlements) Name() string {
+	return "multiple_indefinite_entitlements"
+}
+func (c *CheckMultipleIndefiniteEntitlements) Category() string   { return "entitlement_state" }
 func (c *CheckMultipleIndefiniteEntitlements) Severity() Severity { return SeverityMedium }
 
 func (c *CheckMultipleIndefiniteEntitlements) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
 	var findings []Finding
 
 	type result struct {
-		UserID        string      `bun:"user_id"`
-		Entitlement   string      `bun:"entitlement"`
-		Count         int         `bun:"count"`
+		UserID         string      `bun:"user_id"`
+		Entitlement    string      `bun:"entitlement"`
+		Count          int         `bun:"count"`
 		EntitlementIDs []uuid.UUID `bun:"ent_ids,array"`
 	}
 

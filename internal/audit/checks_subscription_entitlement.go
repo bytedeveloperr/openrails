@@ -14,9 +14,13 @@ import (
 // S-E-1: Active subscription missing entitlements
 type CheckActiveSubscriptionMissingEntitlements struct{}
 
-func (c *CheckActiveSubscriptionMissingEntitlements) ID() string       { return "S-E-1" }
-func (c *CheckActiveSubscriptionMissingEntitlements) Name() string     { return "active_subscription_missing_entitlements" }
-func (c *CheckActiveSubscriptionMissingEntitlements) Category() string { return "subscription_entitlement" }
+func (c *CheckActiveSubscriptionMissingEntitlements) ID() string { return "S-E-1" }
+func (c *CheckActiveSubscriptionMissingEntitlements) Name() string {
+	return "active_subscription_missing_entitlements"
+}
+func (c *CheckActiveSubscriptionMissingEntitlements) Category() string {
+	return "subscription_entitlement"
+}
 func (c *CheckActiveSubscriptionMissingEntitlements) Severity() Severity { return SeverityHigh }
 
 func (c *CheckActiveSubscriptionMissingEntitlements) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -96,9 +100,11 @@ func (c *CheckActiveSubscriptionMissingEntitlements) Run(ctx context.Context, db
 // S-E-2: Orphan subscription entitlements
 type CheckOrphanSubscriptionEntitlements struct{}
 
-func (c *CheckOrphanSubscriptionEntitlements) ID() string       { return "S-E-2" }
-func (c *CheckOrphanSubscriptionEntitlements) Name() string     { return "orphan_subscription_entitlements" }
-func (c *CheckOrphanSubscriptionEntitlements) Category() string { return "subscription_entitlement" }
+func (c *CheckOrphanSubscriptionEntitlements) ID() string { return "S-E-2" }
+func (c *CheckOrphanSubscriptionEntitlements) Name() string {
+	return "orphan_subscription_entitlements"
+}
+func (c *CheckOrphanSubscriptionEntitlements) Category() string   { return "subscription_entitlement" }
 func (c *CheckOrphanSubscriptionEntitlements) Severity() Severity { return SeverityHigh }
 
 func (c *CheckOrphanSubscriptionEntitlements) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -106,11 +112,11 @@ func (c *CheckOrphanSubscriptionEntitlements) Run(ctx context.Context, db bun.ID
 
 	// Find entitlements where source_type=subscription but subscription is not active/pending/past_due or doesn't exist
 	type orphanResult struct {
-		EntitlementID   uuid.UUID  `bun:"entitlement_id"`
-		UserID          string     `bun:"user_id"`
-		EntitlementName string     `bun:"entitlement"`
-		SourceID        uuid.UUID  `bun:"source_id"`
-		SubStatus       *string    `bun:"sub_status"`
+		EntitlementID   uuid.UUID `bun:"entitlement_id"`
+		UserID          string    `bun:"user_id"`
+		EntitlementName string    `bun:"entitlement"`
+		SourceID        uuid.UUID `bun:"source_id"`
+		SubStatus       *string   `bun:"sub_status"`
 	}
 
 	var results []orphanResult
@@ -167,9 +173,13 @@ func (c *CheckOrphanSubscriptionEntitlements) Run(ctx context.Context, db bun.ID
 // S-E-3: Cancelled subscription with active entitlements (when revoke_access=true)
 type CheckCancelledSubscriptionActiveEntitlements struct{}
 
-func (c *CheckCancelledSubscriptionActiveEntitlements) ID() string       { return "S-E-3" }
-func (c *CheckCancelledSubscriptionActiveEntitlements) Name() string     { return "cancelled_subscription_active_entitlements" }
-func (c *CheckCancelledSubscriptionActiveEntitlements) Category() string { return "subscription_entitlement" }
+func (c *CheckCancelledSubscriptionActiveEntitlements) ID() string { return "S-E-3" }
+func (c *CheckCancelledSubscriptionActiveEntitlements) Name() string {
+	return "cancelled_subscription_active_entitlements"
+}
+func (c *CheckCancelledSubscriptionActiveEntitlements) Category() string {
+	return "subscription_entitlement"
+}
 func (c *CheckCancelledSubscriptionActiveEntitlements) Severity() Severity { return SeverityHigh }
 
 func (c *CheckCancelledSubscriptionActiveEntitlements) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -234,9 +244,9 @@ func (c *CheckCancelledSubscriptionActiveEntitlements) Run(ctx context.Context, 
 // S-E-4: Wrong entitlement end date for period-end cancellation
 type CheckWrongEntitlementEndDate struct{}
 
-func (c *CheckWrongEntitlementEndDate) ID() string       { return "S-E-4" }
-func (c *CheckWrongEntitlementEndDate) Name() string     { return "wrong_entitlement_end_date" }
-func (c *CheckWrongEntitlementEndDate) Category() string { return "subscription_entitlement" }
+func (c *CheckWrongEntitlementEndDate) ID() string         { return "S-E-4" }
+func (c *CheckWrongEntitlementEndDate) Name() string       { return "wrong_entitlement_end_date" }
+func (c *CheckWrongEntitlementEndDate) Category() string   { return "subscription_entitlement" }
 func (c *CheckWrongEntitlementEndDate) Severity() Severity { return SeverityMedium }
 
 func (c *CheckWrongEntitlementEndDate) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -244,12 +254,12 @@ func (c *CheckWrongEntitlementEndDate) Run(ctx context.Context, db bun.IDB, opts
 
 	// Find cancelled subscriptions without ended_at (period-end cancel) where entitlement end_at != period_ends_at
 	type result struct {
-		SubID             uuid.UUID  `bun:"sub_id"`
-		UserID            string     `bun:"user_id"`
-		PeriodEndsAt      time.Time  `bun:"period_ends_at"`
-		EntitlementID     uuid.UUID  `bun:"ent_id"`
-		EntitlementName   string     `bun:"entitlement"`
-		EntitlementEndAt  *time.Time `bun:"ent_end_at"`
+		SubID            uuid.UUID  `bun:"sub_id"`
+		UserID           string     `bun:"user_id"`
+		PeriodEndsAt     time.Time  `bun:"period_ends_at"`
+		EntitlementID    uuid.UUID  `bun:"ent_id"`
+		EntitlementName  string     `bun:"entitlement"`
+		EntitlementEndAt *time.Time `bun:"ent_end_at"`
 	}
 
 	var results []result
@@ -298,9 +308,9 @@ func (c *CheckWrongEntitlementEndDate) Run(ctx context.Context, db bun.IDB, opts
 			Recommendation: fmt.Sprintf("Update entitlement.end_at to %s", r.PeriodEndsAt.Format(time.RFC3339)),
 			AutoFixable:    true,
 			Details: map[string]any{
-				"subscription_id":    r.SubID,
-				"expected_end_at":    r.PeriodEndsAt,
-				"actual_end_at":      r.EntitlementEndAt,
+				"subscription_id": r.SubID,
+				"expected_end_at": r.PeriodEndsAt,
+				"actual_end_at":   r.EntitlementEndAt,
 			},
 		})
 	}
@@ -311,9 +321,9 @@ func (c *CheckWrongEntitlementEndDate) Run(ctx context.Context, db bun.IDB, opts
 // S-E-5: Entitlement source mismatch (different user or missing subscription)
 type CheckEntitlementSourceMismatch struct{}
 
-func (c *CheckEntitlementSourceMismatch) ID() string       { return "S-E-5" }
-func (c *CheckEntitlementSourceMismatch) Name() string     { return "entitlement_source_mismatch" }
-func (c *CheckEntitlementSourceMismatch) Category() string { return "subscription_entitlement" }
+func (c *CheckEntitlementSourceMismatch) ID() string         { return "S-E-5" }
+func (c *CheckEntitlementSourceMismatch) Name() string       { return "entitlement_source_mismatch" }
+func (c *CheckEntitlementSourceMismatch) Category() string   { return "subscription_entitlement" }
 func (c *CheckEntitlementSourceMismatch) Severity() Severity { return SeverityHigh }
 
 func (c *CheckEntitlementSourceMismatch) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -369,8 +379,8 @@ func (c *CheckEntitlementSourceMismatch) Run(ctx context.Context, db bun.IDB, op
 			Recommendation: "MANUAL REVIEW - Data corruption detected",
 			AutoFixable:    false,
 			Details: map[string]any{
-				"source_id":           r.SourceID,
-				"subscription_user":   r.SubUserID,
+				"source_id":         r.SourceID,
+				"subscription_user": r.SubUserID,
 			},
 		})
 	}

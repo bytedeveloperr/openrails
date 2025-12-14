@@ -14,7 +14,6 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
-	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/jonboulle/clockwork"
 )
@@ -64,8 +63,6 @@ type Runtime struct {
 	WebhookProcessor             *services.WebhookProcessor
 
 	CheckoutService *services.CheckoutService
-
-	FulfillmentEnqueuer *riverjobs.LazyFulfillmentEnqueuer
 
 	riverStarted bool
 }

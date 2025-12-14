@@ -13,20 +13,20 @@ import (
 // FK-1: Orphan subscription product
 type CheckOrphanSubscriptionProduct struct{}
 
-func (c *CheckOrphanSubscriptionProduct) ID() string       { return "FK-1" }
-func (c *CheckOrphanSubscriptionProduct) Name() string     { return "orphan_subscription_product" }
-func (c *CheckOrphanSubscriptionProduct) Category() string { return "foreign_key" }
+func (c *CheckOrphanSubscriptionProduct) ID() string         { return "FK-1" }
+func (c *CheckOrphanSubscriptionProduct) Name() string       { return "orphan_subscription_product" }
+func (c *CheckOrphanSubscriptionProduct) Category() string   { return "foreign_key" }
 func (c *CheckOrphanSubscriptionProduct) Severity() Severity { return SeverityHigh }
 
 func (c *CheckOrphanSubscriptionProduct) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
 	var findings []Finding
 
 	type result struct {
-		SubID     uuid.UUID `bun:"sub_id"`
-		UserID    string    `bun:"user_id"`
-		ProductID uuid.UUID `bun:"product_id"`
-		ProdExists bool     `bun:"prod_exists"`
-		ProdActive *bool    `bun:"prod_active"`
+		SubID      uuid.UUID `bun:"sub_id"`
+		UserID     string    `bun:"user_id"`
+		ProductID  uuid.UUID `bun:"product_id"`
+		ProdExists bool      `bun:"prod_exists"`
+		ProdActive *bool     `bun:"prod_active"`
 	}
 
 	var results []result
@@ -80,9 +80,9 @@ func (c *CheckOrphanSubscriptionProduct) Run(ctx context.Context, db bun.IDB, op
 // FK-2: Orphan subscription price
 type CheckOrphanSubscriptionPrice struct{}
 
-func (c *CheckOrphanSubscriptionPrice) ID() string       { return "FK-2" }
-func (c *CheckOrphanSubscriptionPrice) Name() string     { return "orphan_subscription_price" }
-func (c *CheckOrphanSubscriptionPrice) Category() string { return "foreign_key" }
+func (c *CheckOrphanSubscriptionPrice) ID() string         { return "FK-2" }
+func (c *CheckOrphanSubscriptionPrice) Name() string       { return "orphan_subscription_price" }
+func (c *CheckOrphanSubscriptionPrice) Category() string   { return "foreign_key" }
 func (c *CheckOrphanSubscriptionPrice) Severity() Severity { return SeverityHigh }
 
 func (c *CheckOrphanSubscriptionPrice) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -147,9 +147,9 @@ func (c *CheckOrphanSubscriptionPrice) Run(ctx context.Context, db bun.IDB, opts
 // FK-3: Price-product mismatch
 type CheckPriceProductMismatch struct{}
 
-func (c *CheckPriceProductMismatch) ID() string       { return "FK-3" }
-func (c *CheckPriceProductMismatch) Name() string     { return "price_product_mismatch" }
-func (c *CheckPriceProductMismatch) Category() string { return "foreign_key" }
+func (c *CheckPriceProductMismatch) ID() string         { return "FK-3" }
+func (c *CheckPriceProductMismatch) Name() string       { return "price_product_mismatch" }
+func (c *CheckPriceProductMismatch) Category() string   { return "foreign_key" }
 func (c *CheckPriceProductMismatch) Severity() Severity { return SeverityHigh }
 
 func (c *CheckPriceProductMismatch) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -206,9 +206,9 @@ func (c *CheckPriceProductMismatch) Run(ctx context.Context, db bun.IDB, opts Op
 // FK-4: Payment references non-existent subscription
 type CheckPaymentOrphanSubscription struct{}
 
-func (c *CheckPaymentOrphanSubscription) ID() string       { return "FK-4" }
-func (c *CheckPaymentOrphanSubscription) Name() string     { return "payment_orphan_subscription" }
-func (c *CheckPaymentOrphanSubscription) Category() string { return "foreign_key" }
+func (c *CheckPaymentOrphanSubscription) ID() string         { return "FK-4" }
+func (c *CheckPaymentOrphanSubscription) Name() string       { return "payment_orphan_subscription" }
+func (c *CheckPaymentOrphanSubscription) Category() string   { return "foreign_key" }
 func (c *CheckPaymentOrphanSubscription) Severity() Severity { return SeverityMedium }
 
 func (c *CheckPaymentOrphanSubscription) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -263,9 +263,9 @@ func (c *CheckPaymentOrphanSubscription) Run(ctx context.Context, db bun.IDB, op
 // FK-5: Entitlement references non-existent source
 type CheckEntitlementOrphanSource struct{}
 
-func (c *CheckEntitlementOrphanSource) ID() string       { return "FK-5" }
-func (c *CheckEntitlementOrphanSource) Name() string     { return "entitlement_orphan_source" }
-func (c *CheckEntitlementOrphanSource) Category() string { return "foreign_key" }
+func (c *CheckEntitlementOrphanSource) ID() string         { return "FK-5" }
+func (c *CheckEntitlementOrphanSource) Name() string       { return "entitlement_orphan_source" }
+func (c *CheckEntitlementOrphanSource) Category() string   { return "foreign_key" }
 func (c *CheckEntitlementOrphanSource) Severity() Severity { return SeverityMedium }
 
 func (c *CheckEntitlementOrphanSource) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -316,7 +316,7 @@ func (c *CheckEntitlementOrphanSource) Run(ctx context.Context, db bun.IDB, opts
 			Recommendation: "MANUAL REVIEW - May be valid historical entitlement",
 			AutoFixable:    false,
 			Details: map[string]any{
-				"source_type":            r.SourceType,
+				"source_type":             r.SourceType,
 				"missing_subscription_id": r.SourceID,
 			},
 		})
@@ -359,7 +359,7 @@ func (c *CheckEntitlementOrphanSource) Run(ctx context.Context, db bun.IDB, opts
 			Recommendation: "MANUAL REVIEW - May be valid historical entitlement",
 			AutoFixable:    false,
 			Details: map[string]any{
-				"source_type":       r.SourceType,
+				"source_type":        r.SourceType,
 				"missing_payment_id": r.SourceID,
 			},
 		})

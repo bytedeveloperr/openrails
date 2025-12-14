@@ -14,19 +14,19 @@ import (
 // AG-1: Admin grant without corresponding entitlement
 type CheckAdminGrantMissingEntitlements struct{}
 
-func (c *CheckAdminGrantMissingEntitlements) ID() string       { return "AG-1" }
-func (c *CheckAdminGrantMissingEntitlements) Name() string     { return "admin_grant_missing_entitlements" }
-func (c *CheckAdminGrantMissingEntitlements) Category() string { return "admin_grant" }
+func (c *CheckAdminGrantMissingEntitlements) ID() string         { return "AG-1" }
+func (c *CheckAdminGrantMissingEntitlements) Name() string       { return "admin_grant_missing_entitlements" }
+func (c *CheckAdminGrantMissingEntitlements) Category() string   { return "admin_grant" }
 func (c *CheckAdminGrantMissingEntitlements) Severity() Severity { return SeverityHigh }
 
 func (c *CheckAdminGrantMissingEntitlements) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
 	var findings []Finding
 
 	type result struct {
-		GrantID     uuid.UUID `bun:"grant_id"`
-		UserID      string    `bun:"user_id"`
-		Entitlement string    `bun:"entitlement"`
-		GrantedAt   time.Time `bun:"granted_at"`
+		GrantID     uuid.UUID  `bun:"grant_id"`
+		UserID      string     `bun:"user_id"`
+		Entitlement string     `bun:"entitlement"`
+		GrantedAt   time.Time  `bun:"granted_at"`
 		ExpiresAt   *time.Time `bun:"expires_at"`
 		RevokedAt   *time.Time `bun:"revoked_at"`
 	}
@@ -85,9 +85,9 @@ func (c *CheckAdminGrantMissingEntitlements) Run(ctx context.Context, db bun.IDB
 // AG-2: Orphan admin entitlement (entitlement exists but admin grant doesn't)
 type CheckOrphanAdminEntitlements struct{}
 
-func (c *CheckOrphanAdminEntitlements) ID() string       { return "AG-2" }
-func (c *CheckOrphanAdminEntitlements) Name() string     { return "orphan_admin_entitlements" }
-func (c *CheckOrphanAdminEntitlements) Category() string { return "admin_grant" }
+func (c *CheckOrphanAdminEntitlements) ID() string         { return "AG-2" }
+func (c *CheckOrphanAdminEntitlements) Name() string       { return "orphan_admin_entitlements" }
+func (c *CheckOrphanAdminEntitlements) Category() string   { return "admin_grant" }
 func (c *CheckOrphanAdminEntitlements) Severity() Severity { return SeverityMedium }
 
 func (c *CheckOrphanAdminEntitlements) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -135,7 +135,7 @@ func (c *CheckOrphanAdminEntitlements) Run(ctx context.Context, db bun.IDB, opts
 			Recommendation: "Revoke orphan entitlement or recreate admin grant",
 			AutoFixable:    false,
 			Details: map[string]any{
-				"entitlement":          r.Entitlement,
+				"entitlement":            r.Entitlement,
 				"missing_admin_grant_id": r.SourceID,
 			},
 		})
@@ -147,9 +147,11 @@ func (c *CheckOrphanAdminEntitlements) Run(ctx context.Context, db bun.IDB, opts
 // AG-3: Admin grant revoked but entitlement still active
 type CheckRevokedAdminGrantActiveEntitlement struct{}
 
-func (c *CheckRevokedAdminGrantActiveEntitlement) ID() string       { return "AG-3" }
-func (c *CheckRevokedAdminGrantActiveEntitlement) Name() string     { return "revoked_admin_grant_active_entitlement" }
-func (c *CheckRevokedAdminGrantActiveEntitlement) Category() string { return "admin_grant" }
+func (c *CheckRevokedAdminGrantActiveEntitlement) ID() string { return "AG-3" }
+func (c *CheckRevokedAdminGrantActiveEntitlement) Name() string {
+	return "revoked_admin_grant_active_entitlement"
+}
+func (c *CheckRevokedAdminGrantActiveEntitlement) Category() string   { return "admin_grant" }
 func (c *CheckRevokedAdminGrantActiveEntitlement) Severity() Severity { return SeverityHigh }
 
 func (c *CheckRevokedAdminGrantActiveEntitlement) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -199,9 +201,9 @@ func (c *CheckRevokedAdminGrantActiveEntitlement) Run(ctx context.Context, db bu
 			Recommendation: "Revoke entitlement to match admin grant state",
 			AutoFixable:    true,
 			Details: map[string]any{
-				"entitlement":       r.Entitlement,
-				"admin_grant_id":    r.GrantID,
-				"grant_revoked_at":  r.RevokedAt,
+				"entitlement":      r.Entitlement,
+				"admin_grant_id":   r.GrantID,
+				"grant_revoked_at": r.RevokedAt,
 			},
 		})
 	}
@@ -212,9 +214,11 @@ func (c *CheckRevokedAdminGrantActiveEntitlement) Run(ctx context.Context, db bu
 // AG-4: Expired admin grant with active entitlement
 type CheckExpiredAdminGrantActiveEntitlement struct{}
 
-func (c *CheckExpiredAdminGrantActiveEntitlement) ID() string       { return "AG-4" }
-func (c *CheckExpiredAdminGrantActiveEntitlement) Name() string     { return "expired_admin_grant_active_entitlement" }
-func (c *CheckExpiredAdminGrantActiveEntitlement) Category() string { return "admin_grant" }
+func (c *CheckExpiredAdminGrantActiveEntitlement) ID() string { return "AG-4" }
+func (c *CheckExpiredAdminGrantActiveEntitlement) Name() string {
+	return "expired_admin_grant_active_entitlement"
+}
+func (c *CheckExpiredAdminGrantActiveEntitlement) Category() string   { return "admin_grant" }
 func (c *CheckExpiredAdminGrantActiveEntitlement) Severity() Severity { return SeverityHigh }
 
 func (c *CheckExpiredAdminGrantActiveEntitlement) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -266,9 +270,9 @@ func (c *CheckExpiredAdminGrantActiveEntitlement) Run(ctx context.Context, db bu
 			Recommendation: "Revoke entitlement as admin grant has expired",
 			AutoFixable:    true,
 			Details: map[string]any{
-				"entitlement":       r.Entitlement,
-				"admin_grant_id":    r.GrantID,
-				"grant_expires_at":  r.ExpiresAt,
+				"entitlement":      r.Entitlement,
+				"admin_grant_id":   r.GrantID,
+				"grant_expires_at": r.ExpiresAt,
 			},
 		})
 	}

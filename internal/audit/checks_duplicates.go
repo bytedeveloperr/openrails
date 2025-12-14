@@ -12,17 +12,17 @@ import (
 // D-1: Multiple active subscriptions for same user
 type CheckMultipleActiveSubscriptions struct{}
 
-func (c *CheckMultipleActiveSubscriptions) ID() string       { return "D-1" }
-func (c *CheckMultipleActiveSubscriptions) Name() string     { return "multiple_active_subscriptions" }
-func (c *CheckMultipleActiveSubscriptions) Category() string { return "duplicates" }
+func (c *CheckMultipleActiveSubscriptions) ID() string         { return "D-1" }
+func (c *CheckMultipleActiveSubscriptions) Name() string       { return "multiple_active_subscriptions" }
+func (c *CheckMultipleActiveSubscriptions) Category() string   { return "duplicates" }
 func (c *CheckMultipleActiveSubscriptions) Severity() Severity { return SeverityCritical }
 
 func (c *CheckMultipleActiveSubscriptions) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
 	var findings []Finding
 
 	type result struct {
-		UserID string    `bun:"user_id"`
-		Count  int       `bun:"count"`
+		UserID string      `bun:"user_id"`
+		Count  int         `bun:"count"`
 		SubIDs []uuid.UUID `bun:"sub_ids,array"`
 	}
 
@@ -73,9 +73,9 @@ func (c *CheckMultipleActiveSubscriptions) Run(ctx context.Context, db bun.IDB, 
 // D-2: Duplicate charges in same billing period
 type CheckDuplicateChargesSamePeriod struct{}
 
-func (c *CheckDuplicateChargesSamePeriod) ID() string       { return "D-2" }
-func (c *CheckDuplicateChargesSamePeriod) Name() string     { return "duplicate_charges_same_period" }
-func (c *CheckDuplicateChargesSamePeriod) Category() string { return "duplicates" }
+func (c *CheckDuplicateChargesSamePeriod) ID() string         { return "D-2" }
+func (c *CheckDuplicateChargesSamePeriod) Name() string       { return "duplicate_charges_same_period" }
+func (c *CheckDuplicateChargesSamePeriod) Category() string   { return "duplicates" }
 func (c *CheckDuplicateChargesSamePeriod) Severity() Severity { return SeverityCritical }
 
 func (c *CheckDuplicateChargesSamePeriod) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -163,9 +163,9 @@ func (c *CheckDuplicateChargesSamePeriod) Run(ctx context.Context, db bun.IDB, o
 // D-3: Overlapping entitlement windows
 type CheckOverlappingEntitlementWindows struct{}
 
-func (c *CheckOverlappingEntitlementWindows) ID() string       { return "D-3" }
-func (c *CheckOverlappingEntitlementWindows) Name() string     { return "overlapping_entitlement_windows" }
-func (c *CheckOverlappingEntitlementWindows) Category() string { return "duplicates" }
+func (c *CheckOverlappingEntitlementWindows) ID() string         { return "D-3" }
+func (c *CheckOverlappingEntitlementWindows) Name() string       { return "overlapping_entitlement_windows" }
+func (c *CheckOverlappingEntitlementWindows) Category() string   { return "duplicates" }
 func (c *CheckOverlappingEntitlementWindows) Severity() Severity { return SeverityMedium }
 
 func (c *CheckOverlappingEntitlementWindows) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -173,9 +173,9 @@ func (c *CheckOverlappingEntitlementWindows) Run(ctx context.Context, db bun.IDB
 
 	// Find overlapping entitlements for same user and entitlement name
 	type result struct {
-		UserID        string      `bun:"user_id"`
-		Entitlement   string      `bun:"entitlement"`
-		Count         int         `bun:"count"`
+		UserID         string      `bun:"user_id"`
+		Entitlement    string      `bun:"entitlement"`
+		Count          int         `bun:"count"`
 		EntitlementIDs []uuid.UUID `bun:"ent_ids,array"`
 	}
 

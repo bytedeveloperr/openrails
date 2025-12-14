@@ -12,9 +12,11 @@ import (
 // SS-1: Active subscription past period end
 type CheckActiveSubscriptionPastPeriodEnd struct{}
 
-func (c *CheckActiveSubscriptionPastPeriodEnd) ID() string       { return "SS-1" }
-func (c *CheckActiveSubscriptionPastPeriodEnd) Name() string     { return "active_subscription_past_period_end" }
-func (c *CheckActiveSubscriptionPastPeriodEnd) Category() string { return "subscription_state" }
+func (c *CheckActiveSubscriptionPastPeriodEnd) ID() string { return "SS-1" }
+func (c *CheckActiveSubscriptionPastPeriodEnd) Name() string {
+	return "active_subscription_past_period_end"
+}
+func (c *CheckActiveSubscriptionPastPeriodEnd) Category() string   { return "subscription_state" }
 func (c *CheckActiveSubscriptionPastPeriodEnd) Severity() Severity { return SeverityHigh }
 
 func (c *CheckActiveSubscriptionPastPeriodEnd) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -66,9 +68,9 @@ func (c *CheckActiveSubscriptionPastPeriodEnd) Run(ctx context.Context, db bun.I
 // SS-2: Cancelled without metadata
 type CheckCancelledWithoutMetadata struct{}
 
-func (c *CheckCancelledWithoutMetadata) ID() string       { return "SS-2" }
-func (c *CheckCancelledWithoutMetadata) Name() string     { return "cancelled_without_metadata" }
-func (c *CheckCancelledWithoutMetadata) Category() string { return "subscription_state" }
+func (c *CheckCancelledWithoutMetadata) ID() string         { return "SS-2" }
+func (c *CheckCancelledWithoutMetadata) Name() string       { return "cancelled_without_metadata" }
+func (c *CheckCancelledWithoutMetadata) Category() string   { return "subscription_state" }
 func (c *CheckCancelledWithoutMetadata) Severity() Severity { return SeverityMedium }
 
 func (c *CheckCancelledWithoutMetadata) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -130,9 +132,9 @@ func (c *CheckCancelledWithoutMetadata) Run(ctx context.Context, db bun.IDB, opt
 // SS-3: Past due without retry scheduled
 type CheckPastDueWithoutRetry struct{}
 
-func (c *CheckPastDueWithoutRetry) ID() string       { return "SS-3" }
-func (c *CheckPastDueWithoutRetry) Name() string     { return "past_due_without_retry" }
-func (c *CheckPastDueWithoutRetry) Category() string { return "subscription_state" }
+func (c *CheckPastDueWithoutRetry) ID() string         { return "SS-3" }
+func (c *CheckPastDueWithoutRetry) Name() string       { return "past_due_without_retry" }
+func (c *CheckPastDueWithoutRetry) Category() string   { return "subscription_state" }
 func (c *CheckPastDueWithoutRetry) Severity() Severity { return SeverityMedium }
 
 func (c *CheckPastDueWithoutRetry) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -189,9 +191,9 @@ func (c *CheckPastDueWithoutRetry) Run(ctx context.Context, db bun.IDB, opts Opt
 // SS-4: Invalid period dates
 type CheckInvalidPeriodDates struct{}
 
-func (c *CheckInvalidPeriodDates) ID() string       { return "SS-4" }
-func (c *CheckInvalidPeriodDates) Name() string     { return "invalid_period_dates" }
-func (c *CheckInvalidPeriodDates) Category() string { return "subscription_state" }
+func (c *CheckInvalidPeriodDates) ID() string         { return "SS-4" }
+func (c *CheckInvalidPeriodDates) Name() string       { return "invalid_period_dates" }
+func (c *CheckInvalidPeriodDates) Category() string   { return "subscription_state" }
 func (c *CheckInvalidPeriodDates) Severity() Severity { return SeverityHigh }
 
 func (c *CheckInvalidPeriodDates) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -245,9 +247,9 @@ func (c *CheckInvalidPeriodDates) Run(ctx context.Context, db bun.IDB, opts Opti
 // SS-5: Ended before cancelled
 type CheckEndedBeforeCancelled struct{}
 
-func (c *CheckEndedBeforeCancelled) ID() string       { return "SS-5" }
-func (c *CheckEndedBeforeCancelled) Name() string     { return "ended_before_cancelled" }
-func (c *CheckEndedBeforeCancelled) Category() string { return "subscription_state" }
+func (c *CheckEndedBeforeCancelled) ID() string         { return "SS-5" }
+func (c *CheckEndedBeforeCancelled) Name() string       { return "ended_before_cancelled" }
+func (c *CheckEndedBeforeCancelled) Category() string   { return "subscription_state" }
 func (c *CheckEndedBeforeCancelled) Severity() Severity { return SeverityLow }
 
 func (c *CheckEndedBeforeCancelled) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {

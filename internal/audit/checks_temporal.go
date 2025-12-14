@@ -12,9 +12,9 @@ import (
 // T-1: Stale pending subscription (pending but should have started)
 type CheckStalePendingSubscription struct{}
 
-func (c *CheckStalePendingSubscription) ID() string       { return "T-1" }
-func (c *CheckStalePendingSubscription) Name() string     { return "stale_pending_subscription" }
-func (c *CheckStalePendingSubscription) Category() string { return "temporal" }
+func (c *CheckStalePendingSubscription) ID() string         { return "T-1" }
+func (c *CheckStalePendingSubscription) Name() string       { return "stale_pending_subscription" }
+func (c *CheckStalePendingSubscription) Category() string   { return "temporal" }
 func (c *CheckStalePendingSubscription) Severity() Severity { return SeverityHigh }
 
 func (c *CheckStalePendingSubscription) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -74,9 +74,9 @@ func (c *CheckStalePendingSubscription) Run(ctx context.Context, db bun.IDB, opt
 // T-2: Stale past_due subscription (exceeded max retries but not cancelled)
 type CheckStalePastDueMaxRetries struct{}
 
-func (c *CheckStalePastDueMaxRetries) ID() string       { return "T-2" }
-func (c *CheckStalePastDueMaxRetries) Name() string     { return "stale_past_due_max_retries" }
-func (c *CheckStalePastDueMaxRetries) Category() string { return "temporal" }
+func (c *CheckStalePastDueMaxRetries) ID() string         { return "T-2" }
+func (c *CheckStalePastDueMaxRetries) Name() string       { return "stale_past_due_max_retries" }
+func (c *CheckStalePastDueMaxRetries) Category() string   { return "temporal" }
 func (c *CheckStalePastDueMaxRetries) Severity() Severity { return SeverityHigh }
 
 func (c *CheckStalePastDueMaxRetries) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -130,9 +130,9 @@ func (c *CheckStalePastDueMaxRetries) Run(ctx context.Context, db bun.IDB, opts 
 // T-3: Future-dated payment (purchased_at in the future)
 type CheckFutureDatedPayment struct{}
 
-func (c *CheckFutureDatedPayment) ID() string       { return "T-3" }
-func (c *CheckFutureDatedPayment) Name() string     { return "future_dated_payment" }
-func (c *CheckFutureDatedPayment) Category() string { return "temporal" }
+func (c *CheckFutureDatedPayment) ID() string         { return "T-3" }
+func (c *CheckFutureDatedPayment) Name() string       { return "future_dated_payment" }
+func (c *CheckFutureDatedPayment) Category() string   { return "temporal" }
 func (c *CheckFutureDatedPayment) Severity() Severity { return SeverityMedium }
 
 func (c *CheckFutureDatedPayment) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
@@ -185,9 +185,9 @@ func (c *CheckFutureDatedPayment) Run(ctx context.Context, db bun.IDB, opts Opti
 // T-4: Entitlement start in distant future (might indicate configuration error)
 type CheckEntitlementDistantFutureStart struct{}
 
-func (c *CheckEntitlementDistantFutureStart) ID() string       { return "T-4" }
-func (c *CheckEntitlementDistantFutureStart) Name() string     { return "entitlement_distant_future_start" }
-func (c *CheckEntitlementDistantFutureStart) Category() string { return "temporal" }
+func (c *CheckEntitlementDistantFutureStart) ID() string         { return "T-4" }
+func (c *CheckEntitlementDistantFutureStart) Name() string       { return "entitlement_distant_future_start" }
+func (c *CheckEntitlementDistantFutureStart) Category() string   { return "temporal" }
 func (c *CheckEntitlementDistantFutureStart) Severity() Severity { return SeverityLow }
 
 func (c *CheckEntitlementDistantFutureStart) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
