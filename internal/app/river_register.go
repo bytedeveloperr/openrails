@@ -14,7 +14,7 @@ import (
 // buildRiverWorkers constructs the worker registry for River.
 func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error) {
 	workers := river.NewWorkers()
-	if err := river.AddWorkerSafely(workers, &riverjobs.DunningWorker{DB: r.DB, NMIClients: r.NMIClients, EventLogService: r.EventLogService}); err != nil {
+	if err := river.AddWorkerSafely(workers, &riverjobs.DunningWorker{DB: r.DB, NMIClients: r.NMIClients, EventLogService: r.EventLogService, IdempotencyService: r.IdempotencyService}); err != nil {
 		return nil, fmt.Errorf("add dunning worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.IdempotencyCleanupWorker{DB: r.DB}); err != nil {

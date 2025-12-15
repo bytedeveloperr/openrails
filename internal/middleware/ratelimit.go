@@ -169,6 +169,8 @@ func resolveRateLimitPolicy(cfg *config.RateLimitsConfig, req *http.Request) (*c
 		limit = (*cfg)["webhook"]
 	case "subscriptions":
 		limit = (*cfg)["subscribe"]
+	case "checkout":
+		limit = (*cfg)["checkout"]
 	case "payment-methods":
 		limit = (*cfg)["payment"]
 	default:
@@ -189,6 +191,8 @@ func classifyBucket(path, method string) string {
 		return "payment-methods"
 	case strings.HasPrefix(path, "/v1/subscriptions") && method == http.MethodPost:
 		return "subscriptions"
+	case (strings.HasPrefix(path, "/v1/checkout") || strings.HasPrefix(path, "/v1/me/checkout")) && method == http.MethodPost:
+		return "checkout"
 	default:
 		return "default"
 	}

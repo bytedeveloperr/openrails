@@ -35,10 +35,6 @@ type CleanupConfig struct {
 	// Default: 180 days (matches model's IsExpiredForCleanup)
 	NotificationUnseenRetention time.Duration
 
-	// IdempotencyRequestRetention is how long to keep completed idempotency requests
-	// Default: 7 days
-	IdempotencyRequestRetention time.Duration
-
 	// WebhookEventRetention is how long to keep processed webhook events
 	// Default: 30 days
 	WebhookEventRetention time.Duration
@@ -52,7 +48,6 @@ func DefaultCleanupConfig() CleanupConfig {
 		SolanaTransactionRetention:  30 * 24 * time.Hour,
 		NotificationSeenRetention:   90 * 24 * time.Hour,
 		NotificationUnseenRetention: 180 * 24 * time.Hour,
-		IdempotencyRequestRetention: 7 * 24 * time.Hour,
 		WebhookEventRetention:       30 * 24 * time.Hour,
 	}
 }
@@ -77,7 +72,6 @@ type CleanupResult struct {
 	SolanaTransactions int64
 	NotificationsSeen  int64
 	NotificationsAll   int64
-	IdempotencyReqs    int64
 	WebhookEvents      int64
 }
 
@@ -132,13 +126,7 @@ func (w CleanupExpiredDataWorker) Work(ctx context.Context, job *river.Job[Clean
 		logger.WithError(err).Error("Failed to cleanup old notifications")
 	}
 
-	// 5. Clean up old idempotency requests
-	result.IdempotencyReqs, err = w.cleanupIdempotencyRequests(ctx, now, config.IdempotencyRequestRetention)
-	if err != nil {
-		logger.WithError(err).Error("Failed to cleanup idempotency requests")
-	}
-
-	// 6. Clean up old processed webhook events
+	// 5. Clean up old processed webhook events
 	result.WebhookEvents, err = w.cleanupWebhookEvents(ctx, now, config.WebhookEventRetention)
 	if err != nil {
 		logger.WithError(err).Error("Failed to cleanup webhook events")
@@ -150,7 +138,6 @@ func (w CleanupExpiredDataWorker) Work(ctx context.Context, job *river.Job[Clean
 		"solana_transactions":  result.SolanaTransactions,
 		"notifications_seen":   result.NotificationsSeen,
 		"notifications_unseen": result.NotificationsAll,
-		"idempotency_requests": result.IdempotencyReqs,
 		"webhook_events":       result.WebhookEvents,
 	}).Info("Cleanup completed")
 
@@ -239,23 +226,6 @@ func (w CleanupExpiredDataWorker) cleanupOldNotifications(ctx context.Context, n
 		Exec(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("delete old notifications: %w", err)
-	}
-
-	rows, _ := res.RowsAffected()
-	return rows, nil
-}
-
-// cleanupIdempotencyRequests deletes completed idempotency requests older than the retention period
-func (w CleanupExpiredDataWorker) cleanupIdempotencyRequests(ctx context.Context, now time.Time, retention time.Duration) (int64, error) {
-	cutoff := now.Add(-retention)
-
-	// Only delete successful idempotency requests - keep failed ones longer for debugging
-	res, err := w.DB.GetDB().NewDelete().
-		TableExpr("billing.idempotency_requests").
-		Where("status = ? AND created_at < ?", "success", cutoff).
-		Exec(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("delete idempotency requests: %w", err)
 	}
 
 	rows, _ := res.RowsAffected()

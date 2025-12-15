@@ -2,6 +2,8 @@ package riverjobs
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -35,10 +37,17 @@ func (DunningArgs) Kind() string { return KindDunning }
 // updates the database after each attempt for idempotency.
 type DunningWorker struct {
 	river.WorkerDefaults[DunningArgs]
-	DB              *db.DB
-	Clock           clockwork.Clock
-	NMIClients      map[string]*nmi.NMIClient
-	EventLogService *services.EventLogService
+	DB                 *db.DB
+	Clock              clockwork.Clock
+	NMIClients         map[string]*nmi.NMIClient
+	EventLogService    *services.EventLogService
+	IdempotencyService *services.IdempotencyService
+}
+
+// rebillIdempotencyResult stores the cached result of a successful rebill for idempotency replay
+type rebillIdempotencyResult struct {
+	TransactionID string    `json:"transaction_id"`
+	PaymentID     uuid.UUID `json:"payment_id"`
 }
 
 func (DunningWorker) Kind() string { return KindDunning }
@@ -129,10 +138,43 @@ func (w *DunningWorker) processSubscription(
 		return false
 	}
 
+	// Generate idempotency key using subscription ID and period end
+	// This ensures we don't double-bill for the same billing period
+	const idemOp = "nmi_rebill"
+	periodEndISO := sub.CurrentPeriodEndsAt.Format(time.RFC3339)
+	idemKey := services.GenerateKeyForRebill(sub.ID, periodEndISO)
+	var idemClaimed bool
+
+	if w.IdempotencyService != nil {
+		rec, alreadyExists, err := w.IdempotencyService.Begin(ctx, idemOp, idemKey)
+		if err != nil {
+			logEntry.WithError(err).Warn("idempotency check failed, proceeding without idempotency")
+		} else if alreadyExists {
+			switch rec.Status {
+			case services.IdempotencyStatusSuccess:
+				// Already rebilled successfully for this period
+				logEntry.Info("Dunning: rebill already completed for this period (idempotent)")
+				return true
+			case services.IdempotencyStatusPending:
+				// Another rebill is in progress
+				logEntry.Info("Dunning: rebill already in progress for this period")
+				return false
+			case services.IdempotencyStatusFailed:
+				// Previous attempt failed, allow retry
+				logEntry.Info("Dunning: previous rebill attempt failed, retrying")
+			}
+		} else {
+			idemClaimed = true
+		}
+	}
+
 	// Validate payment method
 	pm := sub.PaymentMethod
 	if pm == nil || !pm.IsActive || pm.VaultID == "" || pm.BillingID == nil || *pm.BillingID == "" {
 		reason := "payment method unavailable for rebill"
+		if idemClaimed && w.IdempotencyService != nil {
+			_ = w.IdempotencyService.Fail(ctx, idemOp, idemKey, errors.New(reason))
+		}
 		if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
 			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
@@ -151,6 +193,9 @@ func (w *DunningWorker) processSubscription(
 	})
 	if err != nil {
 		msg := fmt.Sprintf("manual rebill request failed: %v", err)
+		if idemClaimed && w.IdempotencyService != nil {
+			_ = w.IdempotencyService.Fail(ctx, idemOp, idemKey, err)
+		}
 		if err2 := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
 			Processor:               models.ProcessorMobius,
 			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
@@ -165,6 +210,9 @@ func (w *DunningWorker) processSubscription(
 		reason := "rebill declined"
 		if rebillResp != nil && rebillResp.ErrorMessage != "" {
 			reason = rebillResp.ErrorMessage
+		}
+		if idemClaimed && w.IdempotencyService != nil {
+			_ = w.IdempotencyService.Fail(ctx, idemOp, idemKey, errors.New(reason))
 		}
 		if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
 			Processor:               models.ProcessorMobius,
@@ -182,6 +230,9 @@ func (w *DunningWorker) processSubscription(
 		ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
 	}); err != nil {
 		logEntry.WithError(err).Error("renew membership after successful rebill")
+		if idemClaimed && w.IdempotencyService != nil {
+			_ = w.IdempotencyService.Fail(ctx, idemOp, idemKey, err)
+		}
 		return false
 	}
 
@@ -197,8 +248,9 @@ func (w *DunningWorker) processSubscription(
 	}
 
 	now := w.now()
+	paymentID := uuid.New()
 	pay := &models.Payment{
-		ID:             uuid.New(),
+		ID:             paymentID,
 		UserID:         sub.UserID,
 		PriceID:        sub.PriceID,
 		SubscriptionID: &sub.ID,
@@ -211,6 +263,15 @@ func (w *DunningWorker) processSubscription(
 	}
 	if err := paymentSvc.Create(ctx, pay); err != nil {
 		logEntry.WithError(err).Warn("create payment record for rebill")
+	}
+
+	// Mark idempotency request as complete
+	if idemClaimed && w.IdempotencyService != nil {
+		cachedResult, _ := json.Marshal(rebillIdempotencyResult{
+			TransactionID: rebillResp.TransactionID,
+			PaymentID:     paymentID,
+		})
+		_ = w.IdempotencyService.Complete(ctx, idemOp, idemKey, cachedResult)
 	}
 
 	logEntry.Info("Dunning: rebill successful")

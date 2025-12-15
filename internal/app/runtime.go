@@ -60,6 +60,7 @@ type Runtime struct {
 	WebhookEventService          *services.WebhookEventService
 	WebhookDispatcher            *services.WebhookDispatcher
 	DeduplicationService         *services.DeduplicationService
+	IdempotencyService           *services.IdempotencyService
 	WebhookProcessor             *services.WebhookProcessor
 
 	CheckoutService *services.CheckoutService

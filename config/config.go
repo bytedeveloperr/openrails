@@ -508,6 +508,10 @@ func GetDefaultBillingConfig() *Config {
 				Limit:  10, // Very restrictive for payment endpoints
 				Window: time.Minute,
 			},
+			"checkout": &RateLimit{
+				Limit:  5, // Heavy rate limiting for checkout - prevents abuse
+				Window: time.Minute,
+			},
 			"webhook": &RateLimit{
 				Limit:  100, // Higher for webhooks
 				Window: time.Minute,

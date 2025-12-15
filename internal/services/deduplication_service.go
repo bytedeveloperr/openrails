@@ -4,21 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
-	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	log "github.com/sirupsen/logrus"
 )
 
-// DeduplicationService provides robust webhook deduplication using PostgreSQL
-type DeduplicationService struct{ idem *IdempotencyService }
+// DeduplicationService provides robust webhook deduplication using the unified IdempotencyService
+type DeduplicationService struct {
+	idem *IdempotencyService
+}
 
 // NewDeduplicationService creates a new webhook deduplication service
-func NewDeduplicationService(db *db.DB) *DeduplicationService {
-	return &DeduplicationService{idem: NewIdempotencyService(db)}
+func NewDeduplicationService(idem *IdempotencyService) *DeduplicationService {
+	return &DeduplicationService{idem: idem}
 }
 
 // IsDuplicate checks if a webhook with this eventID has already been processed successfully.
@@ -30,18 +29,18 @@ func (s *DeduplicationService) IsDuplicate(ctx context.Context, processor string
 	}
 
 	op := fmt.Sprintf("webhook.%s.event", processor)
-	req, exists, err := s.idem.Begin(ctx, op, trimmedEventID, nil)
+	rec, alreadyExists, err := s.idem.Begin(ctx, op, trimmedEventID)
 	if err != nil {
 		return false, fmt.Errorf("failed to check idempotency: %w", err)
 	}
-	if exists && strings.EqualFold(req.Status, "success") {
+	if alreadyExists && rec.Status == IdempotencyStatusSuccess {
 		return true, nil // Already processed successfully
 	}
 
 	// If we got here, we claimed this eventID - mark it as successful immediately
 	// since we're just using this for duplicate detection
-	if req != nil {
-		if err := s.idem.Complete(ctx, req.ID, nil); err != nil {
+	if rec != nil && !alreadyExists {
+		if err := s.idem.Complete(ctx, op, trimmedEventID, nil); err != nil {
 			log.WithContext(ctx).WithError(err).Warn("failed to mark webhook idempotency as complete")
 		}
 	}
@@ -50,7 +49,6 @@ func (s *DeduplicationService) IsDuplicate(ctx context.Context, processor string
 }
 
 // ProcessWebhook handles webhook deduplication and processing coordination.
-// Returns (shouldProcess, webhookRecord, error)
 func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, eventType string, processor models.Processor, payload interface{}, processingFunc func(ctx context.Context) error) error {
 	var payloadBytes []byte
 	if payload != nil {
@@ -62,14 +60,15 @@ func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, even
 	}
 
 	trimmedEventID := strings.TrimSpace(eventID)
-	var idemReq *models.IdempotencyRequest
+	op := fmt.Sprintf("webhook.%s.%s", processor, eventType)
+
+	var claimed bool
 	if trimmedEventID != "" {
-		op := fmt.Sprintf("webhook.%s.%s", processor, eventType)
-		req, exists, err := s.idem.Begin(ctx, op, trimmedEventID, nil)
+		rec, alreadyExists, err := s.idem.Begin(ctx, op, trimmedEventID)
 		if err != nil {
 			return fmt.Errorf("failed to begin idempotency: %w", err)
 		}
-		if exists && strings.EqualFold(req.Status, "success") {
+		if alreadyExists && rec.Status == IdempotencyStatusSuccess {
 			log.WithContext(ctx).WithFields(log.Fields{
 				"eventID":   trimmedEventID,
 				"eventType": eventType,
@@ -77,7 +76,7 @@ func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, even
 			}).Info("Webhook already processed successfully, skipping")
 			return nil
 		}
-		idemReq = req
+		claimed = !alreadyExists
 	}
 
 	processingErr := processingFunc(ctx)
@@ -89,8 +88,8 @@ func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, even
 			"error":     processingErr.Error(),
 		}).Error("Webhook processing failed")
 
-		if idemReq != nil {
-			if err := s.idem.Fail(ctx, idemReq.ID, processingErr); err != nil {
+		if claimed && trimmedEventID != "" {
+			if err := s.idem.Fail(ctx, op, trimmedEventID, processingErr); err != nil {
 				log.WithContext(ctx).WithError(err).Warn("failed to mark webhook idempotency as failed")
 			}
 		}
@@ -98,8 +97,8 @@ func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, even
 		return fmt.Errorf("webhook processing failed: %w", processingErr)
 	}
 
-	if idemReq != nil {
-		if err := s.idem.Complete(ctx, idemReq.ID, payloadBytes); err != nil {
+	if claimed && trimmedEventID != "" {
+		if err := s.idem.Complete(ctx, op, trimmedEventID, payloadBytes); err != nil {
 			log.WithContext(ctx).WithError(err).Warn("failed to mark webhook idempotency as complete")
 		}
 	}
@@ -114,46 +113,16 @@ func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, even
 }
 
 // GetFailedWebhooks retrieves webhooks that failed and can be retried
+// Not supported with TTL-based storage - failed webhooks expire automatically
 func (s *DeduplicationService) GetFailedWebhooks(ctx context.Context, processor models.Processor, limit int) ([]any, error) {
-	// Using generalized idempotency; failed webhook tracking not persisted
 	return []any{}, nil
 }
 
-// CleanupOldWebhooks removes old completed webhook records to prevent table growth
+// CleanupOldWebhooks is a no-op with TTL-based storage
+// Redis/in-memory automatically expires old records
 func (s *DeduplicationService) CleanupOldWebhooks(ctx context.Context, retentionDays int) (int64, error) {
-	// Keep completed webhooks for the specified retention period (default 30 days)
-	// Failed webhooks are kept indefinitely for debugging
-	retentionPeriod := fmt.Sprintf("%dd", retentionDays)
-	_, err := parseRetentionPeriod(retentionPeriod)
-	if err != nil {
-		return 0, fmt.Errorf("invalid retention period: %w", err)
-	}
-
-	// No-op with generalized idempotency store
 	log.WithContext(ctx).WithFields(log.Fields{
-		"retentionPeriod": retentionPeriod,
-	}).Info("Webhook cleanup is a no-op with idempotency store")
+		"retentionDays": retentionDays,
+	}).Debug("Webhook cleanup is automatic with TTL-based storage")
 	return 0, nil
-}
-
-// parseRetentionPeriod converts a string like "30d" to a time.Duration
-func parseRetentionPeriod(period string) (time.Duration, error) {
-	// Simple implementation for days
-	if len(period) < 2 {
-		return 0, fmt.Errorf("invalid period format")
-	}
-
-	unit := period[len(period)-1:]
-	valueStr := period[:len(period)-1]
-
-	if unit != "d" {
-		return 0, fmt.Errorf("only days (d) unit supported")
-	}
-
-	days, err := strconv.Atoi(valueStr)
-	if err != nil {
-		return 0, fmt.Errorf("invalid number of days: %w", err)
-	}
-
-	return time.Duration(days) * 24 * time.Hour, nil
 }

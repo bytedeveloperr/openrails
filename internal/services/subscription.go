@@ -231,17 +231,24 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			return nil, errors.New("payment token or payment method ID is required")
 		}
 
-		var idemReq *models.IdempotencyRequest
+		const idemOp = "nmi_subscription"
+		idemKey := buildNMIIdempotencyKey(user.ID, priceID, trimmedToken, paymentMethodID)
+		var idemClaimed bool
 		if s.IdempotencyService != nil {
-			key := buildNMIIdempotencyKey(user.ID, priceID, trimmedToken, paymentMethodID)
-			req, exists, err := s.IdempotencyService.Begin(ctx, "nmi_subscription", key, &user.ID)
+			rec, exists, err := s.IdempotencyService.Begin(ctx, idemOp, idemKey)
 			if err != nil {
 				return nil, fmt.Errorf("start idempotency window: %w", err)
 			}
 			if exists {
-				return nil, errors.New("duplicate subscription request detected")
+				if rec.Status == IdempotencyStatusSuccess {
+					return nil, errors.New("duplicate subscription request detected (already succeeded)")
+				}
+				if rec.Status == IdempotencyStatusPending {
+					return nil, errors.New("subscription request in progress, please wait")
+				}
+				// Failed status - allow retry
 			}
-			idemReq = req
+			idemClaimed = !exists
 		}
 
 		params := nmi.RecurringPaymentData{
@@ -324,8 +331,8 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 
 		resp, err := client.AddRecurringSubscription(params)
 		if err != nil {
-			if idemReq != nil {
-				_ = s.IdempotencyService.Fail(ctx, idemReq.ID, err)
+			if idemClaimed && s.IdempotencyService != nil {
+				_ = s.IdempotencyService.Fail(ctx, idemOp, idemKey, err)
 			}
 			if createdPaymentMethod != nil && s.VaultService != nil {
 				cleanupErr := s.VaultService.DeleteVault(ctx, createdPaymentMethod)
@@ -338,12 +345,12 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			}
 			return nil, err
 		}
-		if idemReq != nil {
+		if idemClaimed && s.IdempotencyService != nil {
 			payload, marshalErr := json.Marshal(resp)
 			if marshalErr != nil {
-				_ = s.IdempotencyService.Fail(ctx, idemReq.ID, marshalErr)
+				_ = s.IdempotencyService.Fail(ctx, idemOp, idemKey, marshalErr)
 			} else {
-				_ = s.IdempotencyService.Complete(ctx, idemReq.ID, payload)
+				_ = s.IdempotencyService.Complete(ctx, idemOp, idemKey, payload)
 			}
 		}
 

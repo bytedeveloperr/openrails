@@ -107,6 +107,7 @@ func buildRuntime(cfg *config.Config) (*Runtime, error) {
 		WebhookEventService:          serviceInstances.WebhookEventService,
 		WebhookDispatcher:            serviceInstances.WebhookDispatcher,
 		DeduplicationService:         serviceInstances.DeduplicationService,
+		IdempotencyService:           serviceInstances.IdempotencyService,
 
 		CheckoutService:   serviceInstances.CheckoutService,
 		AdminGrantService: serviceInstances.AdminGrantService,
@@ -320,6 +321,7 @@ type servicesInstances struct {
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 	DeduplicationService         *services.DeduplicationService
+	IdempotencyService           *services.IdempotencyService
 	WebhookEventService          *services.WebhookEventService
 	WebhookDispatcher            *services.WebhookDispatcher
 
@@ -370,7 +372,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	vaultService := services.NewVaultService(paymentMethodService, subscriptionService, nmiClients, database)
 	vaultService.Clock = clock
 	subscriptionService.VaultService = vaultService
-	subscriptionService.IdempotencyService = services.NewIdempotencyService(database)
+	idempotencyService := services.NewIdempotencyService(redisClient)
 
 	userSubscriptionService := services.NewUserSubscriptionService(
 		subscriptionService,
@@ -397,7 +399,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		nmiClients,
 	)
 
-	deduplicationService := services.NewDeduplicationService(database)
+	deduplicationService := services.NewDeduplicationService(idempotencyService)
 	webhookEventService := services.NewWebhookEventService(database)
 	webhookEventService.Clock = clock
 	webhookDispatcher := &services.WebhookDispatcher{
@@ -425,7 +427,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		entitlementService,
 		paymentMethodService,
 		vaultService,
-		subscriptionService.IdempotencyService,
+		idempotencyService,
 		nmiClients,
 		cfg,
 	)
@@ -470,6 +472,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		AdminSubscriptionService:     adminSubscriptionService,
 		SubscriptionLifecycleService: subscriptionLifecycleService,
 		DeduplicationService:         deduplicationService,
+		IdempotencyService:           idempotencyService,
 		WebhookEventService:          webhookEventService,
 		WebhookDispatcher:            webhookDispatcher,
 		CheckoutService:              checkoutService,

@@ -82,6 +82,7 @@ func Checkout(r *Request) {
 		State:           req.State,
 		Zip:             req.Zip,
 		Country:         req.Country,
+		IdempotencyKey:  r.GinCtx.GetHeader("Idempotency-Key"),
 	}
 
 	user := &services.UserIdentity{

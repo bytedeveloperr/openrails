@@ -412,22 +412,6 @@ CREATE INDEX IF NOT EXISTS idx_solana_wallets_user_id ON billing.solana_wallets(
 CREATE INDEX IF NOT EXISTS idx_solana_wallets_address ON billing.solana_wallets(address);
 CREATE INDEX IF NOT EXISTS idx_solana_wallets_verified ON billing.solana_wallets(is_verified) WHERE is_verified = true;
 
--- 5.4: Idempotency requests table for webhook / billing operations
-CREATE TABLE IF NOT EXISTS billing.idempotency_requests (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    operation TEXT NOT NULL,
-    key TEXT NOT NULL,
-    user_id TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
-    result_json JSONB,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    UNIQUE(operation, key)
-);
-
-CREATE INDEX IF NOT EXISTS idx_idempotency_requests_status ON billing.idempotency_requests(status);
-CREATE INDEX IF NOT EXISTS idx_idempotency_requests_created_at ON billing.idempotency_requests(created_at);
-
 -- ============================================================================
 -- SECTION 6: DATA MIGRATION FROM LEGACY TABLES
 -- ============================================================================

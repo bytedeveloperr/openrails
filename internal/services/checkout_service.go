@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -24,6 +25,11 @@ type CheckoutRequest struct {
 	PaymentMethodID string `json:"payment_method_id,omitempty"` // For stored payment methods
 	PaymentToken    string `json:"payment_token,omitempty"`     // For direct tokenized card
 	Processor       string `json:"processor"`                   // mobius, ccbill, solana
+
+	// IdempotencyKey is an optional client-provided key for deduplication.
+	// If provided, the same key with a successful result will return the cached response.
+	// If not provided, a key is generated from user_id:price_id.
+	IdempotencyKey string `json:"-"` // Set from header, not JSON body
 
 	// Optional billing info (used when creating vault from payment token)
 	Email     string `json:"email,omitempty"`
@@ -124,6 +130,32 @@ func NewCheckoutService(
 		NMIClients:           nmiClients,
 		Config:               cfg,
 	}
+}
+
+// getIdempotencyKey returns the idempotency key to use for a checkout operation.
+// If the request contains a client-provided key, use it. Otherwise generate one.
+func (s *CheckoutService) getIdempotencyKey(req *CheckoutRequest, userID string, priceID uuid.UUID, operation string) string {
+	if req.IdempotencyKey != "" {
+		return req.IdempotencyKey
+	}
+	// Fall back to generated key based on operation type
+	switch operation {
+	case "nmi_sale":
+		return GenerateKeyForSale(userID, priceID)
+	case "nmi_subscription":
+		return GenerateKeyForSubscription(userID, priceID)
+	default:
+		return GenerateKeyForSale(userID, priceID)
+	}
+}
+
+// getUpgradeIdempotencyKey returns the idempotency key for an upgrade operation.
+// If client-provided key exists, use it. Otherwise generate from upgrade parameters.
+func (s *CheckoutService) getUpgradeIdempotencyKey(req *CheckoutRequest, userID string, existingSubID, newPriceID uuid.UUID) string {
+	if req.IdempotencyKey != "" {
+		return req.IdempotencyKey
+	}
+	return GenerateKeyForUpgrade(userID, existingSubID, newPriceID)
 }
 
 // CheckPurchaseEligibility determines if a user can purchase a given price.
@@ -569,6 +601,13 @@ func (s *CheckoutService) processCCBillUpgrade(
 }
 
 // processNMISubscription handles NMI-backed subscription creation (mobius, etc.)
+// subscriptionIdempotencyResult stores the cached result of a successful subscription creation
+type subscriptionIdempotencyResult struct {
+	SubscriptionID string  `json:"subscription_id"`
+	TransactionID  string  `json:"transaction_id"`
+	DelayedStart   *string `json:"delayed_start,omitempty"`
+}
+
 func (s *CheckoutService) processNMISubscription(
 	ctx context.Context,
 	req *CheckoutRequest,
@@ -588,9 +627,56 @@ func (s *CheckoutService) processNMISubscription(
 		return nil, fmt.Errorf("NMI provider '%s' is not configured", provider)
 	}
 
+	// Get idempotency key (client-provided or generated)
+	const idempOp = "nmi_subscription"
+	idempotencyKey := s.getIdempotencyKey(req, user.ID, price.ID, idempOp)
+
+	// Check idempotency - have we already processed this request?
+	idempRec, alreadyExists, err := s.IdempotencyService.Begin(ctx, idempOp, idempotencyKey)
+	if err != nil {
+		return nil, fmt.Errorf("idempotency check failed: %w", err)
+	}
+
+	if alreadyExists {
+		switch idempRec.Status {
+		case IdempotencyStatusSuccess:
+			// Return cached result
+			var cached subscriptionIdempotencyResult
+			if err := json.Unmarshal(idempRec.Result, &cached); err != nil {
+				log.WithError(err).Warn("failed to unmarshal cached subscription result")
+				return &CheckoutResponse{
+					Status:        "success",
+					Action:        "new",
+					Message:       "Subscription already created",
+					TransactionID: cached.TransactionID,
+				}, nil
+			}
+			subID, _ := uuid.Parse(cached.SubscriptionID)
+			var delayedStart *time.Time
+			if cached.DelayedStart != nil {
+				if t, err := time.Parse(time.RFC3339, *cached.DelayedStart); err == nil {
+					delayedStart = &t
+				}
+			}
+			return &CheckoutResponse{
+				Status:         "success",
+				Action:         "new",
+				Message:        "Subscription already created",
+				SubscriptionID: &subID,
+				TransactionID:  cached.TransactionID,
+				DelayedStart:   delayedStart,
+			}, nil
+		case IdempotencyStatusPending:
+			return nil, errors.New("subscription creation already in progress, please wait")
+		case IdempotencyStatusFailed:
+			return nil, errors.New("previous subscription attempt failed, please try again")
+		}
+	}
+
 	// Get or create vault (payment method)
 	customerVaultID, createdPaymentMethod, err := s.resolveVault(ctx, req, user, provider)
 	if err != nil {
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
 		return nil, err
 	}
 
@@ -637,6 +723,7 @@ func (s *CheckoutService) processNMISubscription(
 				log.WithError(cleanupErr).WithField("vault_id", customerVaultID).Warn("failed to cleanup payment method after subscription error")
 			}
 		}
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
 		return nil, fmt.Errorf("failed to create subscription: %w", err)
 	}
 
@@ -672,8 +759,22 @@ func (s *CheckoutService) processNMISubscription(
 	}
 
 	if err := s.SubscriptionService.Create(ctx, subscription); err != nil {
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
 		return nil, fmt.Errorf("failed to save subscription: %w", err)
 	}
+
+	// Cache successful result for idempotency replay
+	var delayedStartStr *string
+	if delayedStart != nil {
+		ds := delayedStart.Format(time.RFC3339)
+		delayedStartStr = &ds
+	}
+	cachedResult, _ := json.Marshal(subscriptionIdempotencyResult{
+		SubscriptionID: subscriptionID.String(),
+		TransactionID:  resp.TransactionID,
+		DelayedStart:   delayedStartStr,
+	})
+	_ = s.IdempotencyService.Complete(ctx, idempOp, idempotencyKey, cachedResult)
 
 	statusMsg := "pending"
 	message := "Subscription created successfully"
@@ -689,6 +790,20 @@ func (s *CheckoutService) processNMISubscription(
 		TransactionID:  resp.TransactionID,
 		DelayedStart:   delayedStart,
 	}, nil
+}
+
+// saleIdempotencyResult stores the cached result of a successful sale for idempotency replay
+type saleIdempotencyResult struct {
+	TransactionID string    `json:"transaction_id"`
+	PaymentID     uuid.UUID `json:"payment_id"`
+	DelayedStart  *string   `json:"delayed_start,omitempty"`
+}
+
+// upgradeIdempotencyResult stores the cached result of a successful upgrade for idempotency replay
+type upgradeIdempotencyResult struct {
+	SubscriptionID         string `json:"subscription_id"`
+	ProrationTransactionID string `json:"proration_transaction_id,omitempty"`
+	Message                string `json:"message"`
 }
 
 // processNMISale handles NMI one-time sale (card purchase)
@@ -707,9 +822,56 @@ func (s *CheckoutService) processNMISale(
 		return nil, fmt.Errorf("NMI provider '%s' is not configured", provider)
 	}
 
+	// Get idempotency key (client-provided or generated)
+	const idempOp = "nmi_sale"
+	idempotencyKey := s.getIdempotencyKey(req, user.ID, price.ID, idempOp)
+
+	// Check idempotency - have we already processed this request?
+	idempRec, alreadyExists, err := s.IdempotencyService.Begin(ctx, idempOp, idempotencyKey)
+	if err != nil {
+		return nil, fmt.Errorf("idempotency check failed: %w", err)
+	}
+
+	if alreadyExists {
+		switch idempRec.Status {
+		case IdempotencyStatusSuccess:
+			// Return cached result
+			var cached saleIdempotencyResult
+			if err := json.Unmarshal(idempRec.Result, &cached); err != nil {
+				log.WithError(err).Warn("failed to unmarshal cached sale result, proceeding anyway")
+				return &CheckoutResponse{
+					Status:        "success",
+					Action:        "new",
+					Message:       "Purchase already completed",
+					TransactionID: cached.TransactionID,
+				}, nil
+			}
+			var delayedStart *time.Time
+			if cached.DelayedStart != nil {
+				if t, err := time.Parse(time.RFC3339, *cached.DelayedStart); err == nil {
+					delayedStart = &t
+				}
+			}
+			return &CheckoutResponse{
+				Status:        "success",
+				Action:        "new",
+				Message:       "Purchase already completed",
+				PaymentID:     &cached.PaymentID,
+				TransactionID: cached.TransactionID,
+				DelayedStart:  delayedStart,
+			}, nil
+		case IdempotencyStatusPending:
+			return nil, errors.New("checkout already in progress, please wait")
+		case IdempotencyStatusFailed:
+			// Previous attempt failed - allow retry after TTL expires
+			return nil, errors.New("previous checkout attempt failed, please try again")
+		}
+	}
+
 	// Get or create vault
 	customerVaultID, createdPaymentMethod, err := s.resolveVault(ctx, req, user, provider)
 	if err != nil {
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
 		return nil, err
 	}
 
@@ -729,6 +891,7 @@ func (s *CheckoutService) processNMISale(
 		if createdPaymentMethod != nil && s.VaultService != nil {
 			_ = s.VaultService.DeleteVault(ctx, createdPaymentMethod)
 		}
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
 		return nil, fmt.Errorf("payment failed: %w", err)
 	}
 
@@ -743,8 +906,24 @@ func (s *CheckoutService) processNMISale(
 	})
 	if err != nil {
 		log.WithError(err).WithField("transaction_id", saleResp.TransactionID).Error("failed to register purchase after successful NMI sale")
+		// Note: We still mark as failed because the purchase wasn't fully registered
+		// The user was charged but entitlements weren't granted - this needs manual review
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
 		return nil, fmt.Errorf("payment processed but failed to register: %w", err)
 	}
+
+	// Cache successful result for idempotency replay
+	var delayedStartStr *string
+	if result.DelayedStart != nil {
+		str := result.DelayedStart.Format(time.RFC3339)
+		delayedStartStr = &str
+	}
+	cachedResult, _ := json.Marshal(saleIdempotencyResult{
+		TransactionID: saleResp.TransactionID,
+		PaymentID:     result.PaymentID,
+		DelayedStart:  delayedStartStr,
+	})
+	_ = s.IdempotencyService.Complete(ctx, idempOp, idempotencyKey, cachedResult)
 
 	return &CheckoutResponse{
 		Status:        "success",
@@ -1091,8 +1270,48 @@ func (s *CheckoutService) processUpgrade(
 		return nil, fmt.Errorf("unsupported processor for upgrades: %s", processor)
 	}
 
+	// Get idempotency key (client-provided or generated)
+	const idempOp = "nmi_upgrade"
+	idempotencyKey := s.getUpgradeIdempotencyKey(req, user.ID, existingSub.ID, newPrice.ID)
+
+	// Check idempotency - have we already processed this upgrade?
+	idempRec, alreadyExists, err := s.IdempotencyService.Begin(ctx, idempOp, idempotencyKey)
+	if err != nil {
+		return nil, fmt.Errorf("idempotency check failed: %w", err)
+	}
+
+	if alreadyExists {
+		switch idempRec.Status {
+		case IdempotencyStatusSuccess:
+			// Return cached result
+			var cached upgradeIdempotencyResult
+			if err := json.Unmarshal(idempRec.Result, &cached); err != nil {
+				log.WithError(err).Warn("failed to unmarshal cached upgrade result")
+				return &CheckoutResponse{
+					Status:        "success",
+					Action:        "upgrade",
+					Message:       "Upgrade already completed",
+					TransactionID: cached.ProrationTransactionID,
+				}, nil
+			}
+			subID, _ := uuid.Parse(cached.SubscriptionID)
+			return &CheckoutResponse{
+				Status:         "success",
+				Action:         "upgrade",
+				Message:        cached.Message,
+				SubscriptionID: &subID,
+				TransactionID:  cached.ProrationTransactionID,
+			}, nil
+		case IdempotencyStatusPending:
+			return nil, errors.New("upgrade already in progress, please wait")
+		case IdempotencyStatusFailed:
+			return nil, errors.New("previous upgrade attempt failed, please try again")
+		}
+	}
+
 	// Validate existing subscription has required data
 	if existingSub.Price == nil {
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, errors.New("existing subscription missing price data"))
 		return nil, errors.New("existing subscription missing price data")
 	}
 	oldPrice := existingSub.Price
@@ -1118,17 +1337,22 @@ func (s *CheckoutService) processUpgrade(
 	// Get NMI client
 	_, provider, hasNMI := newPrice.GetNMIConfig()
 	if !hasNMI {
-		return nil, fmt.Errorf("new price %s is missing NMI plan configuration", newPrice.ID)
+		err := fmt.Errorf("new price %s is missing NMI plan configuration", newPrice.ID)
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
+		return nil, err
 	}
 
 	client, ok := s.NMIClients[provider]
 	if !ok {
-		return nil, fmt.Errorf("NMI provider '%s' is not configured", provider)
+		err := fmt.Errorf("NMI provider '%s' is not configured", provider)
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
+		return nil, err
 	}
 
 	// Get or create vault
 	customerVaultID, createdPaymentMethod, err := s.resolveVault(ctx, req, user, provider)
 	if err != nil {
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
 		return nil, err
 	}
 
@@ -1147,7 +1371,9 @@ func (s *CheckoutService) processUpgrade(
 			if createdPaymentMethod != nil && s.VaultService != nil {
 				_ = s.VaultService.DeleteVault(ctx, createdPaymentMethod)
 			}
-			return nil, fmt.Errorf("failed to charge proration: %w", err)
+			prorationErr := fmt.Errorf("failed to charge proration: %w", err)
+			_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, prorationErr)
+			return nil, prorationErr
 		}
 		prorationTransactionID = saleResp.TransactionID
 
@@ -1193,7 +1419,9 @@ func (s *CheckoutService) processUpgrade(
 
 	resp, err := client.AddRecurringSubscription(params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create upgraded subscription: %w", err)
+		subErr := fmt.Errorf("failed to create upgraded subscription: %w", err)
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, subErr)
+		return nil, subErr
 	}
 
 	// Step 4: Update local database
@@ -1236,7 +1464,9 @@ func (s *CheckoutService) processUpgrade(
 	}
 
 	if err := s.SubscriptionService.Create(ctx, newSubscription); err != nil {
-		return nil, fmt.Errorf("failed to save upgraded subscription: %w", err)
+		saveErr := fmt.Errorf("failed to save upgraded subscription: %w", err)
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, saveErr)
+		return nil, saveErr
 	}
 
 	// Step 5: Update entitlements immediately (grant new tier entitlements)
@@ -1267,10 +1497,19 @@ func (s *CheckoutService) processUpgrade(
 		}
 	}
 
+	// Mark idempotency request as complete
+	successMessage := fmt.Sprintf("Upgraded to %s. Prorated charge: $%.2f", newProduct.DisplayName, float64(prorationAmount)/100.0)
+	cachedResult, _ := json.Marshal(upgradeIdempotencyResult{
+		SubscriptionID:         newSubscriptionID.String(),
+		ProrationTransactionID: prorationTransactionID,
+		Message:                successMessage,
+	})
+	_ = s.IdempotencyService.Complete(ctx, idempOp, idempotencyKey, cachedResult)
+
 	return &CheckoutResponse{
 		Status:         "success",
 		Action:         "upgrade",
-		Message:        fmt.Sprintf("Upgraded to %s. Prorated charge: $%.2f", newProduct.DisplayName, float64(prorationAmount)/100.0),
+		Message:        successMessage,
 		SubscriptionID: &newSubscriptionID,
 		TransactionID:  prorationTransactionID,
 	}, nil
