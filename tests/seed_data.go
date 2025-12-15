@@ -73,7 +73,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						string(models.ProcessorCCBill): {
 							models.ProcessorKeyCCBillFormName: CCBillTestFormName,
 							models.ProcessorKeyCCBillFlexID:   CCBillTestFlexID,
-							models.ProcessorKeyPriceID:        CCBillTestFlexID,
 						},
 						string(models.ProcessorSolana): {
 							"enabled": "true",
@@ -95,7 +94,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						string(models.ProcessorCCBill): {
 							models.ProcessorKeyCCBillFormName: "FormQuarterlyUSD",
 							models.ProcessorKeyCCBillFlexID:   "ccbill_quarterly_usd_2499",
-							models.ProcessorKeyPriceID:        "ccbill_quarterly_usd_2499",
 						},
 						string(models.ProcessorSolana): {
 							"enabled": "true",
@@ -117,7 +115,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						string(models.ProcessorCCBill): {
 							models.ProcessorKeyCCBillFormName: "FormMonthlyEUR",
 							models.ProcessorKeyCCBillFlexID:   "ccbill_monthly_eur_899",
-							models.ProcessorKeyPriceID:        "ccbill_monthly_eur_899",
 						},
 					},
 					IsActive: true,
@@ -151,7 +148,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						string(models.ProcessorCCBill): {
 							models.ProcessorKeyCCBillFormName: "FormYearlyUSD",
 							models.ProcessorKeyCCBillFlexID:   "ccbill_yearly_usd_7999",
-							models.ProcessorKeyPriceID:        "ccbill_yearly_usd_7999",
 						},
 						string(models.ProcessorSolana): {
 							"enabled": "true",
@@ -190,7 +186,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						string(models.ProcessorCCBill): {
 							models.ProcessorKeyCCBillFormName: "FormProMonthlyUSD",
 							models.ProcessorKeyCCBillFlexID:   "ccbill_pro_monthly_usd_1999",
-							models.ProcessorKeyPriceID:        "ccbill_pro_monthly_usd_1999",
 						},
 						string(models.ProcessorSolana): {
 							"enabled": "true",
@@ -212,7 +207,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						string(models.ProcessorCCBill): {
 							models.ProcessorKeyCCBillFormName: "FormProYearlyUSD",
 							models.ProcessorKeyCCBillFlexID:   "ccbill_pro_yearly_usd_14999",
-							models.ProcessorKeyPriceID:        "ccbill_pro_yearly_usd_14999",
 						},
 						string(models.ProcessorSolana): {
 							"enabled": "true",
@@ -234,7 +228,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						string(models.ProcessorCCBill): {
 							models.ProcessorKeyCCBillFormName: "FormProMonthlyEUR",
 							models.ProcessorKeyCCBillFlexID:   "ccbill_pro_monthly_eur_1799",
-							models.ProcessorKeyPriceID:        "ccbill_pro_monthly_eur_1799",
 						},
 					},
 					IsActive: true,
@@ -269,7 +262,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						string(models.ProcessorCCBill): {
 							models.ProcessorKeyCCBillFormName: "FormLifetimeUSD",
 							models.ProcessorKeyCCBillFlexID:   "ccbill_lifetime_usd_29999",
-							models.ProcessorKeyPriceID:        "ccbill_lifetime_usd_29999",
 						},
 						string(models.ProcessorSolana): {
 							"enabled": "true",
@@ -291,7 +283,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						string(models.ProcessorCCBill): {
 							models.ProcessorKeyCCBillFormName: "FormLifetimeEUR",
 							models.ProcessorKeyCCBillFlexID:   "ccbill_lifetime_eur_26999",
-							models.ProcessorKeyPriceID:        "ccbill_lifetime_eur_26999",
 						},
 					},
 					IsActive: true,

@@ -69,7 +69,6 @@ type Price struct {
 // Processor config key constants (used in the Processors JSONB map)
 const (
 	ProcessorKeyPlanID         = "plan_id"
-	ProcessorKeyPriceID        = "price_id"
 	ProcessorKeyProvider       = "provider"
 	ProcessorKeyCCBillFormName = "form_name"
 	ProcessorKeyCCBillFlexID   = "flex_id"
@@ -136,12 +135,10 @@ func (p *Price) GetCCBillFlexForm() (formName, flexID string, ok bool) {
 	}
 	formName = strings.TrimSpace(config[ProcessorKeyCCBillFormName])
 	flexID = strings.TrimSpace(config[ProcessorKeyCCBillFlexID])
-	if flexID == "" {
-		flexID = strings.TrimSpace(config[ProcessorKeyPriceID]) // legacy storage
-	}
 	if formName == "" || flexID == "" {
 		return "", "", false
 	}
+
 	return formName, flexID, true
 }
 
@@ -183,7 +180,6 @@ func (p *Price) SetCCBillConfig(formName, flexID string) {
 	p.SetProcessorConfig(ProcessorCCBill, map[string]string{
 		ProcessorKeyCCBillFormName: formName,
 		ProcessorKeyCCBillFlexID:   flexID,
-		ProcessorKeyPriceID:        flexID, // keep legacy key populated for backwards compatibility
 	})
 }
 

@@ -50,9 +50,9 @@ BEGIN
     INSERT INTO billing.prices (id, product_id, display_name, amount, currency, billing_cycle_days, processors, is_active)
     VALUES
         (basic_price_id, basic_product_id, 'Basic Monthly', 499, 'usd', 30,
-         '{"mobius": {"plan_id": "basic_monthly"}, "ccbill": {"price_id": "681cb38f-afb9-4665-931f-2b896072178a"}}'::jsonb, true),
+         '{"mobius": {"plan_id": "basic_monthly"}, "ccbill": {"flex_id": "681cb38f-afb9-4665-931f-2b896072178a", "form_name": "basic-monthly"}}'::jsonb, true),
         (premium_price_id, premium_product_id, 'Premium Monthly', 999, 'usd', 30,
-         '{"mobius": {"plan_id": "premium_monthly"}, "ccbill": {"price_id": "681cb38f-afb9-4665-931f-2b896072178a"}}'::jsonb, true)
+         '{"mobius": {"plan_id": "premium_monthly"}, "ccbill": {"flex_id": "681cb38f-afb9-4665-931f-2b896072178a", "form_name": "premium-monthly"}}'::jsonb, true)
     ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
 END$$;
 
