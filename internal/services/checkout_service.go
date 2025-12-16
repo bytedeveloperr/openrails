@@ -14,6 +14,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/processors"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
@@ -261,7 +262,7 @@ func (s *CheckoutService) CheckPurchaseEligibility(ctx context.Context, userID s
 // Checkout processes a unified checkout request
 func (s *CheckoutService) Checkout(ctx context.Context, req *CheckoutRequest, user *UserIdentity) (*CheckoutResponse, error) {
 	// Parse and validate price
-	priceID, err := uuid.Parse(req.PriceID)
+	priceID, err := api.ParsePriceID(req.PriceID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid price_id: %w", err)
 	}
@@ -754,8 +755,11 @@ func (s *CheckoutService) processNMISubscription(
 	if createdPaymentMethod != nil {
 		subscription.PaymentMethodID = &createdPaymentMethod.ID
 	} else if req.PaymentMethodID != "" {
-		pmID, _ := uuid.Parse(req.PaymentMethodID)
-		subscription.PaymentMethodID = &pmID
+		if pmID, err := api.ParsePaymentMethodID(req.PaymentMethodID); err == nil {
+			subscription.PaymentMethodID = &pmID
+		} else {
+			log.WithError(err).Warn("failed to parse payment_method_id while persisting subscription")
+		}
 	}
 
 	if err := s.SubscriptionService.Create(ctx, subscription); err != nil {
@@ -957,7 +961,7 @@ func (s *CheckoutService) processSolanaPurchase(
 func (s *CheckoutService) resolveVault(ctx context.Context, req *CheckoutRequest, user *UserIdentity, provider string) (string, *models.PaymentMethod, error) {
 	// Try existing payment method first
 	if req.PaymentMethodID != "" {
-		pmID, err := uuid.Parse(req.PaymentMethodID)
+		pmID, err := api.ParsePaymentMethodID(req.PaymentMethodID)
 		if err != nil {
 			return "", nil, fmt.Errorf("invalid payment_method_id: %w", err)
 		}
@@ -1459,8 +1463,11 @@ func (s *CheckoutService) processUpgrade(
 	if createdPaymentMethod != nil {
 		newSubscription.PaymentMethodID = &createdPaymentMethod.ID
 	} else if req.PaymentMethodID != "" {
-		pmID, _ := uuid.Parse(req.PaymentMethodID)
-		newSubscription.PaymentMethodID = &pmID
+		if pmID, err := api.ParsePaymentMethodID(req.PaymentMethodID); err == nil {
+			newSubscription.PaymentMethodID = &pmID
+		} else {
+			log.WithError(err).Warn("failed to parse payment_method_id while scheduling upgrade subscription")
+		}
 	}
 
 	if err := s.SubscriptionService.Create(ctx, newSubscription); err != nil {

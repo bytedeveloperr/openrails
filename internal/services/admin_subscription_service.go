@@ -11,6 +11,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/processors"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -267,7 +268,7 @@ type UpdateStatusParams struct {
 // For cancellation, use CancelSubscription() instead for full NMI cancellation and entitlement revocation.
 // This method is for status changes that don't require external processor calls.
 func (s *AdminSubscriptionService) UpdateStatus(ctx context.Context, params *UpdateStatusParams) error {
-	subID, err := uuid.Parse(params.SubscriptionID)
+	subID, err := api.ParseSubscriptionID(params.SubscriptionID)
 	if err != nil {
 		return fmt.Errorf("invalid subscription id: %w", err)
 	}

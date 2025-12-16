@@ -16,6 +16,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
 // TestCheckoutRequiresAuth tests that checkout endpoint requires authentication
@@ -94,6 +95,33 @@ func TestCheckoutSubscriptionNMISuccess(t *testing.T) {
 		subs := suite.GetAllSubscriptionsByUserID(userID)
 		require.Len(t, subs, 1, "Should have one subscription")
 		assert.Equal(t, models.StatusPending, subs[0].Status)
+	})
+
+	t.Run("accepts price IDs with prefixes", func(t *testing.T) {
+		mock.Reset()
+
+		body := map[string]interface{}{
+			"price_id":      api.FormatPriceID(priceID),
+			"processor":     "mobius",
+			"payment_token": "prefixed-token-123",
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/me/checkout", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK for prefixed IDs: %s", w.Body.String())
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		assert.Equal(t, "pending", response["status"], "Status should be pending")
+		assert.NotEmpty(t, response["subscription_id"], "Should have subscription_id")
 	})
 }
 

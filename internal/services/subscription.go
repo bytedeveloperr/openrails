@@ -15,6 +15,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/processors"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -130,7 +131,7 @@ type SubscribeResponse struct {
 }
 
 func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData, user *UserIdentity) (any, error) {
-	priceID, err := uuid.Parse(data.PriceID)
+	priceID, err := api.ParsePriceID(data.PriceID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid price ID: %w", err)
 	}
@@ -207,7 +208,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 				return nil, errors.New("payment method service unavailable")
 			}
 
-			pmID, err := uuid.Parse(paymentMethodID)
+			pmID, err := api.ParsePaymentMethodID(paymentMethodID)
 			if err != nil {
 				return nil, fmt.Errorf("invalid payment method ID: %w", err)
 			}
@@ -369,7 +370,7 @@ func (s *SubscriptionService) Subscribe(ctx context.Context, data *SubscribeData
 			UserEmail:               emailCopy,
 		}
 		if strings.TrimSpace(data.PaymentMethodID) != "" {
-			pmUUID, _ := uuid.Parse(strings.TrimSpace(data.PaymentMethodID))
+			pmUUID, _ := api.ParsePaymentMethodID(strings.TrimSpace(data.PaymentMethodID))
 			subscription.PaymentMethodID = &pmUUID
 		} else if createdPaymentMethod != nil {
 			subscription.PaymentMethodID = &createdPaymentMethod.ID

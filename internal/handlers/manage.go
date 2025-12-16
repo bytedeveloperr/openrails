@@ -7,7 +7,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/google/uuid"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
 // UpdateStatusRequest is the request body for UpdateStatus handler
@@ -55,7 +55,7 @@ func ExtendSubscription(r *Request) {
 		return
 	}
 
-	subID, err := uuid.Parse(data.SubscriptionID)
+	subID, err := api.ParseSubscriptionID(data.SubscriptionID)
 	if err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "invalid subscription id")
 		return

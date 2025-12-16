@@ -6,7 +6,6 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/doujins-org/doujins-billing/pkg/query"
-	"github.com/google/uuid"
 )
 
 // PaymentPath is the path parameter for single payment operations
@@ -29,7 +28,7 @@ func AdminRefundPayment(r *Request) {
 		return
 	}
 
-	paymentID, err := uuid.Parse(path.PaymentID)
+	paymentID, err := api.ParsePaymentID(path.PaymentID)
 	if err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "invalid payment ID")
 		return
@@ -105,7 +104,7 @@ func GetAdminPayment(r *Request) {
 		return
 	}
 
-	paymentID, err := uuid.Parse(path.PaymentID)
+	paymentID, err := api.ParsePaymentID(path.PaymentID)
 	if err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "invalid payment ID")
 		return

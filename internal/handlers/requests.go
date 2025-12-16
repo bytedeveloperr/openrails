@@ -167,7 +167,7 @@ func (r *ListPaymentMethodsRequest) SetDefaults() {
 }
 
 type DeletePaymentMethodPathParams struct {
-	ID string `uri:"id" binding:"required,uuid"`
+	ID string `uri:"id" binding:"required"`
 }
 
 type DeletePaymentMethodRequest struct {
@@ -180,7 +180,7 @@ func (r *DeletePaymentMethodRequest) Path() any {
 }
 
 type ActivatePaymentMethodPathParams struct {
-	ID string `uri:"id" binding:"required,uuid"`
+	ID string `uri:"id" binding:"required"`
 }
 
 type ActivatePaymentMethodRequest struct {
@@ -209,7 +209,7 @@ type CreatePaymentMethodRequest struct {
 }
 
 type UpdatePaymentMethodPathParams struct {
-	ID string `uri:"id" binding:"required,uuid"`
+	ID string `uri:"id" binding:"required"`
 }
 
 type UpdatePaymentMethodBodyParams struct {
@@ -307,9 +307,9 @@ func (r *GetUserBillingHistoryRequest) SetDefaults() {
 
 // CheckoutBodyParams for POST /v1/me/checkout
 type CheckoutBodyParams struct {
-	PriceID         string `json:"price_id" validate:"required,uuid"`
+	PriceID         string `json:"price_id" validate:"required"`
 	Processor       string `json:"processor" validate:"required,oneof=mobius ccbill solana"`
-	PaymentMethodID string `json:"payment_method_id,omitempty" validate:"omitempty,uuid"`
+	PaymentMethodID string `json:"payment_method_id,omitempty" validate:"omitempty"`
 	PaymentToken    string `json:"payment_token,omitempty"`
 
 	// Optional billing info (used when creating vault from payment token)
@@ -336,8 +336,8 @@ func (r *CheckoutRequest) Body() any {
 // PUT /v1/me/subscriptions/payment-method - Update which payment method a subscription uses
 
 type UpdateSubscriptionPaymentMethodBodyParams struct {
-	SubscriptionID  string `json:"subscription_id" binding:"required,uuid"`
-	PaymentMethodID string `json:"payment_method_id" binding:"required,uuid"`
+	SubscriptionID  string `json:"subscription_id" binding:"required"`
+	PaymentMethodID string `json:"payment_method_id" binding:"required"`
 }
 
 type UpdateSubscriptionPaymentMethodRequest struct {

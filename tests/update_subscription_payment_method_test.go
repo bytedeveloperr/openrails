@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
 // TestUpdateSubscriptionPaymentMethodRequiresAuth tests that the endpoint requires authentication
@@ -113,6 +114,25 @@ func TestUpdateSubscriptionPaymentMethodSuccess(t *testing.T) {
 		updatedSub := suite.GetSubscriptionByID(sub.ID)
 		require.NotNil(t, updatedSub.PaymentMethodID, "Subscription should have payment method")
 		assert.Equal(t, newPM.ID, *updatedSub.PaymentMethodID, "Subscription should have new payment method")
+	})
+
+	t.Run("accepts prefixed subscription and payment method IDs", func(t *testing.T) {
+		mock.Reset()
+
+		body := map[string]string{
+			"subscription_id":   api.FormatSubscriptionID(sub.ID),
+			"payment_method_id": api.FormatPaymentMethodID(newPM.ID),
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("PUT", "/v1/me/subscriptions/payment-method", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should accept prefixed IDs, body: %s", w.Body.String())
 	})
 }
 

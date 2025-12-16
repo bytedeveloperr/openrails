@@ -6,8 +6,8 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/doujins-org/doujins-billing/pkg/query"
-	"github.com/google/uuid"
 )
 
 // AdminUserPath is the path parameter for admin user endpoints
@@ -120,7 +120,7 @@ func GetAdminSubscription(r *Request) {
 		return
 	}
 
-	subscriptionID, err := uuid.Parse(path.SubscriptionID)
+	subscriptionID, err := api.ParseSubscriptionID(path.SubscriptionID)
 	if err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "invalid subscription ID")
 		return

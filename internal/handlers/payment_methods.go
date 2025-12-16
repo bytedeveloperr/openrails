@@ -10,8 +10,8 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/doujins-org/ginapi/response"
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -93,7 +93,7 @@ func UpdatePaymentMethod(r *Request) {
 		return
 	}
 
-	methodID, err := uuid.Parse(req.ID)
+	methodID, err := api.ParsePaymentMethodID(req.ID)
 	if err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "Invalid payment method ID format")
 		return
@@ -238,7 +238,7 @@ func DeletePaymentMethod(r *Request) {
 	}
 
 	// Validate UUID format
-	id, err := uuid.Parse(req.ID)
+	id, err := api.ParsePaymentMethodID(req.ID)
 	if err != nil {
 		log.WithError(err).WithField("id", req.ID).Error("Invalid payment method ID format")
 		r.ErrorJSON(http.StatusBadRequest, "Invalid payment method ID format")
@@ -319,7 +319,7 @@ func ActivatePaymentMethod(r *Request) {
 	}
 
 	// Validate UUID format
-	id, err := uuid.Parse(req.ID)
+	id, err := api.ParsePaymentMethodID(req.ID)
 	if err != nil {
 		log.WithError(err).WithField("id", req.ID).Error("Invalid payment method ID format")
 		r.ErrorJSON(http.StatusBadRequest, "Invalid payment method ID format")

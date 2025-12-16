@@ -5,7 +5,6 @@ import (
 
 	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/pkg/api"
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -112,14 +111,4 @@ func GetSolanaPayByReference(r *Request) {
 	}
 
 	r.SuccessJSON(resp)
-}
-
-// Legacy helper to parse price ID - handles both prefixed and raw UUIDs
-func parsePriceIDLegacy(priceIDStr string) (uuid.UUID, error) {
-	// Try parsing with prefix first
-	if id, err := api.ParsePriceID(priceIDStr); err == nil {
-		return id, nil
-	}
-	// Fall back to raw UUID
-	return uuid.Parse(priceIDStr)
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/doujins-org/ginapi/response"
-	"github.com/google/uuid"
 )
 
 // GetPrices retrieves prices with optional filters.
@@ -57,9 +56,7 @@ func GetPrices(r *Request) {
 
 	// Parse product ID if provided
 	if req.Product != "" {
-		// Accept both "prod_uuid" and raw "uuid" formats
-		productIDStr := strings.TrimPrefix(req.Product, api.PrefixProduct)
-		productID, err := uuid.Parse(productIDStr)
+		productID, err := api.ParseProductID(req.Product)
 		if err != nil {
 			r.ErrorJSON(http.StatusBadRequest, "Invalid product ID format")
 			return

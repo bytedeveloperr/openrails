@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/google/uuid"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 )
 
 // AdminCancelSubscriptionRequest is the request body for admin cancel
@@ -14,7 +14,7 @@ type AdminCancelSubscriptionRequest struct {
 // AdminCancelSubscription cancels a subscription by subscription ID (admin)
 func AdminCancelSubscription(r *Request) {
 	idStr := r.GinCtx.Param("id")
-	subscriptionID, err := uuid.Parse(idStr)
+	subscriptionID, err := api.ParseSubscriptionID(idStr)
 	if err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "invalid subscription ID")
 		return

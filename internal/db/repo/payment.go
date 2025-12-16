@@ -8,6 +8,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
@@ -174,7 +175,7 @@ func (r *PaymentRepo) GetPayments(ctx context.Context, opts query.QueryOptions[P
 		q = q.Where("purch.price_id = ?", opts.Filters.PriceID)
 	}
 	if opts.Filters.SubscriptionID != "" {
-		subID, err := uuid.Parse(opts.Filters.SubscriptionID)
+		subID, err := api.ParseSubscriptionID(opts.Filters.SubscriptionID)
 		if err == nil {
 			q = q.Where("purch.subscription_id = ?", subID)
 		}

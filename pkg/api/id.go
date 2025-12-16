@@ -123,15 +123,23 @@ func ParseEventID(id string) (uuid.UUID, error) {
 
 // parseID is a helper that parses a prefixed ID string into a UUID
 func parseID(id, prefix, resourceType string) (uuid.UUID, error) {
-	if !strings.HasPrefix(id, prefix) {
-		return uuid.Nil, fmt.Errorf("invalid %s ID: expected prefix '%s'", resourceType, prefix)
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return uuid.Nil, fmt.Errorf("invalid %s ID: value is empty", resourceType)
 	}
-	rawID := strings.TrimPrefix(id, prefix)
-	parsed, err := uuid.Parse(rawID)
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("invalid %s ID: %w", resourceType, err)
+
+	if parsed, err := uuid.Parse(trimmed); err == nil {
+		return parsed, nil
 	}
-	return parsed, nil
+
+	if after, ok := strings.CutPrefix(trimmed, prefix); ok {
+		rawID := after
+		if parsed, err := uuid.Parse(rawID); err == nil {
+			return parsed, nil
+		}
+	}
+
+	return uuid.Nil, fmt.Errorf("invalid %s ID: expected prefix '%s' or valid UUID", resourceType, prefix)
 }
 
 // TryParseID attempts to parse an ID that may or may not have a prefix.
@@ -146,8 +154,8 @@ func TryParseID(id string) (uuid.UUID, bool, error) {
 	}
 
 	for _, prefix := range prefixes {
-		if strings.HasPrefix(id, prefix) {
-			rawID := strings.TrimPrefix(id, prefix)
+		if after, ok := strings.CutPrefix(id, prefix); ok {
+			rawID := after
 			parsed, err := uuid.Parse(rawID)
 			if err != nil {
 				return uuid.Nil, true, fmt.Errorf("invalid ID after prefix '%s': %w", prefix, err)

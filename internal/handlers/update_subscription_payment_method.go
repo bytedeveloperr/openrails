@@ -10,7 +10,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/google/uuid"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -37,13 +37,13 @@ func UpdateSubscriptionPaymentMethod(r *Request) {
 		return
 	}
 
-	subscriptionID, err := uuid.Parse(req.SubscriptionID)
+	subscriptionID, err := api.ParseSubscriptionID(req.SubscriptionID)
 	if err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "Invalid subscription_id format")
 		return
 	}
 
-	paymentMethodID, err := uuid.Parse(req.PaymentMethodID)
+	paymentMethodID, err := api.ParsePaymentMethodID(req.PaymentMethodID)
 	if err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "Invalid payment_method_id format")
 		return
