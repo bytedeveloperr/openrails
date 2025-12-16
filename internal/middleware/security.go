@@ -30,6 +30,7 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 		"X-Forwarded-For",
 		"X-Real-IP",
 		"X-Idempotency-Key",
+		"Accept-Language",
 	)
 
 	corsConfig.AllowMethods = []string{
