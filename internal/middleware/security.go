@@ -29,6 +29,7 @@ func CORS(allowedOrigins []string) gin.HandlerFunc {
 		"X-Request-ID",
 		"X-Forwarded-For",
 		"X-Real-IP",
+		"Idempotency-Key",
 		"X-Idempotency-Key",
 		"Accept-Language",
 	)

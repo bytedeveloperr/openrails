@@ -75,7 +75,7 @@ func (s *Server) setupHandlers() {
 		SkipPaths: []string{"/health/live", "/health/ready", "/healthz", "/readyz", "/health"},
 	}))
 	s.publicHandler.
-		// Use(middleware.CORS(s.cfg.CorsOrigins)).
+		Use(middleware.CORS(s.cfg.CorsOrigins)).
 		Use(middleware.RateLimit(s.cfg.RateLimits, s.rdb))
 
 	// Private handler for service-to-service API (X-API-KEY auth)
