@@ -333,6 +333,9 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 
 	nmiSubID := body.SubscriptionID.Trimmed()
 	if nmiSubID == "" {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"event_type": s.Data.EventType,
+		}).Warn("NMI subscription add missing subscription ID")
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription ID", map[string]interface{}{}, nil)
 	}
 
@@ -346,6 +349,10 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 		nmiPlanID = body.Plan.ID.Trimmed()
 	}
 	if nmiPlanID == "" {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id": nmiSubID,
+			"event_type":      s.Data.EventType,
+		}).Warn("NMI subscription add missing plan ID")
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing plan ID", map[string]interface{}{
 			"subscription_id": nmiSubID,
 		}, nil)
@@ -353,11 +360,20 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 
 	price, err := s.PriceService.GetByNMIPlan(ctx, provider, nmiPlanID)
 	if err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id": nmiSubID,
+			"plan_id":         nmiPlanID,
+			"provider":        provider,
+		}).WithError(err).Error("Failed to resolve price for NMI plan ID")
 		return fmt.Errorf("failed to find price for NMI plan ID %s: %w", nmiPlanID, err)
 	}
 
 	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
 	if err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_reference": nmiSubID,
+			"provider":               provider,
+		}).WithError(err).Error("Failed to load subscription for processor ID")
 		return fmt.Errorf("failed to load subscription for processor ID %s: %w", nmiSubID, err)
 	}
 
@@ -402,6 +418,21 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 	// We use the subscription ID as a reference for tracking.
 	transactionRef := "sub:" + nmiSubID
 
+	log.WithContext(ctx).WithFields(log.Fields{
+		"subscription_id":             subscription.ID,
+		"processor_subscription_id":   nmiSubID,
+		"plan_id":                     nmiPlanID,
+		"price_id":                    price.ID,
+		"amount_cents":                amountCents,
+		"currency":                    currency,
+		"transaction_reference":       transactionRef,
+		"user_id":                     subscription.UserID,
+		"subscription_status":         subscription.Status,
+		"price_amount_cents":          price.Amount,
+		"price_currency":              price.Currency,
+		"subscription_lifecycle_step": "create_membership_from_subscription_add",
+	}).Info("Creating membership for NMI subscription add event")
+
 	_, err = s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 		PriceID:                 price.ID,
 		UserID:                  subscription.UserID,
@@ -415,6 +446,13 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create membership: %w", err)
 	}
+
+	log.WithContext(ctx).WithFields(log.Fields{
+		"subscription_id":           subscription.ID,
+		"processor_subscription_id": nmiSubID,
+		"user_id":                   subscription.UserID,
+		"transaction_reference":     transactionRef,
+	}).Info("Membership created for NMI subscription add event")
 
 	return nil
 }
@@ -431,6 +469,9 @@ func (s *NMIWebhookService) handleUpdateSubscription(ctx context.Context) error 
 
 	nmiSubID := body.SubscriptionID.Trimmed()
 	if nmiSubID == "" {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"event_type": s.Data.EventType,
+		}).Warn("NMI subscription update missing subscription ID")
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription ID", map[string]interface{}{}, nil)
 	}
 
@@ -470,6 +511,9 @@ func (s *NMIWebhookService) handleDeleteSubscription(ctx context.Context) error 
 
 	nmiSubID := body.SubscriptionID.Trimmed()
 	if nmiSubID == "" {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"event_type": s.Data.EventType,
+		}).Warn("NMI subscription delete missing subscription ID")
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription ID", map[string]interface{}{}, nil)
 	}
 
@@ -481,6 +525,9 @@ func (s *NMIWebhookService) handleDeleteSubscription(ctx context.Context) error 
 				Warn("Received NMI delete for unknown subscription; ignoring")
 			return nil
 		}
+		log.WithContext(ctx).WithFields(log.Fields{
+			"processor_subscription_id": nmiSubID,
+		}).WithError(err).Error("Failed to load subscription for delete event")
 		return fmt.Errorf("failed to get subscription: %w", err)
 	}
 
@@ -494,6 +541,11 @@ func (s *NMIWebhookService) handleDeleteSubscription(ctx context.Context) error 
 
 	cancelFeedback := "Cancelled via NMI webhook"
 	processor := models.ProcessorMobius
+	log.WithContext(ctx).WithFields(log.Fields{
+		"subscription_id":           subscription.ID,
+		"processor_subscription_id": nmiSubID,
+		"user_id":                   subscription.UserID,
+	}).Info("Cancelling subscription via NMI delete event")
 	if err := s.SubscriptionLifecycleService.CancelMembership(ctx, &CancelMembershipParams{
 		RevokeAccess:            false, // User keeps access until period end
 		Processor:               &processor,
@@ -504,6 +556,11 @@ func (s *NMIWebhookService) handleDeleteSubscription(ctx context.Context) error 
 	}); err != nil {
 		return fmt.Errorf("failed to cancel subscription: %w", err)
 	}
+
+	log.WithContext(ctx).WithFields(log.Fields{
+		"subscription_id":           subscription.ID,
+		"processor_subscription_id": nmiSubID,
+	}).Info("Subscription cancelled via NMI delete event")
 
 	return nil
 }
@@ -526,6 +583,9 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 
 	nmiSubID := transactionSubscriptionID(body)
 	if nmiSubID == "" {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"event_type": s.Data.EventType,
+		}).Warn("NMI transaction success missing subscription reference")
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription reference", map[string]interface{}{}, nil)
 	}
 
@@ -542,6 +602,10 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 
 	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
 	if err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_reference": nmiSubID,
+			"provider":               provider,
+		}).WithError(err).Error("Failed to load subscription for transaction event")
 		return fmt.Errorf("failed to load subscription for transaction event: %w", err)
 	}
 
@@ -581,6 +645,17 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 	// Activate or renew subscription based on current status
 	switch subscription.Status {
 	case models.StatusPending:
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id":             subscription.ID,
+			"processor_subscription_id":   subscription.ProcessorSubscriptionID,
+			"transaction_id":              txnID,
+			"amount_cents":                amountCents,
+			"currency":                    currencyValue,
+			"action_source":               actionSource,
+			"subscription_status":         subscription.Status,
+			"subscription_lifecycle_step": "activate_pending_membership",
+		}).Info("Activating pending subscription from NMI transaction success")
+
 		_, err = s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 			PriceID:                 subscription.PriceID,
 			UserID:                  subscription.UserID,
@@ -594,8 +669,27 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		if err != nil {
 			return fmt.Errorf("failed to activate subscription: %w", err)
 		}
+
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id":           subscription.ID,
+			"processor_subscription_id": subscription.ProcessorSubscriptionID,
+			"transaction_id":            txnID,
+			"user_id":                   subscription.UserID,
+		}).Info("Subscription activated via NMI transaction success")
+
 		processed = true
 	default:
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id":             subscription.ID,
+			"processor_subscription_id":   subscription.ProcessorSubscriptionID,
+			"transaction_id":              txnID,
+			"amount_cents":                amountCents,
+			"currency":                    currencyValue,
+			"previous_status":             subscription.Status,
+			"action_source":               actionSource,
+			"subscription_lifecycle_step": "renew_membership",
+		}).Info("Renewing subscription from NMI transaction success")
+
 		// RenewMembership now creates the Payment record internally
 		if err := s.SubscriptionLifecycleService.RenewMembership(ctx, &RenewMembershipParams{
 			Processor:               models.ProcessorMobius,
@@ -606,6 +700,14 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		}); err != nil {
 			return fmt.Errorf("failed to renew subscription: %w", err)
 		}
+
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id":           subscription.ID,
+			"processor_subscription_id": subscription.ProcessorSubscriptionID,
+			"transaction_id":            txnID,
+			"user_id":                   subscription.UserID,
+		}).Info("Subscription renewed via NMI transaction success")
+
 		processed = true
 	}
 
@@ -682,6 +784,9 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 
 	nmiSubID := transactionSubscriptionID(body)
 	if nmiSubID == "" {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"event_type": s.Data.EventType,
+		}).Warn("NMI transaction failure missing subscription reference")
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription reference", map[string]interface{}{}, nil)
 	}
 
@@ -703,6 +808,9 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 	if s.SubscriptionService != nil {
 		subscription, fetchErr = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
 		if fetchErr != nil && !errors.Is(fetchErr, sql.ErrNoRows) {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"processor_subscription_id": nmiSubID,
+			}).WithError(fetchErr).Error("Failed to load subscription for transaction failure event")
 			return fmt.Errorf("failed to load subscription for transaction event: %w", fetchErr)
 		}
 		if errors.Is(fetchErr, sql.ErrNoRows) {
@@ -730,6 +838,17 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		}
 	}
 
+	logFields := log.Fields{
+		"processor_subscription_id": nmiSubID,
+	}
+	if failureReason != nil && *failureReason != "" {
+		logFields["failure_reason"] = *failureReason
+	}
+	if failureCode != nil && *failureCode != "" {
+		logFields["failure_code"] = *failureCode
+	}
+	log.WithContext(ctx).WithFields(logFields).Warn("Marking subscription as failed due to NMI transaction failure")
+
 	if err := s.SubscriptionLifecycleService.FailMembership(ctx, &FailMembershipParams{
 		Processor:               models.Processor(s.Processor),
 		ProcessorSubscriptionID: nmiSubID,
@@ -738,6 +857,8 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 	}); err != nil {
 		return fmt.Errorf("failed to mark subscription as failed: %w", err)
 	}
+
+	log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).Info("Subscription marked as failed for NMI transaction failure")
 
 	if s.EventLogService != nil && subscription != nil {
 		metadata := map[string]interface{}{
@@ -976,6 +1097,9 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			log.WithContext(ctx).WithError(err).WithField("processor_subscription_id", nmiSubID).
 				Warn("Failed to look up subscription for refund")
+		} else if errors.Is(err, sql.ErrNoRows) {
+			log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).
+				Warn("Received refund for unknown subscription; continuing without lifecycle actions")
 		}
 	}
 
@@ -1009,6 +1133,11 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 			RevokeAccess:            true,
 		}); err != nil {
 			log.WithContext(ctx).WithError(err).Error("Failed to cancel membership after refund")
+		} else {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"subscription_id":           subscription.ID,
+				"processor_subscription_id": nmiSubID,
+			}).Info("Subscription cancelled after refund meet threshold")
 		}
 	}
 

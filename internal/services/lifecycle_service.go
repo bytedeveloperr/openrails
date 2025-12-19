@@ -67,6 +67,13 @@ type FailMembershipParams struct {
 	FailureCode             *string
 }
 
+func safeString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
 // NewSubscriptionLifecycleService creates a new instance of SubscriptionLifecycleService
 func NewSubscriptionLifecycleService(db *db.DB, productService *ProductService, priceService *PriceService, entitlementService *EntitlementService, notificationService *NotificationService, paymentService *PaymentService, eventLogService *EventLogService) *SubscriptionLifecycleService {
 	return &SubscriptionLifecycleService{
@@ -116,6 +123,18 @@ func (s *SubscriptionLifecycleService) CreateMembership(ctx context.Context, par
 		notifications []*models.NotificationQueue
 	)
 
+	procSubID := safeString(params.ProcessorSubscriptionID)
+
+	log.WithContext(ctx).WithFields(log.Fields{
+		"user_id":                   params.UserID,
+		"price_id":                  params.PriceID,
+		"processor":                 params.Processor,
+		"processor_subscription_id": procSubID,
+		"transaction_id":            params.TransactionID,
+		"amount_cents":              params.Amount,
+		"currency":                  params.Currency,
+	}).Info("Starting membership creation flow")
+
 	err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		dbb := db.NewWithTx(tx)
 		var err error
@@ -157,11 +176,27 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 
 	price, err := priceService.GetByID(ctx, params.PriceID)
 	if err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"user_id":  params.UserID,
+			"price_id": params.PriceID,
+		}).WithError(err).Error("Failed to load price for membership creation")
 		return nil, nil, fmt.Errorf("failed to get price: %w", err)
 	}
+	log.WithContext(ctx).WithFields(log.Fields{
+		"user_id":    params.UserID,
+		"price_id":   price.ID,
+		"product_id": price.ProductID,
+	}).Info("Loaded price for membership creation")
 
 	existingSub, err := subService.GetByUserID(ctx, params.UserID)
 	if err == nil && existingSub.Status == models.StatusActive {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"user_id":                   params.UserID,
+			"existing_subscription_id":  existingSub.ID,
+			"existing_price_id":         existingSub.PriceID,
+			"existing_processor":        existingSub.Processor,
+			"processor_subscription_id": existingSub.ProcessorSubscriptionID,
+		}).Warn("User already has an active subscription; aborting membership creation")
 		return nil, nil, fmt.Errorf("user already has an active subscription")
 	}
 
@@ -199,6 +234,15 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 		if err := subService.Update(ctx, existingSub); err != nil {
 			return nil, nil, fmt.Errorf("failed to update subscription: %w", err)
 		}
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id":           existingSub.ID,
+			"user_id":                   existingSub.UserID,
+			"price_id":                  existingSub.PriceID,
+			"processor":                 existingSub.Processor,
+			"processor_subscription_id": existingSub.ProcessorSubscriptionID,
+			"period_start":              periodStartsAt,
+			"period_end":                periodEndsAt,
+		}).Info("Reusing existing subscription record for membership creation")
 		subscription = existingSub
 	} else {
 		subscription = &models.Subscription{
@@ -227,6 +271,15 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 		if err := subService.Create(ctx, subscription); err != nil {
 			return nil, nil, fmt.Errorf("failed to create subscription: %w", err)
 		}
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id":           subscription.ID,
+			"user_id":                   subscription.UserID,
+			"price_id":                  subscription.PriceID,
+			"processor":                 subscription.Processor,
+			"processor_subscription_id": subscription.ProcessorSubscriptionID,
+			"period_start":              periodStartsAt,
+			"period_end":                periodEndsAt,
+		}).Info("Created new subscription record for membership")
 	}
 
 	notifications := make([]*models.NotificationQueue, 0, 1)
@@ -234,6 +287,10 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 	if entitlementService != nil {
 		product, err := productService.GetByID(ctx, price.ProductID)
 		if err != nil {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"product_id": price.ProductID,
+				"user_id":    params.UserID,
+			}).WithError(err).Error("Failed to load product for entitlement grant")
 			return nil, nil, fmt.Errorf("failed to get product: %w", err)
 		}
 
@@ -246,12 +303,23 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 			entNames = append(entNames, "premium")
 		}
 
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id": subscription.ID,
+			"user_id":         subscription.UserID,
+			"entitlements":    entNames,
+		}).Info("Preparing to grant subscription entitlements")
+
 		for _, ent := range entNames {
 			exists, err := entitlementService.ExistsBySource(ctx, models.EntitlementSourceSubscription, subscription.ID, ent)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed entitlement check: %w", err)
 			}
 			if exists {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"subscription_id": subscription.ID,
+					"user_id":         subscription.UserID,
+					"entitlement":     ent,
+				}).Info("Entitlement already granted; skipping")
 				continue
 			}
 
@@ -264,9 +332,22 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 				start = *finite.EndAt
 			}
 
-			if _, err := entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID); err != nil {
+			window, err := entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID)
+			if err != nil {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"subscription_id": subscription.ID,
+					"user_id":         subscription.UserID,
+					"entitlement":     ent,
+				}).WithError(err).Error("Failed to grant subscription entitlement")
 				return nil, nil, fmt.Errorf("failed to grant entitlement %s: %w", ent, err)
 			}
+			log.WithContext(ctx).WithFields(log.Fields{
+				"subscription_id": subscription.ID,
+				"user_id":         subscription.UserID,
+				"entitlement":     ent,
+				"window_start":    window.StartAt,
+				"window_end":      window.EndAt,
+			}).Info("Granted subscription entitlement")
 		}
 	}
 
@@ -314,6 +395,14 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 				"user_id":         params.UserID,
 			}).Error("failed to create payment record for new membership")
 			// Don't fail the membership creation - just log the error
+		} else {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"transaction_id":  params.TransactionID,
+				"subscription_id": subscription.ID,
+				"user_id":         params.UserID,
+				"amount_cents":    amount,
+				"currency":        currency,
+			}).Info("Recorded payment for membership creation")
 		}
 	}
 
@@ -330,6 +419,14 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 	var subscriptionID uuid.UUID
 	var userID string
 	var priceID uuid.UUID
+
+	log.WithContext(ctx).WithFields(log.Fields{
+		"processor":                 params.Processor,
+		"processor_subscription_id": params.ProcessorSubscriptionID,
+		"transaction_id":            params.TransactionID,
+		"amount_cents":              params.Amount,
+		"currency":                  params.Currency,
+	}).Info("Starting membership renewal flow")
 
 	err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		db := db.NewWithTx(tx)
@@ -351,6 +448,10 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), provider, params.ProcessorSubscriptionID)
 		if err != nil {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"processor":                 params.Processor,
+				"processor_subscription_id": params.ProcessorSubscriptionID,
+			}).WithError(err).Error("Failed to load subscription for renewal")
 			return fmt.Errorf("subscription not found: %w", err)
 		}
 
@@ -433,6 +534,16 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 		if err := subService.Update(ctx, subscription); err != nil {
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id":           subscription.ID,
+			"user_id":                   subscription.UserID,
+			"price_id":                  price.ID,
+			"processor":                 subscription.Processor,
+			"processor_subscription_id": subscription.ProcessorSubscriptionID,
+			"period_start":              periodStartsAt,
+			"period_end":                periodEndsAt,
+			"downgrade_applied":         applyingDowngrade,
+		}).Info("Updated subscription for renewal")
 
 		// Handle entitlements for downgrade
 		if applyingDowngrade && oldProduct != nil && newProduct != nil {
@@ -479,6 +590,11 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 					if !exists {
 						if _, err := entitlementService.GrantWindow(ctx, subscription.UserID, entName, now, nil, models.EntitlementSourceSubscription, &subscription.ID); err != nil {
 							log.WithContext(ctx).WithError(err).WithField("entitlement", entName).Warn("Failed to grant new entitlement during downgrade")
+						} else {
+							log.WithContext(ctx).WithFields(log.Fields{
+								"subscription_id": subscription.ID,
+								"entitlement":     entName,
+							}).Info("Granted new entitlement during downgrade")
 						}
 					}
 				}
@@ -600,6 +716,25 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 	var userID string
 	var processor models.Processor
 
+	var procName string
+	if params.Processor != nil {
+		procName = string(*params.Processor)
+	}
+	procSub := safeString(params.ProcessorSubscriptionID)
+	subID := ""
+	if params.SubscriptionID != nil {
+		subID = params.SubscriptionID.String()
+	}
+	cancelFeedback := safeString(params.CancelFeedback)
+	log.WithContext(ctx).WithFields(log.Fields{
+		"subscription_id":           subID,
+		"processor":                 procName,
+		"processor_subscription_id": procSub,
+		"cancel_type":               params.CancelType,
+		"revoke_access_immediately": params.RevokeAccess,
+		"cancel_feedback_provided":  cancelFeedback != "",
+	}).Info("Starting membership cancellation flow")
+
 	err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		db := db.NewWithTx(tx)
 		priceService := NewPriceService(db)
@@ -631,6 +766,7 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		}
 
 		if err != nil {
+			log.WithContext(ctx).WithError(err).Warn("Failed to locate subscription for cancellation")
 			return fmt.Errorf("subscription not found: %w", err)
 		}
 
@@ -660,8 +796,18 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 		}
 
 		if err := subService.Update(ctx, subscription); err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"subscription_id": subscription.ID,
+			}).Error("Failed to update subscription during cancellation")
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id": subscription.ID,
+			"user_id":         subscription.UserID,
+			"status":          subscription.Status,
+			"ended_at":        subscription.EndedAt,
+			"period_end":      subscription.CurrentPeriodEndsAt,
+		}).Info("Updated subscription record during cancellation")
 
 		// End entitlements at correct boundary: immediate or at period end
 		// When RevokeAccess is true: end immediately with revocation reason
@@ -672,17 +818,32 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 				reason := models.EntitlementRevokeAdmin
 				if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
 					log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for cancelled subscription")
+				} else {
+					log.WithContext(ctx).WithFields(log.Fields{
+						"subscription_id": subscription.ID,
+						"revoke_reason":   reason,
+					}).Info("Revoked entitlements immediately for cancelled subscription")
 				}
 			} else if subscription.CurrentPeriodEndsAt != nil && subscription.CurrentPeriodEndsAt.After(now) {
 				// Period-end cancellation - just set end_at without revocation (user keeps access until then)
 				if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, *subscription.CurrentPeriodEndsAt, nil); err != nil {
 					log.WithContext(ctx).WithError(err).Error("failed to set entitlement end date for cancelled subscription")
+				} else {
+					log.WithContext(ctx).WithFields(log.Fields{
+						"subscription_id": subscription.ID,
+						"end_at":          subscription.CurrentPeriodEndsAt,
+					}).Info("Scheduled entitlement end at period boundary for cancelled subscription")
 				}
 			} else {
 				// Period already ended - immediately revoke
 				reason := models.EntitlementRevokeAdmin
 				if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
 					log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for cancelled subscription")
+				} else {
+					log.WithContext(ctx).WithFields(log.Fields{
+						"subscription_id": subscription.ID,
+						"revoke_reason":   reason,
+					}).Info("Revoked entitlements due to expired period during cancellation")
 				}
 			}
 		}
@@ -717,6 +878,10 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 	}
 
 	s.dispatchNotifications(ctx, notifications)
+	log.WithContext(ctx).WithFields(log.Fields{
+		"subscription_id": subscriptionID,
+		"user_id":         userID,
+	}).Info("Membership cancellation flow completed")
 
 	// Log the subscription cancelled event to ClickHouse
 	if s.EventLogService != nil {
@@ -743,6 +908,8 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, subscriptionID uuid.UUID) error {
 	notifications := make([]*models.NotificationQueue, 0, 1)
 
+	log.WithContext(ctx).WithField("subscription_id", subscriptionID).Info("Starting membership expiration flow")
+
 	err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		db := db.NewWithTx(tx)
 		priceService := NewPriceService(db)
@@ -754,6 +921,7 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 
 		subscription, err := subService.GetByID(ctx, subscriptionID)
 		if err != nil {
+			log.WithContext(ctx).WithError(err).Warn("Failed to locate subscription for expiration")
 			return fmt.Errorf("subscription not found: %w", err)
 		}
 
@@ -763,14 +931,26 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 		subscription.EndedAt = &now
 
 		if err := subService.Update(ctx, subscription); err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"subscription_id": subscription.ID,
+			}).Error("Failed to update subscription during expiration")
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id": subscription.ID,
+			"user_id":         subscription.UserID,
+		}).Info("Marked subscription as expired")
 
 		// Revoke entitlements
 		if entSvc != nil {
 			reason := models.EntitlementRevokeAdmin
 			if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
 				log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for expired subscription")
+			} else {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"subscription_id": subscription.ID,
+					"revoke_reason":   reason,
+				}).Info("Revoked entitlements due to expiration")
 			}
 		}
 
@@ -794,6 +974,7 @@ func (s *SubscriptionLifecycleService) ExpireMembership(ctx context.Context, sub
 	}
 
 	s.dispatchNotifications(ctx, notifications)
+	log.WithContext(ctx).WithField("subscription_id", subscriptionID).Info("Membership expiration flow completed")
 
 	return nil
 }
@@ -806,6 +987,13 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 	var subscriptionID uuid.UUID
 	var userID string
 	var finalStatus models.SubscriptionStatus
+
+	log.WithContext(ctx).WithFields(log.Fields{
+		"processor":                 params.Processor,
+		"processor_subscription_id": params.ProcessorSubscriptionID,
+		"failure_reason":            safeString(params.FailureReason),
+		"failure_code":              safeString(params.FailureCode),
+	}).Warn("Starting membership failure flow")
 
 	err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		db := db.NewWithTx(tx)
@@ -827,6 +1015,7 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), provider, params.ProcessorSubscriptionID)
 		if err != nil {
+			log.WithContext(ctx).WithError(err).Warn("Failed to locate subscription for failure flow")
 			return fmt.Errorf("subscription not found: %w", err)
 		}
 
@@ -858,8 +1047,18 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 		}
 
 		if err := subService.Update(ctx, subscription); err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"subscription_id": subscription.ID,
+			}).Error("Failed to update subscription during failure flow")
 			return fmt.Errorf("failed to update subscription: %w", err)
 		}
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_id": subscription.ID,
+			"user_id":         subscription.UserID,
+			"status":          subscription.Status,
+			"retry_attempts":  subscription.RetryAttempts,
+			"next_retry_at":   subscription.NextRetryAt,
+		}).Warn("Updated subscription during failure flow")
 
 		// Capture final status for event logging
 		finalStatus = subscription.Status
@@ -870,6 +1069,10 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 				reason := models.EntitlementRevokeAdmin
 				if err := entSvc.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
 					log.WithContext(ctx).WithError(err).Error("failed to revoke entitlements for failed subscription")
+				} else {
+					log.WithContext(ctx).WithFields(log.Fields{
+						"subscription_id": subscription.ID,
+					}).Warn("Revoked entitlements after max dunning failures")
 				}
 			}
 		}
