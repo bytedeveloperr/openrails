@@ -80,9 +80,10 @@ Polls the status of a Solana Pay request created above. Returns `{ status: "pend
 Every endpoint in this section requires a valid JWT for the current user.
 
 ### GET /v1/me/status
-Aggregated premium status: active subscription (if any), next renewal date, and active entitlements.
-Response mirrors `handlers.GetMyBillingStatus` and includes `is_premium`, `subscription`, and
-`entitlements` arrays.
+Aggregated premium status: whether the user currently has an active membership, the enriched
+subscription object (price/product/access), the next renewal timestamp, and active entitlements.
+Response mirrors `handlers.GetMyBillingStatus` and includes `has_active_subscription`,
+`subscription`, `next_renewal_at`, and `entitlements`.
 
 ### POST /v1/me/checkout
 Unified checkout entry point for subscriptions and one-time purchases.

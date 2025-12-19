@@ -138,6 +138,60 @@ components:
           type: string
           format: date-time
           nullable: true
+    UserAccessGrant:
+      type: object
+      properties:
+        kind:
+          type: string
+          description: subscription or entitlement
+        entitlement:
+          type: string
+        source_type:
+          type: string
+        source_id:
+          type: string
+        subscription_id:
+          type: string
+        processor:
+          type: string
+        processor_subscription_id:
+          type: string
+        start_at:
+          type: string
+          format: date-time
+        end_at:
+          type: string
+          format: date-time
+          nullable: true
+    UserSubscription:
+      type: object
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+        processor:
+          type: string
+        processor_subscription_id:
+          type: string
+        price_id:
+          type: string
+        current_period_starts_at:
+          type: string
+          format: date-time
+        current_period_ends_at:
+          type: string
+          format: date-time
+        canceled_at:
+          type: string
+          format: date-time
+          nullable: true
+        product:
+          $ref: '#/components/schemas/Product'
+        price:
+          $ref: '#/components/schemas/Price'
+        access:
+          $ref: '#/components/schemas/UserAccessGrant'
     Payment:
       type: object
       properties:
@@ -599,10 +653,13 @@ paths:
               schema:
                 type: object
                 properties:
-                  is_premium:
+                  has_active_subscription:
                     type: boolean
                   subscription:
-                    $ref: '#/components/schemas/SubscriptionSummary'
+                    $ref: '#/components/schemas/UserSubscription'
+                  next_renewal_at:
+                    type: string
+                    format: date-time
                   entitlements:
                     type: array
                     items:

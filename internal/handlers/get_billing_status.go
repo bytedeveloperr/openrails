@@ -5,13 +5,14 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
 type BillingStatusResponse struct {
-	HasActiveSubscription bool       `json:"has_active_subscription"`
-	Subscription          any        `json:"subscription,omitempty"`
-	NextRenewalAt         *time.Time `json:"next_renewal_at,omitempty"`
-	Entitlements          any        `json:"entitlements,omitempty"`
+	HasActiveSubscription bool                               `json:"has_active_subscription"`
+	Subscription          *services.UserSubscriptionResponse `json:"subscription,omitempty"`
+	NextRenewalAt         *time.Time                         `json:"next_renewal_at,omitempty"`
+	Entitlements          []models.Entitlement               `json:"entitlements,omitempty"`
 }
 
 func GetMyBillingStatus(r *Request) {
@@ -22,7 +23,7 @@ func GetMyBillingStatus(r *Request) {
 	}
 
 	// Subscription details
-	var sub any
+	var sub *services.UserSubscriptionResponse
 	var next *time.Time
 	var hasActive bool
 	if r.State.UserSubscriptionService != nil {
@@ -40,7 +41,7 @@ func GetMyBillingStatus(r *Request) {
 	}
 
 	// List entitlements (optional)
-	var ents any
+	var ents []models.Entitlement
 	if r.State.EntitlementService != nil {
 		list, err := r.State.EntitlementService.ListByUser(r.Request.Context(), user.ID)
 		if err != nil {
