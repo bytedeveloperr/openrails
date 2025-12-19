@@ -15,10 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/app"
 	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	ipverify "github.com/doujins-org/doujins-billing/internal/utils"
@@ -148,7 +146,7 @@ func Webhook(r *Request) {
 			return
 		}
 
-		if err := processWebhookSync(ctx, r.State, event.ID); err != nil {
+		if err := r.State.WebhookProcessor.ProcessDirect(ctx, event); err != nil {
 			log.WithError(err).Error("CCBill webhook processing failed")
 		}
 
@@ -225,7 +223,7 @@ func Webhook(r *Request) {
 			r.ErrorJSON(http.StatusInternalServerError, "Failed to persist webhook event")
 			return
 		}
-		if err := processWebhookSync(ctx, r.State, event.ID); err != nil {
+		if err := r.State.WebhookProcessor.ProcessDirect(ctx, event); err != nil {
 			log.WithError(err).Error("Stripe webhook processing failed")
 		}
 
@@ -400,7 +398,7 @@ func handleNMIWebhook(r *Request, provider string, headers map[string]string, cl
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to persist webhook event")
 		return
 	} else {
-		if err := processWebhookSync(ctx, r.State, event.ID); err != nil {
+		if err := r.State.WebhookProcessor.ProcessDirect(ctx, event); err != nil {
 			log.WithError(err).Error("NMI webhook processing failed")
 		}
 	}
@@ -446,14 +444,4 @@ func copyHeaders(src map[string]string) map[string]string {
 		dst[k] = v
 	}
 	return dst
-}
-
-// processWebhookSync processes a webhook event synchronously.
-// Webhook processing is now synchronous-only - no async retry mechanism.
-// Payment processors (CCBill, NMI) will retry failed webhooks from their end.
-func processWebhookSync(ctx context.Context, runtime *app.Runtime, eventID uuid.UUID) error {
-	if runtime == nil || runtime.WebhookProcessor == nil {
-		return fmt.Errorf("webhook processor unavailable")
-	}
-	return runtime.WebhookProcessor.Process(ctx, eventID)
 }
