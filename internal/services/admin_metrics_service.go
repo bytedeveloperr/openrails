@@ -13,16 +13,15 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 )
 
+// AdminMetricsService serves admin dashboard metrics backed by ClickHouse daily_metrics.
+// The ClickHouse MV already carries forward quiet days and aligns processors per currency.
 type AdminMetricsService struct {
 	cfg   *config.ClickHouseConfig
 	clock clockwork.Clock
 }
 
 func NewAdminMetricsService(cfg *config.ClickHouseConfig) *AdminMetricsService {
-	return &AdminMetricsService{
-		cfg:   cfg,
-		clock: clockwork.NewRealClock(),
-	}
+	return &AdminMetricsService{cfg: cfg, clock: clockwork.NewRealClock()}
 }
 
 func (s *AdminMetricsService) Clock() clockwork.Clock {
@@ -41,15 +40,24 @@ type MetricsDateRange struct {
 	End   time.Time
 }
 
+func clampToToday(t time.Time) time.Time {
+	today := truncateToDay(time.Now().UTC())
+	if t.After(today) {
+		return today
+	}
+	return t
+}
+
 type SummaryResponse struct {
 	PeriodStart         time.Time                   `json:"period_start"`
 	PeriodEnd           time.Time                   `json:"period_end"`
 	Currency            string                      `json:"currency"`
 	MRR                 int64                       `json:"mrr"`
 	ARR                 int64                       `json:"arr"`
-	TotalRevenue        int64                       `json:"total_revenue"`
-	SubscriptionRevenue int64                       `json:"subscription_revenue"`
-	OneTimeRevenue      int64                       `json:"one_time_revenue"`
+	TotalRevenue        int64                       `json:"total_revenue"`        // net: gross - refunds - chargebacks
+	GrossRevenue        int64                       `json:"gross_revenue"`        // gross charge success
+	SubscriptionRevenue int64                       `json:"subscription_revenue"` // gross subscription charges
+	OneTimeRevenue      int64                       `json:"one_time_revenue"`     // gross one-time charges
 	Refunds             int64                       `json:"refunds"`
 	Chargebacks         int64                       `json:"chargebacks"`
 	NewSubscriptions    int                         `json:"new_subscriptions"`
@@ -92,7 +100,7 @@ type RevenueSeriesResponse struct {
 type RevenueSeriesBucket struct {
 	PeriodStart         time.Time              `json:"period_start"`
 	PeriodEnd           time.Time              `json:"period_end"`
-	TotalRevenue        int64                  `json:"total_revenue"`
+	TotalRevenue        int64                  `json:"total_revenue"` // net
 	SubscriptionRevenue int64                  `json:"subscription_revenue"`
 	OneTimeRevenue      int64                  `json:"one_time_revenue"`
 	Refunds             int64                  `json:"refunds"`
@@ -106,7 +114,8 @@ type PaymentSeriesBreakdown struct {
 }
 
 type RevenueTotals struct {
-	TotalRevenue        int64 `json:"total_revenue"`
+	TotalRevenue        int64 `json:"total_revenue"` // net
+	GrossRevenue        int64 `json:"gross_revenue"`
 	SubscriptionRevenue int64 `json:"subscription_revenue"`
 	OneTimeRevenue      int64 `json:"one_time_revenue"`
 	Refunds             int64 `json:"refunds"`
@@ -114,6 +123,7 @@ type RevenueTotals struct {
 }
 
 type SubscriptionSeriesResponse struct {
+	Currency    string                     `json:"currency"`
 	Granularity string                     `json:"granularity"`
 	Buckets     []SubscriptionSeriesBucket `json:"buckets"`
 	Totals      SubscriptionSeriesTotals   `json:"totals"`
@@ -143,6 +153,7 @@ type CancellationReasonBreakdown struct {
 }
 
 type ProcessorMetricsResponse struct {
+	Currency    string             `json:"currency"`
 	PeriodStart time.Time          `json:"period_start"`
 	PeriodEnd   time.Time          `json:"period_end"`
 	Processors  []ProcessorMetrics `json:"processors"`
@@ -176,6 +187,7 @@ type DailyProcessorPayment struct {
 }
 
 type ChurnResponse struct {
+	Currency            string                 `json:"currency"`
 	PeriodStart         time.Time              `json:"period_start"`
 	PeriodEnd           time.Time              `json:"period_end"`
 	MonthlyChurn        []MonthlyChurnPoint    `json:"monthly_churn"`
@@ -209,31 +221,80 @@ type CohortRetentionPoint struct {
 	Rate   float64 `json:"rate"`
 }
 
-type periodAggregates struct {
-	Currency            string
-	CurrencyCount       int64
-	SubscriptionRevenue int64
-	OneTimeRevenue      int64
-	Refunds             int64
-	Chargebacks         int64
-	NewSubscriptions    int64
-	CancellationsVol    int64
-	CancellationsInv    int64
-	Reactivations       int64
-	EntitlementsGranted int64
-	ActiveSumObserved   int64
-	PastDueSumObserved  int64
-	PendingSumObserved  int64
-	RowCount            int64
-	DayCount            int64
-	ActiveLast          int64
-	PastDueLast         int64
-	PendingLast         int64
-	MRR                 int64
-	ActiveEnd           int64
-	PastDueEnd          int64
-	PendingEnd          int64
-	DataFreshAsOf       time.Time
+type summaryAggRow struct {
+	Currency                string    `ch:"currency"`
+	SubscriptionRevenue     int64     `ch:"subscription_revenue_cents"`
+	OneTimeRevenue          int64     `ch:"one_time_revenue_cents"`
+	Refunds                 int64     `ch:"refunds_cents"`
+	Chargebacks             int64     `ch:"chargebacks_cents"`
+	GrossRevenue            int64     `ch:"gross_revenue_cents"`
+	NetRevenue              int64     `ch:"net_revenue_cents"`
+	NewSubscriptions        int64     `ch:"new_subscriptions"`
+	CancellationsUser       int64     `ch:"cancellations_user"`
+	CancellationsMerchant   int64     `ch:"cancellations_merchant"`
+	CancellationsExpired    int64     `ch:"cancellations_expired"`
+	CancellationsChargeback int64     `ch:"cancellations_chargeback"`
+	Reactivations           int64     `ch:"reactivations"`
+	EntitlementsGranted     int64     `ch:"entitlements_granted"`
+	ActiveSum               int64     `ch:"active_sum"`
+	PastDueSum              int64     `ch:"past_due_sum"`
+	PendingSum              int64     `ch:"pending_sum"`
+	DayCount                int64     `ch:"day_count"`
+	MRR                     int64     `ch:"mrr_cents"`
+	ActiveEnd               int64     `ch:"active_end"`
+	PastDueEnd              int64     `ch:"past_due_end"`
+	PendingEnd              int64     `ch:"pending_end"`
+	DataFreshAsOf           time.Time `ch:"data_fresh_as_of"`
+}
+
+type revenueBucketRow struct {
+	BucketStart         time.Time `ch:"bucket_start"`
+	Currency            string    `ch:"currency"`
+	SubscriptionRevenue int64     `ch:"subscription_revenue_cents"`
+	OneTimeRevenue      int64     `ch:"one_time_revenue_cents"`
+	Refunds             int64     `ch:"refunds_cents"`
+	Chargebacks         int64     `ch:"chargebacks_cents"`
+	GrossRevenue        int64     `ch:"total_revenue_cents"`
+	NetRevenue          int64     `ch:"total_revenue_net_cents"`
+	PaymentsSuccessful  uint64    `ch:"payments_successful"`
+}
+
+type subscriptionBucketRow struct {
+	BucketStart             time.Time `ch:"bucket_start"`
+	Currency                string    `ch:"currency"`
+	NewSubscriptions        int64     `ch:"new_subscriptions"`
+	ScheduledStarts         int64     `ch:"scheduled_starts"`
+	CancellationsUser       int64     `ch:"cancellations_user"`
+	CancellationsMerchant   int64     `ch:"cancellations_merchant"`
+	CancellationsExpired    int64     `ch:"cancellations_expired"`
+	CancellationsChargeback int64     `ch:"cancellations_chargeback"`
+	Reactivations           int64     `ch:"reactivations"`
+	ActiveCountEnd          int64     `ch:"active_count_end"`
+}
+
+type processorAggRow struct {
+	Currency            string `ch:"currency"`
+	Processor           string `ch:"processor"`
+	ActiveSubscriptions int64  `ch:"active_subscriptions"`
+	NewSubscriptions    int64  `ch:"new_subscriptions"`
+	Cancellations       int64  `ch:"cancellations"`
+	RevenueTotal        int64  `ch:"revenue_total_cents"`
+	RevenueSubscription int64  `ch:"revenue_subscription_cents"`
+	RevenueOneTime      int64  `ch:"revenue_one_time_cents"`
+	RevenueRefunds      int64  `ch:"revenue_refunds_cents"`
+	RevenueChargebacks  int64  `ch:"revenue_chargebacks_cents"`
+	PaymentsSuccessful  int64  `ch:"payments_successful"`
+	PaymentsFailed      int64  `ch:"payments_failed"`
+}
+
+type churnBucketRow struct {
+	Currency                string    `ch:"currency"`
+	MonthStart              time.Time `ch:"month_start"`
+	CancellationsUser       int64     `ch:"cancellations_user"`
+	CancellationsMerchant   int64     `ch:"cancellations_merchant"`
+	CancellationsExpired    int64     `ch:"cancellations_expired"`
+	CancellationsChargeback int64     `ch:"cancellations_chargeback"`
+	ActiveEnd               int64     `ch:"active_count_end"`
 }
 
 func bucketStartExpr(granularity string) string {
@@ -247,270 +308,128 @@ func bucketStartExpr(granularity string) string {
 	}
 }
 
-func (s *AdminMetricsService) aggregatePeriod(ctx context.Context, startDay, endDay time.Time) (*periodAggregates, error) {
-	conn, err := s.openClickHouse()
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-
-	aggQuery := `
-        SELECT
-            anyLast(currency) AS currency,
-            uniqExact(currency) AS currency_count,
-            sum(subscription_revenue_cents) AS subscription_revenue_cents,
-            sum(one_time_revenue_cents) AS one_time_revenue_cents,
-            sum(refunds_cents) AS refunds_cents,
-            sum(chargebacks_cents) AS chargebacks_cents,
-            sum(new_subscriptions) AS new_subscriptions,
-            sum(cancellations_user) AS cancellations_user,
-            sum(cancellations_merchant) AS cancellations_merchant,
-            sum(cancellations_expired) AS cancellations_expired,
-            sum(cancellations_chargeback) AS cancellations_chargeback,
-            sum(reactivations) AS reactivations,
-            sum(entitlements_granted) AS entitlements_granted,
-            sum(active_count_end) AS active_sum,
-            sum(past_due_count_end) AS past_due_sum,
-            sum(pending_count_end) AS pending_sum,
-            argMax(active_count_end, snapshot_date) AS active_last,
-            argMax(past_due_count_end, snapshot_date) AS past_due_last,
-            argMax(pending_count_end, snapshot_date) AS pending_last,
-            count() AS row_count
-        FROM daily_metrics
-        WHERE snapshot_date >= ? AND snapshot_date <= ?`
-
-	var agg struct {
-		Currency              string `ch:"currency"`
-		CurrencyCount         int64  `ch:"currency_count"`
-		SubscriptionRevenue   int64  `ch:"subscription_revenue_cents"`
-		OneTimeRevenue        int64  `ch:"one_time_revenue_cents"`
-		Refunds               int64  `ch:"refunds_cents"`
-		Chargebacks           int64  `ch:"chargebacks_cents"`
-		NewSubscriptions      int64  `ch:"new_subscriptions"`
-		CancellationsUser     int64  `ch:"cancellations_user"`
-		CancellationsMerchant int64  `ch:"cancellations_merchant"`
-		CancellationsExpired  int64  `ch:"cancellations_expired"`
-		CancellationsCb       int64  `ch:"cancellations_chargeback"`
-		Reactivations         int64  `ch:"reactivations"`
-		EntitlementsGranted   int64  `ch:"entitlements_granted"`
-		ActiveSum             int64  `ch:"active_sum"`
-		PastDueSum            int64  `ch:"past_due_sum"`
-		PendingSum            int64  `ch:"pending_sum"`
-		ActiveLast            int64  `ch:"active_last"`
-		PastDueLast           int64  `ch:"past_due_last"`
-		PendingLast           int64  `ch:"pending_last"`
-		RowCount              int64  `ch:"row_count"`
-	}
-
-	if err := conn.QueryRow(ctx, aggQuery, startDay, endDay).ScanStruct(&agg); err != nil {
-		return nil, err
-	}
-	if agg.RowCount == 0 {
-		return nil, nil
-	}
-
-	latestQuery := `
-        SELECT currency, mrr_cents, active_count_end, past_due_count_end, pending_count_end, created_at
-        FROM daily_metrics
-        WHERE snapshot_date >= ? AND snapshot_date <= ?
-        ORDER BY snapshot_date DESC
-        LIMIT 1`
-
-	var latest struct {
-		Currency    string    `ch:"currency"`
-		MRR         int64     `ch:"mrr_cents"`
-		ActiveEnd   int64     `ch:"active_count_end"`
-		PastDueEnd  int64     `ch:"past_due_count_end"`
-		PendingEnd  int64     `ch:"pending_count_end"`
-		DataFreshAs time.Time `ch:"created_at"`
-	}
-
-	if err := conn.QueryRow(ctx, latestQuery, startDay, endDay).ScanStruct(&latest); err != nil {
-		return nil, err
-	}
-
-	totalDays := int64(endDay.Sub(startDay).Hours()/24) + 1
-	missingDays := totalDays - agg.RowCount
-	if missingDays < 0 {
-		missingDays = 0
-	}
-
-	volCancels := agg.CancellationsUser + agg.CancellationsMerchant
-	invCancels := agg.CancellationsExpired + agg.CancellationsCb
-
-	currency := agg.Currency
-	if latest.Currency != "" {
-		currency = latest.Currency
-	}
-	if currency == "" {
-		currency = "usd"
-	}
-
-	return &periodAggregates{
-		Currency:            currency,
-		CurrencyCount:       agg.CurrencyCount,
-		SubscriptionRevenue: agg.SubscriptionRevenue,
-		OneTimeRevenue:      agg.OneTimeRevenue,
-		Refunds:             agg.Refunds,
-		Chargebacks:         agg.Chargebacks,
-		NewSubscriptions:    agg.NewSubscriptions,
-		CancellationsVol:    volCancels,
-		CancellationsInv:    invCancels,
-		Reactivations:       agg.Reactivations,
-		EntitlementsGranted: agg.EntitlementsGranted,
-		ActiveSumObserved:   agg.ActiveSum,
-		PastDueSumObserved:  agg.PastDueSum,
-		PendingSumObserved:  agg.PendingSum,
-		RowCount:            agg.RowCount,
-		DayCount:            totalDays,
-		ActiveLast:          agg.ActiveLast,
-		PastDueLast:         agg.PastDueLast,
-		PendingLast:         agg.PendingLast,
-		MRR:                 latest.MRR,
-		ActiveEnd:           latest.ActiveEnd,
-		PastDueEnd:          latest.PastDueEnd,
-		PendingEnd:          latest.PendingEnd,
-		DataFreshAsOf:       latest.DataFreshAs,
-	}, nil
-}
-
-// GetSummary returns aggregate metrics for the requested range using ClickHouse daily_metrics.
-func (s *AdminMetricsService) GetSummary(ctx context.Context, rng MetricsDateRange) (*SummaryResponse, error) {
+// GetSummary returns per-currency summaries using daily_metrics (already carried forward in ClickHouse).
+func (s *AdminMetricsService) GetSummary(ctx context.Context, rng MetricsDateRange, currency string) ([]SummaryResponse, error) {
 	startDay := truncateToDay(rng.Start)
 	endDay := truncateToDay(rng.End.Add(-time.Nanosecond))
+	endDay = clampToToday(endDay)
 
-	current, err := s.aggregatePeriod(ctx, startDay, endDay)
+	rows, err := s.querySummaryAggregates(ctx, startDay, endDay, currency)
 	if err != nil {
 		return nil, err
 	}
-	if current == nil {
-		start := truncateToDay(rng.Start)
-		end := truncateToDay(rng.End.Add(-time.Nanosecond)).Add(24 * time.Hour)
-		return &SummaryResponse{
-			PeriodStart:         start,
-			PeriodEnd:           end,
-			Currency:            "usd",
-			Cancellations:       CancellationBreakdown{},
-			ActiveSubscriptions: ActiveSubscriptionBreakdown{},
-			DataFreshAsOf:       s.Clock().Now().UTC(),
-		}, nil
-	}
-	if current.CurrencyCount > 1 {
-		return nil, fmt.Errorf("mixed currencies detected in range; aggregation requires single currency")
+	if len(rows) == 0 {
+		return []SummaryResponse{}, nil
 	}
 
-	totalRevenue := current.SubscriptionRevenue + current.OneTimeRevenue
-	subRevenue := current.SubscriptionRevenue
-	oneTimeRevenue := current.OneTimeRevenue
-	refunds := current.Refunds
-	chargebacks := current.Chargebacks
-	newSubs := int(current.NewSubscriptions)
-	cancelsVol := int(current.CancellationsVol)
-	cancelsInv := int(current.CancellationsInv)
-	reactivations := int(current.Reactivations)
-	missingDays := current.DayCount - current.RowCount
-	if missingDays < 0 {
-		missingDays = 0
-	}
-	activeSumFilled := current.ActiveSumObserved + missingDays*current.ActiveLast
-
-	activeBreakdown := ActiveSubscriptionBreakdown{
-		Active:            int(current.ActiveEnd),
-		PastDue:           int(current.PastDueEnd),
-		Pending:           int(current.PendingEnd),
-		CancelledInPeriod: cancelsVol + cancelsInv,
-	}
-	mrr := current.MRR
-	arr := mrr * 12
-
-	var arpu int64
-	if current.DayCount > 0 {
-		avgActive := activeSumFilled / current.DayCount
-		if avgActive > 0 {
-			arpu = totalRevenue / avgActive
-		}
-	}
-
-	netNew := newSubs - (cancelsVol + cancelsInv) + reactivations
-
-	resp := &SummaryResponse{
-		PeriodStart:         startDay,
-		PeriodEnd:           endDay.Add(24 * time.Hour),
-		Currency:            current.Currency,
-		MRR:                 mrr,
-		ARR:                 arr,
-		TotalRevenue:        totalRevenue,
-		SubscriptionRevenue: subRevenue,
-		OneTimeRevenue:      oneTimeRevenue,
-		Refunds:             refunds,
-		Chargebacks:         chargebacks,
-		NewSubscriptions:    newSubs,
-		Cancellations: CancellationBreakdown{
-			Total:       cancelsVol + cancelsInv,
-			Voluntary:   cancelsVol,
-			Involuntary: cancelsInv,
-		},
-		NetNewSubscriptions: netNew,
-		ActiveSubscriptions: activeBreakdown,
-		ARPU:                arpu,
-		EntitlementGrants:   int(current.EntitlementsGranted),
-		DataFreshAsOf:       current.DataFreshAsOf,
-	}
-
-	// Previous period comparison
-	prevLength := endDay.Add(24 * time.Hour).Sub(startDay)
-	prevStart := startDay.Add(-prevLength)
+	// Previous period for comparison
+	prevLen := endDay.Add(24 * time.Hour).Sub(startDay)
+	prevStart := startDay.Add(-prevLen)
 	prevEnd := startDay.Add(-time.Nanosecond)
-	prev, err := s.aggregatePeriod(ctx, prevStart, prevEnd)
-	if err == nil && prev != nil {
-		prevTotals := aggregateResult{
-			MRR:          prev.MRR,
-			TotalRevenue: prev.SubscriptionRevenue + prev.OneTimeRevenue,
-			NetNew:       int(prev.NewSubscriptions - prev.CancellationsVol - prev.CancellationsInv + prev.Reactivations),
-		}
-		resp.Comparison = &SummaryComparison{
-			PreviousPeriod: MetricsDateRange{Start: prevStart, End: prevEnd.Add(24 * time.Hour)},
-			MRRDelta:       resp.MRR - prevTotals.MRR,
-			RevenueDelta:   resp.TotalRevenue - prevTotals.TotalRevenue,
-			NetNewDelta:    resp.NetNewSubscriptions - prevTotals.NetNew,
-		}
+	prevRows, _ := s.querySummaryAggregates(ctx, prevStart, prevEnd, currency)
+	prevByCurrency := make(map[string]summaryAggRow)
+	for _, r := range prevRows {
+		prevByCurrency[r.Currency] = r
 	}
 
-	return resp, nil
+	var out []SummaryResponse
+	for _, r := range rows {
+		cancelsVol := r.CancellationsUser + r.CancellationsMerchant
+		cancelsInv := r.CancellationsExpired + r.CancellationsChargeback
+		netNew := r.NewSubscriptions - (cancelsVol + cancelsInv) + r.Reactivations
+
+		avgActive := int64(0)
+		if r.DayCount > 0 {
+			avgActive = r.ActiveSum / r.DayCount
+		}
+		arpu := int64(0)
+		if avgActive > 0 {
+			arpu = r.NetRevenue / avgActive
+		}
+
+		resp := SummaryResponse{
+			PeriodStart:         startDay,
+			PeriodEnd:           endDay.Add(24 * time.Hour),
+			Currency:            r.Currency,
+			MRR:                 r.MRR,
+			ARR:                 r.MRR * 12,
+			TotalRevenue:        r.NetRevenue,
+			GrossRevenue:        r.GrossRevenue,
+			SubscriptionRevenue: r.SubscriptionRevenue,
+			OneTimeRevenue:      r.OneTimeRevenue,
+			Refunds:             r.Refunds,
+			Chargebacks:         r.Chargebacks,
+			NewSubscriptions:    int(r.NewSubscriptions),
+			Cancellations: CancellationBreakdown{
+				Total:       int(cancelsVol + cancelsInv),
+				Voluntary:   int(cancelsVol),
+				Involuntary: int(cancelsInv),
+			},
+			NetNewSubscriptions: int(netNew),
+			ActiveSubscriptions: ActiveSubscriptionBreakdown{
+				Active:            int(r.ActiveEnd),
+				PastDue:           int(r.PastDueEnd),
+				Pending:           int(r.PendingEnd),
+				CancelledInPeriod: int(cancelsVol + cancelsInv),
+			},
+			ARPU:              arpu,
+			EntitlementGrants: int(r.EntitlementsGranted),
+			DataFreshAsOf:     r.DataFreshAsOf,
+		}
+
+		if prev, ok := prevByCurrency[r.Currency]; ok {
+			prevCancelsVol := prev.CancellationsUser + prev.CancellationsMerchant
+			prevCancelsInv := prev.CancellationsExpired + prev.CancellationsChargeback
+			prevNetNew := prev.NewSubscriptions - (prevCancelsVol + prevCancelsInv) + prev.Reactivations
+			resp.Comparison = &SummaryComparison{
+				PreviousPeriod: MetricsDateRange{Start: prevStart, End: prevEnd.Add(24 * time.Hour)},
+				MRRDelta:       resp.MRR - prev.MRR,
+				RevenueDelta:   resp.TotalRevenue - prev.NetRevenue,
+				NetNewDelta:    resp.NetNewSubscriptions - int(prevNetNew),
+			}
+		}
+		out = append(out, resp)
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Currency < out[j].Currency
+	})
+	return out, nil
 }
 
-type aggregateResult struct {
-	MRR          int64
-	TotalRevenue int64
-	NetNew       int
-}
-
-func (s *AdminMetricsService) GetRevenueSeries(ctx context.Context, rng MetricsDateRange, granularity string) (*RevenueSeriesResponse, error) {
+func (s *AdminMetricsService) GetRevenueSeries(ctx context.Context, rng MetricsDateRange, granularity string, currency string) ([]RevenueSeriesResponse, error) {
 	if granularity == "" {
 		granularity = "day"
 	}
 	startDay := truncateToDay(rng.Start)
 	endDay := truncateToDay(rng.End.Add(-time.Nanosecond))
+	endDay = clampToToday(endDay)
 
-	buckets, err := s.queryRevenueBuckets(ctx, startDay, endDay, granularity)
+	buckets, err := s.queryRevenueBuckets(ctx, startDay, endDay, granularity, currency)
 	if err != nil {
 		return nil, err
 	}
 
-	resp := &RevenueSeriesResponse{Currency: "usd", Granularity: granularity}
-	if len(buckets) > 0 {
-		resp.Currency = buckets[len(buckets)-1].Currency
-	}
-
+	responses := make(map[string]*RevenueSeriesResponse)
 	for _, r := range buckets {
 		next := advance(r.BucketStart, granularity)
 		if next.After(endDay.Add(24 * time.Hour)) {
 			next = endDay.Add(24 * time.Hour)
 		}
+
+		resp, ok := responses[r.Currency]
+		if !ok {
+			resp = &RevenueSeriesResponse{
+				Currency:    r.Currency,
+				Granularity: granularity,
+			}
+			responses[r.Currency] = resp
+		}
+
 		bucket := RevenueSeriesBucket{
 			PeriodStart:         r.BucketStart,
 			PeriodEnd:           next,
-			TotalRevenue:        r.TotalRevenue,
+			TotalRevenue:        r.NetRevenue,
 			SubscriptionRevenue: r.SubscriptionRevenue,
 			OneTimeRevenue:      r.OneTimeRevenue,
 			Refunds:             r.Refunds,
@@ -518,39 +437,56 @@ func (s *AdminMetricsService) GetRevenueSeries(ctx context.Context, rng MetricsD
 		}
 		if r.PaymentsSuccessful > 0 {
 			bucket.Payments.Count = int(r.PaymentsSuccessful)
-			bucket.Payments.AverageAmount = r.TotalRevenue / int64(r.PaymentsSuccessful)
+			bucket.Payments.AverageAmount = r.NetRevenue / int64(r.PaymentsSuccessful)
 		}
 		resp.Buckets = append(resp.Buckets, bucket)
+		resp.Totals.TotalRevenue += r.NetRevenue
+		resp.Totals.GrossRevenue += r.GrossRevenue
+		resp.Totals.SubscriptionRevenue += r.SubscriptionRevenue
+		resp.Totals.OneTimeRevenue += r.OneTimeRevenue
+		resp.Totals.Refunds += r.Refunds
+		resp.Totals.Chargebacks += r.Chargebacks
 	}
 
-	for _, b := range resp.Buckets {
-		resp.Totals.TotalRevenue += b.TotalRevenue
-		resp.Totals.SubscriptionRevenue += b.SubscriptionRevenue
-		resp.Totals.OneTimeRevenue += b.OneTimeRevenue
-		resp.Totals.Refunds += b.Refunds
-		resp.Totals.Chargebacks += b.Chargebacks
+	var out []RevenueSeriesResponse
+	for _, resp := range responses {
+		out = append(out, *resp)
 	}
-	return resp, nil
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Currency < out[j].Currency
+	})
+	return out, nil
 }
 
-func (s *AdminMetricsService) GetSubscriptionSeries(ctx context.Context, rng MetricsDateRange, granularity string) (*SubscriptionSeriesResponse, error) {
+func (s *AdminMetricsService) GetSubscriptionSeries(ctx context.Context, rng MetricsDateRange, granularity string, currency string) ([]SubscriptionSeriesResponse, error) {
 	if granularity == "" {
 		granularity = "day"
 	}
 	startDay := truncateToDay(rng.Start)
 	endDay := truncateToDay(rng.End.Add(-time.Nanosecond))
+	endDay = clampToToday(endDay)
 
-	buckets, err := s.querySubscriptionBuckets(ctx, startDay, endDay, granularity)
+	buckets, err := s.querySubscriptionBuckets(ctx, startDay, endDay, granularity, currency)
 	if err != nil {
 		return nil, err
 	}
 
-	resp := &SubscriptionSeriesResponse{Granularity: granularity}
+	responses := make(map[string]*SubscriptionSeriesResponse)
 	for _, r := range buckets {
 		next := advance(r.BucketStart, granularity)
 		if next.After(endDay.Add(24 * time.Hour)) {
 			next = endDay.Add(24 * time.Hour)
 		}
+
+		resp, ok := responses[r.Currency]
+		if !ok {
+			resp = &SubscriptionSeriesResponse{
+				Currency:    r.Currency,
+				Granularity: granularity,
+			}
+			responses[r.Currency] = resp
+		}
+
 		bucket := SubscriptionSeriesBucket{
 			PeriodStart:      r.BucketStart,
 			PeriodEnd:        next,
@@ -564,32 +500,45 @@ func (s *AdminMetricsService) GetSubscriptionSeries(ctx context.Context, rng Met
 			ActiveCountEnd: int(r.ActiveCountEnd),
 		}
 		bucket.NetChange = bucket.NewSubscriptions - (bucket.Cancellations.Voluntary + bucket.Cancellations.Involuntary) + bucket.Reactivations
+
 		resp.Buckets = append(resp.Buckets, bucket)
+		resp.Totals.NewSubscriptions += bucket.NewSubscriptions
+		resp.Totals.Cancellations += bucket.Cancellations.Voluntary + bucket.Cancellations.Involuntary
+		resp.Totals.Reactivations += bucket.Reactivations
+		resp.Totals.NetChange += bucket.NetChange
 	}
 
-	for _, b := range resp.Buckets {
-		resp.Totals.NewSubscriptions += b.NewSubscriptions
-		resp.Totals.Cancellations += b.Cancellations.Voluntary + b.Cancellations.Involuntary
-		resp.Totals.Reactivations += b.Reactivations
-		resp.Totals.NetChange += b.NetChange
+	var out []SubscriptionSeriesResponse
+	for _, resp := range responses {
+		out = append(out, *resp)
 	}
-	return resp, nil
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Currency < out[j].Currency
+	})
+	return out, nil
 }
 
-func (s *AdminMetricsService) GetProcessorMetrics(ctx context.Context, rng MetricsDateRange) (*ProcessorMetricsResponse, error) {
+func (s *AdminMetricsService) GetProcessorMetrics(ctx context.Context, rng MetricsDateRange, currency string) ([]ProcessorMetricsResponse, error) {
 	startDay := truncateToDay(rng.Start)
 	endDay := truncateToDay(rng.End.Add(-time.Nanosecond))
+	endDay = clampToToday(endDay)
 
-	aggRows, err := s.queryProcessorAggregates(ctx, startDay, endDay)
+	aggRows, err := s.queryProcessorAggregates(ctx, startDay, endDay, currency)
 	if err != nil {
 		return nil, err
 	}
 
-	resp := &ProcessorMetricsResponse{
-		PeriodStart: startDay,
-		PeriodEnd:   endDay.Add(24 * time.Hour),
-	}
+	responses := make(map[string]*ProcessorMetricsResponse)
 	for _, r := range aggRows {
+		resp, ok := responses[r.Currency]
+		if !ok {
+			resp = &ProcessorMetricsResponse{
+				Currency:    r.Currency,
+				PeriodStart: startDay,
+				PeriodEnd:   endDay.Add(24 * time.Hour),
+			}
+			responses[r.Currency] = resp
+		}
 		resp.Processors = append(resp.Processors, ProcessorMetrics{
 			Processor: r.Processor,
 			Metrics: DailyProcessorMetrics{
@@ -610,89 +559,169 @@ func (s *AdminMetricsService) GetProcessorMetrics(ctx context.Context, rng Metri
 			},
 		})
 	}
-	sort.Slice(resp.Processors, func(i, j int) bool {
-		return resp.Processors[i].Processor < resp.Processors[j].Processor
+
+	var out []ProcessorMetricsResponse
+	for _, resp := range responses {
+		sort.Slice(resp.Processors, func(i, j int) bool {
+			return resp.Processors[i].Processor < resp.Processors[j].Processor
+		})
+		out = append(out, *resp)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Currency < out[j].Currency
 	})
-	return resp, nil
+	return out, nil
 }
 
-func (s *AdminMetricsService) GetChurn(ctx context.Context, rng MetricsDateRange) (*ChurnResponse, error) {
+func (s *AdminMetricsService) GetChurn(ctx context.Context, rng MetricsDateRange, currency string) ([]ChurnResponse, error) {
 	startMonth := firstOfMonth(rng.Start)
 	endMonthStart := firstOfMonth(rng.End)
 	endBoundary := endMonthStart.AddDate(0, 1, 0).Add(-time.Nanosecond)
+	endBoundary = clampToToday(endBoundary)
 
-	monthly, err := s.queryChurnBuckets(ctx, startMonth, endBoundary)
+	monthly, err := s.queryChurnBuckets(ctx, startMonth, endBoundary, currency)
 	if err != nil {
 		return nil, err
 	}
-
-	resp := &ChurnResponse{
-		PeriodStart: startMonth,
-		PeriodEnd:   endMonthStart.AddDate(0, 1, 0),
+	if len(monthly) == 0 {
+		return []ChurnResponse{}, nil
 	}
 
-	prevActive := 0
-	reasonCounts := map[string]int{"user": 0, "merchant": 0, "expired": 0, "chargeback": 0}
-
+	grouped := make(map[string][]churnBucketRow)
 	for _, m := range monthly {
-		totalCancels := int(m.CancellationsUser + m.CancellationsMerchant + m.CancellationsExpired + m.CancellationsChargeback)
-
-		activeStart := prevActive
-		if activeStart == 0 {
-			activeStart = int(m.ActiveEnd) + totalCancels
-		}
-
-		var churnRate, volRate, invRate float64
-		if activeStart > 0 {
-			churnRate = float64(totalCancels) / float64(activeStart)
-			volRate = float64(m.CancellationsUser+m.CancellationsMerchant) / float64(activeStart)
-			invRate = float64(m.CancellationsExpired+m.CancellationsChargeback) / float64(activeStart)
-		}
-
-		resp.MonthlyChurn = append(resp.MonthlyChurn, MonthlyChurnPoint{
-			Month:           m.MonthStart.Format("2006-01"),
-			ChurnRate:       churnRate,
-			VoluntaryRate:   volRate,
-			InvoluntaryRate: invRate,
-			ActiveStart:     activeStart,
-			ActiveEnd:       int(m.ActiveEnd),
-		})
-
-		reasonCounts["user"] += int(m.CancellationsUser)
-		reasonCounts["merchant"] += int(m.CancellationsMerchant)
-		reasonCounts["expired"] += int(m.CancellationsExpired)
-		reasonCounts["chargeback"] += int(m.CancellationsChargeback)
-
-		prevActive = int(m.ActiveEnd)
+		grouped[m.Currency] = append(grouped[m.Currency], m)
+	}
+	for _, list := range grouped {
+		sort.Slice(list, func(i, j int) bool { return list[i].MonthStart.Before(list[j].MonthStart) })
 	}
 
-	for reason, count := range reasonCounts {
-		if count == 0 {
-			continue
+	var out []ChurnResponse
+	for currency, rows := range grouped {
+		resp := ChurnResponse{
+			Currency:    currency,
+			PeriodStart: startMonth,
+			PeriodEnd:   endMonthStart.AddDate(0, 1, 0),
 		}
-		resp.CancellationReasons = append(resp.CancellationReasons, ReasonCount{
-			Reason: reason,
-			Count:  count,
-		})
+
+		prevActive := 0
+		reasonCounts := map[string]int{"user": 0, "merchant": 0, "expired": 0, "chargeback": 0}
+
+		for _, m := range rows {
+			totalCancels := int(m.CancellationsUser + m.CancellationsMerchant + m.CancellationsExpired + m.CancellationsChargeback)
+
+			activeStart := prevActive
+			if activeStart == 0 {
+				activeStart = int(m.ActiveEnd) + totalCancels
+			}
+
+			var churnRate, volRate, invRate float64
+			if activeStart > 0 {
+				churnRate = float64(totalCancels) / float64(activeStart)
+				volRate = float64(m.CancellationsUser+m.CancellationsMerchant) / float64(activeStart)
+				invRate = float64(m.CancellationsExpired+m.CancellationsChargeback) / float64(activeStart)
+			}
+
+			resp.MonthlyChurn = append(resp.MonthlyChurn, MonthlyChurnPoint{
+				Month:           m.MonthStart.Format("2006-01"),
+				ChurnRate:       churnRate,
+				VoluntaryRate:   volRate,
+				InvoluntaryRate: invRate,
+				ActiveStart:     activeStart,
+				ActiveEnd:       int(m.ActiveEnd),
+			})
+
+			reasonCounts["user"] += int(m.CancellationsUser)
+			reasonCounts["merchant"] += int(m.CancellationsMerchant)
+			reasonCounts["expired"] += int(m.CancellationsExpired)
+			reasonCounts["chargeback"] += int(m.CancellationsChargeback)
+
+			prevActive = int(m.ActiveEnd)
+		}
+
+		for reason, count := range reasonCounts {
+			if count == 0 {
+				continue
+			}
+			resp.CancellationReasons = append(resp.CancellationReasons, ReasonCount{
+				Reason: reason,
+				Count:  count,
+			})
+		}
+
+		// Cohort retention: not implemented (no cohort table); return empty slice
+		resp.CohortRetention = []CohortRetentionEntry{}
+		out = append(out, resp)
 	}
 
-	// Cohort retention: not implemented (no cohort table); return empty slice
-	resp.CohortRetention = []CohortRetentionEntry{}
-	return resp, nil
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].Currency < out[j].Currency
+	})
+	return out, nil
 }
 
-type revenueBucketRow struct {
-	BucketStart         time.Time `ch:"bucket_start"`
-	Currency            string    `ch:"currency"`
-	SubscriptionRevenue int64     `ch:"subscription_revenue_cents"`
-	OneTimeRevenue      int64     `ch:"one_time_revenue_cents"`
-	Refunds             int64     `ch:"refunds_cents"`
-	Chargebacks         int64     `ch:"chargebacks_cents"`
-	TotalRevenue        int64     `ch:"total_revenue_cents"`
-	PaymentsSuccessful  uint64    `ch:"payments_successful"`
+func (s *AdminMetricsService) querySummaryAggregates(ctx context.Context, startDay, endDay time.Time, currency string) ([]summaryAggRow, error) {
+	conn, err := s.openClickHouse()
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	query := `
+        SELECT
+            currency,
+            sum(subscription_revenue_cents) AS subscription_revenue_cents,
+            sum(one_time_revenue_cents) AS one_time_revenue_cents,
+            sum(refunds_cents) AS refunds_cents,
+            sum(chargebacks_cents) AS chargebacks_cents,
+            sum(total_revenue_cents) AS gross_revenue_cents,
+            sum(total_revenue_net_cents) AS net_revenue_cents,
+            sum(new_subscriptions) AS new_subscriptions,
+            sum(cancellations_user) AS cancellations_user,
+            sum(cancellations_merchant) AS cancellations_merchant,
+            sum(cancellations_expired) AS cancellations_expired,
+            sum(cancellations_chargeback) AS cancellations_chargeback,
+            sum(reactivations) AS reactivations,
+            sum(coalesce(entitlements_granted, 0)) AS entitlements_granted,
+            sum(active_count_end) AS active_sum,
+            sum(past_due_count_end) AS past_due_sum,
+            sum(pending_count_end) AS pending_sum,
+            count() AS day_count,
+            argMax(active_count_end, snapshot_date) AS active_end,
+            argMax(past_due_count_end, snapshot_date) AS past_due_end,
+            argMax(pending_count_end, snapshot_date) AS pending_end,
+            argMax(mrr_cents, snapshot_date) AS mrr_cents,
+            max(created_at) AS data_fresh_as_of
+        FROM daily_metrics
+        WHERE snapshot_date >= ? AND snapshot_date <= ?
+        %[1]s
+        GROUP BY currency
+        ORDER BY currency`
+
+	filter := ""
+	args := []any{startDay, endDay}
+	if currency != "" {
+		filter = "AND currency = ?"
+		args = append(args, currency)
+	}
+
+	rows, err := conn.Query(ctx, fmt.Sprintf(query, filter), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []summaryAggRow
+	for rows.Next() {
+		var r summaryAggRow
+		if err := rows.ScanStruct(&r); err != nil {
+			return nil, err
+		}
+		result = append(result, r)
+	}
+	return result, nil
 }
 
-func (s *AdminMetricsService) queryRevenueBuckets(ctx context.Context, startDay, endDay time.Time, granularity string) ([]revenueBucketRow, error) {
+func (s *AdminMetricsService) queryRevenueBuckets(ctx context.Context, startDay, endDay time.Time, granularity string, currency string) ([]revenueBucketRow, error) {
 	conn, err := s.openClickHouse()
 	if err != nil {
 		return nil, err
@@ -703,19 +732,28 @@ func (s *AdminMetricsService) queryRevenueBuckets(ctx context.Context, startDay,
 	query := fmt.Sprintf(`
         SELECT
             %[1]s AS bucket_start,
-            anyLast(currency) AS currency,
+            currency,
             sum(subscription_revenue_cents) AS subscription_revenue_cents,
             sum(one_time_revenue_cents) AS one_time_revenue_cents,
             sum(refunds_cents) AS refunds_cents,
             sum(chargebacks_cents) AS chargebacks_cents,
             sum(total_revenue_cents) AS total_revenue_cents,
+            sum(total_revenue_net_cents) AS total_revenue_net_cents,
             sum(payments_successful) AS payments_successful
         FROM daily_metrics
         WHERE snapshot_date >= ? AND snapshot_date <= ?
-        GROUP BY bucket_start
-        ORDER BY bucket_start`, bucketExpr)
+        %[2]s
+        GROUP BY currency, bucket_start
+        ORDER BY currency, bucket_start`, bucketExpr, "%s")
 
-	rows, err := conn.Query(ctx, query, startDay, endDay)
+	filter := ""
+	args := []any{startDay, endDay}
+	if currency != "" {
+		filter = "AND currency = ?"
+		args = append(args, currency)
+	}
+
+	rows, err := conn.Query(ctx, fmt.Sprintf(query, filter), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -732,19 +770,7 @@ func (s *AdminMetricsService) queryRevenueBuckets(ctx context.Context, startDay,
 	return result, nil
 }
 
-type subscriptionBucketRow struct {
-	BucketStart             time.Time `ch:"bucket_start"`
-	NewSubscriptions        int64     `ch:"new_subscriptions"`
-	ScheduledStarts         int64     `ch:"scheduled_starts"`
-	CancellationsUser       int64     `ch:"cancellations_user"`
-	CancellationsMerchant   int64     `ch:"cancellations_merchant"`
-	CancellationsExpired    int64     `ch:"cancellations_expired"`
-	CancellationsChargeback int64     `ch:"cancellations_chargeback"`
-	Reactivations           int64     `ch:"reactivations"`
-	ActiveCountEnd          int64     `ch:"active_count_end"`
-}
-
-func (s *AdminMetricsService) querySubscriptionBuckets(ctx context.Context, startDay, endDay time.Time, granularity string) ([]subscriptionBucketRow, error) {
+func (s *AdminMetricsService) querySubscriptionBuckets(ctx context.Context, startDay, endDay time.Time, granularity string, currency string) ([]subscriptionBucketRow, error) {
 	conn, err := s.openClickHouse()
 	if err != nil {
 		return nil, err
@@ -755,8 +781,9 @@ func (s *AdminMetricsService) querySubscriptionBuckets(ctx context.Context, star
 	query := fmt.Sprintf(`
         SELECT
             %[1]s AS bucket_start,
+            currency,
             sum(new_subscriptions) AS new_subscriptions,
-            sum(scheduled_starts) AS scheduled_starts,
+            sum(coalesce(scheduled_starts, 0)) AS scheduled_starts,
             sum(cancellations_user) AS cancellations_user,
             sum(cancellations_merchant) AS cancellations_merchant,
             sum(cancellations_expired) AS cancellations_expired,
@@ -765,16 +792,24 @@ func (s *AdminMetricsService) querySubscriptionBuckets(ctx context.Context, star
             argMax(active_count_end, snapshot_date) AS active_count_end
         FROM daily_metrics
         WHERE snapshot_date >= ? AND snapshot_date <= ?
-        GROUP BY bucket_start
-        ORDER BY bucket_start`, bucketExpr)
+        %[2]s
+        GROUP BY currency, bucket_start
+        ORDER BY currency, bucket_start`, bucketExpr, "%s")
 
-	rows, err := conn.Query(ctx, query, startDay, endDay)
+	var result []subscriptionBucketRow
+	filter := ""
+	args := []any{startDay, endDay}
+	if currency != "" {
+		filter = "AND currency = ?"
+		args = append(args, currency)
+	}
+
+	rows, err := conn.Query(ctx, fmt.Sprintf(query, filter), args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var result []subscriptionBucketRow
 	for rows.Next() {
 		var r subscriptionBucketRow
 		if err := rows.ScanStruct(&r); err != nil {
@@ -785,21 +820,7 @@ func (s *AdminMetricsService) querySubscriptionBuckets(ctx context.Context, star
 	return result, nil
 }
 
-type processorAggRow struct {
-	Processor           string `ch:"processor"`
-	ActiveSubscriptions int64  `ch:"active_subscriptions"`
-	NewSubscriptions    int64  `ch:"new_subscriptions"`
-	Cancellations       int64  `ch:"cancellations"`
-	RevenueTotal        int64  `ch:"revenue_total_cents"`
-	RevenueSubscription int64  `ch:"revenue_subscription_cents"`
-	RevenueOneTime      int64  `ch:"revenue_one_time_cents"`
-	RevenueRefunds      int64  `ch:"revenue_refunds_cents"`
-	RevenueChargebacks  int64  `ch:"revenue_chargebacks_cents"`
-	PaymentsSuccessful  int64  `ch:"payments_successful"`
-	PaymentsFailed      int64  `ch:"payments_failed"`
-}
-
-func (s *AdminMetricsService) queryProcessorAggregates(ctx context.Context, startDay, endDay time.Time) ([]processorAggRow, error) {
+func (s *AdminMetricsService) queryProcessorAggregates(ctx context.Context, startDay, endDay time.Time, currency string) ([]processorAggRow, error) {
 	conn, err := s.openClickHouse()
 	if err != nil {
 		return nil, err
@@ -808,8 +829,9 @@ func (s *AdminMetricsService) queryProcessorAggregates(ctx context.Context, star
 
 	query := `
         SELECT
+            currency,
             proc.1 AS processor,
-            sum(proc.2) AS active_subscriptions,
+            argMax(proc.2, snapshot_date) AS active_subscriptions,
             sum(proc.3) AS new_subscriptions,
             sum(proc.4) AS cancellations,
             sum(proc.5) AS revenue_total_cents,
@@ -820,26 +842,37 @@ func (s *AdminMetricsService) queryProcessorAggregates(ctx context.Context, star
             sum(proc.10) AS payments_successful,
             sum(proc.11) AS payments_failed
         FROM (
-            SELECT arrayJoin(arrayZip(
-                processor.name,
-                processor.active_subscriptions,
-                processor.new_subscriptions,
-                processor.cancellations,
-                processor.revenue_total_cents,
-                processor.revenue_subscription_cents,
-                processor.revenue_one_time_cents,
-                processor.revenue_refunds_cents,
-                processor.revenue_chargebacks_cents,
-                processor.payments_successful,
-                processor.payments_failed
-            )) AS proc
+            SELECT
+                snapshot_date,
+                currency,
+                arrayJoin(arrayZip(
+                    processor.name,
+                    processor.active_subscriptions,
+                    processor.new_subscriptions,
+                    processor.cancellations,
+                    processor.revenue_total_cents,
+                    processor.revenue_subscription_cents,
+                    processor.revenue_one_time_cents,
+                    processor.revenue_refunds_cents,
+                    processor.revenue_chargebacks_cents,
+                    processor.payments_successful,
+                    processor.payments_failed
+                )) AS proc
             FROM daily_metrics
             WHERE snapshot_date >= ? AND snapshot_date <= ?
+            %[1]s
         )
-        GROUP BY processor
-        ORDER BY processor`
+        GROUP BY currency, processor
+        ORDER BY currency, processor`
 
-	rows, err := conn.Query(ctx, query, startDay, endDay)
+	filter := ""
+	args := []any{startDay, endDay}
+	if currency != "" {
+		filter = "AND currency = ?"
+		args = append(args, currency)
+	}
+
+	rows, err := conn.Query(ctx, fmt.Sprintf(query, filter), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -856,16 +889,7 @@ func (s *AdminMetricsService) queryProcessorAggregates(ctx context.Context, star
 	return result, nil
 }
 
-type churnBucketRow struct {
-	MonthStart              time.Time `ch:"month_start"`
-	CancellationsUser       int64     `ch:"cancellations_user"`
-	CancellationsMerchant   int64     `ch:"cancellations_merchant"`
-	CancellationsExpired    int64     `ch:"cancellations_expired"`
-	CancellationsChargeback int64     `ch:"cancellations_chargeback"`
-	ActiveEnd               int64     `ch:"active_count_end"`
-}
-
-func (s *AdminMetricsService) queryChurnBuckets(ctx context.Context, startMonth, endDay time.Time) ([]churnBucketRow, error) {
+func (s *AdminMetricsService) queryChurnBuckets(ctx context.Context, startMonth, endDay time.Time, currency string) ([]churnBucketRow, error) {
 	conn, err := s.openClickHouse()
 	if err != nil {
 		return nil, err
@@ -874,6 +898,7 @@ func (s *AdminMetricsService) queryChurnBuckets(ctx context.Context, startMonth,
 
 	query := `
         SELECT
+            currency,
             toStartOfMonth(snapshot_date) AS month_start,
             sum(cancellations_user) AS cancellations_user,
             sum(cancellations_merchant) AS cancellations_merchant,
@@ -882,10 +907,18 @@ func (s *AdminMetricsService) queryChurnBuckets(ctx context.Context, startMonth,
             argMax(active_count_end, snapshot_date) AS active_count_end
         FROM daily_metrics
         WHERE snapshot_date >= ? AND snapshot_date <= ?
-        GROUP BY month_start
-        ORDER BY month_start`
+        %[1]s
+        GROUP BY currency, month_start
+        ORDER BY currency, month_start`
 
-	rows, err := conn.Query(ctx, query, startMonth, endDay)
+	filter := ""
+	args := []any{startMonth, endDay}
+	if currency != "" {
+		filter = "AND currency = ?"
+		args = append(args, currency)
+	}
+
+	rows, err := conn.Query(ctx, fmt.Sprintf(query, filter), args...)
 	if err != nil {
 		return nil, err
 	}

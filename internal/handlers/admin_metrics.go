@@ -16,10 +16,19 @@ func GetAdminMetricsSummary(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, err.Error())
 		return
 	}
+	currency := strings.TrimSpace(r.Query("currency"))
 	svc := services.NewAdminMetricsService(r.State.Config.ClickHouse)
-	resp, err := svc.GetSummary(r.Request.Context(), rng)
+	resp, err := svc.GetSummary(r.Request.Context(), rng, currency)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(resp) == 1 {
+		r.SuccessJSON(resp[0])
+		return
+	}
+	if currency == "" && len(resp) > 1 {
+		r.ErrorJSON(http.StatusBadRequest, "multiple currencies present; specify ?currency=XXX")
 		return
 	}
 	r.SuccessJSON(resp)
@@ -32,10 +41,19 @@ func GetAdminMetricsRevenue(r *Request) {
 		return
 	}
 	granularity := r.Query("granularity")
+	currency := strings.TrimSpace(r.Query("currency"))
 	svc := services.NewAdminMetricsService(r.State.Config.ClickHouse)
-	resp, err := svc.GetRevenueSeries(r.Request.Context(), rng, granularity)
+	resp, err := svc.GetRevenueSeries(r.Request.Context(), rng, granularity, currency)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(resp) == 1 {
+		r.SuccessJSON(resp[0])
+		return
+	}
+	if currency == "" && len(resp) > 1 {
+		r.ErrorJSON(http.StatusBadRequest, "multiple currencies present; specify ?currency=XXX")
 		return
 	}
 	r.SuccessJSON(resp)
@@ -48,10 +66,19 @@ func GetAdminMetricsSubscriptions(r *Request) {
 		return
 	}
 	granularity := r.Query("granularity")
+	currency := strings.TrimSpace(r.Query("currency"))
 	svc := services.NewAdminMetricsService(r.State.Config.ClickHouse)
-	resp, err := svc.GetSubscriptionSeries(r.Request.Context(), rng, granularity)
+	resp, err := svc.GetSubscriptionSeries(r.Request.Context(), rng, granularity, currency)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(resp) == 1 {
+		r.SuccessJSON(resp[0])
+		return
+	}
+	if currency == "" && len(resp) > 1 {
+		r.ErrorJSON(http.StatusBadRequest, "multiple currencies present; specify ?currency=XXX")
 		return
 	}
 	r.SuccessJSON(resp)
@@ -63,10 +90,19 @@ func GetAdminMetricsProcessors(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, err.Error())
 		return
 	}
+	currency := strings.TrimSpace(r.Query("currency"))
 	svc := services.NewAdminMetricsService(r.State.Config.ClickHouse)
-	resp, err := svc.GetProcessorMetrics(r.Request.Context(), rng)
+	resp, err := svc.GetProcessorMetrics(r.Request.Context(), rng, currency)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(resp) == 1 {
+		r.SuccessJSON(resp[0])
+		return
+	}
+	if currency == "" && len(resp) > 1 {
+		r.ErrorJSON(http.StatusBadRequest, "multiple currencies present; specify ?currency=XXX")
 		return
 	}
 	r.SuccessJSON(resp)
@@ -78,10 +114,19 @@ func GetAdminMetricsChurn(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, err.Error())
 		return
 	}
+	currency := strings.TrimSpace(r.Query("currency"))
 	svc := services.NewAdminMetricsService(r.State.Config.ClickHouse)
-	resp, err := svc.GetChurn(r.Request.Context(), rng)
+	resp, err := svc.GetChurn(r.Request.Context(), rng, currency)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
+		return
+	}
+	if len(resp) == 1 {
+		r.SuccessJSON(resp[0])
+		return
+	}
+	if currency == "" && len(resp) > 1 {
+		r.ErrorJSON(http.StatusBadRequest, "multiple currencies present; specify ?currency=XXX")
 		return
 	}
 	r.SuccessJSON(resp)
