@@ -1206,10 +1206,39 @@ func (s *SubscriptionLifecycleService) logSubscriptionEvent(ctx context.Context,
 		procSubID = &sub.ProcessorSubscriptionID
 	}
 
+	var priceAmount float64
+	var priceCurrency string
+	var billingDays uint32
+	var productID *uuid.UUID
+	var priceID *uuid.UUID
+	if sub.Price != nil {
+		priceAmount = float64(sub.Price.Amount) / 100.0
+		priceCurrency = sub.Price.Currency
+		if sub.Price.BillingCycleDays != nil {
+			billingDays = uint32(*sub.Price.BillingCycleDays)
+		}
+		productID = &sub.Price.ProductID
+		priceID = &sub.Price.ID
+	} else {
+		priceCurrency = "usd"
+	}
+
 	data := SubscriptionEventData{
 		SubscriptionID:          sub.ID,
 		UserID:                  sub.UserID,
 		EventType:               eventType,
+		Status:                  string(sub.Status),
+		CancelType: func() string {
+			if sub.CancelType != nil {
+				return string(*sub.CancelType)
+			}
+			return ""
+		}(),
+		PriceAmount:      priceAmount,
+		PriceCurrency:    priceCurrency,
+		BillingCycleDays: billingDays,
+		ProductID:        productID,
+		PriceID:          priceID,
 		Processor:               string(processor),
 		ProcessorSubscriptionID: procSubID,
 		Metadata:                CreateMetadataJSON(metadata),

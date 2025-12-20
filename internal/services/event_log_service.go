@@ -308,15 +308,22 @@ func (s *EventLogService) Close() error {
 
 // SubscriptionEventData represents data for subscription events
 type SubscriptionEventData struct {
-	EventID                 uuid.UUID `json:"event_id"`
-	SubscriptionID          uuid.UUID `json:"subscription_id"`
-	UserID                  string    `json:"user_id"`
-	EventType               string    `json:"event_type"`
-	Processor               string    `json:"processor"`
-	ProcessorSubscriptionID *string   `json:"processor_subscription_id,omitempty"`
-	ProcessorTransactionID  *string   `json:"processor_transaction_id,omitempty"`
-	Metadata                string    `json:"metadata"`
-	Timestamp               time.Time `json:"timestamp"`
+	EventID                 uuid.UUID  `json:"event_id"`
+	SubscriptionID          uuid.UUID  `json:"subscription_id"`
+	UserID                  string     `json:"user_id"`
+	EventType               string     `json:"event_type"`
+	Status                  string     `json:"status"`
+	CancelType              string     `json:"cancel_type"`
+	PriceAmount             float64    `json:"price_amount"`
+	PriceCurrency           string     `json:"price_currency"`
+	BillingCycleDays        uint32     `json:"billing_cycle_days"`
+	ProductID               *uuid.UUID `json:"product_id,omitempty"`
+	PriceID                 *uuid.UUID `json:"price_id,omitempty"`
+	Processor               string     `json:"processor"`
+	ProcessorSubscriptionID *string    `json:"processor_subscription_id,omitempty"`
+	ProcessorTransactionID  *string    `json:"processor_transaction_id,omitempty"`
+	Metadata                string     `json:"metadata"`
+	Timestamp               time.Time  `json:"timestamp"`
 }
 
 // PaymentEventType defines standardized event types for payment logging.
@@ -342,6 +349,7 @@ const (
 	PaymentEventBatchProcessed PaymentEventType = "batch_processed"
 
 	// Subscription lifecycle events (for ClickHouse logging)
+	PaymentEventSubscriptionCreated     PaymentEventType = "subscription_created"
 	PaymentEventSubscriptionCancelled   PaymentEventType = "subscription_cancelled"
 	PaymentEventSubscriptionExpired     PaymentEventType = "subscription_expired"
 	PaymentEventSubscriptionReactivated PaymentEventType = "subscription_reactivated"
@@ -775,31 +783,39 @@ func (s *EventLogService) enqueue(kind string, v interface{}) {
 func (s *EventLogService) insertSubscription(ctx context.Context, data SubscriptionEventData) error {
 	query := `
         INSERT INTO subscription_events (
-            event_id, subscription_id, user_id, event_type, processor,
-            processor_subscription_id, processor_transaction_id,
+            event_id, subscription_id, user_id, event_type, status, cancel_type,
+            processor, processor_subscription_id, processor_transaction_id,
+            price_amount, price_currency, billing_cycle_days, product_id, price_id,
             metadata, timestamp
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `
 	return s.clickhouseConn.Exec(ctx, query,
 		data.EventID,
 		data.SubscriptionID,
 		data.UserID,
 		data.EventType,
+		data.Status,
+		data.CancelType,
 		data.Processor,
 		data.ProcessorSubscriptionID,
 		data.ProcessorTransactionID,
+		data.PriceAmount,
+		data.PriceCurrency,
+		data.BillingCycleDays,
+		data.ProductID,
+		data.PriceID,
 		data.Metadata,
 		data.Timestamp,
 	)
 }
 
 func (s *EventLogService) insertSubscriptionBatch(ctx context.Context, rows []SubscriptionEventData) error {
-	batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO subscription_events (event_id, subscription_id, user_id, event_type, processor, processor_subscription_id, processor_transaction_id, metadata, timestamp) VALUES`)
+	batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO subscription_events (event_id, subscription_id, user_id, event_type, status, cancel_type, processor, processor_subscription_id, processor_transaction_id, price_amount, price_currency, billing_cycle_days, product_id, price_id, metadata, timestamp) VALUES`)
 	if err != nil {
 		return err
 	}
 	for _, d := range rows {
-		if err := batch.Append(d.EventID, d.SubscriptionID, d.UserID, d.EventType, d.Processor, d.ProcessorSubscriptionID, d.ProcessorTransactionID, d.Metadata, d.Timestamp); err != nil {
+		if err := batch.Append(d.EventID, d.SubscriptionID, d.UserID, d.EventType, d.Status, d.CancelType, d.Processor, d.ProcessorSubscriptionID, d.ProcessorTransactionID, d.PriceAmount, d.PriceCurrency, d.BillingCycleDays, d.ProductID, d.PriceID, d.Metadata, d.Timestamp); err != nil {
 			return err
 		}
 	}

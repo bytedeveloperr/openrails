@@ -16,7 +16,7 @@ func GetAdminMetricsSummary(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, err.Error())
 		return
 	}
-	svc := services.NewAdminMetricsService(r.State.DB)
+	svc := services.NewAdminMetricsService(r.State.Config.ClickHouse)
 	resp, err := svc.GetSummary(r.Request.Context(), rng)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
@@ -32,7 +32,7 @@ func GetAdminMetricsRevenue(r *Request) {
 		return
 	}
 	granularity := r.Query("granularity")
-	svc := services.NewAdminMetricsService(r.State.DB)
+	svc := services.NewAdminMetricsService(r.State.Config.ClickHouse)
 	resp, err := svc.GetRevenueSeries(r.Request.Context(), rng, granularity)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
@@ -48,7 +48,7 @@ func GetAdminMetricsSubscriptions(r *Request) {
 		return
 	}
 	granularity := r.Query("granularity")
-	svc := services.NewAdminMetricsService(r.State.DB)
+	svc := services.NewAdminMetricsService(r.State.Config.ClickHouse)
 	resp, err := svc.GetSubscriptionSeries(r.Request.Context(), rng, granularity)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
@@ -63,7 +63,7 @@ func GetAdminMetricsProcessors(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, err.Error())
 		return
 	}
-	svc := services.NewAdminMetricsService(r.State.DB)
+	svc := services.NewAdminMetricsService(r.State.Config.ClickHouse)
 	resp, err := svc.GetProcessorMetrics(r.Request.Context(), rng)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
@@ -78,7 +78,7 @@ func GetAdminMetricsChurn(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, err.Error())
 		return
 	}
-	svc := services.NewAdminMetricsService(r.State.DB)
+	svc := services.NewAdminMetricsService(r.State.Config.ClickHouse)
 	resp, err := svc.GetChurn(r.Request.Context(), rng)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())

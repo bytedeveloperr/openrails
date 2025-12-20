@@ -261,6 +261,82 @@ func newNMIBillingError(errorType string, message string, context map[string]int
 	}
 }
 
+func priceSnapshotFromSubscription(sub *models.Subscription) (float64, string, uint32, *uuid.UUID, *uuid.UUID) {
+	var priceAmount float64
+	priceCurrency := "usd"
+	var billingDays uint32
+	var productID *uuid.UUID
+	var priceID *uuid.UUID
+
+	if sub != nil && sub.Price != nil {
+		priceAmount = float64(sub.Price.Amount) / 100.0
+		priceCurrency = sub.Price.Currency
+		if sub.Price.BillingCycleDays != nil {
+			billingDays = uint32(*sub.Price.BillingCycleDays)
+		}
+		productID = &sub.Price.ProductID
+		priceID = &sub.Price.ID
+	}
+
+	return priceAmount, priceCurrency, billingDays, productID, priceID
+}
+
+// logSubscriptionEvent emits a subscription event with full pricing/status context.
+func (s *NMIWebhookService) logSubscriptionEvent(ctx context.Context, sub *models.Subscription, eventType PaymentEventType, processorTransactionID *string, metadata map[string]interface{}, overrideStatus *models.SubscriptionStatus, overrideCancel *models.CancelType) {
+	if s.EventLogService == nil || sub == nil {
+		return
+	}
+
+	status := sub.Status
+	if overrideStatus != nil {
+		status = *overrideStatus
+	}
+
+	cancelType := ""
+	if overrideCancel != nil {
+		cancelType = string(*overrideCancel)
+	} else if sub.CancelType != nil {
+		cancelType = string(*sub.CancelType)
+	}
+
+	priceAmount, priceCurrency, billingDays, productID, priceID := priceSnapshotFromSubscription(sub)
+
+	var procSubID *string
+	if sub.ProcessorSubscriptionID != "" {
+		procSubID = &sub.ProcessorSubscriptionID
+	}
+
+	if metadata == nil {
+		metadata = map[string]interface{}{}
+	}
+
+	event := SubscriptionEventData{
+		EventID:                 uuid.New(),
+		SubscriptionID:          sub.ID,
+		UserID:                  sub.UserID,
+		EventType:               eventType,
+		Status:                  string(status),
+		CancelType:              cancelType,
+		PriceAmount:             priceAmount,
+		PriceCurrency:           priceCurrency,
+		BillingCycleDays:        billingDays,
+		ProductID:               productID,
+		PriceID:                 priceID,
+		Processor:               s.Processor,
+		ProcessorSubscriptionID: procSubID,
+		ProcessorTransactionID:  processorTransactionID,
+		Metadata:                CreateMetadataJSON(metadata),
+		Timestamp:               s.now().UTC(),
+	}
+
+	if err := s.EventLogService.LogSubscriptionEvent(ctx, event); err != nil {
+		log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+			"subscription_id": sub.ID,
+			"event_type":      eventType,
+		}).Error("Failed to log NMI subscription event")
+	}
+}
+
 func (s *NMIWebhookService) HandleNMIWebhook(ctx context.Context) error {
 	// Use deduplication service if available
 	if s.DeduplicationService != nil {
@@ -454,6 +530,22 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 		"transaction_reference":     transactionRef,
 	}).Info("Membership created for NMI subscription add event")
 
+	statusActive := models.StatusActive
+	if s.EventLogService != nil {
+		metadata := map[string]interface{}{
+			"event_type":        s.Data.EventType,
+			"processor":         provider,
+			"plan_id":           nmiPlanID,
+			"transaction_ref":   transactionRef,
+			"subscription_id":   subscription.ID.String(),
+			"previous_status":   string(subscription.Status),
+			"lifecycle_step":    "create_membership_from_subscription_add",
+			"processor_account": s.Processor,
+		}
+		txn := transactionRef
+		s.logSubscriptionEvent(ctx, subscription, PaymentEventSubscriptionCreated, &txn, metadata, &statusActive, nil)
+	}
+
 	return nil
 }
 
@@ -562,6 +654,18 @@ func (s *NMIWebhookService) handleDeleteSubscription(ctx context.Context) error 
 		"processor_subscription_id": nmiSubID,
 	}).Info("Subscription cancelled via NMI delete event")
 
+	if s.EventLogService != nil {
+		cancelType := models.CancelTypeMerchant
+		statusCancelled := models.StatusCancelled
+		metadata := map[string]interface{}{
+			"event_type":      s.Data.EventType,
+			"processor":       provider,
+			"previous_status": string(subscription.Status),
+			"status_after":    string(statusCancelled),
+		}
+		s.logSubscriptionEvent(ctx, subscription, PaymentEventSubscriptionCancelled, nil, metadata, &statusCancelled, &cancelType)
+	}
+
 	return nil
 }
 
@@ -608,6 +712,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		}).WithError(err).Error("Failed to load subscription for transaction event")
 		return fmt.Errorf("failed to load subscription for transaction event: %w", err)
 	}
+	prevStatus := subscription.Status
 
 	amount, amountErr := transactionAmount(body)
 	currency := transactionCurrency(body)
@@ -719,7 +824,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		metadata := map[string]interface{}{
 			"event_type":      s.Data.EventType,
 			"action_source":   actionSource,
-			"previous_status": subscription.Status,
+			"previous_status": string(prevStatus),
 			"processor":       provider,
 		}
 		if txnID != "" {
@@ -737,6 +842,21 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		if ord := body.OrderID.Trimmed(); ord != "" {
 			metadata["order_id"] = ord
 		}
+
+		subEventType := PaymentEventBillingDateChanged
+		switch prevStatus {
+		case models.StatusPending:
+			subEventType = PaymentEventSubscriptionCreated
+		case models.StatusCancelled, models.StatusPastDue:
+			subEventType = PaymentEventSubscriptionReactivated
+		}
+		var txnPtr *string
+		if txnID != "" {
+			txnPtr = &txnID
+		}
+		statusActive := models.StatusActive
+		metadata["status_after"] = string(statusActive)
+		s.logSubscriptionEvent(ctx, subscription, subEventType, txnPtr, metadata, &statusActive, nil)
 
 		var amountPtr *float64
 		if amountErr == nil {
@@ -820,6 +940,10 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 			return nil
 		}
 	}
+	var prevStatus models.SubscriptionStatus
+	if subscription != nil {
+		prevStatus = subscription.Status
+	}
 
 	var failureReason, failureCode *string
 	if body.Action != nil {
@@ -861,9 +985,16 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 	log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).Info("Subscription marked as failed for NMI transaction failure")
 
 	if s.EventLogService != nil && subscription != nil {
+		if updated, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID); err == nil && updated != nil {
+			subscription = updated
+		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			log.WithContext(ctx).WithError(err).WithField("processor_subscription_id", nmiSubID).
+				Warn("Failed to refresh subscription after failure flow; logging with stale status")
+		}
+
 		metadata := map[string]interface{}{
 			"event_type":      s.Data.EventType,
-			"previous_status": subscription.Status,
+			"previous_status": string(prevStatus),
 			"processor":       provider,
 		}
 		if failureReason != nil && *failureReason != "" {
@@ -881,6 +1012,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 			amountPtr = &amt
 		}
 
+		currency := transactionCurrency(body)
 		paymentEvent := PaymentEventData{
 			EventID:        uuid.New(),
 			SubscriptionID: &subscription.ID,
@@ -888,7 +1020,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 			EventType:      PaymentEventChargeFailure,
 			Processor:      s.Processor,
 			Amount:         amountPtr,
-			Currency:       transactionCurrency(body),
+			Currency:       currency,
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{}),
 			WebhookSource:  "webhook",
 			Metadata:       CreateMetadataJSON(metadata),
@@ -900,6 +1032,22 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		if err := s.EventLogService.LogPaymentEvent(ctx, paymentEvent); err != nil {
 			log.WithContext(ctx).WithError(err).Error("Failed to log NMI payment failure event")
 		}
+
+		var txnPtr *string
+		if txnID := body.TransactionID.Trimmed(); txnID != "" {
+			txnPtr = &txnID
+			metadata["transaction_id"] = txnID
+		}
+		statusAfter := subscription.Status
+		metadata["status_after"] = string(statusAfter)
+		eventType := PaymentEventChargeFailure
+		var cancelOverride *models.CancelType
+		if statusAfter == models.StatusCancelled {
+			eventType = PaymentEventSubscriptionExpired
+			ct := models.CancelTypeExpired
+			cancelOverride = &ct
+		}
+		s.logSubscriptionEvent(ctx, subscription, eventType, txnPtr, metadata, &statusAfter, cancelOverride)
 	} else if subscription == nil {
 		log.WithContext(ctx).
 			WithField("processor_subscription_id", nmiSubID).
@@ -1138,6 +1286,20 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 				"subscription_id":           subscription.ID,
 				"processor_subscription_id": nmiSubID,
 			}).Info("Subscription cancelled after refund meet threshold")
+			if s.EventLogService != nil {
+				statusCancelled := models.StatusCancelled
+				cancelType := models.CancelTypeMerchant
+				meta := map[string]interface{}{
+					"event_type":           s.Data.EventType,
+					"refund_amount":        refundAmount,
+					"subscription_id":      subscription.ID.String(),
+					"processor":            provider,
+					"status_after":         string(statusCancelled),
+					"previous_status":      string(subscription.Status),
+					"cancelled_via_refund": shouldTerminate,
+				}
+				s.logSubscriptionEvent(ctx, subscription, PaymentEventSubscriptionCancelled, nil, meta, &statusCancelled, &cancelType)
+			}
 		}
 	}
 

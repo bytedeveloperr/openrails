@@ -1093,6 +1093,38 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 				SubscriptionID:          sub.ID,
 				UserID:                  uid3,
 				EventType:               PaymentEventSubscriptionReactivated,
+				Status:                  string(sub.Status),
+				CancelType: func() string {
+					if sub.CancelType != nil {
+						return string(*sub.CancelType)
+					}
+					return ""
+				}(),
+				PriceAmount: float64(sub.Price.Amount) / 100.0,
+				PriceCurrency: func() string {
+					if sub.Price != nil {
+						return sub.Price.Currency
+					}
+					return "usd"
+				}(),
+				BillingCycleDays: func() uint32 {
+					if sub.Price != nil && sub.Price.BillingCycleDays != nil {
+						return uint32(*sub.Price.BillingCycleDays)
+					}
+					return 0
+				}(),
+				ProductID: func() *uuid.UUID {
+					if sub.Price != nil {
+						return &sub.Price.ProductID
+					}
+					return nil
+				}(),
+				PriceID: func() *uuid.UUID {
+					if sub.Price != nil {
+						return &sub.Price.ID
+					}
+					return nil
+				}(),
 				Processor:               "ccbill",
 				ProcessorSubscriptionID: &pSubscriptionID,
 				Metadata:                CreateMetadataJSON(metadata),
@@ -1887,6 +1919,18 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 			SubscriptionID:          subscription.ID,
 			UserID:                  uidStr,
 			EventType:               PaymentEventSubscriptionCancelled,
+			Status:                  string(models.StatusCancelled),
+			CancelType:              string(cancelType),
+			PriceAmount:             float64(subscription.Price.Amount) / 100.0,
+			PriceCurrency:           subscription.Price.Currency,
+			BillingCycleDays: func() uint32 {
+				if subscription.Price.BillingCycleDays != nil {
+					return uint32(*subscription.Price.BillingCycleDays)
+				}
+				return 0
+			}(),
+			ProductID: &subscription.Price.ProductID,
+			PriceID:   &subscription.Price.ID,
 			Processor:               "ccbill",
 			ProcessorSubscriptionID: &ccBillSubID,
 			Metadata:                CreateMetadataJSON(metadata),
@@ -1961,6 +2005,18 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 			SubscriptionID:          subscription.ID,
 			UserID:                  uidStr,
 			EventType:               PaymentEventSubscriptionExpired,
+			Status:                  string(models.StatusCancelled),
+			CancelType:              string(models.CancelTypeExpired),
+			PriceAmount:             float64(subscription.Price.Amount) / 100.0,
+			PriceCurrency:           subscription.Price.Currency,
+			BillingCycleDays: func() uint32 {
+				if subscription.Price.BillingCycleDays != nil {
+					return uint32(*subscription.Price.BillingCycleDays)
+				}
+				return 0
+			}(),
+			ProductID: &subscription.Price.ProductID,
+			PriceID:   &subscription.Price.ID,
 			Processor:               "ccbill",
 			ProcessorSubscriptionID: &ccBillSubID,
 			Metadata:                CreateMetadataJSON(metadata),
