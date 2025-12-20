@@ -448,6 +448,245 @@ components:
         created_at:
           type: string
           format: date-time
+    AdminSummaryResponse:
+      type: object
+      properties:
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        currency:
+          type: string
+        mrr:
+          type: integer
+        arr:
+          type: integer
+        total_revenue:
+          type: integer
+        subscription_revenue:
+          type: integer
+        one_time_revenue:
+          type: integer
+        refunds:
+          type: integer
+        chargebacks:
+          type: integer
+        new_subscriptions:
+          type: integer
+        net_new_subscriptions:
+          type: integer
+        cancellations:
+          type: object
+          properties:
+            total:
+              type: integer
+            voluntary:
+              type: integer
+            involuntary:
+              type: integer
+        active_subscriptions:
+          type: object
+          properties:
+            active:
+              type: integer
+            past_due:
+              type: integer
+            pending:
+              type: integer
+            cancelled_in_period:
+              type: integer
+        arpu:
+          type: integer
+        entitlement_grants:
+          type: integer
+        data_fresh_as_of:
+          type: string
+          format: date-time
+    AdminRevenueSeries:
+      type: object
+      properties:
+        currency:
+          type: string
+        granularity:
+          type: string
+        buckets:
+          type: array
+          items:
+            type: object
+            properties:
+              period_start:
+                type: string
+                format: date-time
+              period_end:
+                type: string
+                format: date-time
+              total_revenue:
+                type: integer
+              subscription_revenue:
+                type: integer
+              one_time_revenue:
+                type: integer
+              refunds:
+                type: integer
+              chargebacks:
+                type: integer
+        totals:
+          type: object
+          properties:
+            total_revenue:
+              type: integer
+            subscription_revenue:
+              type: integer
+            one_time_revenue:
+              type: integer
+            refunds:
+              type: integer
+            chargebacks:
+              type: integer
+    AdminSubscriptionSeries:
+      type: object
+      properties:
+        granularity:
+          type: string
+        buckets:
+          type: array
+          items:
+            type: object
+            properties:
+              period_start:
+                type: string
+                format: date-time
+              period_end:
+                type: string
+                format: date-time
+              new_subscriptions:
+                type: integer
+              scheduled_starts:
+                type: integer
+              cancellations:
+                type: object
+                properties:
+                  voluntary:
+                    type: integer
+                  involuntary:
+                    type: integer
+              reactivations:
+                type: integer
+              net_change:
+                type: integer
+        totals:
+          type: object
+          properties:
+            new_subscriptions:
+              type: integer
+            cancellations:
+              type: integer
+            reactivations:
+              type: integer
+            net_change:
+              type: integer
+    AdminProcessorMetricsResponse:
+      type: object
+      properties:
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        processors:
+          type: array
+          items:
+            type: object
+            properties:
+              processor:
+                type: string
+              metrics:
+                type: object
+                properties:
+                  active_subscriptions:
+                    type: integer
+                  new_subscriptions:
+                    type: integer
+                  cancellations:
+                    type: integer
+                  revenue:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                      subscription:
+                        type: integer
+                      one_time:
+                        type: integer
+                      refunds:
+                        type: integer
+                      chargebacks:
+                        type: integer
+                  payments:
+                    type: object
+                    properties:
+                      successful:
+                        type: integer
+                      failed:
+                        type: integer
+    AdminChurnResponse:
+      type: object
+      properties:
+        period_start:
+          type: string
+          format: date-time
+        period_end:
+          type: string
+          format: date-time
+        monthly_churn:
+          type: array
+          items:
+            type: object
+            properties:
+              month:
+                type: string
+              churn_rate:
+                type: number
+              voluntary_rate:
+                type: number
+              involuntary_rate:
+                type: number
+              active_start:
+                type: integer
+              active_end:
+                type: integer
+        cancellation_reasons:
+          type: array
+          items:
+            type: object
+            properties:
+              reason:
+                type: string
+              count:
+                type: integer
+        cohort_retention:
+          type: array
+          items:
+            type: object
+            properties:
+              cohort:
+                type: string
+              initial_signups:
+                type: integer
+              retention:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    month:
+                      type: integer
+                    active:
+                      type: integer
+                    rate:
+                      type: number
 paths:
   /:
     get:
@@ -1189,17 +1428,98 @@ paths:
       responses:
         '200':
           description: Grant detail
-  /v1/admin/metrics:
+  /v1/admin/metrics/summary:
     get:
-      summary: Retrieve billing metrics
+      summary: Summary metrics for admin dashboard
       security:
         - BearerAuth: []
       parameters:
         - in: query
-          name: type
+          name: start
           schema:
             type: string
-            enum: [dashboard, daily, processor]
+            format: date
+        - in: query
+          name: end
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: period
+          schema:
+            type: string
+            description: Optional shorthand period (7d, 30d, month, quarter)
+      responses:
+        '200':
+          description: Summary metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSummaryResponse'
+  /v1/admin/metrics/revenue:
+    get:
+      summary: Revenue time series
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: start
+          required: true
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end
+          required: true
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: granularity
+          schema:
+            type: string
+            enum: [day, week, month]
+      responses:
+        '200':
+          description: Revenue buckets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminRevenueSeries'
+  /v1/admin/metrics/subscriptions:
+    get:
+      summary: Subscription activity series
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: start
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: granularity
+          schema:
+            type: string
+            enum: [day, month]
+      responses:
+        '200':
+          description: Subscription buckets
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSubscriptionSeries'
+  /v1/admin/metrics/processors:
+    get:
+      summary: Processor breakdown
+      security:
+        - BearerAuth: []
+      parameters:
         - in: query
           name: start
           schema:
@@ -1212,7 +1532,34 @@ paths:
             format: date
       responses:
         '200':
-          description: Metrics payload
+          description: Processor snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminProcessorMetricsResponse'
+  /v1/admin/metrics/churn:
+    get:
+      summary: Churn and cohort data
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: start
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: end
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Churn summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminChurnResponse'
   /v1/users/{user_id}/entitlements:
     get:
       summary: Service-to-service entitlement lookup

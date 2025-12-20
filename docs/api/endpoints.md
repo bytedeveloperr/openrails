@@ -223,10 +223,26 @@ Lists grants issued to the user.
 ### GET /v1/admin/grants/{id}
 Fetches a single grant record.
 
-### GET /v1/admin/metrics
-Returns dashboard/daily/processor metrics depending on `type` query param (defaults to
-`dashboard`). For `type=daily`, supply `start`/`end` (YYYY-MM-DD). Response contains counts,
-revenue, and processor breakdowns used by the admin UI.
+### GET /v1/admin/metrics/summary
+Returns the KPI card data (MRR, ARR, total revenue, churn, ARPU). Query params:
+`start`, `end`, or `period` (`7d`, `30d`, `month`, etc.). Response includes previous-period deltas.
+
+### GET /v1/admin/metrics/revenue
+Time-series revenue buckets. Query params: `start`, `end`, and optional `granularity`
+(`day`, `week`, `month`). Each bucket includes subscription vs one-time revenue, refunds, and
+payment counts/averages.
+
+### GET /v1/admin/metrics/subscriptions
+Subscription activity series (new subs, cancels, reactivations, net change). Supports `start`,
+`end`, `granularity`.
+
+### GET /v1/admin/metrics/processors
+Aggregated revenue + counts by processor for a date range (defaults to last 30 days). Helpful for
+identifying processor-specific issues.
+
+### GET /v1/admin/metrics/churn
+Monthly churn summary plus cancellation reason counts and coarse cohort retention info. Accepts
+`start`/`end` month boundaries (defaults to last six months).
 
 ## Private Service-to-Service API (port 8060)
 

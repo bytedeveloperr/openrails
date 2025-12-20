@@ -17,137 +17,115 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 )
 
-// TestAdminDashboardMetrics tests the GET admin metrics endpoint with type=dashboard
-func TestAdminDashboardMetrics(t *testing.T) {
-	suite, adminToken := setupAdminTestSuite(t)
+func seedMetricsData(t *testing.T, suite *TestSuite, priceID uuid.UUID) {
+	t.Helper()
+	userID := uuid.New().String()
+	sub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+		UserID:         userID,
+		PriceID:        priceID,
+		Status:         models.StatusActive,
+		Processor:      models.ProcessorMobius,
+		ProcessorSubID: "metrics-" + uuid.NewString()[:8],
+	})
 
-	// Seed some test data
+	suite.CreateTestPaymentWithOptions(PaymentOptions{
+		UserID:        userID,
+		PriceID:       priceID,
+		Subscription:  sub,
+		Processor:     models.ProcessorMobius,
+		Amount:        999,
+		TransactionID: "txn-" + uuid.NewString()[:8],
+	})
+}
+
+func TestAdminMetricsSummary(t *testing.T) {
+	t.Parallel()
+	suite, adminToken := setupAdminTestSuite(t)
 	products := suite.SeedProducts()
 	priceID := products[0].Prices[0].ID
+	seedMetricsData(t, suite, priceID)
 
-	// Create subscriptions with various statuses
-	userID1 := uuid.New().String()
-	userID2 := uuid.New().String()
-	userID3 := uuid.New().String()
+	query := "/v1/admin/metrics/summary"
+	req, _ := http.NewRequest("GET", query, nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	w := httptest.NewRecorder()
+	suite.Server.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, "summary response")
 
-	suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
-		UserID:         userID1,
-		PriceID:        priceID,
-		Status:         models.StatusActive,
-		Processor:      models.ProcessorMobius,
-		ProcessorSubID: "metrics-active-1-" + uuid.New().String()[:8],
-	})
-
-	suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
-		UserID:         userID2,
-		PriceID:        priceID,
-		Status:         models.StatusActive,
-		Processor:      models.ProcessorCCBill,
-		ProcessorSubID: "metrics-active-2-" + uuid.New().String()[:8],
-	})
-
-	suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
-		UserID:         userID3,
-		PriceID:        priceID,
-		Status:         models.StatusCancelled,
-		Processor:      models.ProcessorMobius,
-		ProcessorSubID: "metrics-cancelled-1-" + uuid.New().String()[:8],
-	})
-
-	t.Run("returns dashboard metrics", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/admin/metrics?type=dashboard", nil)
-		req.Header.Set("Authorization", "Bearer "+adminToken)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got: %s", w.Body.String())
-
-		var response map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &response)
-		require.NoError(t, err)
-
-		// Verify basic structure - actual response has these fields:
-		// active_users_with_auto_renew, active_users_with_failing_rebill, active_users_without_auto_renew
-		assert.Contains(t, response, "active_users_with_auto_renew", "Should contain active_users_with_auto_renew")
-		assert.Contains(t, response, "active_users_without_auto_renew", "Should contain active_users_without_auto_renew")
-	})
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Contains(t, resp, "mrr")
+	assert.Contains(t, resp, "total_revenue")
+	assert.Contains(t, resp, "active_subscriptions")
 }
 
-// TestAdminDailyMetrics tests the GET admin metrics endpoint with type=daily
-func TestAdminDailyMetrics(t *testing.T) {
+func TestAdminMetricsRevenue(t *testing.T) {
+	t.Parallel()
 	suite, adminToken := setupAdminTestSuite(t)
+	products := suite.SeedProducts()
+	seedMetricsData(t, suite, products[0].Prices[0].ID)
+	now := time.Now().UTC()
+	start := now.AddDate(0, 0, -7).Format("2006-01-02")
+	end := now.Format("2006-01-02")
 
-	t.Run("returns daily metrics for date range", func(t *testing.T) {
-		now := time.Now()
-		startDate := now.AddDate(0, 0, -7).Format("2006-01-02")
-		endDate := now.Format("2006-01-02")
+	req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/admin/metrics/revenue?start=%s&end=%s&granularity=day", start, end), nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	w := httptest.NewRecorder()
+	suite.Server.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
 
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", fmt.Sprintf("/v1/admin/metrics?type=daily&start=%s&end=%s", startDate, endDate), nil)
-		req.Header.Set("Authorization", "Bearer "+adminToken)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got: %s", w.Body.String())
-
-		var response []map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &response)
-		require.NoError(t, err)
-
-		// Response should be an array of daily metrics
-		// It can be empty if no data for the period
-	})
-
-	t.Run("returns error for missing start date", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/admin/metrics?type=daily&end=2025-01-01", nil)
-		req.Header.Set("Authorization", "Bearer "+adminToken)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
-	})
-
-	t.Run("returns error for missing end date", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/admin/metrics?type=daily&start=2025-01-01", nil)
-		req.Header.Set("Authorization", "Bearer "+adminToken)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
-	})
-
-	t.Run("returns error for invalid date format", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/admin/metrics?type=daily&start=01-01-2025&end=01-31-2025", nil)
-		req.Header.Set("Authorization", "Bearer "+adminToken)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
-	})
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Contains(t, resp, "buckets")
 }
 
-// TestAdminProcessorMetrics tests the GET admin metrics endpoint with type=processor
-func TestAdminProcessorMetrics(t *testing.T) {
+func TestAdminMetricsSubscriptions(t *testing.T) {
+	t.Parallel()
 	suite, adminToken := setupAdminTestSuite(t)
+	products := suite.SeedProducts()
+	seedMetricsData(t, suite, products[0].Prices[0].ID)
 
-	t.Run("returns processor metrics", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/admin/metrics?type=processor", nil)
-		req.Header.Set("Authorization", "Bearer "+adminToken)
+	req, _ := http.NewRequest("GET", "/v1/admin/metrics/subscriptions?granularity=day", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	w := httptest.NewRecorder()
+	suite.Server.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
 
-		suite.Server.Handler().ServeHTTP(w, req)
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Contains(t, resp, "buckets")
+}
 
-		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got: %s", w.Body.String())
+func TestAdminMetricsProcessors(t *testing.T) {
+	t.Parallel()
+	suite, adminToken := setupAdminTestSuite(t)
+	products := suite.SeedProducts()
+	seedMetricsData(t, suite, products[0].Prices[0].ID)
 
-		var response []map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &response)
-		require.NoError(t, err)
+	req, _ := http.NewRequest("GET", "/v1/admin/metrics/processors", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	w := httptest.NewRecorder()
+	suite.Server.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
 
-		// Response is an array of processor-specific metrics
-		// Verify it's parseable; specific values depend on test data
-	})
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Contains(t, resp, "processors")
+}
+
+func TestAdminMetricsChurn(t *testing.T) {
+	t.Parallel()
+	suite, adminToken := setupAdminTestSuite(t)
+	products := suite.SeedProducts()
+	seedMetricsData(t, suite, products[0].Prices[0].ID)
+
+	req, _ := http.NewRequest("GET", "/v1/admin/metrics/churn", nil)
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	w := httptest.NewRecorder()
+	suite.Server.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp map[string]interface{}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Contains(t, resp, "monthly_churn")
 }

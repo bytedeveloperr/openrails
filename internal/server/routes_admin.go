@@ -35,6 +35,10 @@ func (s *Server) registerAdminRoutes() {
 	admin.GET("/users/:user_id/grants", s.wrap(handlers.ListAdminGrantsByUser))
 	admin.GET("/grants/:id", s.wrap(handlers.GetAdminGrant))
 
-	// Metrics: GET /v1/admin/metrics?type=dashboard|daily|processor
-	admin.GET("/metrics", s.wrap(handlers.GetAdminMetrics))
+	// Metrics
+	admin.GET("/metrics/summary", s.wrap(handlers.GetAdminMetricsSummary))
+	admin.GET("/metrics/revenue", s.wrap(handlers.GetAdminMetricsRevenue))
+	admin.GET("/metrics/subscriptions", s.wrap(handlers.GetAdminMetricsSubscriptions))
+	admin.GET("/metrics/processors", s.wrap(handlers.GetAdminMetricsProcessors))
+	admin.GET("/metrics/churn", s.wrap(handlers.GetAdminMetricsChurn))
 }

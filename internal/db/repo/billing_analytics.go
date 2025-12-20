@@ -2,6 +2,7 @@ package repo
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -117,4 +118,57 @@ func (r *BillingAnalyticsRepo) CountActiveUsersWithFailingRebillByProcessor(ctx 
 		Where("sub.processor = ?", processor).
 		Scan(ctx, &count)
 	return count, err
+}
+
+func (r *BillingAnalyticsRepo) GetSnapshotsBetween(ctx context.Context, startDate, endDate time.Time) ([]models.DailyMetricsSnapshot, error) {
+	var snapshots []models.DailyMetricsSnapshot
+	err := r.db.GetDB().NewSelect().
+		Model(&snapshots).
+		Where("dms.snapshot_date >= ?", startDate.UTC().Truncate(24*time.Hour)).
+		Where("dms.snapshot_date <= ?", endDate.UTC().Truncate(24*time.Hour)).
+		OrderExpr("dms.snapshot_date ASC").
+		Scan(ctx)
+	return snapshots, err
+}
+
+func (r *BillingAnalyticsRepo) GetSnapshotByDate(ctx context.Context, date time.Time) (*models.DailyMetricsSnapshot, error) {
+	snapshot := new(models.DailyMetricsSnapshot)
+	err := r.db.GetDB().NewSelect().
+		Model(snapshot).
+		Where("dms.snapshot_date = ?", date.UTC().Truncate(24*time.Hour)).
+		Limit(1).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return snapshot, nil
+}
+
+func (r *BillingAnalyticsRepo) UpsertSnapshot(ctx context.Context, snapshot *models.DailyMetricsSnapshot) error {
+	if snapshot == nil {
+		return fmt.Errorf("snapshot is nil")
+	}
+	snapshot.UpdatedAt = time.Now().UTC()
+	_, err := r.db.GetDB().NewInsert().
+		Model(snapshot).
+		On("CONFLICT (snapshot_date) DO UPDATE").
+		Set("currency = EXCLUDED.currency").
+		Set("mrr_cents = EXCLUDED.mrr_cents").
+		Set("subscription_revenue_cents = EXCLUDED.subscription_revenue_cents").
+		Set("one_time_revenue_cents = EXCLUDED.one_time_revenue_cents").
+		Set("refunds_cents = EXCLUDED.refunds_cents").
+		Set("chargebacks_cents = EXCLUDED.chargebacks_cents").
+		Set("new_subscriptions = EXCLUDED.new_subscriptions").
+		Set("scheduled_starts = EXCLUDED.scheduled_starts").
+		Set("cancellations_voluntary = EXCLUDED.cancellations_voluntary").
+		Set("cancellations_involuntary = EXCLUDED.cancellations_involuntary").
+		Set("reactivations = EXCLUDED.reactivations").
+		Set("active_count_end = EXCLUDED.active_count_end").
+		Set("past_due_count_end = EXCLUDED.past_due_count_end").
+		Set("pending_count_end = EXCLUDED.pending_count_end").
+		Set("entitlements_granted = EXCLUDED.entitlements_granted").
+		Set("processor_breakdowns = EXCLUDED.processor_breakdowns").
+		Set("updated_at = EXCLUDED.updated_at").
+		Exec(ctx)
+	return err
 }
