@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS billing.daily_metrics_snapshots (
+    snapshot_date DATE PRIMARY KEY,
+    currency TEXT NOT NULL DEFAULT 'usd',
+    mrr_cents BIGINT NOT NULL DEFAULT 0,
+    subscription_revenue_cents BIGINT NOT NULL DEFAULT 0,
+    one_time_revenue_cents BIGINT NOT NULL DEFAULT 0,
+    refunds_cents BIGINT NOT NULL DEFAULT 0,
+    chargebacks_cents BIGINT NOT NULL DEFAULT 0,
+    new_subscriptions INTEGER NOT NULL DEFAULT 0,
+    scheduled_starts INTEGER NOT NULL DEFAULT 0,
+    cancellations_voluntary INTEGER NOT NULL DEFAULT 0,
+    cancellations_involuntary INTEGER NOT NULL DEFAULT 0,
+    reactivations INTEGER NOT NULL DEFAULT 0,
+    active_count_end INTEGER NOT NULL DEFAULT 0,
+    past_due_count_end INTEGER NOT NULL DEFAULT 0,
+    pending_count_end INTEGER NOT NULL DEFAULT 0,
+    entitlements_granted INTEGER NOT NULL DEFAULT 0,
+    processor_breakdowns JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
