@@ -175,11 +175,14 @@ func enqueueCCBillWebhook(r *Request, provider string, clientIP string) bool {
 		return false
 	}
 
+	uniqueKey := computeWebhookUniqueKey(services.ProcessorCCBill, "", eventType, body)
+
 	args := riverjobs.WebhookProcessArgs{
 		Provider:  services.ProcessorCCBill,
 		EventType: eventType,
 		Body:      body,
 		ClientIP:  clientIP,
+		UniqueKey: uniqueKey,
 	}
 
 	if err := enqueueWebhookJob(r, args); err != nil {
@@ -240,6 +243,8 @@ func enqueueStripeWebhook(r *Request, clientIP string) bool {
 		return false
 	}
 
+	uniqueKey := computeWebhookUniqueKey(services.ProcessorStripe, eventID, eventType, body)
+
 	args := riverjobs.WebhookProcessArgs{
 		Provider:       services.ProcessorStripe,
 		EventID:        eventID,
@@ -248,6 +253,7 @@ func enqueueStripeWebhook(r *Request, clientIP string) bool {
 		ClientIP:       clientIP,
 		Signature:      sig,
 		SignatureValid: signatureValidPtr,
+		UniqueKey:      uniqueKey,
 	}
 
 	if err := enqueueWebhookJob(r, args); err != nil {
@@ -260,14 +266,6 @@ func enqueueStripeWebhook(r *Request, clientIP string) bool {
 }
 
 func enqueueWebhookJob(r *Request, args riverjobs.WebhookProcessArgs) error {
-	if args.ReceivedAt.IsZero() {
-		if r.Clock != nil {
-			args.ReceivedAt = r.Clock.Now()
-		} else {
-			args.ReceivedAt = time.Now()
-		}
-	}
-
 	if r.State == nil || r.State.RiverProducer == nil {
 		return fmt.Errorf("river producer unavailable")
 	}
@@ -283,6 +281,16 @@ func enqueueWebhookJob(r *Request, args riverjobs.WebhookProcessArgs) error {
 
 	_, err := r.State.RiverProducer.Insert(r.Request.Context(), args, opts)
 	return err
+}
+
+func computeWebhookUniqueKey(provider, eventID, eventType string, body []byte) string {
+	provider = strings.TrimSpace(strings.ToLower(provider))
+	eventID = strings.TrimSpace(eventID)
+	if eventID != "" {
+		return fmt.Sprintf("webhook:%s:%s", provider, eventID)
+	}
+	hash := sha256.Sum256(append([]byte(provider+"|"+eventType+"|"), body...))
+	return fmt.Sprintf("webhook:%s:%s", provider, hex.EncodeToString(hash[:8]))
 }
 
 func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
@@ -361,6 +369,8 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 		signatureValidPtr = &truth
 	}
 
+	uniqueKey := computeWebhookUniqueKey(providerKey, data.EventID, string(data.EventType), body)
+
 	args := riverjobs.WebhookProcessArgs{
 		Provider:       providerKey,
 		EventID:        data.EventID,
@@ -369,6 +379,7 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 		ClientIP:       clientIP,
 		Signature:      signature,
 		SignatureValid: signatureValidPtr,
+		UniqueKey:      uniqueKey,
 	}
 
 	if err := enqueueWebhookJob(r, args); err != nil {
