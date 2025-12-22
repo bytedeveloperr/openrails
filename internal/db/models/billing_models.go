@@ -7,49 +7,6 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// WebhookEvent tracks incoming webhook events for deduplication and debugging
-type WebhookEvent struct {
-	bun.BaseModel `bun:"table:billing.webhook_events,alias:wh"`
-
-	ID uuid.UUID `bun:",pk,type:uuid,default:gen_random_uuid()" json:"id"`
-
-	// Event identification
-	Processor string  `bun:",notnull" json:"processor"`
-	EventID   *string `bun:"" json:"event_id,omitempty"` // Processor's event ID
-	EventType string  `bun:",notnull" json:"event_type"`
-
-	// Processing status
-	Status      string     `bun:",notnull,default:'pending'" json:"status"` // pending, processed, failed, duplicate
-	ProcessedAt *time.Time `bun:",nullzero" json:"processed_at,omitempty"`
-
-	// Request details
-	RawPayload string            `bun:",type:text,notnull" json:"raw_payload"`
-	Headers    map[string]string `bun:",type:jsonb" json:"headers,omitempty"`
-	IPAddress  string            `bun:",notnull" json:"ip_address"`
-
-	// Signature verification
-	SignatureValid *bool   `bun:"" json:"signature_valid,omitempty"`
-	Signature      *string `bun:"" json:"signature,omitempty"`
-
-	// Processing results
-	ProcessingResult map[string]interface{} `bun:",type:jsonb" json:"processing_result,omitempty"`
-	ErrorMessage     *string                `bun:"" json:"error_message,omitempty"`
-
-	// Reference to related entities
-	SubscriptionID *uuid.UUID `bun:",type:uuid" json:"subscription_id,omitempty"`
-	UserID         *string    `bun:"" json:"user_id,omitempty"`
-
-	// Retry tracking
-	ProcessingAttempts int        `bun:",default:0" json:"processing_attempts"`
-	LastAttemptAt      *time.Time `bun:",nullzero" json:"last_attempt_at,omitempty"`
-	NextAttemptAt      *time.Time `bun:",nullzero" json:"next_attempt_at,omitempty"`
-
-	// Timestamps
-	ReceivedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"received_at"`
-	CreatedAt  time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt  time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
-}
-
 // SolanaTransaction tracks Solana payment transactions
 type SolanaTransaction struct {
 	bun.BaseModel `bun:"table:billing.solana_transactions,alias:stx"`
@@ -97,6 +54,5 @@ type SolanaTransaction struct {
 }
 
 const (
-	TableWebhookEvents      = "webhook_events"
 	TableSolanaTransactions = "solana_transactions"
 )

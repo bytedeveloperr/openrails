@@ -34,10 +34,6 @@ type CleanupConfig struct {
 	// NotificationUnseenRetention is how long to keep unseen notifications
 	// Default: 180 days (matches model's IsExpiredForCleanup)
 	NotificationUnseenRetention time.Duration
-
-	// WebhookEventRetention is how long to keep processed webhook events
-	// Default: 30 days
-	WebhookEventRetention time.Duration
 }
 
 // DefaultCleanupConfig returns sensible default retention periods
@@ -48,7 +44,6 @@ func DefaultCleanupConfig() CleanupConfig {
 		SolanaTransactionRetention:  30 * 24 * time.Hour,
 		NotificationSeenRetention:   90 * 24 * time.Hour,
 		NotificationUnseenRetention: 180 * 24 * time.Hour,
-		WebhookEventRetention:       30 * 24 * time.Hour,
 	}
 }
 
@@ -72,7 +67,6 @@ type CleanupResult struct {
 	SolanaTransactions int64
 	NotificationsSeen  int64
 	NotificationsAll   int64
-	WebhookEvents      int64
 }
 
 func (w CleanupExpiredDataWorker) Work(ctx context.Context, job *river.Job[CleanupExpiredDataArgs]) error {
@@ -126,19 +120,12 @@ func (w CleanupExpiredDataWorker) Work(ctx context.Context, job *river.Job[Clean
 		logger.WithError(err).Error("Failed to cleanup old notifications")
 	}
 
-	// 5. Clean up old processed webhook events
-	result.WebhookEvents, err = w.cleanupWebhookEvents(ctx, now, config.WebhookEventRetention)
-	if err != nil {
-		logger.WithError(err).Error("Failed to cleanup webhook events")
-	}
-
 	logger.WithFields(log.Fields{
 		"wallet_challenges":    result.WalletChallenges,
 		"payment_intents":      result.PaymentIntents,
 		"solana_transactions":  result.SolanaTransactions,
 		"notifications_seen":   result.NotificationsSeen,
 		"notifications_unseen": result.NotificationsAll,
-		"webhook_events":       result.WebhookEvents,
 	}).Info("Cleanup completed")
 
 	return nil
@@ -226,23 +213,6 @@ func (w CleanupExpiredDataWorker) cleanupOldNotifications(ctx context.Context, n
 		Exec(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("delete old notifications: %w", err)
-	}
-
-	rows, _ := res.RowsAffected()
-	return rows, nil
-}
-
-// cleanupWebhookEvents deletes processed webhook events older than the retention period
-func (w CleanupExpiredDataWorker) cleanupWebhookEvents(ctx context.Context, now time.Time, retention time.Duration) (int64, error) {
-	cutoff := now.Add(-retention)
-
-	// Only delete processed or duplicate webhook events - keep failed ones for debugging
-	res, err := w.DB.GetDB().NewDelete().
-		TableExpr("billing.webhook_events").
-		Where("status IN ('processed', 'duplicate') AND created_at < ?", cutoff).
-		Exec(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("delete webhook events: %w", err)
 	}
 
 	rows, _ := res.RowsAffected()

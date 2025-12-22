@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -18,8 +17,10 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/doujins-org/doujins-billing/internal/processors"
+	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	ipverify "github.com/doujins-org/doujins-billing/internal/utils"
+	"github.com/riverqueue/river"
 )
 
 func Webhook(r *Request) {
@@ -36,20 +37,11 @@ func Webhook(r *Request) {
 	// NOTE: Webhook authentication can be bypassed for testing by setting test_mode: true
 	// in the respective processor config (nmi.test_mode or ccbill.test_mode)
 	// This is useful for integration tests and development environments
-
-	// Create dead letter service
-	deadLetterService := &services.DeadLetterService{
-		DB:                  r.State.DB,
-		NotificationService: r.State.NotificationService,
+	if r.State == nil || r.State.RiverProducer == nil {
+		r.ErrorJSON(http.StatusInternalServerError, "job queue unavailable")
+		return
 	}
 
-	// Capture request headers for dead letter logging
-	headers := make(map[string]string)
-	for key, values := range r.Request.Header {
-		if len(values) > 0 {
-			headers[key] = values[0]
-		}
-	}
 	clientIP := r.GetClientIP()
 
 	log.WithFields(log.Fields{
@@ -66,7 +58,9 @@ func Webhook(r *Request) {
 
 	// Route based on provider - NMI-backed processors go to handleNMIWebhook
 	if processors.IsNMIBacked(provider) {
-		handleNMIWebhook(r, provider, headers, clientIP)
+		if enqueueNMIWebhook(r, provider, clientIP) {
+			r.SuccessJSON(map[string]string{"status": "accepted"})
+		}
 		return
 	}
 
@@ -82,16 +76,6 @@ func Webhook(r *Request) {
 					"event_type": r.Query("eventType"),
 				}).Warn("CCBill webhook rejected - unauthorized IP address")
 
-				// Log the security violation for monitoring
-				deadLetterService.LogInvalidPayload(
-					context.Background(),
-					"ccbill",
-					[]byte(fmt.Sprintf("Unauthorized IP: %s", clientIP)),
-					fmt.Errorf("webhook from unauthorized IP address: %s", clientIP),
-					headers,
-					clientIP,
-				)
-
 				r.ErrorJSON(http.StatusForbidden, "Unauthorized webhook source")
 				return
 			}
@@ -101,141 +85,16 @@ func Webhook(r *Request) {
 			log.WithField("client_ip", clientIP).Debug("CCBill webhook authentication bypassed - test mode enabled")
 		}
 
-		body, err := readRequestBody(r.Request.Body)
-		if err != nil {
-			deadLetterService.LogInvalidPayload(context.Background(), "ccbill", nil, err, headers, clientIP)
-			r.ErrorJSON(http.StatusInternalServerError, "Failed to read request body")
-			return
+		if enqueueCCBillWebhook(r, provider, clientIP) {
+			r.SuccessJSON(map[string]string{"status": "accepted"})
 		}
-
-		body, err = normalizeCCBillPayload(body)
-		if err != nil {
-			deadLetterService.LogInvalidPayload(context.Background(), "ccbill", body, err, headers, clientIP)
-			r.ErrorJSON(http.StatusBadRequest, "Invalid webhook payload")
-			return
-		}
-
-		eventType := strings.TrimSpace(r.Query("eventType"))
-		if eventType == "" {
-			r.ErrorJSON(http.StatusBadRequest, "Missing eventType parameter")
-			return
-		}
-
-		if r.State == nil || r.State.WebhookEventService == nil || r.State.WebhookProcessor == nil {
-			log.Error("Webhook components not configured; unable to persist event")
-			r.ErrorJSON(http.StatusInternalServerError, "Webhook processing unavailable")
-			return
-		}
-
-		eventHeaders := copyHeaders(headers)
-		if provider != "" {
-			eventHeaders["x-internal-provider"] = provider
-		}
-
-		ctx := r.Request.Context()
-		event, err := r.State.WebhookEventService.Create(ctx, services.CreateWebhookEventParams{
-			Processor: services.ProcessorCCBill,
-			EventType: eventType,
-			Payload:   body,
-			Headers:   eventHeaders,
-			IPAddress: clientIP,
-		})
-		if err != nil {
-			log.WithError(err).Error("failed to persist CCBill webhook event")
-			r.ErrorJSON(http.StatusInternalServerError, "Failed to persist webhook event")
-			return
-		}
-
-		if err := r.State.WebhookProcessor.ProcessDirect(ctx, event); err != nil {
-			log.WithError(err).Error("CCBill webhook processing failed")
-		}
-
-		r.SuccessJSON(map[string]string{"status": "accepted"})
 		return
 	case services.ProcessorStripe:
-		body, err := readRequestBody(r.Request.Body)
-		if err != nil {
-			deadLetterService.LogInvalidPayload(context.Background(), "stripe", nil, err, headers, clientIP)
-			r.ErrorJSON(http.StatusInternalServerError, "Failed to read request body")
-			return
+		if enqueueStripeWebhook(r, clientIP) {
+			r.SuccessJSON(map[string]string{"status": "accepted"})
 		}
-
-		if r.State == nil || r.State.Config == nil || r.State.WebhookEventService == nil || r.State.WebhookProcessor == nil {
-			log.Error("Webhook components not configured; unable to persist event")
-			r.ErrorJSON(http.StatusInternalServerError, "Webhook processing unavailable")
-			return
-		}
-
-		isDev := true
-		if r.State.Config != nil {
-			env := strings.TrimSpace(strings.ToLower(r.State.Config.Env))
-			isDev = env == "" || env == "dev" || env == "development"
-		}
-
-		secret := ""
-		if r.State.Config.Stripe != nil {
-			secret = r.State.Config.Stripe.WebhookSecret
-		}
-		sig := r.Request.Header.Get("Stripe-Signature")
-		var signatureValidPtr *bool
-		if secret != "" {
-			if sig == "" {
-				deadLetterService.LogAuthenticationFailure(context.Background(), "stripe", body, fmt.Errorf("missing stripe signature"), headers, clientIP)
-				r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
-				return
-			}
-			if err := verifyStripeSignature(secret, sig, body, 5*time.Minute); err != nil {
-				deadLetterService.LogAuthenticationFailure(context.Background(), "stripe", body, err, headers, clientIP)
-				r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
-				return
-			}
-			truth := true
-			signatureValidPtr = &truth
-		} else {
-			if !isDev {
-				deadLetterService.LogAuthenticationFailure(context.Background(), "stripe", body, fmt.Errorf("missing stripe webhook secret"), headers, clientIP)
-				r.ErrorJSON(http.StatusUnauthorized, "Webhook signature required")
-				return
-			}
-			log.Warn("Stripe webhook secret not configured; signature verification disabled")
-		}
-
-		eventID, eventType, err := parseStripeEventMeta(body)
-		if err != nil {
-			deadLetterService.LogInvalidPayload(context.Background(), "stripe", body, err, headers, clientIP)
-			r.ErrorJSON(http.StatusBadRequest, "Invalid webhook payload")
-			return
-		}
-
-		ctx := r.Request.Context()
-		event, err := r.State.WebhookEventService.Create(ctx, services.CreateWebhookEventParams{
-			Processor:      services.ProcessorStripe,
-			EventID:        eventID,
-			EventType:      eventType,
-			Payload:        body,
-			Headers:        headers,
-			IPAddress:      clientIP,
-			Signature:      sig,
-			SignatureValid: signatureValidPtr,
-		})
-		if err != nil {
-			log.WithError(err).Error("failed to persist Stripe webhook event")
-			r.ErrorJSON(http.StatusInternalServerError, "Failed to persist webhook event")
-			return
-		}
-		if err := r.State.WebhookProcessor.ProcessDirect(ctx, event); err != nil {
-			log.WithError(err).Error("Stripe webhook processing failed")
-		}
-
-		r.SuccessJSON(map[string]string{"status": "accepted"})
 		return
 	default:
-		webhookBody, readErr := readRequestBody(r.Request.Body)
-		if readErr != nil {
-			log.WithError(readErr).WithField("provider", provider).Warn("Failed to read body for unknown webhook provider")
-		}
-		// Log unknown provider to dead letter queue
-		deadLetterService.LogUnknownEvent(context.Background(), provider, "unknown", json.RawMessage(webhookBody), headers, clientIP)
 		r.ErrorJSON(http.StatusBadRequest, "Invalid provider")
 		return
 	}
@@ -297,12 +156,141 @@ func parseStripeSignatureHeader(header string) (string, []string) {
 	return ts, sigs
 }
 
-func handleNMIWebhook(r *Request, provider string, headers map[string]string, clientIP string) {
+func enqueueCCBillWebhook(r *Request, provider string, clientIP string) bool {
+	body, err := readRequestBody(r.Request.Body)
+	if err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, "Failed to read request body")
+		return false
+	}
+
+	body, err = normalizeCCBillPayload(body)
+	if err != nil {
+		r.ErrorJSON(http.StatusBadRequest, "Invalid webhook payload")
+		return false
+	}
+
+	eventType := strings.TrimSpace(r.Query("eventType"))
+	if eventType == "" {
+		r.ErrorJSON(http.StatusBadRequest, "Missing eventType parameter")
+		return false
+	}
+
+	args := riverjobs.WebhookProcessArgs{
+		Provider:  services.ProcessorCCBill,
+		EventType: eventType,
+		Body:      body,
+		ClientIP:  clientIP,
+	}
+
+	if err := enqueueWebhookJob(r, args); err != nil {
+		log.WithError(err).Error("failed to enqueue CCBill webhook")
+		r.ErrorJSON(http.StatusInternalServerError, "Failed to enqueue webhook")
+		return false
+	}
+
+	return true
+}
+
+func enqueueStripeWebhook(r *Request, clientIP string) bool {
+	body, err := readRequestBody(r.Request.Body)
+	if err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, "Failed to read request body")
+		return false
+	}
+
+	if r.State == nil || r.State.Config == nil {
+		r.ErrorJSON(http.StatusInternalServerError, "Webhook processing unavailable")
+		return false
+	}
+
+	isDev := true
+	if r.State.Config != nil {
+		env := strings.TrimSpace(strings.ToLower(r.State.Config.Env))
+		isDev = env == "" || env == "dev" || env == "development"
+	}
+
+	secret := ""
+	if r.State.Config.Stripe != nil {
+		secret = r.State.Config.Stripe.WebhookSecret
+	}
+	sig := r.Request.Header.Get("Stripe-Signature")
+	var signatureValidPtr *bool
+	if secret != "" {
+		if sig == "" {
+			r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
+			return false
+		}
+		if err := verifyStripeSignature(secret, sig, body, 5*time.Minute); err != nil {
+			r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
+			return false
+		}
+		truth := true
+		signatureValidPtr = &truth
+	} else {
+		if !isDev {
+			r.ErrorJSON(http.StatusUnauthorized, "Webhook signature required")
+			return false
+		}
+		log.Warn("Stripe webhook secret not configured; signature verification disabled")
+	}
+
+	eventID, eventType, err := parseStripeEventMeta(body)
+	if err != nil {
+		r.ErrorJSON(http.StatusBadRequest, "Invalid webhook payload")
+		return false
+	}
+
+	args := riverjobs.WebhookProcessArgs{
+		Provider:       services.ProcessorStripe,
+		EventID:        eventID,
+		EventType:      eventType,
+		Body:           body,
+		ClientIP:       clientIP,
+		Signature:      sig,
+		SignatureValid: signatureValidPtr,
+	}
+
+	if err := enqueueWebhookJob(r, args); err != nil {
+		log.WithError(err).Error("failed to enqueue Stripe webhook")
+		r.ErrorJSON(http.StatusInternalServerError, "Failed to enqueue webhook")
+		return false
+	}
+
+	return true
+}
+
+func enqueueWebhookJob(r *Request, args riverjobs.WebhookProcessArgs) error {
+	if args.ReceivedAt.IsZero() {
+		if r.Clock != nil {
+			args.ReceivedAt = r.Clock.Now()
+		} else {
+			args.ReceivedAt = time.Now()
+		}
+	}
+
+	if r.State == nil || r.State.RiverProducer == nil {
+		return fmt.Errorf("river producer unavailable")
+	}
+
+	opts := &river.InsertOpts{
+		Queue:       riverjobs.QueueWebhooks,
+		MaxAttempts: 5,
+		UniqueOpts: river.UniqueOpts{
+			ByArgs:  true,
+			ByQueue: true,
+		},
+	}
+
+	_, err := r.State.RiverProducer.Insert(r.Request.Context(), args, opts)
+	return err
+}
+
+func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 	// Read the request body for signature verification
 	body, err := readRequestBody(r.Request.Body)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to read request body")
-		return
+		return false
 	}
 
 	providerKey := strings.TrimSpace(strings.ToLower(provider))
@@ -313,7 +301,7 @@ func handleNMIWebhook(r *Request, provider string, headers map[string]string, cl
 	client, ok := r.State.NMIClients[providerKey]
 	if !ok || client == nil {
 		r.ErrorJSON(http.StatusNotFound, fmt.Sprintf("unknown nmi provider '%s'", providerKey))
-		return
+		return false
 	}
 
 	isDev := true
@@ -336,19 +324,19 @@ func handleNMIWebhook(r *Request, provider string, headers map[string]string, cl
 			if signature == "" {
 				log.Error("Missing webhook signature for NMI webhook")
 				r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
-				return
+				return false
 			}
 			if err := client.VerifyWebhookSignature(body, signature); err != nil {
 				log.WithError(err).Error("NMI webhook signature verification failed")
 				r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
-				return
+				return false
 			}
 			signatureValidated = true
 		} else {
 			if !isDev {
 				log.Error("NMI webhook secret not configured")
 				r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
-				return
+				return false
 			}
 			log.Warn("NMI webhook secret not configured - skipping signature verification")
 		}
@@ -360,22 +348,12 @@ func handleNMIWebhook(r *Request, provider string, headers map[string]string, cl
 	if err := json.Unmarshal(body, &data); err != nil {
 		log.WithError(err).Error("failed to parse NMI webhook JSON")
 		r.ErrorJSON(http.StatusBadRequest, "Invalid JSON data")
-		return
+		return false
 	}
 	if data.EventID == "" {
 		r.ErrorJSON(http.StatusBadRequest, "Missing event_id in payload")
-		return
+		return false
 	}
-
-	if r.State == nil || r.State.WebhookEventService == nil || r.State.WebhookProcessor == nil {
-		log.Error("Webhook components not configured; unable to persist NMI event")
-		r.ErrorJSON(http.StatusInternalServerError, "Webhook processing unavailable")
-		return
-	}
-
-	ctx := r.Request.Context()
-	eventHeaders := copyHeaders(headers)
-	eventHeaders["x-internal-provider"] = providerKey
 
 	var signatureValidPtr *bool
 	if signatureValidated {
@@ -383,27 +361,23 @@ func handleNMIWebhook(r *Request, provider string, headers map[string]string, cl
 		signatureValidPtr = &truth
 	}
 
-	params := services.CreateWebhookEventParams{
-		Processor:      providerKey, // Use the actual processor name (e.g., "mobius")
+	args := riverjobs.WebhookProcessArgs{
+		Provider:       providerKey,
 		EventID:        data.EventID,
 		EventType:      string(data.EventType),
-		Payload:        body,
-		Headers:        eventHeaders,
-		IPAddress:      clientIP,
+		Body:           body,
+		ClientIP:       clientIP,
 		Signature:      signature,
 		SignatureValid: signatureValidPtr,
 	}
-	if event, err := r.State.WebhookEventService.Create(ctx, params); err != nil {
-		log.WithError(err).Error("failed to persist NMI webhook event")
-		r.ErrorJSON(http.StatusInternalServerError, "Failed to persist webhook event")
-		return
-	} else {
-		if err := r.State.WebhookProcessor.ProcessDirect(ctx, event); err != nil {
-			log.WithError(err).Error("NMI webhook processing failed")
-		}
+
+	if err := enqueueWebhookJob(r, args); err != nil {
+		log.WithError(err).Error("failed to enqueue NMI webhook")
+		r.ErrorJSON(http.StatusInternalServerError, "Failed to enqueue webhook")
+		return false
 	}
 
-	r.SuccessJSON(map[string]string{"status": "accepted"})
+	return true
 }
 
 func readRequestBody(body io.ReadCloser) ([]byte, error) {
@@ -433,15 +407,4 @@ func normalizeCCBillPayload(body []byte) ([]byte, error) {
 		}
 	}
 	return json.Marshal(payload)
-}
-
-func copyHeaders(src map[string]string) map[string]string {
-	if src == nil {
-		return map[string]string{}
-	}
-	dst := make(map[string]string, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
 }

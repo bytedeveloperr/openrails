@@ -59,6 +59,11 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 	}); err != nil {
 		return nil, fmt.Errorf("add resume subscription worker: %w", err)
 	}
+	if err := river.AddWorkerSafely(workers, &riverjobs.WebhookProcessWorker{
+		Dispatcher: r.WebhookDispatcher,
+	}); err != nil {
+		return nil, fmt.Errorf("add webhook process worker: %w", err)
+	}
 	return workers, nil
 }
 

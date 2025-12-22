@@ -459,9 +459,6 @@ func (suite *TestContainerSuite) SetMockClock(t ...time.Time) *clockwork.FakeClo
 	}
 
 	// Webhook services
-	if rt.WebhookEventService != nil {
-		rt.WebhookEventService.Clock = mockClock
-	}
 	if rt.WebhookDispatcher != nil {
 		rt.WebhookDispatcher.Clock = mockClock
 	}

@@ -5,15 +5,28 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/jonboulle/clockwork"
 )
+
+// WebhookMessage is the runtime representation of a webhook event that needs dispatching.
+// It is intentionally minimal and decoupled from any database persistence.
+type WebhookMessage struct {
+	Processor      string
+	EventID        string
+	EventType      string
+	Payload        []byte
+	IPAddress      string
+	Signature      string
+	SignatureValid *bool
+	ReceivedAt     time.Time
+}
 
 // WebhookDispatcher routes persisted webhook events to processor-specific handlers.
 type WebhookDispatcher struct {
@@ -36,7 +49,7 @@ type WebhookDispatcher struct {
 }
 
 // Process executes the processor-specific webhook flow.
-func (d *WebhookDispatcher) Process(ctx context.Context, event *models.WebhookEvent) error {
+func (d *WebhookDispatcher) Process(ctx context.Context, event *WebhookMessage) error {
 	if event == nil {
 		return fmt.Errorf("webhook event is required")
 	}
@@ -53,13 +66,13 @@ func (d *WebhookDispatcher) Process(ctx context.Context, event *models.WebhookEv
 	}
 }
 
-func (d *WebhookDispatcher) processCCBill(ctx context.Context, event *models.WebhookEvent) error {
+func (d *WebhookDispatcher) processCCBill(ctx context.Context, event *WebhookMessage) error {
 	if d.CCBillRESTClient == nil {
 		return fmt.Errorf("ccbill rest client not configured")
 	}
 	data := CCBillWebhookEvent{
 		EventType: CCBillWebhookEventType(event.EventType),
-		EventBody: json.RawMessage(event.RawPayload),
+		EventBody: json.RawMessage(event.Payload),
 	}
 	service := CCBillWebhookService{
 		Data:                         data,
@@ -68,7 +81,6 @@ func (d *WebhookDispatcher) processCCBill(ctx context.Context, event *models.Web
 		ProductService:               d.ProductService,
 		PriceService:                 d.PriceService,
 		NotificationService:          d.NotificationService,
-		DeadLetterService:            &DeadLetterService{DB: d.DB, NotificationService: d.NotificationService},
 		EventLogService:              d.EventLogService,
 		SubscriptionService:          d.SubscriptionService,
 		SubscriptionLifecycleService: d.SubscriptionLifecycleService,
@@ -79,18 +91,14 @@ func (d *WebhookDispatcher) processCCBill(ctx context.Context, event *models.Web
 	return service.HandleCCBillWebhook(ctx)
 }
 
-func (d *WebhookDispatcher) processNMI(ctx context.Context, event *models.WebhookEvent) error {
+func (d *WebhookDispatcher) processNMI(ctx context.Context, event *WebhookMessage) error {
 	var payload NMIWebhookEvent
-	if err := json.Unmarshal([]byte(event.RawPayload), &payload); err != nil {
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return fmt.Errorf("parse nmi webhook payload: %w", err)
 	}
-	provider := strings.ToLower(strings.TrimSpace(extractProcessor(event.Headers)))
-	if provider == "" {
-		provider = "mobius"
-	}
-	client := d.NMIClients[provider]
+	client := d.NMIClients[event.Processor]
 	if client == nil {
-		return fmt.Errorf("nmi client '%s' not configured", provider)
+		return fmt.Errorf("nmi client '%s' not configured", event.Processor)
 	}
 
 	service := NMIWebhookService{
@@ -98,8 +106,7 @@ func (d *WebhookDispatcher) processNMI(ctx context.Context, event *models.Webhoo
 		PriceService:                 d.PriceService,
 		ProductService:               d.ProductService,
 		Data:                         payload,
-		Processor:                    provider,
-		DeadLetterService:            &DeadLetterService{DB: d.DB, NotificationService: d.NotificationService},
+		Processor:                    event.Processor,
 		NMIClient:                    client,
 		EventLogService:              d.EventLogService,
 		SubscriptionService:          d.SubscriptionService,
@@ -111,7 +118,7 @@ func (d *WebhookDispatcher) processNMI(ctx context.Context, event *models.Webhoo
 	return service.HandleNMIWebhook(ctx)
 }
 
-func (d *WebhookDispatcher) processStripe(ctx context.Context, event *models.WebhookEvent) error {
+func (d *WebhookDispatcher) processStripe(ctx context.Context, event *WebhookMessage) error {
 	service := StripeWebhookService{
 		DB:                           d.DB,
 		PriceService:                 d.PriceService,
@@ -124,18 +131,5 @@ func (d *WebhookDispatcher) processStripe(ctx context.Context, event *models.Web
 		DeduplicationService:         d.DeduplicationService,
 		ProcessorCustomerService:     d.ProcessorCustomerService,
 	}
-	return service.HandleStripeWebhook(ctx, []byte(event.RawPayload))
-}
-
-func extractProcessor(headers map[string]string) string {
-	if headers == nil {
-		return ""
-	}
-	if provider, ok := headers["x-internal-processor"]; ok {
-		return provider
-	}
-	if provider, ok := headers["processor"]; ok {
-		return provider
-	}
-	return ""
+	return service.HandleStripeWebhook(ctx, event.Payload)
 }

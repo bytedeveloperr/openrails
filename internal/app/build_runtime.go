@@ -129,19 +129,14 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 
 		EmailService:                 emailService,
 		SubscriptionLifecycleService: serviceInstances.SubscriptionLifecycleService,
-		WebhookEventService:          serviceInstances.WebhookEventService,
 		WebhookDispatcher:            serviceInstances.WebhookDispatcher,
 		DeduplicationService:         serviceInstances.DeduplicationService,
 		IdempotencyService:           serviceInstances.IdempotencyService,
 
-		CheckoutService:   serviceInstances.CheckoutService,
-		AdminGrantService: serviceInstances.AdminGrantService,
-		CreditsService:    serviceInstances.CreditsService,
+		CheckoutService:          serviceInstances.CheckoutService,
+		AdminGrantService:        serviceInstances.AdminGrantService,
+		CreditsService:           serviceInstances.CreditsService,
 		ProcessorCustomerService: serviceInstances.ProcessorCustomerService,
-	}
-	runtime.WebhookProcessor = &services.WebhookProcessor{
-		Events:     runtime.WebhookEventService,
-		Dispatcher: runtime.WebhookDispatcher,
 	}
 
 	// River producer is always initialized in the runtime so HTTP handlers can enqueue jobs
@@ -363,12 +358,11 @@ type servicesInstances struct {
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 	DeduplicationService         *services.DeduplicationService
 	IdempotencyService           *services.IdempotencyService
-	WebhookEventService          *services.WebhookEventService
 	WebhookDispatcher            *services.WebhookDispatcher
 
-	CheckoutService   *services.CheckoutService
-	AdminGrantService *services.AdminGrantService
-	CreditsService    *services.CreditsService
+	CheckoutService          *services.CheckoutService
+	AdminGrantService        *services.AdminGrantService
+	CreditsService           *services.CreditsService
 	ProcessorCustomerService *services.ProcessorCustomerService
 }
 
@@ -446,8 +440,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	)
 
 	deduplicationService := services.NewDeduplicationService(idempotencyService)
-	webhookEventService := services.NewWebhookEventService(database)
-	webhookEventService.Clock = clock
 	webhookDispatcher := &services.WebhookDispatcher{
 		DB:                           database,
 		Clock:                        clock,
@@ -522,7 +514,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		SubscriptionLifecycleService: subscriptionLifecycleService,
 		DeduplicationService:         deduplicationService,
 		IdempotencyService:           idempotencyService,
-		WebhookEventService:          webhookEventService,
 		WebhookDispatcher:            webhookDispatcher,
 		CheckoutService:              checkoutService,
 		AdminGrantService:            adminGrantService,

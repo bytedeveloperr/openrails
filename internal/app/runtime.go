@@ -48,10 +48,10 @@ type Runtime struct {
 
 	EmailService *services.EmailService
 
-	EventLogService    *services.EventLogService
-	EntitlementService *services.EntitlementService
-	AdminGrantService  *services.AdminGrantService
-	CreditsService     *services.CreditsService
+	EventLogService          *services.EventLogService
+	EntitlementService       *services.EntitlementService
+	AdminGrantService        *services.AdminGrantService
+	CreditsService           *services.CreditsService
 	ProcessorCustomerService *services.ProcessorCustomerService
 
 	SolanaPaymentService *services.SolanaPaymentService
@@ -59,11 +59,9 @@ type Runtime struct {
 	SolanaPayPoller      *services.SolanaPayPoller
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
-	WebhookEventService          *services.WebhookEventService
 	WebhookDispatcher            *services.WebhookDispatcher
 	DeduplicationService         *services.DeduplicationService
 	IdempotencyService           *services.IdempotencyService
-	WebhookProcessor             *services.WebhookProcessor
 
 	CheckoutService *services.CheckoutService
 

@@ -29,7 +29,6 @@ type NMIWebhookService struct {
 	ProductService               *ProductService
 	Data                         NMIWebhookEvent
 	Processor                    string
-	DeadLetterService            *DeadLetterService
 	NMIClient                    *nmi.NMIClient
 	EventLogService              *EventLogService
 	SubscriptionService          *SubscriptionService
@@ -386,13 +385,10 @@ func (s *NMIWebhookService) handleWebhook(ctx context.Context) error {
 		return s.handleChargebackComplete(ctx)
 
 	default:
-		// Log unknown event to dead letter queue if service is available
-		if s.DeadLetterService != nil {
-			dataJSON, err := json.Marshal(s.Data)
-			if err == nil {
-				s.DeadLetterService.LogUnknownEvent(ctx, s.Processor, s.Data.EventType, json.RawMessage(dataJSON), nil, "")
-			}
-		}
+		log.WithContext(ctx).WithFields(log.Fields{
+			"processor":  s.Processor,
+			"event_type": s.Data.EventType,
+		}).Warn("Unsupported NMI webhook event type")
 		return fmt.Errorf("unsupported event type: %s", s.Data.EventType)
 	}
 }
