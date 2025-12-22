@@ -85,7 +85,7 @@ func Webhook(r *Request) {
 			log.WithField("client_ip", clientIP).Debug("CCBill webhook authentication bypassed - test mode enabled")
 		}
 
-		if enqueueCCBillWebhook(r, provider, clientIP) {
+		if enqueueCCBillWebhook(r, clientIP) {
 			r.SuccessJSON(map[string]string{"status": "accepted"})
 		}
 		return
@@ -156,7 +156,7 @@ func parseStripeSignatureHeader(header string) (string, []string) {
 	return ts, sigs
 }
 
-func enqueueCCBillWebhook(r *Request, provider string, clientIP string) bool {
+func enqueueCCBillWebhook(r *Request, clientIP string) bool {
 	body, err := readRequestBody(r.Request.Body)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to read request body")
@@ -223,7 +223,7 @@ func enqueueStripeWebhook(r *Request, clientIP string) bool {
 			r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
 			return false
 		}
-		if err := verifyStripeSignature(secret, sig, body, 5*time.Minute); err != nil {
+		if err = verifyStripeSignature(secret, sig, body, 5*time.Minute); err != nil {
 			r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
 			return false
 		}
@@ -271,8 +271,7 @@ func enqueueWebhookJob(r *Request, args riverjobs.WebhookProcessArgs) error {
 	}
 
 	opts := &river.InsertOpts{
-		Queue:       riverjobs.QueueWebhooks,
-		MaxAttempts: 5,
+		Queue: riverjobs.QueueWebhooks,
 		UniqueOpts: river.UniqueOpts{
 			ByArgs:  true,
 			ByQueue: true,

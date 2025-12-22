@@ -235,7 +235,7 @@ func ServiceCaptureHold(r *Request) {
 		return
 	}
 	var req serviceCaptureRequest
-	if err := r.GinCtx.ShouldBindJSON(&req); err != nil {
+	if err = r.GinCtx.ShouldBindJSON(&req); err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "invalid request")
 		return
 	}

@@ -33,10 +33,6 @@ type runtimeOverrides struct {
 	Redis *redis.Client
 }
 
-func buildRuntime(cfg *config.Config) (*Runtime, error) {
-	return buildRuntimeWithOverrides(cfg, nil)
-}
-
 func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) (*Runtime, error) {
 	// Initialize NMI-backed processors from config BEFORE creating clients
 	// This ensures IsNMIBacked() works correctly for all configured processors
@@ -51,7 +47,7 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 		err         error
 	)
 	if overrides != nil && overrides.DB != nil {
-		if err := validateDatabase(cfg, overrides.DB); err != nil {
+		if err = validateDatabase(cfg, overrides.DB); err != nil {
 			return nil, err
 		}
 		database = overrides.DB
@@ -177,7 +173,7 @@ func buildRiverProducer(cfg *config.Config) (*river.Client[pgx.Tx], *pgxpool.Poo
 		return nil, nil, fmt.Errorf("failed creating pgx pool for River producer: %w", err)
 	}
 
-	client, err := river.NewClient[pgx.Tx](riverpgxv5.New(pool), &river.Config{
+	client, err := river.NewClient(riverpgxv5.New(pool), &river.Config{
 		Schema:              "billing",
 		SkipUnknownJobCheck: true,
 	})
@@ -541,7 +537,7 @@ func buildRiverClient(cfg *config.Config, workers *river.Workers) (*river.Client
 	schema := "billing" // Hardcoded schema
 
 	drv := riverpgxv5.New(pool)
-	client, err := river.NewClient[pgx.Tx](drv, &river.Config{
+	client, err := river.NewClient(drv, &river.Config{
 		Queues: map[string]river.QueueConfig{
 			river.QueueDefault: {MaxWorkers: 10},
 			"billing":          {MaxWorkers: 20},
