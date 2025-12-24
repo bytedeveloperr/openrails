@@ -16,17 +16,16 @@ import (
 	"time"
 )
 
-// ReplayService handles replaying saved webhook events for testing purposes
+// ReplayService replays saved webhook payloads against a target endpoint.
 type ReplayService struct {
-	DB             interface{}   // Database connection (for future use)
-	TargetEndpoint string        // Base URL for webhook endpoints
+	TargetEndpoint string        // Base URL for webhook endpoints (e.g., http://localhost:2053)
 	Concurrent     int           // Number of concurrent requests
 	Delay          time.Duration // Delay between requests
 	DryRun         bool          // Validate payloads without sending
 	Verbose        bool          // Enable detailed logging
 }
 
-// ReplayResult represents the result of a webhook replay attempt
+// ReplayResult represents the result of a webhook replay attempt.
 type ReplayResult struct {
 	EventFile    string `json:"event_file"`
 	Processor    string `json:"processor"`
@@ -37,7 +36,7 @@ type ReplayResult struct {
 	Error        string `json:"error,omitempty"`
 }
 
-// getProjectRoot returns the project root directory by finding go.mod
+// getProjectRoot returns the project root directory by finding go.mod.
 func getProjectRoot() (string, error) {
 	_, currentFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -59,7 +58,7 @@ func getProjectRoot() (string, error) {
 	return "", fmt.Errorf("go.mod not found")
 }
 
-// getWebhookFilesPath returns the path to webhook test files
+// getWebhookFilesPath returns the path to webhook test files.
 func (rs *ReplayService) getWebhookFilesPath() (string, error) {
 	projectRoot, err := getProjectRoot()
 	if err != nil {
@@ -74,7 +73,7 @@ func (rs *ReplayService) getWebhookFilesPath() (string, error) {
 	return webhookPath, nil
 }
 
-// loadWebhookEvents loads webhook event files from the specified processor directory
+// loadWebhookEvents loads webhook event files from the specified processor directory.
 func (rs *ReplayService) loadWebhookEvents(processor, eventFilter string) ([]string, error) {
 	webhookPath, err := rs.getWebhookFilesPath()
 	if err != nil {
@@ -89,7 +88,6 @@ func (rs *ReplayService) loadWebhookEvents(processor, eventFilter string) ([]str
 	var eventFiles []string
 
 	if eventFilter == "all" {
-		// Load all JSON files in the processor directory
 		files, err := os.ReadDir(processorPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read processor directory %s: %w", processorPath, err)
@@ -101,7 +99,6 @@ func (rs *ReplayService) loadWebhookEvents(processor, eventFilter string) ([]str
 			}
 		}
 	} else {
-		// Load specific event file
 		eventFile := filepath.Join(processorPath, eventFilter)
 		if _, err := os.Stat(eventFile); os.IsNotExist(err) {
 			return nil, fmt.Errorf("event file not found: %s", eventFile)
@@ -116,7 +113,7 @@ func (rs *ReplayService) loadWebhookEvents(processor, eventFilter string) ([]str
 	return eventFiles, nil
 }
 
-// validateWebhookPayload validates that a webhook payload is valid JSON
+// validateWebhookPayload validates that a webhook payload is valid JSON.
 func (rs *ReplayService) validateWebhookPayload(filePath string) (*ReplayResult, error) {
 	result := &ReplayResult{
 		EventFile: filepath.Base(filePath),
@@ -129,16 +126,13 @@ func (rs *ReplayService) validateWebhookPayload(filePath string) (*ReplayResult,
 		return result, nil
 	}
 
-	// Validate JSON structure
 	var payload interface{}
 	if err := json.Unmarshal(data, &payload); err != nil {
 		result.Error = fmt.Sprintf("Invalid JSON: %v", err)
 		return result, nil
 	}
 
-	// Extract event type for NMI-backed processor webhooks (mobius, nmi, etc.)
 	if result.Processor == "nmi" || result.Processor == "mobius" {
-		// Handle both single event and array of events
 		if payloadArray, ok := payload.([]interface{}); ok && len(payloadArray) > 0 {
 			if firstEvent, ok := payloadArray[0].(map[string]interface{}); ok {
 				if eventType, exists := firstEvent["event_type"]; exists {
@@ -160,30 +154,26 @@ func (rs *ReplayService) validateWebhookPayload(filePath string) (*ReplayResult,
 	return result, nil
 }
 
-// replayWebhookEvent sends a webhook event to the target endpoint
+// replayWebhookEvent sends a webhook event to the target endpoint.
 func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string) (*ReplayResult, error) {
 	result := &ReplayResult{
 		EventFile: filepath.Base(filePath),
 		Processor: filepath.Base(filepath.Dir(filePath)),
 	}
 
-	// Read webhook payload
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		result.Error = fmt.Sprintf("Failed to read file: %v", err)
 		return result, nil
 	}
 
-	// Validate JSON
 	var payload interface{}
 	if err := json.Unmarshal(data, &payload); err != nil {
 		result.Error = fmt.Sprintf("Invalid JSON: %v", err)
 		return result, nil
 	}
 
-	// Extract event type for NMI-backed processor webhooks (mobius, nmi, etc.)
 	if result.Processor == "nmi" || result.Processor == "mobius" {
-		// Handle both single event and array of events
 		if payloadArray, ok := payload.([]interface{}); ok && len(payloadArray) > 0 {
 			if firstEvent, ok := payloadArray[0].(map[string]interface{}); ok {
 				if eventType, exists := firstEvent["event_type"]; exists {
@@ -201,8 +191,6 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 		}
 	}
 
-	// Build webhook URL
-	// For NMI webhooks, use "mobius" as the route (processor name, not gateway)
 	provider := result.Processor
 	if provider == "nmi" {
 		provider = "mobius"
@@ -213,12 +201,10 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 		return result, nil
 	}
 
-	// Prepare HTTP request
 	var requestBody io.Reader
 	var contentType string
 
 	if result.Processor == "ccbill" {
-		// CCBill webhooks are typically form-encoded
 		formData := url.Values{}
 		if payloadMap, ok := payload.(map[string]interface{}); ok {
 			for key, value := range payloadMap {
@@ -228,7 +214,6 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 		requestBody = strings.NewReader(formData.Encode())
 		contentType = "application/x-www-form-urlencoded"
 	} else {
-		// NMI webhooks are JSON
 		requestBody = bytes.NewReader(data)
 		contentType = "application/json"
 	}
@@ -239,21 +224,11 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 		return result, nil
 	}
 
-	// Set headers
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", "webhook-replay-tool/1.0")
 
-	// Add processor-specific headers
-	if result.Processor == "nmi" {
-		// Note: In a real implementation, you might want to generate valid signatures
-		// req.Header.Set("X-Signature", "test-signature")
-	}
-
-	// Send request
 	startTime := time.Now()
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
+	client := &http.Client{Timeout: 30 * time.Second}
 
 	resp, err := client.Do(req)
 	responseTime := time.Since(startTime)
@@ -267,13 +242,11 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 
 	result.StatusCode = resp.StatusCode
 
-	// Read response body for debugging
 	respBody, err := io.ReadAll(resp.Body)
 	if err == nil && rs.Verbose {
 		fmt.Printf("    Response: %s\n", string(respBody))
 	}
 
-	// Consider 2xx status codes as success
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		result.Success = true
 	} else {
@@ -283,23 +256,20 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 	return result, nil
 }
 
-// processWebhookEvents processes a list of webhook events with concurrency control
+// processWebhookEvents processes a list of webhook events with concurrency control.
 func (rs *ReplayService) processWebhookEvents(ctx context.Context, eventFiles []string, processor string) (int, int, error) {
 	if len(eventFiles) == 0 {
 		return 0, 0, nil
 	}
 
-	// Channel for work distribution
 	workCh := make(chan string, len(eventFiles))
 	resultCh := make(chan *ReplayResult, len(eventFiles))
 
-	// Add all event files to work channel
 	for _, eventFile := range eventFiles {
 		workCh <- eventFile
 	}
 	close(workCh)
 
-	// Start worker goroutines
 	var wg sync.WaitGroup
 	numWorkers := rs.Concurrent
 	if numWorkers <= 0 {
@@ -311,12 +281,10 @@ func (rs *ReplayService) processWebhookEvents(ctx context.Context, eventFiles []
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
-		go func(workerID int) {
+		go func() {
 			defer wg.Done()
-
 			for eventFile := range workCh {
-				// Add delay between requests (except for the first batch)
-				if rs.Delay > 0 && workerID > 0 {
+				if rs.Delay > 0 {
 					time.Sleep(rs.Delay)
 				}
 
@@ -339,7 +307,6 @@ func (rs *ReplayService) processWebhookEvents(ctx context.Context, eventFiles []
 
 				resultCh <- result
 
-				// Log result if verbose
 				if rs.Verbose {
 					if result.Success {
 						if rs.DryRun {
@@ -356,23 +323,20 @@ func (rs *ReplayService) processWebhookEvents(ctx context.Context, eventFiles []
 					}
 				}
 			}
-		}(i)
+		}()
 	}
 
-	// Wait for all workers to complete
 	go func() {
 		wg.Wait()
 		close(resultCh)
 	}()
 
-	// Collect results
 	var successCount, failureCount int
 	for result := range resultCh {
 		if result.Success {
 			successCount++
 		} else {
 			failureCount++
-			// Log failures even in non-verbose mode
 			if !rs.Verbose {
 				fmt.Printf("    FAILED %s: %s\n", result.EventFile, result.Error)
 			}
@@ -382,7 +346,7 @@ func (rs *ReplayService) processWebhookEvents(ctx context.Context, eventFiles []
 	return successCount, failureCount, nil
 }
 
-// ReplayCCBillWebhooks replays CCBill webhook events
+// ReplayCCBillWebhooks replays CCBill webhook events.
 func (rs *ReplayService) ReplayCCBillWebhooks(ctx context.Context, eventFilter string) (int, int, error) {
 	eventFiles, err := rs.loadWebhookEvents("ccbill", eventFilter)
 	if err != nil {
@@ -396,9 +360,8 @@ func (rs *ReplayService) ReplayCCBillWebhooks(ctx context.Context, eventFilter s
 	return rs.processWebhookEvents(ctx, eventFiles, "ccbill")
 }
 
-// ReplayNMIWebhooks replays NMI webhook events
+// ReplayNMIWebhooks replays NMI webhook events.
 func (rs *ReplayService) ReplayNMIWebhooks(ctx context.Context, eventFilter string) (int, int, error) {
-	// Use "mobius" folder for NMI webhook test data (mobius is the processor, NMI is the gateway)
 	eventFiles, err := rs.loadWebhookEvents("mobius", eventFilter)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to load NMI webhook events: %w", err)
@@ -411,8 +374,7 @@ func (rs *ReplayService) ReplayNMIWebhooks(ctx context.Context, eventFilter stri
 	return rs.processWebhookEvents(ctx, eventFiles, "nmi")
 }
 
-// ReplayEvent replays a single webhook event to the target URL
-// Simple helper function for tests that just need to replay one event
+// ReplayEvent replays a single webhook event to the target URL.
 func ReplayEvent(ctx context.Context, processor, eventFile, targetURL string) error {
 	rs := &ReplayService{
 		TargetEndpoint: targetURL,
@@ -422,7 +384,7 @@ func ReplayEvent(ctx context.Context, processor, eventFile, targetURL string) er
 		Verbose:        false,
 	}
 
-	var _, failures int
+	var failures int
 	var err error
 
 	switch processor {
@@ -445,21 +407,19 @@ func ReplayEvent(ctx context.Context, processor, eventFile, targetURL string) er
 	return nil
 }
 
-// ReplayAllEvents replays all webhook events for a processor to the target URL
-// Simple helper function for tests that need to replay all events
+// ReplayAllEvents replays all webhook events for a processor.
 func ReplayAllEvents(ctx context.Context, processor, targetURL string) error {
 	return ReplayEvent(ctx, processor, "all", targetURL)
 }
 
-// ValidateEvent validates a webhook event payload without sending HTTP requests
-// Useful for testing payload structure and JSON validity
+// ValidateEvent validates a webhook event payload without sending HTTP requests.
 func ValidateEvent(processor, eventFile string) error {
 	rs := &ReplayService{
 		DryRun:  true,
 		Verbose: false,
 	}
 
-	var _, failures int
+	var failures int
 	var err error
 
 	switch processor {
@@ -482,14 +442,12 @@ func ValidateEvent(processor, eventFile string) error {
 	return nil
 }
 
-// ValidateAllEvents validates all webhook events for a processor
-// Useful for testing all payload structures without HTTP requests
+// ValidateAllEvents validates all webhook events for a processor.
 func ValidateAllEvents(processor string) error {
 	return ValidateEvent(processor, "all")
 }
 
-// LoadTestWebhookPayload loads a test webhook payload from testdata
-// This is a helper function for integration tests
+// LoadTestWebhookPayload loads a test webhook payload from testdata.
 func LoadTestWebhookPayload(processor, eventFile string) (string, error) {
 	projectRoot, err := getProjectRoot()
 	if err != nil {

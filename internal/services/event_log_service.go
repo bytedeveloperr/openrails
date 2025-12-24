@@ -378,24 +378,6 @@ type PaymentEventData struct {
 	Timestamp              time.Time  `json:"timestamp"`
 }
 
-// WebhookEventData represents data for webhook events
-type WebhookEventData struct {
-	EventID                 uuid.UUID  `json:"event_id"`
-	WebhookSource           string     `json:"webhook_source"`
-	EventType               string     `json:"event_type"`
-	SubscriptionID          *uuid.UUID `json:"subscription_id,omitempty"`
-	UserID                  *string    `json:"user_id,omitempty"`
-	ProcessorSubscriptionID *string    `json:"processor_subscription_id,omitempty"`
-	ProcessorTransactionID  *string    `json:"processor_transaction_id,omitempty"`
-	ProcessingStatus        string     `json:"processing_status"`
-	ProcessingTimeMs        uint32     `json:"processing_time_ms"`
-	ErrorMessage            *string    `json:"error_message,omitempty"`
-	WebhookPayload          string     `json:"webhook_payload"`
-	Headers                 string     `json:"headers"`
-	Timestamp               time.Time  `json:"timestamp"`
-	ProcessedAt             *time.Time `json:"processed_at,omitempty"`
-}
-
 // TransactionEventData represents data for transaction events
 type TransactionEventData struct {
 	EventID                uuid.UUID  `json:"event_id"`
@@ -447,30 +429,10 @@ type ChargebackEventData struct {
 	Timestamp              time.Time  `json:"timestamp"`
 }
 
-// Helper: return pointer int value or zero
-func valueOrZero(v *int) int {
-	if v == nil {
-		return 0
-	}
-	return *v
-}
-
-// Helper: return pointer string value or default
-func stringOrDefault(v *string, d string) string {
-	if v == nil || *v == "" {
-		return d
-	}
-	return *v
-}
-
 // Basic PII redaction for free-form strings
 // - masks emails, long digit sequences, and truncates to a max length
 func redactPII(s string) string {
 	return redactAndTruncate(s, 1024)
-}
-
-func redactAndTruncateJSON(s string, max int) string {
-	return redactAndTruncate(s, max)
 }
 
 func redactAndTruncate(s string, max int) string {
