@@ -64,6 +64,8 @@ type SubscriptionService struct {
 	IdempotencyService   *IdempotencyService
 }
 
+var ErrActiveSubscriptionExists = errors.New("active or pending subscription already exists for this product")
+
 // now returns the current time from the service's clock, or time.Now() if no clock is set.
 func (s *SubscriptionService) now() time.Time {
 	if s.Clock != nil {
@@ -489,7 +491,27 @@ func NewSubscriptionService(
 }
 
 func (s *SubscriptionService) Create(ctx context.Context, subscription *models.Subscription) error {
-	return s.subscriptionRepo.Create(ctx, subscription)
+	if subscription == nil {
+		return errors.New("subscription is nil")
+	}
+
+	if subscription.Status == models.StatusActive || subscription.Status == models.StatusPending {
+		existing, err := s.GetActiveOrPendingByUserIDAndProductID(ctx, subscription.UserID, subscription.ProductID)
+		if err == nil && existing != nil {
+			return ErrActiveSubscriptionExists
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("check existing subscription: %w", err)
+		}
+	}
+
+	if err := s.subscriptionRepo.Create(ctx, subscription); err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "idx_subscriptions_user_product_active_pending") {
+			return ErrActiveSubscriptionExists
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *SubscriptionService) GetByID(ctx context.Context, id uuid.UUID) (*models.Subscription, error) {

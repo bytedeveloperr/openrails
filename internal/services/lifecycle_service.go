@@ -188,16 +188,29 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 		"product_id": price.ProductID,
 	}).Info("Loaded price for membership creation")
 
-	existingSub, err := subService.GetByUserID(ctx, params.UserID)
-	if err == nil && existingSub.Status == models.StatusActive {
+	activeSub, err := subService.GetActiveOrPendingByUserIDAndProductID(ctx, params.UserID, price.ProductID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, fmt.Errorf("failed to check existing subscriptions: %w", err)
+	}
+	if err == nil && activeSub != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"user_id":                   params.UserID,
-			"existing_subscription_id":  existingSub.ID,
-			"existing_price_id":         existingSub.PriceID,
-			"existing_processor":        existingSub.Processor,
-			"processor_subscription_id": existingSub.ProcessorSubscriptionID,
-		}).Warn("User already has an active subscription; aborting membership creation")
-		return nil, nil, fmt.Errorf("user already has an active subscription")
+			"product_id":                price.ProductID,
+			"existing_subscription_id":  activeSub.ID,
+			"existing_price_id":         activeSub.PriceID,
+			"existing_status":           activeSub.Status,
+			"existing_processor":        activeSub.Processor,
+			"processor_subscription_id": activeSub.ProcessorSubscriptionID,
+		}).Warn("User already has an active or pending subscription for this product; aborting membership creation")
+		return nil, nil, fmt.Errorf("user already has an active or pending subscription for this product")
+	}
+
+	existingSub, err := subService.GetByUserIDAndPriceID(ctx, params.UserID, price.ID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, fmt.Errorf("failed to check existing subscription by price: %w", err)
+	}
+	if err != nil {
+		existingSub = nil
 	}
 
 	now := s.now()
@@ -1224,21 +1237,21 @@ func (s *SubscriptionLifecycleService) logSubscriptionEvent(ctx context.Context,
 	}
 
 	data := SubscriptionEventData{
-		SubscriptionID:          sub.ID,
-		UserID:                  sub.UserID,
-		EventType:               eventType,
-		Status:                  string(sub.Status),
+		SubscriptionID: sub.ID,
+		UserID:         sub.UserID,
+		EventType:      eventType,
+		Status:         string(sub.Status),
 		CancelType: func() string {
 			if sub.CancelType != nil {
 				return string(*sub.CancelType)
 			}
 			return ""
 		}(),
-		PriceAmount:      priceAmount,
-		PriceCurrency:    priceCurrency,
-		BillingCycleDays: billingDays,
-		ProductID:        productID,
-		PriceID:          priceID,
+		PriceAmount:             priceAmount,
+		PriceCurrency:           priceCurrency,
+		BillingCycleDays:        billingDays,
+		ProductID:               productID,
+		PriceID:                 priceID,
 		Processor:               string(processor),
 		ProcessorSubscriptionID: procSubID,
 		Metadata:                CreateMetadataJSON(metadata),
