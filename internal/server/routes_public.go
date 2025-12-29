@@ -39,6 +39,12 @@ func (s *Server) registerPublicRoutes() {
 	solanaPay.POST("", s.wrap(handlers.CreateSolanaPay))
 	solanaPay.GET("/:reference", s.wrap(handlers.GetSolanaPayByReference))
 
+	// Solana Pay Transaction Requests (server-built unsigned transactions)
+	solanaPayTxn := api.Group("/solana-pay")
+	solanaPayTxn.Use(s.authProvider.Required())
+	solanaPayTxn.GET("/:intent_id", s.wrap(handlers.GetSolanaPayIntent))
+	solanaPayTxn.POST("/:intent_id", s.wrap(handlers.CreateSolanaPayTransaction))
+
 	me := api.Group("/me")
 	me.Use(s.authProvider.Required())
 	me.GET("/status", s.wrap(handlers.GetMyBillingStatus))
