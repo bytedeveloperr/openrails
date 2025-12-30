@@ -545,6 +545,21 @@
       "completed": true,
       "status": "completed",
       "completed_notes": "Implemented credits schema + models + service with FIFO spend/holds, added product credits_spec, Stripe webhook handling for invoice.paid and checkout.session.completed (subscriptions + one-time purchases), created credits APIs (public + service), and documented credits endpoints."
+    },
+    {
+      "name": "stripe-style-api-alignment",
+      "description": "Align public/customer-facing billing API with Stripe-style routes, objects, pagination, and errors while keeping /me as a thin alias.\n\n## Metadata\n\n- Category: api-contract\n- Status: planned\n- Passes: false\n\n## Plan Reference\n\n- See WORKFLOW_STRIPE_ALIGNMENT.json for milestones, edge cases, and validation.",
+      "tasks": [
+        "[ ] Routing: add customer-scoped routes (/v1/customers/:id/...) and keep /me as alias; enforce JWT ownership or admin override.",
+        "[ ] ID prefixes: require Stripe-like prefixes in public APIs; return InvalidID errors when missing.",
+        "[ ] Response shapes: normalize list envelopes (object=list, data, has_more, url, cursors) and update Product/Price/Subscription/Payment/PaymentMethod objects to Stripe fields (status enums, metadata, livemode, billing_details, refunded).",
+        "[ ] Handlers: parse Stripe-like params (starting_after/ending_before, status filters), enforce currency when multi-currency, apply ownership checks, Stripe-style error envelopes.",
+        "[ ] Services: add cursor pagination, map internal states to Stripe enums, compute refund fields, surface failure codes/messages, enforce customer ownership.",
+        "[ ] OpenAPI: update paths/schemas to customer routes and new shapes; document /me as alias and multi-currency requirement.",
+        "[ ] Edge cases: idempotency keys on create/confirm flows, attach/detach semantics and default payment method rules, partial refunds, proration limits (single item), metadata/livemode consistency, created[gte/lte] filters, list url population.",
+        "[ ] Testing: handler/service tests for cursor pagination, ID validation, ownership, status mapping, payment method create/update, and list envelopes."
+      ],
+      "completed": false
     }
   ]
 }
