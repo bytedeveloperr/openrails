@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/google/uuid"
 )
@@ -24,8 +23,8 @@ type creditBalanceResponse struct {
 }
 
 func GetMyCredits(r *Request) {
-	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
-	if !ok || cl.UserID == "" {
+	user := r.GetUser()
+	if user == nil || user.ID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
@@ -55,7 +54,7 @@ func GetMyCredits(r *Request) {
 		ColumnExpr("ucb.permanent_balance").
 		ColumnExpr("ucb.expiring_balance").
 		ColumnExpr("ucb.earliest_expiry").
-		Join("LEFT JOIN billing.user_credit_balances ucb ON ucb.credit_type_id = ct.id AND ucb.user_id = ?", cl.UserID).
+		Join("LEFT JOIN billing.user_credit_balances ucb ON ucb.credit_type_id = ct.id AND ucb.user_id = ?", user.ID).
 		Where("ct.is_active = true").
 		Scan(r.Request.Context(), &rows)
 	if err != nil {
@@ -87,8 +86,8 @@ func GetMyCredits(r *Request) {
 }
 
 func GetMyCreditsType(r *Request) {
-	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
-	if !ok || cl.UserID == "" {
+	user := r.GetUser()
+	if user == nil || user.ID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
@@ -98,7 +97,7 @@ func GetMyCreditsType(r *Request) {
 		return
 	}
 
-	bal, err := r.State.CreditsService.GetBalance(r.Request.Context(), cl.UserID, creditType)
+	bal, err := r.State.CreditsService.GetBalance(r.Request.Context(), user.ID, creditType)
 	if err != nil {
 		r.ErrorJSON(http.StatusNotFound, "credit type not found")
 		return
@@ -129,8 +128,8 @@ func GetMyCreditsType(r *Request) {
 }
 
 func GetMyCreditTransactions(r *Request) {
-	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
-	if !ok || cl.UserID == "" {
+	user := r.GetUser()
+	if user == nil || user.ID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
@@ -149,7 +148,7 @@ func GetMyCreditTransactions(r *Request) {
 		offset = 0
 	}
 
-	items, total, err := r.State.CreditsService.GetTransactions(r.Request.Context(), cl.UserID, creditType, limit, offset)
+	items, total, err := r.State.CreditsService.GetTransactions(r.Request.Context(), user.ID, creditType, limit, offset)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, "failed to load transactions")
 		return

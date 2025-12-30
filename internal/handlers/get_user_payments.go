@@ -4,15 +4,14 @@ import (
 	"net/http"
 	"strconv"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 )
 
 // GetUserPayments retrieves the user's one-off payments
 func GetUserPayments(r *Request) {
-	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
-	if !ok || cl.UserID == "" {
+	user := r.GetUser()
+	if user == nil || user.ID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
@@ -43,7 +42,7 @@ func GetUserPayments(r *Request) {
 
 	payments, _, err := r.State.UserSubscriptionService.GetUserPayments(
 		r.Request.Context(),
-		cl.UserID,
+		user.ID,
 		queryOpts,
 	)
 	if err != nil {

@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"strings"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
@@ -16,8 +15,8 @@ type portalResponse struct {
 // CreatePortalSession creates a Stripe customer portal session.
 // POST /v1/me/portal
 func CreatePortalSession(r *Request) {
-	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
-	if !ok || cl.UserID == "" {
+	user := r.GetUser()
+	if user == nil || user.ID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
@@ -25,7 +24,7 @@ func CreatePortalSession(r *Request) {
 		r.ErrorJSON(http.StatusInternalServerError, "portal service unavailable")
 		return
 	}
-	customerID, err := r.State.ProcessorCustomerService.GetCustomerID(r.Request.Context(), cl.UserID, "stripe")
+	customerID, err := r.State.ProcessorCustomerService.GetCustomerID(r.Request.Context(), user.ID, "stripe")
 	if err != nil || strings.TrimSpace(customerID) == "" {
 		r.ErrorJSON(http.StatusNotFound, "stripe customer not found")
 		return

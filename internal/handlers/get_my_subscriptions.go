@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 )
@@ -15,12 +14,17 @@ import (
 //   - limit: max results (1-100, default 10)
 //   - offset: pagination offset (default 0)
 func GetMySubscriptions(r *Request) {
-	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
-	if !ok || cl.UserID == "" {
+	user := r.GetUser()
+	if user == nil || user.ID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
 
+	listSubscriptionsForUser(r, user.ID)
+}
+
+// listSubscriptionsForUser handles the core listing logic and is reused by customer-scoped routes.
+func listSubscriptionsForUser(r *Request, userID string) {
 	// Parse query parameters
 	limit, _ := strconv.Atoi(r.Request.URL.Query().Get("limit"))
 	if limit <= 0 || limit > 100 {
@@ -52,7 +56,7 @@ func GetMySubscriptions(r *Request) {
 
 	subscriptions, _, err := r.State.UserSubscriptionService.GetUserSubscriptionHistory(
 		r.Request.Context(),
-		cl.UserID,
+		userID,
 		queryOpts,
 	)
 	if err != nil {
