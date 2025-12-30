@@ -91,6 +91,7 @@ func (r *Request) SuccessJSONPaginated(data any, total int64, limit, offset int)
 		"limit":    limit,
 		"offset":   offset,
 		"has_more": hasMore,
+		"url":      r.Request.URL.Path,
 	})
 }
 

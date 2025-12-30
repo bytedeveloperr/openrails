@@ -1,6 +1,9 @@
 package handlers
 
 import (
+	"strconv"
+	"strings"
+
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
@@ -30,6 +33,8 @@ func ProductToAPI(p *models.Product, prices []*models.Price) api.ProductObject {
 		Name:        p.DisplayName,
 		Description: p.Description,
 		Active:      p.IsActive,
+		Livemode:    false,
+		Metadata:    map[string]string{},
 		Created:     api.ToUnix(p.CreatedAt),
 		Updated:     api.ToUnix(p.UpdatedAt),
 		Prices:      priceObjects,
@@ -60,9 +65,18 @@ func PaymentToAPI(p *models.Payment, refunds []*models.Payment) api.PaymentObjec
 		}
 	}
 
+	status := "succeeded"
+	refunded := amountRefunded >= p.Amount && p.Amount > 0
+	if refunded {
+		status = "refunded"
+	} else if amountRefunded > 0 {
+		status = "partially_refunded"
+	}
+
 	payment := api.PaymentObject{
 		ID:             api.FormatPaymentID(p.ID),
-		Object:         "payment",
+		Object:         "charge",
+		Status:         status,
 		Amount:         p.Amount,
 		AmountRefunded: amountRefunded,
 		Currency:       p.Currency,
@@ -70,7 +84,8 @@ func PaymentToAPI(p *models.Payment, refunds []*models.Payment) api.PaymentObjec
 		Subscription:   subID,
 		Processor:      string(p.Processor),
 		TransactionID:  p.TransactionID,
-		Refunded:       amountRefunded >= p.Amount && p.Amount > 0,
+		Refunded:       refunded,
+		Captured:       true,
 		Created:        api.ToUnix(p.CreatedAt),
 	}
 
@@ -106,15 +121,23 @@ func PriceToAPI(p *models.Price) api.PriceObject {
 		}
 	}
 
+	priceType := "one_time"
+	if recurring != nil {
+		priceType = "recurring"
+	}
+
 	return api.PriceObject{
 		ID:        api.FormatPriceID(p.ID),
 		Object:    "price",
 		Name:      p.DisplayName,
 		Amount:    p.Amount,
 		Currency:  p.Currency,
+		Type:      priceType,
 		Recurring: recurring,
 		Product:   api.FormatProductID(p.ProductID),
 		Active:    p.IsActive,
+		Livemode:  false,
+		Metadata:  map[string]string{},
 		Created:   api.ToUnix(p.CreatedAt),
 	}
 }
@@ -501,33 +524,56 @@ type GetUserBillingHistoryResponse = GetBillingHistoryResponse
 
 // -------------------------------- Payment Method Responses --------------------------------
 
-// PaymentMethodResponse represents a NMI payment method response (Stripe-compatible)
-// Payment methods only support NMI card vaults
+// PaymentMethodResponse represents a Stripe-style payment method (card)
 type PaymentMethodResponse struct {
-	ID        string `json:"id"`        // Prefixed with pm_
-	Object    string `json:"object"`    // Always "payment_method"
-	Type      string `json:"type"`      // Always "card" for NMI
-	Processor string `json:"processor"` // nmi, mobius, etc.
-	IsActive  bool   `json:"is_active"`
-	Created   int64  `json:"created"` // Unix epoch seconds
+	ID             string                       `json:"id"`                 // pm_xxx
+	Object         string                       `json:"object"`             // "payment_method"
+	Type           string                       `json:"type"`               // "card"
+	Processor      string                       `json:"processor"`          // nmi, mobius, etc.
+	Customer       *string                      `json:"customer,omitempty"` // usr_ prefix if available
+	BillingDetails *PaymentMethodBillingDetails `json:"billing_details,omitempty"`
+	Card           *PaymentMethodCardDetails    `json:"card,omitempty"`
+	Metadata       map[string]string            `json:"metadata,omitempty"`
+	Livemode       bool                         `json:"livemode"`
+	IsActive       bool                         `json:"is_active"` // legacy field; mirrors livemode/active
+	Created        int64                        `json:"created"`   // Unix epoch seconds
+	FailureReason  *string                      `json:"failure_reason,omitempty"`
+}
 
-	// Card-specific fields (NMI only) - Stripe-compatible names
-	Last4      *string `json:"last4,omitempty"`
-	Brand      *string `json:"brand,omitempty"`       // visa, mastercard, amex, etc.
-	ExpiryDate *string `json:"expiry_date,omitempty"` // MM/YY format
+type PaymentMethodBillingDetails struct {
+	Name    *string               `json:"name,omitempty"`
+	Email   *string               `json:"email,omitempty"`
+	Phone   *string               `json:"phone,omitempty"`
+	Address *PaymentMethodAddress `json:"address,omitempty"`
+}
 
-	// Additional fields
-	DisplayName   string  `json:"display_name"`
-	FailureReason *string `json:"failure_reason,omitempty"`
+type PaymentMethodAddress struct {
+	Line1      *string `json:"line1,omitempty"`
+	Line2      *string `json:"line2,omitempty"`
+	City       *string `json:"city,omitempty"`
+	State      *string `json:"state,omitempty"`
+	PostalCode *string `json:"postal_code,omitempty"`
+	Country    *string `json:"country,omitempty"`
+}
+
+type PaymentMethodCardDetails struct {
+	Brand    *string `json:"brand,omitempty"` // visa, mastercard, amex
+	Last4    *string `json:"last4,omitempty"`
+	ExpMonth *int    `json:"exp_month,omitempty"`
+	ExpYear  *int    `json:"exp_year,omitempty"`
 }
 
 // PaymentMethodToAPI converts a models.PaymentMethod to a Stripe-compatible PaymentMethodResponse
 func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
-	displayName := "Card"
-	if pm.CardType != nil && pm.LastFour != nil {
-		displayName = *pm.CardType + " •••• " + *pm.LastFour
-	} else if pm.LastFour != nil {
-		displayName = "Card •••• " + *pm.LastFour
+	card := &PaymentMethodCardDetails{
+		Brand: pm.CardType,
+		Last4: pm.LastFour,
+	}
+	if pm.ExpiryDate != nil {
+		if month, year, ok := parseExpiry(*pm.ExpiryDate); ok {
+			card.ExpMonth = &month
+			card.ExpYear = &year
+		}
 	}
 
 	return PaymentMethodResponse{
@@ -535,12 +581,10 @@ func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
 		Object:        "payment_method",
 		Type:          "card",
 		Processor:     string(pm.Processor),
+		Card:          card,
 		IsActive:      pm.IsActive,
 		Created:       api.ToUnix(pm.CreatedAt),
-		Last4:         pm.LastFour,
-		Brand:         pm.CardType,
-		ExpiryDate:    pm.ExpiryDate,
-		DisplayName:   displayName,
+		Metadata:      map[string]string{},
 		FailureReason: pm.FailureReason,
 	}
 }
@@ -552,4 +596,29 @@ func PaymentMethodsToAPI(methods []*models.PaymentMethod) []PaymentMethodRespons
 		result[i] = PaymentMethodToAPI(pm)
 	}
 	return result
+}
+
+// parseExpiry converts "MM/YY" or "MM-YY" to month/year integers.
+func parseExpiry(exp string) (int, int, bool) {
+	exp = strings.TrimSpace(exp)
+	if exp == "" {
+		return 0, 0, false
+	}
+	sep := "/"
+	if strings.Contains(exp, "-") {
+		sep = "-"
+	}
+	parts := strings.Split(exp, sep)
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	month, err1 := strconv.Atoi(parts[0])
+	year, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
+	}
+	if year < 100 {
+		year += 2000
+	}
+	return month, year, true
 }

@@ -6,27 +6,32 @@ import (
 
 // ProductObject represents a product resource
 type ProductObject struct {
-	ID          string        `json:"id"`
-	Object      string        `json:"object"` // Always "product"
-	Name        string        `json:"name"`
-	Description string        `json:"description"`
-	Active      bool          `json:"active"`
-	Created     int64         `json:"created"`
-	Updated     int64         `json:"updated"`
-	Prices      []PriceObject `json:"prices,omitempty"`
+	ID          string            `json:"id"`
+	Object      string            `json:"object"` // Always "product"
+	Name        string            `json:"name"`
+	Description string            `json:"description"`
+	Active      bool              `json:"active"`
+	Livemode    bool              `json:"livemode,omitempty"`
+	Metadata    map[string]string `json:"metadata,omitempty"`
+	Created     int64             `json:"created"`
+	Updated     int64             `json:"updated"`
+	Prices      []PriceObject     `json:"prices,omitempty"`
 }
 
 // PriceObject represents a price resource
 type PriceObject struct {
-	ID        string         `json:"id"`
-	Object    string         `json:"object"` // Always "price"
-	Name      string         `json:"name"`
-	Amount    int64          `json:"amount"` // In cents
-	Currency  string         `json:"currency"`
-	Recurring *RecurringInfo `json:"recurring,omitempty"` // null for one-time purchases
-	Product   string         `json:"product"`             // Product ID
-	Active    bool           `json:"active"`
-	Created   int64          `json:"created"`
+	ID        string            `json:"id"`
+	Object    string            `json:"object"` // Always "price"
+	Name      string            `json:"name"`
+	Amount    int64             `json:"amount"` // In cents
+	Currency  string            `json:"currency"`
+	Type      string            `json:"type,omitempty"`      // one_time or recurring
+	Recurring *RecurringInfo    `json:"recurring,omitempty"` // null for one-time purchases
+	Product   string            `json:"product"`             // Product ID
+	Active    bool              `json:"active"`
+	Livemode  bool              `json:"livemode,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	Created   int64             `json:"created"`
 }
 
 // RecurringInfo describes the billing interval for recurring prices
@@ -126,15 +131,20 @@ type RedirectToURLObject struct {
 // PaymentObject represents a payment resource
 type PaymentObject struct {
 	ID              string              `json:"id"`
-	Object          string              `json:"object"` // Always "payment"
-	Amount          int64               `json:"amount"` // Amount in cents (positive for payments, negative for refunds)
+	Object          string              `json:"object"`           // "charge" for Stripe-style responses
+	Status          string              `json:"status,omitempty"` // succeeded, pending, failed, refunded, partially_refunded
+	Amount          int64               `json:"amount"`           // Amount in cents (positive for payments, negative for refunds)
 	AmountRefunded  int64               `json:"amount_refunded"`
 	Currency        string              `json:"currency"`
-	User            string              `json:"user"`                          // User ID with usr_ prefix
-	Subscription    *string             `json:"subscription,omitempty"`        // Subscription ID if linked
-	Processor       string              `json:"processor"`                     // mobius, ccbill, solana
-	TransactionID   string              `json:"transaction_id"`                // Processor's transaction identifier
-	Refunded        bool                `json:"refunded"`                      // True if fully refunded
+	User            string              `json:"user"`                     // User ID with usr_ prefix
+	Subscription    *string             `json:"subscription,omitempty"`   // Subscription ID if linked
+	PaymentMethod   *string             `json:"payment_method,omitempty"` // Payment method ID if known
+	Processor       string              `json:"processor"`                // mobius, ccbill, solana
+	TransactionID   string              `json:"transaction_id"`           // Processor's transaction identifier
+	Refunded        bool                `json:"refunded"`                 // True if fully refunded
+	Captured        bool                `json:"captured,omitempty"`       // Always true for immediate captures
+	FailureCode     *string             `json:"failure_code,omitempty"`
+	FailureMessage  *string             `json:"failure_message,omitempty"`
 	Refunds         *PaymentRefundsList `json:"refunds,omitempty"`             // List of refunds (for single payment view)
 	Created         int64               `json:"created"`                       // Unix epoch seconds
 	Price           *PriceObject        `json:"price,omitempty"`               // Expanded price object
