@@ -386,6 +386,8 @@ func (s *CheckoutSessionService) initializeSession(ctx context.Context, session 
 	switch strings.ToLower(string(session.Processor)) {
 	case "solana":
 		return s.initializeSolanaSession(ctx, session, payment)
+	case "mobius":
+		return s.initializeCheckoutSession(ctx, session, payment, user)
 	default:
 		return nil
 	}
@@ -462,6 +464,80 @@ func (s *CheckoutSessionService) initializeSolanaSession(ctx context.Context, se
 		session.ProcessorState["payer"] = strings.TrimSpace(payment.Wallet)
 	default:
 		return fmt.Errorf("%w: unsupported solana flow", ErrCheckoutSessionValidation)
+	}
+
+	return nil
+}
+
+func (s *CheckoutSessionService) initializeCheckoutSession(ctx context.Context, session *models.CheckoutSession, payment *CheckoutSessionPaymentRequest, user *UserIdentity) error {
+	if s.checkoutService == nil {
+		return fmt.Errorf("%w: checkout service unavailable", ErrCheckoutSessionValidation)
+	}
+
+	req := &CheckoutRequest{
+		PriceID:         api.FormatPriceID(session.PriceID),
+		PaymentMethodID: payment.PaymentMethodID,
+		PaymentToken:    payment.PaymentToken,
+		Processor:       string(session.Processor),
+		Email:           payment.Email,
+		FirstName:       payment.FirstName,
+		LastName:        payment.LastName,
+		Address1:        payment.Address1,
+		City:            payment.City,
+		State:           payment.State,
+		Zip:             payment.Zip,
+		Country:         payment.Country,
+	}
+	if session.IdempotencyKey != nil {
+		req.IdempotencyKey = strings.TrimSpace(*session.IdempotencyKey)
+	}
+
+	resp, err := s.checkoutService.Checkout(ctx, req, user)
+	if err != nil {
+		return err
+	}
+
+	return s.applyCheckoutResponse(session, resp)
+}
+
+func (s *CheckoutSessionService) applyCheckoutResponse(session *models.CheckoutSession, resp *CheckoutResponse) error {
+	if session == nil {
+		return fmt.Errorf("%w: session is required", ErrCheckoutSessionValidation)
+	}
+	if resp == nil {
+		return fmt.Errorf("%w: checkout response is required", ErrCheckoutSessionValidation)
+	}
+
+	switch resp.Status {
+	case "success", "pending":
+		session.Status = models.CheckoutSessionStatusSucceeded
+		if resp.PaymentID != nil {
+			session.PaymentID = resp.PaymentID
+		}
+		if resp.SubscriptionID != nil {
+			session.SubscriptionID = resp.SubscriptionID
+		}
+		if strings.TrimSpace(resp.TransactionID) != "" {
+			session.TransactionID = stringPtr(resp.TransactionID)
+		}
+	case "redirect_required":
+		redirectURL := strings.TrimSpace(resp.RedirectURL)
+		if redirectURL == "" {
+			return fmt.Errorf("%w: redirect url missing", ErrCheckoutSessionValidation)
+		}
+		session.Status = models.CheckoutSessionStatusRequiresAction
+		if session.ProcessorState == nil {
+			session.ProcessorState = map[string]any{}
+		}
+		session.ProcessorState["redirect_url"] = redirectURL
+	case "blocked":
+		msg := strings.TrimSpace(resp.Message)
+		if msg == "" {
+			msg = "checkout blocked"
+		}
+		return fmt.Errorf("%w: %s", ErrCheckoutSessionConflict, msg)
+	default:
+		return fmt.Errorf("%w: unsupported checkout status", ErrCheckoutSessionConflict)
 	}
 
 	return nil
