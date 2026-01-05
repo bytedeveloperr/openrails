@@ -130,6 +130,7 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 		IdempotencyService:           serviceInstances.IdempotencyService,
 
 		CheckoutService:          serviceInstances.CheckoutService,
+		CheckoutSessionService:   serviceInstances.CheckoutSessionService,
 		AdminGrantService:        serviceInstances.AdminGrantService,
 		CreditsService:           serviceInstances.CreditsService,
 		ProcessorCustomerService: serviceInstances.ProcessorCustomerService,
@@ -357,6 +358,7 @@ type servicesInstances struct {
 	WebhookDispatcher            *services.WebhookDispatcher
 
 	CheckoutService          *services.CheckoutService
+	CheckoutSessionService   *services.CheckoutSessionService
 	AdminGrantService        *services.AdminGrantService
 	CreditsService           *services.CreditsService
 	ProcessorCustomerService *services.ProcessorCustomerService
@@ -470,6 +472,15 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	checkoutService.Clock = clock
 	webhookDispatcher.CheckoutService = checkoutService
 
+	checkoutSessionService := services.NewCheckoutSessionService(
+		database,
+		priceService,
+		productService,
+		paymentMethodService,
+		idempotencyService,
+	)
+	checkoutSessionService.Clock = clock
+
 	// Wire up checkoutService to solanaPayService for eligibility checks
 	solanaPayService.SetCheckoutService(checkoutService)
 
@@ -512,6 +523,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		IdempotencyService:           idempotencyService,
 		WebhookDispatcher:            webhookDispatcher,
 		CheckoutService:              checkoutService,
+		CheckoutSessionService:       checkoutSessionService,
 		AdminGrantService:            adminGrantService,
 		CreditsService:               creditsService,
 		ProcessorCustomerService:     processorCustomerService,

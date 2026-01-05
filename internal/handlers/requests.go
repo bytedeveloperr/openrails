@@ -365,6 +365,7 @@ type CheckoutSessionCreateBodyParams struct {
 type CheckoutSessionCreateRequest struct {
 	BaseRequest
 	CheckoutSessionCreateBodyParams
+	IdempotencyKey string `json:"-"`
 }
 
 func (r *CheckoutSessionCreateRequest) Body() any {

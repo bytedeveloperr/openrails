@@ -10,16 +10,17 @@ import (
 // ID prefixes for different resource types (Stripe-like pattern).
 // These prefixes only appear in the API layer - database stores plain UUIDs.
 const (
-	PrefixProduct       = "prod_"
-	PrefixPrice         = "price_"
-	PrefixSubscription  = "sub_"
-	PrefixPayment       = "pay_"
-	PrefixPaymentMethod = "pm_"
-	PrefixPaymentIntent = "pi_"
-	PrefixInvoice       = "inv_"
-	PrefixUser          = "usr_"
-	PrefixEvent         = "evt_"
-	PrefixAdminGrant    = "ag_"
+	PrefixProduct         = "prod_"
+	PrefixPrice           = "price_"
+	PrefixSubscription    = "sub_"
+	PrefixPayment         = "pay_"
+	PrefixPaymentMethod   = "pm_"
+	PrefixPaymentIntent   = "pi_"
+	PrefixInvoice         = "inv_"
+	PrefixCheckoutSession = "cs_"
+	PrefixUser            = "usr_"
+	PrefixEvent           = "evt_"
+	PrefixAdminGrant      = "ag_"
 )
 
 // FormatProductID formats a UUID as a product ID (prod_xxx)
@@ -55,6 +56,11 @@ func FormatPaymentIntentID(id uuid.UUID) string {
 // FormatInvoiceID formats a UUID as an invoice ID (inv_xxx)
 func FormatInvoiceID(id uuid.UUID) string {
 	return PrefixInvoice + id.String()
+}
+
+// FormatCheckoutSessionID formats a UUID as a checkout session ID (cs_xxx)
+func FormatCheckoutSessionID(id uuid.UUID) string {
+	return PrefixCheckoutSession + id.String()
 }
 
 // FormatUserID formats a user ID with the usr_ prefix
@@ -108,6 +114,11 @@ func ParseInvoiceID(id string) (uuid.UUID, error) {
 	return parseID(id, PrefixInvoice, "invoice")
 }
 
+// ParseCheckoutSessionID parses a prefixed checkout session ID and returns the UUID
+func ParseCheckoutSessionID(id string) (uuid.UUID, error) {
+	return parseID(id, PrefixCheckoutSession, "checkout_session")
+}
+
 // ParseUserID parses a prefixed user ID and returns the raw ID string
 func ParseUserID(id string) (string, error) {
 	if !strings.HasPrefix(id, PrefixUser) {
@@ -150,7 +161,7 @@ func TryParseID(id string) (uuid.UUID, bool, error) {
 	prefixes := []string{
 		PrefixProduct, PrefixPrice, PrefixSubscription,
 		PrefixPayment, PrefixPaymentMethod, PrefixPaymentIntent,
-		PrefixInvoice, PrefixUser, PrefixEvent, PrefixAdminGrant,
+		PrefixInvoice, PrefixCheckoutSession, PrefixUser, PrefixEvent, PrefixAdminGrant,
 	}
 
 	for _, prefix := range prefixes {

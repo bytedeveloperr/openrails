@@ -63,7 +63,8 @@ type Runtime struct {
 	DeduplicationService         *services.DeduplicationService
 	IdempotencyService           *services.IdempotencyService
 
-	CheckoutService *services.CheckoutService
+	CheckoutService        *services.CheckoutService
+	CheckoutSessionService *services.CheckoutSessionService
 
 	riverStarted bool
 }
