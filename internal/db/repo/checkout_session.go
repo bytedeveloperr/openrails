@@ -1,0 +1,56 @@
+package repo
+
+import (
+	"context"
+	"errors"
+
+	"github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/google/uuid"
+)
+
+type CheckoutSessionRepo struct {
+	db *db.DB
+}
+
+func NewCheckoutSessionRepo(d *db.DB) *CheckoutSessionRepo {
+	return &CheckoutSessionRepo{db: d}
+}
+
+func (r *CheckoutSessionRepo) Create(ctx context.Context, session *models.CheckoutSession) error {
+	res, err := r.db.GetDB().NewInsert().Model(session).Exec(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows < 1 {
+		return errors.New("no rows affected")
+	}
+	return nil
+}
+
+func (r *CheckoutSessionRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.CheckoutSession, error) {
+	session := new(models.CheckoutSession)
+	if err := r.db.GetDB().NewSelect().Model(session).Where("cs.id = ?", id).Scan(ctx); err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+func (r *CheckoutSessionRepo) Update(ctx context.Context, session *models.CheckoutSession) error {
+	res, err := r.db.GetDB().NewUpdate().Model(session).WherePK().Exec(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows < 1 {
+		return errors.New("no rows affected")
+	}
+	return nil
+}

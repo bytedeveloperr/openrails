@@ -26,6 +26,7 @@ const (
 var ModelRegistry = []any{
 	(*Product)(nil),
 	(*Price)(nil),
+	(*CheckoutSession)(nil),
 	(*Payment)(nil),
 	(*Purchase)(nil),
 	(*Subscription)(nil),
