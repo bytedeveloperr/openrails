@@ -39,12 +39,6 @@ func (s *Server) registerPublicRoutes() {
 	solanaPay.POST("", s.wrap(handlers.CreateSolanaPay))
 	solanaPay.GET("/:reference", s.wrap(handlers.GetSolanaPayByReference))
 
-	// Solana Pay Transaction Requests (server-built unsigned transactions)
-	solanaPayTxn := api.Group("/solana-pay")
-	solanaPayTxn.Use(s.authProvider.Required())
-	solanaPayTxn.GET("/:intent_id", s.wrap(handlers.GetSolanaPayIntent))
-	solanaPayTxn.POST("/:intent_id", s.wrap(handlers.CreateSolanaPayTransaction))
-
 	// Checkout Sessions - unified flow
 	checkout := api.Group("/checkout")
 	checkout.Use(s.authProvider.Required())

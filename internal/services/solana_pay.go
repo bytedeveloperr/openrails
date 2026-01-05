@@ -3,7 +3,6 @@ package services
 import (
 	"context"
 	"crypto/rand"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -13,9 +12,6 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/solana-go"
-	"github.com/doujins-org/solana-go/programs/system"
-	"github.com/doujins-org/solana-go/programs/token"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
 	redis "github.com/redis/go-redis/v9"
@@ -413,139 +409,4 @@ func formatTokenAmount(amount uint64, decimals int) string {
 	// Trim trailing zeros
 	fracStr = strings.TrimRight(fracStr, "0")
 	return fmt.Sprintf("%d.%s", whole, fracStr)
-}
-
-// GetIntentByID returns a Solana Pay intent by primary key.
-func (s *SolanaPayService) GetIntentByID(ctx context.Context, id uuid.UUID) (*models.SolanaPayIntent, error) {
-	intent := new(models.SolanaPayIntent)
-	err := s.db.GetDB().NewSelect().
-		Model(intent).
-		Where("id = ?", id).
-		Limit(1).
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return intent, nil
-}
-
-func (s *SolanaPayService) tokenConfigForMint(mint string) (config.TokenConfig, bool) {
-	if s.cfg == nil || s.cfg.Solana == nil {
-		return config.TokenConfig{}, false
-	}
-	for _, cfg := range s.cfg.Solana.SupportedTokens {
-		if !cfg.Enabled {
-			continue
-		}
-		if strings.EqualFold(cfg.Mint, mint) || (cfg.MainnetMint != "" && strings.EqualFold(cfg.MainnetMint, mint)) {
-			return cfg, true
-		}
-	}
-	return config.TokenConfig{}, false
-}
-
-// BuildTransactionRequest builds an unsigned Solana Pay transaction for a given intent and user account.
-func (s *SolanaPayService) BuildTransactionRequest(ctx context.Context, intentID uuid.UUID, accountBase58 string) (string, *models.SolanaPayIntent, error) {
-	if s.rpc == nil {
-		return "", nil, fmt.Errorf("solana rpc not configured")
-	}
-	intent, err := s.GetIntentByID(ctx, intentID)
-	if err != nil {
-		return "", nil, err
-	}
-	now := s.now()
-	if intent.ExpiresAt != nil && intent.ExpiresAt.Before(now) {
-		return "", nil, fmt.Errorf("intent expired")
-	}
-	if intent.Amount <= 0 {
-		return "", nil, fmt.Errorf("invalid amount")
-	}
-
-	account, err := solana.PublicKeyFromBase58(strings.TrimSpace(accountBase58))
-	if err != nil {
-		return "", nil, fmt.Errorf("invalid account: %w", err)
-	}
-	recipient, err := solana.PublicKeyFromBase58(strings.TrimSpace(intent.Recipient))
-	if err != nil {
-		return "", nil, fmt.Errorf("invalid recipient: %w", err)
-	}
-	ref, err := solana.PublicKeyFromBase58(strings.TrimSpace(intent.Reference))
-	if err != nil {
-		return "", nil, fmt.Errorf("invalid reference: %w", err)
-	}
-
-	blockhash, err := s.rpc.GetLatestBlockhash(ctx)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to get blockhash: %w", err)
-	}
-
-	var instructions []solana.Instruction
-	amount := uint64(intent.Amount)
-
-	if intent.TokenMint != nil && strings.TrimSpace(*intent.TokenMint) != "" {
-		mintStr := strings.TrimSpace(*intent.TokenMint)
-		mint, err := solana.PublicKeyFromBase58(mintStr)
-		if err != nil {
-			return "", nil, fmt.Errorf("invalid token mint: %w", err)
-		}
-		if _, ok := s.tokenConfigForMint(mintStr); !ok {
-			return "", nil, fmt.Errorf("unsupported token mint")
-		}
-
-		fromATA, _, err := solana.FindAssociatedTokenAddress(account, mint)
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to find source token account: %w", err)
-		}
-		toATA, _, err := solana.FindAssociatedTokenAddress(recipient, mint)
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to find destination token account: %w", err)
-		}
-
-		ix := token.NewTransferInstruction(
-			amount,
-			fromATA,
-			toATA,
-			account,
-			[]solana.PublicKey{},
-		).Build()
-		accounts := ix.Accounts()
-		accounts = append(accounts, &solana.AccountMeta{PublicKey: ref, IsSigner: false, IsWritable: false})
-		data, err := ix.Data()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to build token transfer data: %w", err)
-		}
-		ixWithRef := solana.NewInstruction(ix.ProgramID(), accounts, data)
-		instructions = append(instructions, ixWithRef)
-	} else {
-		ix := system.NewTransferInstruction(
-			amount,
-			account,
-			recipient,
-		).Build()
-		accounts := ix.Accounts()
-		accounts = append(accounts, &solana.AccountMeta{PublicKey: ref, IsSigner: false, IsWritable: false})
-		data, err := ix.Data()
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to build sol transfer data: %w", err)
-		}
-		ixWithRef := solana.NewInstruction(ix.ProgramID(), accounts, data)
-		instructions = append(instructions, ixWithRef)
-	}
-
-	tx, err := solana.NewTransaction(
-		instructions,
-		blockhash,
-		solana.TransactionPayer(account),
-	)
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to build transaction: %w", err)
-	}
-
-	// Unsigned; wallet signs and broadcasts.
-	txBytes, err := tx.MarshalBinary()
-	if err != nil {
-		return "", nil, fmt.Errorf("failed to serialize transaction: %w", err)
-	}
-
-	return base64.StdEncoding.EncodeToString(txBytes), intent, nil
 }
