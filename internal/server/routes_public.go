@@ -31,14 +31,6 @@ func (s *Server) registerPublicRoutes() {
 	// Solana tokens endpoint (public, no auth required)
 	api.GET("/solana/tokens", s.wrap(handlers.GetSupportedTokens))
 
-	// Solana Pay - simplified Transfer Request flow with Redis-backed pending payments
-	// POST /v1/solana/pay - Create a new Solana Pay Transfer Request URL
-	// GET /v1/solana/pay/:reference - Check payment status by reference
-	solanaPay := api.Group("/solana/pay")
-	solanaPay.Use(s.authProvider.Required())
-	solanaPay.POST("", s.wrap(handlers.CreateSolanaPay))
-	solanaPay.GET("/:reference", s.wrap(handlers.GetSolanaPayByReference))
-
 	// Checkout Sessions - unified flow
 	checkout := api.Group("/checkout")
 	checkout.Use(s.authProvider.Required())
@@ -49,8 +41,6 @@ func (s *Server) registerPublicRoutes() {
 	me := api.Group("/me")
 	me.Use(s.authProvider.Required())
 	me.GET("/status", s.wrap(handlers.GetMyBillingStatus))
-	// Unified checkout endpoint - handles both subscriptions and one-time purchases
-	me.POST("/checkout", s.wrap(handlers.Checkout))
 	// New user-scoped endpoints
 	me.GET("/subscriptions", s.wrap(handlers.GetMySubscriptions))
 	me.PUT("/subscriptions/payment-method", s.wrap(handlers.UpdateSubscriptionPaymentMethod))

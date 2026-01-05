@@ -2,8 +2,6 @@ package handlers
 
 import (
 	"time"
-
-	"github.com/doujins-org/doujins-billing/internal/services"
 )
 
 type IRequest interface {
@@ -61,21 +59,6 @@ func (p *PaginationParams) CapLimit(maxLimit int) bool {
 
 type GetSubscriptionRequest struct {
 	BaseRequest
-}
-
-// -------------------------------- Subscribe Request --------------------------------
-
-type SubscribeBodyParams struct {
-	services.SubscribeData
-}
-
-type SubscribeRequest struct {
-	BaseRequest
-	SubscribeBodyParams
-}
-
-func (r *SubscribeRequest) Body() any {
-	return &r.SubscribeBodyParams
 }
 
 // -------------------------------- GetProducts Request --------------------------------
@@ -301,35 +284,6 @@ func (r *GetUserBillingHistoryRequest) Query() any {
 
 func (r *GetUserBillingHistoryRequest) SetDefaults() {
 	r.SetPaginationDefaults(20)
-}
-
-// -------------------------------- Unified Checkout Request --------------------------------
-
-// CheckoutBodyParams for POST /v1/me/checkout
-type CheckoutBodyParams struct {
-	PriceID         string `json:"price_id" validate:"required"`
-	Processor       string `json:"processor" validate:"required,oneof=mobius ccbill solana"`
-	PaymentMethodID string `json:"payment_method_id,omitempty" validate:"omitempty"`
-	PaymentToken    string `json:"payment_token,omitempty"`
-
-	// Optional billing info (used when creating vault from payment token)
-	Email     string `json:"email,omitempty" validate:"omitempty,email"`
-	FirstName string `json:"first_name,omitempty" validate:"omitempty,max=100"`
-	LastName  string `json:"last_name,omitempty" validate:"omitempty,max=100"`
-	Address1  string `json:"address1,omitempty" validate:"omitempty,max=200"`
-	City      string `json:"city,omitempty" validate:"omitempty,max=100"`
-	State     string `json:"state,omitempty" validate:"omitempty,max=50"`
-	Zip       string `json:"zip,omitempty" validate:"omitempty,max=20"`
-	Country   string `json:"country,omitempty" validate:"omitempty,max=2"`
-}
-
-type CheckoutRequest struct {
-	BaseRequest
-	CheckoutBodyParams
-}
-
-func (r *CheckoutRequest) Body() any {
-	return &r.CheckoutBodyParams
 }
 
 // -------------------------------- Checkout Session Requests --------------------------------
