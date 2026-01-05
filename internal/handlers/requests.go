@@ -332,6 +332,62 @@ func (r *CheckoutRequest) Body() any {
 	return &r.CheckoutBodyParams
 }
 
+// -------------------------------- Checkout Session Requests --------------------------------
+
+type CheckoutSessionPaymentParams struct {
+	Processor       string `json:"processor" validate:"required,oneof=mobius ccbill solana stripe"`
+	PaymentMethodID string `json:"payment_method_id,omitempty" validate:"omitempty"`
+	PaymentToken    string `json:"payment_token,omitempty"`
+
+	// Solana-specific fields
+	TokenSymbol string `json:"token_symbol,omitempty" validate:"omitempty"`
+	Flow        string `json:"flow,omitempty" validate:"omitempty,oneof=transfer_request transaction_request"`
+	Wallet      string `json:"wallet,omitempty" validate:"omitempty"`
+
+	// CCBill/Stripe billing fields (flattened)
+	Email     string `json:"email,omitempty" validate:"omitempty,email"`
+	FirstName string `json:"first_name,omitempty" validate:"omitempty,max=100"`
+	LastName  string `json:"last_name,omitempty" validate:"omitempty,max=100"`
+	Address1  string `json:"address1,omitempty" validate:"omitempty,max=200"`
+	City      string `json:"city,omitempty" validate:"omitempty,max=100"`
+	State     string `json:"state,omitempty" validate:"omitempty,max=50"`
+	Zip       string `json:"zip,omitempty" validate:"omitempty,max=20"`
+	Country   string `json:"country,omitempty" validate:"omitempty,max=2"`
+}
+
+type CheckoutSessionCreateBodyParams struct {
+	PriceID  string                       `json:"price_id" validate:"required"`
+	Mode     string                       `json:"mode,omitempty" validate:"omitempty,oneof=one_off subscription"`
+	Payment  CheckoutSessionPaymentParams `json:"payment" validate:"required"`
+	Metadata map[string]string            `json:"metadata,omitempty"`
+}
+
+type CheckoutSessionCreateRequest struct {
+	BaseRequest
+	CheckoutSessionCreateBodyParams
+}
+
+func (r *CheckoutSessionCreateRequest) Body() any {
+	return &r.CheckoutSessionCreateBodyParams
+}
+
+type CheckoutSessionConfirmBodyParams struct {
+	Payment struct {
+		Processor string `json:"processor" validate:"required,oneof=solana"`
+		Signature string `json:"signature,omitempty"`
+		Wallet    string `json:"wallet,omitempty"`
+	} `json:"payment" validate:"required"`
+}
+
+type CheckoutSessionConfirmRequest struct {
+	BaseRequest
+	CheckoutSessionConfirmBodyParams
+}
+
+func (r *CheckoutSessionConfirmRequest) Body() any {
+	return &r.CheckoutSessionConfirmBodyParams
+}
+
 // -------------------------------- UpdateSubscriptionPaymentMethod Request --------------------------------
 // PUT /v1/me/subscriptions/payment-method - Update which payment method a subscription uses
 

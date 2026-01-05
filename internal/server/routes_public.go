@@ -45,6 +45,13 @@ func (s *Server) registerPublicRoutes() {
 	solanaPayTxn.GET("/:intent_id", s.wrap(handlers.GetSolanaPayIntent))
 	solanaPayTxn.POST("/:intent_id", s.wrap(handlers.CreateSolanaPayTransaction))
 
+	// Checkout Sessions - unified flow
+	checkout := api.Group("/checkout")
+	checkout.Use(s.authProvider.Required())
+	checkout.POST("", s.wrap(handlers.CreateCheckoutSession))
+	checkout.GET("/:id", s.wrap(handlers.GetCheckoutSession))
+	checkout.POST("/:id/confirm", s.wrap(handlers.ConfirmCheckoutSession))
+
 	me := api.Group("/me")
 	me.Use(s.authProvider.Required())
 	me.GET("/status", s.wrap(handlers.GetMyBillingStatus))

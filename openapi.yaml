@@ -317,6 +317,122 @@ components:
         delayed_start:
           type: string
           format: date-time
+    CheckoutSessionPayment:
+      type: object
+      required: [processor]
+      properties:
+        processor:
+          type: string
+          enum: [mobius, ccbill, solana, stripe]
+        payment_method_id:
+          type: string
+        payment_token:
+          type: string
+        token_symbol:
+          type: string
+        flow:
+          type: string
+          enum: [transfer_request, transaction_request]
+        wallet:
+          type: string
+        email:
+          type: string
+          format: email
+        first_name:
+          type: string
+        last_name:
+          type: string
+        address1:
+          type: string
+        city:
+          type: string
+        state:
+          type: string
+        zip:
+          type: string
+        country:
+          type: string
+        reference:
+          type: string
+        transaction_url:
+          type: string
+        transaction_data:
+          type: string
+        redirect_url:
+          type: string
+        transaction_id:
+          type: string
+    CheckoutSessionCreateRequest:
+      type: object
+      required: [price_id, payment]
+      properties:
+        price_id:
+          type: string
+        mode:
+          type: string
+          enum: [one_off, subscription]
+        payment:
+          $ref: '#/components/schemas/CheckoutSessionPayment'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    CheckoutSessionConfirmRequest:
+      type: object
+      required: [payment]
+      properties:
+        payment:
+          type: object
+          required: [processor]
+          properties:
+            processor:
+              type: string
+              enum: [solana]
+            signature:
+              type: string
+            wallet:
+              type: string
+    CheckoutSessionRedirectToURL:
+      type: object
+      properties:
+        url:
+          type: string
+        return_url:
+          type: string
+    CheckoutSessionNextAction:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [redirect_to_url, solana_qr, solana_transaction, none]
+        redirect_to_url:
+          $ref: '#/components/schemas/CheckoutSessionRedirectToURL'
+    CheckoutSessionResponse:
+      type: object
+      properties:
+        object:
+          type: string
+        id:
+          type: string
+        status:
+          type: string
+        mode:
+          type: string
+        price_id:
+          type: string
+        payment:
+          $ref: '#/components/schemas/CheckoutSessionPayment'
+        payment_id:
+          type: string
+        subscription_id:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        next_action:
+          $ref: '#/components/schemas/CheckoutSessionNextAction'
+        message:
+          type: string
     UpdateSubscriptionPaymentMethodRequest:
       type: object
       required: [subscription_id, payment_method_id]
@@ -905,6 +1021,80 @@ paths:
                       $ref: '#/components/schemas/Entitlement'
         '401':
           description: Authentication required
+  /v1/checkout:
+    post:
+      summary: Create checkout session
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutSessionCreateRequest'
+      responses:
+        '200':
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSessionResponse'
+        '400':
+          description: Validation failure
+        '401':
+          description: Authentication required
+  /v1/checkout/{id}:
+    get:
+      summary: Retrieve checkout session
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Checkout session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSessionResponse'
+        '401':
+          description: Authentication required
+        '404':
+          description: Checkout session not found
+  /v1/checkout/{id}/confirm:
+    post:
+      summary: Confirm checkout session
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutSessionConfirmRequest'
+      responses:
+        '200':
+          description: Checkout session updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSessionResponse'
+        '400':
+          description: Validation failure
+        '401':
+          description: Authentication required
+        '404':
+          description: Checkout session not found
   /v1/me/checkout:
     post:
       summary: Unified checkout
