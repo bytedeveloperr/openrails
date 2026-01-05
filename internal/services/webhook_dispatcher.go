@@ -45,6 +45,7 @@ type WebhookDispatcher struct {
 	CCBillRESTClient             *ccbill.RESTClient
 	NMIClients                   map[string]*nmi.NMIClient
 	CheckoutService              *CheckoutService
+	CheckoutSessionService       *CheckoutSessionService
 	CreditsService               *CreditsService
 }
 
@@ -87,6 +88,7 @@ func (d *WebhookDispatcher) processCCBill(ctx context.Context, event *WebhookMes
 		ProfileRepo:                  d.ProfileRepo,
 		PaymentService:               d.PaymentService,
 		DeduplicationService:         d.DeduplicationService,
+		CheckoutSessionService:       d.CheckoutSessionService,
 	}
 	return service.HandleCCBillWebhook(ctx)
 }
@@ -130,6 +132,7 @@ func (d *WebhookDispatcher) processStripe(ctx context.Context, event *WebhookMes
 		CreditsService:               d.CreditsService,
 		DeduplicationService:         d.DeduplicationService,
 		ProcessorCustomerService:     d.ProcessorCustomerService,
+		CheckoutSessionService:       d.CheckoutSessionService,
 	}
 	return service.HandleStripeWebhook(ctx, event.Payload)
 }

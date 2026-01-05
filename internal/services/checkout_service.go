@@ -37,6 +37,8 @@ type CheckoutRequest struct {
 	// If provided, the same key with a successful result will return the cached response.
 	// If not provided, a key is generated from user_id:price_id.
 	IdempotencyKey string `json:"-"` // Set from header, not JSON body
+	// CheckoutSessionID links hosted checkout redirects to a checkout session.
+	CheckoutSessionID string `json:"-"`
 
 	// Optional billing info (used when creating vault from payment token)
 	Email     string `json:"email,omitempty"`
@@ -1001,13 +1003,14 @@ func (s *CheckoutService) processStripeSubscription(
 		trialEnd = coverage.EndDate.Unix()
 	}
 	urlStr, err := s.createStripeCheckoutSession(ctx, stripeCheckoutParams{
-		Mode:            "subscription",
-		PriceID:         stripePriceID,
-		SuccessURL:      successURL,
-		CancelURL:       cancelURL,
-		UserID:          user.ID,
-		InternalPriceID: price.ID.String(),
-		TrialEnd:        trialEnd,
+		Mode:              "subscription",
+		PriceID:           stripePriceID,
+		SuccessURL:        successURL,
+		CancelURL:         cancelURL,
+		UserID:            user.ID,
+		InternalPriceID:   price.ID.String(),
+		TrialEnd:          trialEnd,
+		CheckoutSessionID: req.CheckoutSessionID,
 	})
 	if err != nil {
 		return nil, err
@@ -1049,12 +1052,13 @@ func (s *CheckoutService) processStripePayment(
 	}
 
 	urlStr, err := s.createStripeCheckoutSession(ctx, stripeCheckoutParams{
-		Mode:            "payment",
-		PriceID:         stripePriceID,
-		SuccessURL:      successURL,
-		CancelURL:       cancelURL,
-		UserID:          user.ID,
-		InternalPriceID: price.ID.String(),
+		Mode:              "payment",
+		PriceID:           stripePriceID,
+		SuccessURL:        successURL,
+		CancelURL:         cancelURL,
+		UserID:            user.ID,
+		InternalPriceID:   price.ID.String(),
+		CheckoutSessionID: req.CheckoutSessionID,
 	})
 	if err != nil {
 		return nil, err
@@ -1083,13 +1087,14 @@ func getStripePriceID(price *models.Price) (string, error) {
 }
 
 type stripeCheckoutParams struct {
-	Mode            string
-	PriceID         string
-	SuccessURL      string
-	CancelURL       string
-	UserID          string
-	InternalPriceID string
-	TrialEnd        int64
+	Mode              string
+	PriceID           string
+	SuccessURL        string
+	CancelURL         string
+	UserID            string
+	InternalPriceID   string
+	TrialEnd          int64
+	CheckoutSessionID string
 }
 
 func (s *CheckoutService) createStripeCheckoutSession(ctx context.Context, params stripeCheckoutParams) (string, error) {
@@ -1105,9 +1110,15 @@ func (s *CheckoutService) createStripeCheckoutSession(ctx context.Context, param
 	values.Set("line_items[0][quantity]", "1")
 	values.Set("metadata[user_id]", params.UserID)
 	values.Set("metadata[internal_price_id]", params.InternalPriceID)
+	if strings.TrimSpace(params.CheckoutSessionID) != "" {
+		values.Set("metadata[checkout_session_id]", strings.TrimSpace(params.CheckoutSessionID))
+	}
 	if params.Mode == "subscription" {
 		values.Set("subscription_data[metadata][user_id]", params.UserID)
 		values.Set("subscription_data[metadata][internal_price_id]", params.InternalPriceID)
+		if strings.TrimSpace(params.CheckoutSessionID) != "" {
+			values.Set("subscription_data[metadata][checkout_session_id]", strings.TrimSpace(params.CheckoutSessionID))
+		}
 		if params.TrialEnd > 0 {
 			values.Set("subscription_data[trial_end]", strconv.FormatInt(params.TrialEnd, 10))
 		}

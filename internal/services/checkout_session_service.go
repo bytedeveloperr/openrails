@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -343,7 +344,7 @@ func (s *CheckoutSessionService) resolveMode(mode string, processor string, pric
 
 func (s *CheckoutSessionService) validatePayment(ctx context.Context, processor string, payment *CheckoutSessionPaymentRequest, user *UserIdentity) error {
 	switch processor {
-	case "mobius", "stripe":
+	case "mobius":
 		hasToken := strings.TrimSpace(payment.PaymentToken) != ""
 		hasMethod := strings.TrimSpace(payment.PaymentMethodID) != ""
 		if hasToken == hasMethod {
@@ -360,6 +361,27 @@ func (s *CheckoutSessionService) validatePayment(ctx context.Context, processor 
 			if err := s.paymentMethodService.ValidateOwnership(ctx, pmID, user.ID); err != nil {
 				return fmt.Errorf("%w: payment method not authorized", ErrCheckoutSessionValidation)
 			}
+		}
+	case "stripe":
+		hasToken := strings.TrimSpace(payment.PaymentToken) != ""
+		hasMethod := strings.TrimSpace(payment.PaymentMethodID) != ""
+		if hasToken && hasMethod {
+			return fmt.Errorf("%w: provide either payment_token or payment_method_id", ErrCheckoutSessionValidation)
+		}
+		if hasMethod {
+			pmID, err := api.ParsePaymentMethodID(payment.PaymentMethodID)
+			if err != nil {
+				return fmt.Errorf("%w: invalid payment_method_id", ErrCheckoutSessionValidation)
+			}
+			if s.paymentMethodService == nil {
+				return fmt.Errorf("%w: payment method service unavailable", ErrCheckoutSessionValidation)
+			}
+			if err := s.paymentMethodService.ValidateOwnership(ctx, pmID, user.ID); err != nil {
+				return fmt.Errorf("%w: payment method not authorized", ErrCheckoutSessionValidation)
+			}
+		}
+		if err := requireBillingFields(payment); err != nil {
+			return err
 		}
 	case "solana":
 		if strings.TrimSpace(payment.TokenSymbol) == "" {
@@ -387,6 +409,8 @@ func (s *CheckoutSessionService) initializeSession(ctx context.Context, session 
 	case "solana":
 		return s.initializeSolanaSession(ctx, session, payment)
 	case "mobius":
+		return s.initializeCheckoutSession(ctx, session, payment, user)
+	case "ccbill", "stripe":
 		return s.initializeCheckoutSession(ctx, session, payment, user)
 	default:
 		return nil
@@ -490,6 +514,9 @@ func (s *CheckoutSessionService) initializeCheckoutSession(ctx context.Context, 
 	}
 	if session.IdempotencyKey != nil {
 		req.IdempotencyKey = strings.TrimSpace(*session.IdempotencyKey)
+	}
+	if session.Processor == models.ProcessorStripe {
+		req.CheckoutSessionID = api.FormatCheckoutSessionID(session.ID)
 	}
 
 	resp, err := s.checkoutService.Checkout(ctx, req, user)
@@ -766,6 +793,47 @@ func (s *CheckoutSessionService) MarkSucceeded(ctx context.Context, sessionID uu
 	}
 
 	return s.repo.Update(ctx, session)
+}
+
+func (s *CheckoutSessionService) MarkSucceededWithSubscription(ctx context.Context, sessionID uuid.UUID, paymentID uuid.UUID, transactionID string, subscriptionID uuid.UUID) error {
+	session, err := s.repo.GetByID(ctx, sessionID)
+	if err != nil {
+		return ErrCheckoutSessionNotFound
+	}
+	if s.isTerminal(session.Status) {
+		if session.Status == models.CheckoutSessionStatusSucceeded {
+			return nil
+		}
+		return ErrCheckoutSessionConflict
+	}
+
+	session.Status = models.CheckoutSessionStatusSucceeded
+	session.UpdatedAt = s.now()
+	if paymentID != uuid.Nil {
+		session.PaymentID = &paymentID
+	}
+	if subscriptionID != uuid.Nil {
+		session.SubscriptionID = &subscriptionID
+	}
+	if strings.TrimSpace(transactionID) != "" {
+		session.TransactionID = stringPtr(transactionID)
+	}
+
+	return s.repo.Update(ctx, session)
+}
+
+func (s *CheckoutSessionService) FindOpenByUserPriceProcessor(ctx context.Context, userID string, priceID uuid.UUID, processor models.Processor) (*models.CheckoutSession, error) {
+	if s.repo == nil {
+		return nil, ErrCheckoutSessionNotFound
+	}
+	session, err := s.repo.GetLatestOpenByUserPriceProcessor(ctx, userID, priceID, processor)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return session, nil
 }
 
 func getStringField(fields map[string]any, key string) string {

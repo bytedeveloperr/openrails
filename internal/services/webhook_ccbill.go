@@ -35,6 +35,7 @@ type CCBillWebhookService struct {
 	ProfileRepo                  *repo.ProfileRepo
 	PaymentService               *PaymentService
 	DeduplicationService         *DeduplicationService
+	CheckoutSessionService       *CheckoutSessionService
 }
 
 // now returns the current time from the service's clock, or time.Now() if no clock is set.
@@ -295,6 +296,29 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create membership: %w", err)
+	}
+
+	if s.CheckoutSessionService != nil {
+		session, err := s.CheckoutSessionService.FindOpenByUserPriceProcessor(ctx, userID, price.ID, models.ProcessorCCBill)
+		if err != nil {
+			log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+				"user_id":  userID,
+				"price_id": price.ID,
+			}).Warn("failed to locate checkout session for CCBill webhook")
+		} else if session != nil {
+			paymentID := uuid.Nil
+			if s.PaymentService != nil && strings.TrimSpace(transactionID) != "" {
+				if payment, err := s.PaymentService.GetByTransactionID(ctx, models.ProcessorCCBill, transactionID); err == nil && payment != nil {
+					paymentID = payment.ID
+				}
+			}
+			if err := s.CheckoutSessionService.MarkSucceededWithSubscription(ctx, session.ID, paymentID, transactionID, subscription.ID); err != nil {
+				log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+					"checkout_session_id": session.ID,
+					"transaction_id":      transactionID,
+				}).Warn("failed to update checkout session from CCBill webhook")
+			}
+		}
 	}
 
 	// Log payment event to ClickHouse

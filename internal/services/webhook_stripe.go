@@ -9,6 +9,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 )
@@ -24,6 +25,7 @@ type StripeWebhookService struct {
 	CreditsService               *CreditsService
 	DeduplicationService         *DeduplicationService
 	ProcessorCustomerService     *ProcessorCustomerService
+	CheckoutSessionService       *CheckoutSessionService
 }
 
 type stripeEvent struct {
@@ -182,6 +184,29 @@ func (s *StripeWebhookService) handleInvoicePaid(ctx context.Context, obj json.R
 			return fmt.Errorf("grant promo credits: %w", err)
 		}
 	}
+
+	if s.CheckoutSessionService != nil {
+		sessionID := parseCheckoutSessionID(inv.Metadata)
+		if sessionID == uuid.Nil {
+			if session, err := s.CheckoutSessionService.FindOpenByUserPriceProcessor(ctx, userID, priceID, models.ProcessorStripe); err == nil && session != nil {
+				sessionID = session.ID
+			}
+		}
+		if sessionID != uuid.Nil {
+			paymentID := uuid.Nil
+			if s.PaymentService != nil && strings.TrimSpace(inv.ID) != "" {
+				if payment, err := s.PaymentService.GetByTransactionID(ctx, models.ProcessorStripe, inv.ID); err == nil && payment != nil {
+					paymentID = payment.ID
+				}
+			}
+			if err := s.CheckoutSessionService.MarkSucceededWithSubscription(ctx, sessionID, paymentID, inv.ID, sub.ID); err != nil {
+				log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+					"checkout_session_id": sessionID,
+					"transaction_id":      inv.ID,
+				}).Warn("failed to update checkout session from stripe invoice")
+			}
+		}
+	}
 	return nil
 }
 
@@ -208,7 +233,7 @@ func (s *StripeWebhookService) handleCheckoutSessionCompleted(ctx context.Contex
 		return err
 	}
 
-	_, err = s.CheckoutService.RegisterPurchase(ctx, &RegisterPurchaseRequest{
+	result, err := s.CheckoutService.RegisterPurchase(ctx, &RegisterPurchaseRequest{
 		UserID:        userID,
 		PriceID:       priceID,
 		Processor:     string(models.ProcessorStripe),
@@ -218,6 +243,23 @@ func (s *StripeWebhookService) handleCheckoutSessionCompleted(ctx context.Contex
 	})
 	if err != nil {
 		return fmt.Errorf("register purchase: %w", err)
+	}
+
+	if s.CheckoutSessionService != nil {
+		sessionID := parseCheckoutSessionID(sess.Metadata)
+		if sessionID == uuid.Nil {
+			if session, err := s.CheckoutSessionService.FindOpenByUserPriceProcessor(ctx, userID, priceID, models.ProcessorStripe); err == nil && session != nil {
+				sessionID = session.ID
+			}
+		}
+		if sessionID != uuid.Nil {
+			if err := s.CheckoutSessionService.MarkSucceeded(ctx, sessionID, result.PaymentID, sess.ID); err != nil {
+				log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+					"checkout_session_id": sessionID,
+					"transaction_id":      sess.ID,
+				}).Warn("failed to update checkout session from stripe checkout")
+			}
+		}
 	}
 
 	// Grant purchased credits (dollar-for-dollar) with 1-year expiry
@@ -240,6 +282,21 @@ func (s *StripeWebhookService) handleCheckoutSessionCompleted(ctx context.Contex
 		return fmt.Errorf("grant purchased credits: %w", err)
 	}
 	return nil
+}
+
+func parseCheckoutSessionID(metadata map[string]string) uuid.UUID {
+	if metadata == nil {
+		return uuid.Nil
+	}
+	raw := strings.TrimSpace(metadata["checkout_session_id"])
+	if raw == "" {
+		return uuid.Nil
+	}
+	id, err := api.ParseCheckoutSessionID(raw)
+	if err != nil {
+		return uuid.Nil
+	}
+	return id
 }
 
 func (s *StripeWebhookService) handleSubscriptionDeleted(ctx context.Context, obj json.RawMessage) error {

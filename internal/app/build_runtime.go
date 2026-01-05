@@ -490,6 +490,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		cfg,
 	)
 	checkoutSessionService.Clock = clock
+	webhookDispatcher.CheckoutSessionService = checkoutSessionService
 
 	// Wire up checkoutService to solanaPayService for eligibility checks
 	solanaPayService.SetCheckoutService(checkoutService)
