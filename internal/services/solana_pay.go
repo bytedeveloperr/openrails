@@ -31,6 +31,7 @@ const (
 type PendingSolanaPayment struct {
 	UserID      string    `json:"user_id"`
 	PriceID     string    `json:"price_id"`
+	SessionID   string    `json:"session_id,omitempty"`
 	Amount      int64     `json:"amount"`   // cents (fiat equivalent)
 	Currency    string    `json:"currency"` // e.g., "usd"
 	Token       string    `json:"token"`    // e.g., "USDC"
@@ -101,7 +102,7 @@ func (s *SolanaPayService) SetCheckoutService(cs *CheckoutService) {
 
 // GeneratePayment creates a new pending Solana payment and returns the Transfer Request URL.
 // It first checks purchase eligibility to prevent duplicate purchases.
-func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, priceID uuid.UUID, tokenSymbol string) (*SolanaPayResult, error) {
+func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, priceID uuid.UUID, tokenSymbol string, sessionID *uuid.UUID) (*SolanaPayResult, error) {
 	// Check purchase eligibility BEFORE generating the payment URL
 	if s.checkoutService != nil {
 		eligibility, err := s.checkoutService.CheckPurchaseEligibility(ctx, userID, priceID)
@@ -187,6 +188,9 @@ func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, p
 		TokenAmount: tokenUnits,
 		Recipient:   recipient,
 		CreatedAt:   now,
+	}
+	if sessionID != nil && *sessionID != uuid.Nil {
+		pending.SessionID = sessionID.String()
 	}
 
 	if err := s.storePendingPayment(ctx, reference, pending); err != nil {

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
@@ -101,13 +103,17 @@ type CheckoutSessionResponse struct {
 }
 
 type CheckoutSessionService struct {
-	db                   *db.DB
-	repo                 *repo.CheckoutSessionRepo
-	priceService         *PriceService
-	productService       *ProductService
-	paymentMethodService *PaymentMethodService
-	idempotencyService   *IdempotencyService
-	Clock                clockwork.Clock
+	db                       *db.DB
+	repo                     *repo.CheckoutSessionRepo
+	priceService             *PriceService
+	productService           *ProductService
+	paymentMethodService     *PaymentMethodService
+	idempotencyService       *IdempotencyService
+	checkoutService          *CheckoutService
+	solanaPayService         *SolanaPayService
+	solanaTransactionService *SolanaTransactionService
+	config                   *config.Config
+	Clock                    clockwork.Clock
 }
 
 func NewCheckoutSessionService(
@@ -116,14 +122,22 @@ func NewCheckoutSessionService(
 	productService *ProductService,
 	paymentMethodService *PaymentMethodService,
 	idempotencyService *IdempotencyService,
+	checkoutService *CheckoutService,
+	solanaPayService *SolanaPayService,
+	solanaTransactionService *SolanaTransactionService,
+	cfg *config.Config,
 ) *CheckoutSessionService {
 	return &CheckoutSessionService{
-		db:                   db,
-		repo:                 repo.NewCheckoutSessionRepo(db),
-		priceService:         priceService,
-		productService:       productService,
-		paymentMethodService: paymentMethodService,
-		idempotencyService:   idempotencyService,
+		db:                       db,
+		repo:                     repo.NewCheckoutSessionRepo(db),
+		priceService:             priceService,
+		productService:           productService,
+		paymentMethodService:     paymentMethodService,
+		idempotencyService:       idempotencyService,
+		checkoutService:          checkoutService,
+		solanaPayService:         solanaPayService,
+		solanaTransactionService: solanaTransactionService,
+		config:                   cfg,
 	}
 }
 
@@ -238,6 +252,10 @@ func (s *CheckoutSessionService) createSessionWithValidation(ctx context.Context
 		session.IdempotencyKey = stringPtr(strings.TrimSpace(req.IdempotencyKey))
 	}
 
+	if err := s.initializeSession(ctx, session, &req.Payment, user); err != nil {
+		return nil, err
+	}
+
 	if err := s.repo.Create(ctx, session); err != nil {
 		return nil, fmt.Errorf("failed to create checkout session: %w", err)
 	}
@@ -289,7 +307,12 @@ func (s *CheckoutSessionService) ConfirmSession(ctx context.Context, sessionID u
 		return nil, fmt.Errorf("%w: processor mismatch", ErrCheckoutSessionValidation)
 	}
 
-	return nil, fmt.Errorf("%w: confirmation not implemented for processor %s", ErrCheckoutSessionConflict, processor)
+	switch processor {
+	case "solana":
+		return s.confirmSolanaSession(ctx, session, req, user)
+	default:
+		return nil, fmt.Errorf("%w: confirmation not implemented for processor %s", ErrCheckoutSessionConflict, processor)
+	}
 }
 
 func (s *CheckoutSessionService) resolveMode(mode string, processor string, price *models.Price) (models.CheckoutSessionMode, error) {
@@ -349,6 +372,98 @@ func (s *CheckoutSessionService) validatePayment(ctx context.Context, processor 
 	default:
 		return fmt.Errorf("%w: unsupported processor", ErrCheckoutSessionValidation)
 	}
+	return nil
+}
+
+func (s *CheckoutSessionService) initializeSession(ctx context.Context, session *models.CheckoutSession, payment *CheckoutSessionPaymentRequest, user *UserIdentity) error {
+	if session == nil {
+		return fmt.Errorf("%w: session is required", ErrCheckoutSessionValidation)
+	}
+	if payment == nil {
+		return fmt.Errorf("%w: payment is required", ErrCheckoutSessionValidation)
+	}
+
+	switch strings.ToLower(string(session.Processor)) {
+	case "solana":
+		return s.initializeSolanaSession(ctx, session, payment)
+	default:
+		return nil
+	}
+}
+
+func (s *CheckoutSessionService) initializeSolanaSession(ctx context.Context, session *models.CheckoutSession, payment *CheckoutSessionPaymentRequest) error {
+	if s.config == nil || s.config.Solana == nil {
+		return fmt.Errorf("%w: solana not configured", ErrCheckoutSessionValidation)
+	}
+
+	tokenSymbol := strings.TrimSpace(payment.TokenSymbol)
+	if tokenSymbol == "" {
+		return fmt.Errorf("%w: token_symbol is required", ErrCheckoutSessionValidation)
+	}
+
+	flow := strings.TrimSpace(payment.Flow)
+	if flow == "" {
+		flow = "transfer_request"
+	}
+
+	tokenCfg, ok := s.config.Solana.SupportedTokens[tokenSymbol]
+	if !ok || !tokenCfg.Enabled {
+		return fmt.Errorf("%w: unsupported token", ErrCheckoutSessionValidation)
+	}
+	tokenMint := tokenCfg.Mint
+	if strings.EqualFold(s.config.Solana.Network, "mainnet") && tokenCfg.MainnetMint != "" {
+		tokenMint = tokenCfg.MainnetMint
+	}
+
+	switch flow {
+	case "transfer_request":
+		if s.solanaPayService == nil {
+			return fmt.Errorf("%w: solana pay service unavailable", ErrCheckoutSessionValidation)
+		}
+		result, err := s.solanaPayService.GeneratePayment(ctx, session.UserID, session.PriceID, tokenSymbol, &session.ID)
+		if err != nil {
+			return err
+		}
+		session.Status = models.CheckoutSessionStatusRequiresAction
+		session.Reference = &result.Reference
+		session.ExpiresAt = &result.ExpiresAt
+		if session.ProcessorState == nil {
+			session.ProcessorState = map[string]any{}
+		}
+		session.ProcessorState["transaction_url"] = result.URL
+		session.ProcessorState["flow"] = flow
+		session.ProcessorState["token_symbol"] = tokenSymbol
+		session.ProcessorState["token_mint"] = tokenMint
+		if tokenUnits, _, err := calculateTokenQuote(ctx, tokenCfg, session.Amount); err == nil {
+			session.ProcessorState["token_amount"] = tokenUnits
+		}
+	case "transaction_request":
+		if s.solanaTransactionService == nil {
+			return fmt.Errorf("%w: solana transaction service unavailable", ErrCheckoutSessionValidation)
+		}
+		if strings.TrimSpace(payment.Wallet) == "" {
+			return fmt.Errorf("%w: wallet is required for transaction_request", ErrCheckoutSessionValidation)
+		}
+		txResp, err := s.solanaTransactionService.BuildPaymentTransaction(ctx, session.UserID, session.PriceID, tokenSymbol, payment.Wallet)
+		if err != nil {
+			return err
+		}
+		session.Status = models.CheckoutSessionStatusRequiresAction
+		session.ExpiresAt = &txResp.ExpiresAt
+		if session.ProcessorState == nil {
+			session.ProcessorState = map[string]any{}
+		}
+		session.ProcessorState["transaction_data"] = txResp.TransactionBase64
+		session.ProcessorState["flow"] = flow
+		session.ProcessorState["token_symbol"] = tokenSymbol
+		session.ProcessorState["token_mint"] = tokenMint
+		session.ProcessorState["token_amount"] = txResp.TokenAmount
+		session.ProcessorState["recipient"] = strings.TrimSpace(s.config.Solana.RecipientWallet)
+		session.ProcessorState["payer"] = strings.TrimSpace(payment.Wallet)
+	default:
+		return fmt.Errorf("%w: unsupported solana flow", ErrCheckoutSessionValidation)
+	}
+
 	return nil
 }
 
@@ -434,6 +549,10 @@ func (s *CheckoutSessionService) sessionToResponse(session *models.CheckoutSessi
 		}
 	}
 
+	if action := s.buildNextAction(resp); action != nil {
+		resp.NextAction = action
+	}
+
 	return resp
 }
 
@@ -454,6 +573,177 @@ func (s *CheckoutSessionService) isExpired(session *models.CheckoutSession) bool
 		return false
 	}
 	return session.ExpiresAt.Before(s.now())
+}
+
+func (s *CheckoutSessionService) buildNextAction(resp *CheckoutSessionResponse) *CheckoutSessionNextAction {
+	if resp == nil {
+		return nil
+	}
+	if resp.Payment.RedirectURL != "" {
+		return &CheckoutSessionNextAction{
+			Type: "redirect_to_url",
+			RedirectToURL: &CheckoutSessionRedirectToURL{
+				URL: resp.Payment.RedirectURL,
+			},
+		}
+	}
+	if resp.Payment.TransactionURL != "" {
+		return &CheckoutSessionNextAction{
+			Type: "solana_qr",
+		}
+	}
+	if resp.Payment.TransactionData != "" {
+		return &CheckoutSessionNextAction{
+			Type: "solana_transaction",
+		}
+	}
+	return nil
+}
+
+func (s *CheckoutSessionService) confirmSolanaSession(ctx context.Context, session *models.CheckoutSession, req *CheckoutSessionConfirmRequest, user *UserIdentity) (*CheckoutSessionResponse, error) {
+	if strings.TrimSpace(req.Payment.Signature) == "" {
+		return nil, fmt.Errorf("%w: signature is required", ErrCheckoutSessionValidation)
+	}
+	if s.solanaTransactionService == nil {
+		return nil, fmt.Errorf("%w: solana transaction service unavailable", ErrCheckoutSessionValidation)
+	}
+	if s.checkoutService == nil {
+		return nil, fmt.Errorf("%w: checkout service unavailable", ErrCheckoutSessionValidation)
+	}
+	if s.config == nil || s.config.Solana == nil {
+		return nil, fmt.Errorf("%w: solana not configured", ErrCheckoutSessionValidation)
+	}
+
+	tokenSymbol := getStringField(session.ProcessorFields, "token_symbol")
+	if tokenSymbol == "" {
+		return nil, fmt.Errorf("%w: token_symbol missing", ErrCheckoutSessionValidation)
+	}
+
+	tokenCfg, ok := s.config.Solana.SupportedTokens[tokenSymbol]
+	if !ok || !tokenCfg.Enabled {
+		return nil, fmt.Errorf("%w: unsupported token", ErrCheckoutSessionValidation)
+	}
+	tokenMint := tokenCfg.Mint
+	if strings.EqualFold(s.config.Solana.Network, "mainnet") && tokenCfg.MainnetMint != "" {
+		tokenMint = tokenCfg.MainnetMint
+	}
+
+	expectedAmount := getUint64Field(session.ProcessorState, "token_amount")
+	expectedRecipient := strings.TrimSpace(s.config.Solana.RecipientWallet)
+	expectedPayer := strings.TrimSpace(getStringField(session.ProcessorFields, "wallet"))
+	reference := session.Reference
+
+	if _, err := s.solanaTransactionService.VerifyTransactionWithContent(
+		ctx,
+		strings.TrimSpace(req.Payment.Signature),
+		expectedAmount,
+		expectedRecipient,
+		tokenMint,
+		expectedPayer,
+		reference,
+	); err != nil {
+		return nil, err
+	}
+
+	result, err := s.checkoutService.RegisterPurchase(ctx, &RegisterPurchaseRequest{
+		UserID:        session.UserID,
+		PriceID:       session.PriceID,
+		Processor:     "solana",
+		TransactionID: strings.TrimSpace(req.Payment.Signature),
+		Amount:        session.Amount,
+		Currency:      session.Currency,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.MarkSucceeded(ctx, session.ID, result.PaymentID, strings.TrimSpace(req.Payment.Signature)); err != nil {
+		return nil, err
+	}
+
+	updated, err := s.repo.GetByID(ctx, session.ID)
+	if err != nil {
+		return nil, err
+	}
+	return s.sessionToResponse(updated), nil
+}
+
+func (s *CheckoutSessionService) MarkSucceeded(ctx context.Context, sessionID uuid.UUID, paymentID uuid.UUID, transactionID string) error {
+	session, err := s.repo.GetByID(ctx, sessionID)
+	if err != nil {
+		return ErrCheckoutSessionNotFound
+	}
+	if s.isTerminal(session.Status) {
+		if session.Status == models.CheckoutSessionStatusSucceeded {
+			return nil
+		}
+		return ErrCheckoutSessionConflict
+	}
+
+	session.Status = models.CheckoutSessionStatusSucceeded
+	session.UpdatedAt = s.now()
+	if paymentID != uuid.Nil {
+		session.PaymentID = &paymentID
+	}
+	if strings.TrimSpace(transactionID) != "" {
+		session.TransactionID = stringPtr(transactionID)
+	}
+
+	return s.repo.Update(ctx, session)
+}
+
+func getStringField(fields map[string]any, key string) string {
+	if fields == nil {
+		return ""
+	}
+	raw, ok := fields[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch val := raw.(type) {
+	case string:
+		return strings.TrimSpace(val)
+	default:
+		return ""
+	}
+}
+
+func getUint64Field(fields map[string]any, key string) uint64 {
+	if fields == nil {
+		return 0
+	}
+	raw, ok := fields[key]
+	if !ok || raw == nil {
+		return 0
+	}
+	switch val := raw.(type) {
+	case uint64:
+		return val
+	case uint32:
+		return uint64(val)
+	case uint:
+		return uint64(val)
+	case int64:
+		if val < 0 {
+			return 0
+		}
+		return uint64(val)
+	case int:
+		if val < 0 {
+			return 0
+		}
+		return uint64(val)
+	case float64:
+		if val < 0 {
+			return 0
+		}
+		return uint64(val)
+	case string:
+		if parsed, err := strconv.ParseUint(strings.TrimSpace(val), 10, 64); err == nil {
+			return parsed
+		}
+	}
+	return 0
 }
 
 func timePtr(t time.Time) *time.Time {

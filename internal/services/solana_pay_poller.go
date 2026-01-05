@@ -21,12 +21,13 @@ const (
 
 // SolanaPayPoller polls the blockchain for confirmed Solana Pay payments
 type SolanaPayPoller struct {
-	db               *db.DB
-	redis            *redis.Client
-	cfg              *config.Config
-	rpc              *SolanaRPCService
-	solanaPayService *SolanaPayService
-	checkoutService  *CheckoutService
+	db                     *db.DB
+	redis                  *redis.Client
+	cfg                    *config.Config
+	rpc                    *SolanaRPCService
+	solanaPayService       *SolanaPayService
+	checkoutService        *CheckoutService
+	checkoutSessionService *CheckoutSessionService
 
 	mu      sync.Mutex
 	running bool
@@ -40,6 +41,7 @@ func NewSolanaPayPoller(
 	cfg *config.Config,
 	solanaPayService *SolanaPayService,
 	checkoutService *CheckoutService,
+	checkoutSessionService *CheckoutSessionService,
 ) *SolanaPayPoller {
 	var rpc *SolanaRPCService
 	if cfg.Solana != nil {
@@ -47,12 +49,13 @@ func NewSolanaPayPoller(
 	}
 
 	return &SolanaPayPoller{
-		db:               db,
-		redis:            redis,
-		cfg:              cfg,
-		rpc:              rpc,
-		solanaPayService: solanaPayService,
-		checkoutService:  checkoutService,
+		db:                     db,
+		redis:                  redis,
+		cfg:                    cfg,
+		rpc:                    rpc,
+		solanaPayService:       solanaPayService,
+		checkoutService:        checkoutService,
+		checkoutSessionService: checkoutSessionService,
 	}
 }
 
@@ -258,6 +261,16 @@ func (p *SolanaPayPoller) processConfirmedPayment(ctx context.Context, reference
 		"signature":    signature,
 		"entitlements": result.Entitlements,
 	}).Info("Processed Solana Pay payment via RegisterPurchase")
+
+	if pending.SessionID != "" && p.checkoutSessionService != nil {
+		if sessionID, err := uuid.Parse(pending.SessionID); err == nil {
+			if err := p.checkoutSessionService.MarkSucceeded(ctx, sessionID, result.PaymentID, signature); err != nil {
+				log.WithError(err).WithField("session_id", pending.SessionID).Warn("Failed to update checkout session for Solana payment")
+			}
+		} else {
+			log.WithError(err).WithField("session_id", pending.SessionID).Warn("Invalid checkout session ID on pending Solana payment")
+		}
+	}
 
 	return nil
 }

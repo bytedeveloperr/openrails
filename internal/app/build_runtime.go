@@ -384,6 +384,12 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	// We'll create solanaPayService with nil checkoutService and set it after checkoutService is created
 	solanaPayService := services.NewSolanaPayService(database, redisClient, cfg, priceService, productService, nil)
 	solanaPayService.Clock = clock
+	var solanaRPC *services.SolanaRPCService
+	if cfg != nil && cfg.Solana != nil {
+		solanaRPC = services.NewSolanaRPCService(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
+	}
+	solanaTransactionService := services.NewSolanaTransactionService(database, solanaRPC, cfg, priceService, purchaseService)
+	solanaTransactionService.Clock = clock
 
 	subscriptionLifecycleService := services.NewSubscriptionLifecycleService(
 		database,
@@ -478,6 +484,10 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		productService,
 		paymentMethodService,
 		idempotencyService,
+		checkoutService,
+		solanaPayService,
+		solanaTransactionService,
+		cfg,
 	)
 	checkoutSessionService.Clock = clock
 
@@ -491,6 +501,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		cfg,
 		solanaPayService,
 		checkoutService,
+		checkoutSessionService,
 	)
 
 	// Create AdminGrantService for admin product grants

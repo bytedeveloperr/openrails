@@ -55,7 +55,7 @@ func CreateSolanaPay(r *Request) {
 	}
 
 	// Generate Solana Pay URL
-	result, err := r.State.SolanaPayService.GeneratePayment(r.Request.Context(), cl.UserID, priceID, req.Token)
+	result, err := r.State.SolanaPayService.GeneratePayment(r.Request.Context(), cl.UserID, priceID, req.Token, nil)
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{
 			"user_id":  cl.UserID,
