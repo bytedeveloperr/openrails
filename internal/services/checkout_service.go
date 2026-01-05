@@ -960,13 +960,7 @@ func (s *CheckoutService) processSolanaPurchase(
 	product *models.Product,
 	coverage *CoverageInfo,
 ) (*CheckoutResponse, error) {
-	// For Solana, we redirect to the payment intent flow
-	// The actual payment is handled by CreatePaymentIntent + ConfirmPaymentIntent
-	return &CheckoutResponse{
-		Status:  "redirect_required",
-		Action:  "new",
-		Message: "Use POST /v1/payment-intents to create a Solana payment",
-	}, nil
+	return nil, errors.New("solana checkout is handled via /v1/checkout sessions")
 }
 
 func (s *CheckoutService) processStripeSubscription(
