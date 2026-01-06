@@ -12,8 +12,6 @@ import (
 
 type GetSubscriptionResponse = services.UserSubscriptionResponse
 
-type SubscribeResponse = services.SubscribeResponse
-
 // GetProductsResponse is now a Stripe-like list response
 type GetProductsResponse = response.List[api.ProductObject]
 
