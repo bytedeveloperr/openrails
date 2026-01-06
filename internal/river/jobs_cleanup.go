@@ -20,10 +20,6 @@ type CleanupConfig struct {
 	// Default: 24 hours (challenges expire after 5 minutes, keep 24h for debugging)
 	WalletChallengeRetention time.Duration
 
-	// PaymentIntentRetention is how long to keep expired/failed payment intents
-	// Default: 7 days
-	PaymentIntentRetention time.Duration
-
 	// SolanaTransactionRetention is how long to keep expired/failed Solana transactions
 	// Default: 30 days
 	SolanaTransactionRetention time.Duration
@@ -41,7 +37,6 @@ type CleanupConfig struct {
 func DefaultCleanupConfig() CleanupConfig {
 	return CleanupConfig{
 		WalletChallengeRetention:    24 * time.Hour,
-		PaymentIntentRetention:      7 * 24 * time.Hour,
 		SolanaTransactionRetention:  30 * 24 * time.Hour,
 		NotificationSeenRetention:   90 * 24 * time.Hour,
 		NotificationUnseenRetention: 180 * 24 * time.Hour,
@@ -64,7 +59,6 @@ func (CleanupExpiredDataWorker) Kind() string { return KindCleanupExpiredData }
 // CleanupResult holds the count of deleted records per table
 type CleanupResult struct {
 	WalletChallenges        int64
-	PaymentIntents          int64
 	SolanaTransactions      int64
 	CheckoutSessionsExpired int64
 	NotificationsSeen       int64
@@ -99,25 +93,19 @@ func (w CleanupExpiredDataWorker) Work(ctx context.Context, job *river.Job[Clean
 		logger.WithError(err).Error("Failed to cleanup wallet challenges")
 	}
 
-	// 2. Clean up expired/failed payment intents
-	result.PaymentIntents, err = w.cleanupPaymentIntents(ctx, now, config.PaymentIntentRetention)
-	if err != nil {
-		logger.WithError(err).Error("Failed to cleanup payment intents")
-	}
-
-	// 3. Clean up expired/failed Solana transactions
+	// 2. Clean up expired/failed Solana transactions
 	result.SolanaTransactions, err = w.cleanupSolanaTransactions(ctx, now, config.SolanaTransactionRetention)
 	if err != nil {
 		logger.WithError(err).Error("Failed to cleanup Solana transactions")
 	}
 
-	// 4. Expire checkout sessions that have passed their TTL
+	// 3. Expire checkout sessions that have passed their TTL
 	result.CheckoutSessionsExpired, err = w.expireCheckoutSessions(ctx, now)
 	if err != nil {
 		logger.WithError(err).Error("Failed to expire checkout sessions")
 	}
 
-	// 5. Clean up old notifications (seen ones first with shorter retention)
+	// 4. Clean up old notifications (seen ones first with shorter retention)
 	result.NotificationsSeen, err = w.cleanupSeenNotifications(ctx, now, config.NotificationSeenRetention)
 	if err != nil {
 		logger.WithError(err).Error("Failed to cleanup seen notifications")
@@ -130,7 +118,6 @@ func (w CleanupExpiredDataWorker) Work(ctx context.Context, job *river.Job[Clean
 
 	logger.WithFields(log.Fields{
 		"wallet_challenges":         result.WalletChallenges,
-		"payment_intents":           result.PaymentIntents,
 		"solana_transactions":       result.SolanaTransactions,
 		"checkout_sessions_expired": result.CheckoutSessionsExpired,
 		"notifications_seen":        result.NotificationsSeen,
@@ -150,26 +137,6 @@ func (w CleanupExpiredDataWorker) cleanupWalletChallenges(ctx context.Context, n
 		Exec(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("delete wallet challenges: %w", err)
-	}
-
-	rows, _ := res.RowsAffected()
-	return rows, nil
-}
-
-// cleanupPaymentIntents deletes payment intents that are expired or failed beyond the retention period
-func (w CleanupExpiredDataWorker) cleanupPaymentIntents(ctx context.Context, now time.Time, retention time.Duration) (int64, error) {
-	cutoff := now.Add(-retention)
-
-	// Delete payment intents that are either:
-	// - expired (expires_at < cutoff)
-	// - failed and older than retention period
-	// - pending and older than retention period (abandoned)
-	res, err := w.DB.GetDB().NewDelete().
-		TableExpr("billing.solana_payment_intents").
-		Where("(expires_at IS NOT NULL AND expires_at < ?) OR (status IN ('failed', 'pending') AND created_at < ?)", cutoff, cutoff).
-		Exec(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("delete payment intents: %w", err)
 	}
 
 	rows, _ := res.RowsAffected()
