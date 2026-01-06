@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/jonboulle/clockwork"
 	"github.com/riverqueue/river"
 	log "github.com/sirupsen/logrus"
@@ -62,11 +63,12 @@ func (CleanupExpiredDataWorker) Kind() string { return KindCleanupExpiredData }
 
 // CleanupResult holds the count of deleted records per table
 type CleanupResult struct {
-	WalletChallenges   int64
-	PaymentIntents     int64
-	SolanaTransactions int64
-	NotificationsSeen  int64
-	NotificationsAll   int64
+	WalletChallenges        int64
+	PaymentIntents          int64
+	SolanaTransactions      int64
+	CheckoutSessionsExpired int64
+	NotificationsSeen       int64
+	NotificationsAll        int64
 }
 
 func (w CleanupExpiredDataWorker) Work(ctx context.Context, job *river.Job[CleanupExpiredDataArgs]) error {
@@ -109,7 +111,13 @@ func (w CleanupExpiredDataWorker) Work(ctx context.Context, job *river.Job[Clean
 		logger.WithError(err).Error("Failed to cleanup Solana transactions")
 	}
 
-	// 4. Clean up old notifications (seen ones first with shorter retention)
+	// 4. Expire checkout sessions that have passed their TTL
+	result.CheckoutSessionsExpired, err = w.expireCheckoutSessions(ctx, now)
+	if err != nil {
+		logger.WithError(err).Error("Failed to expire checkout sessions")
+	}
+
+	// 5. Clean up old notifications (seen ones first with shorter retention)
 	result.NotificationsSeen, err = w.cleanupSeenNotifications(ctx, now, config.NotificationSeenRetention)
 	if err != nil {
 		logger.WithError(err).Error("Failed to cleanup seen notifications")
@@ -121,11 +129,12 @@ func (w CleanupExpiredDataWorker) Work(ctx context.Context, job *river.Job[Clean
 	}
 
 	logger.WithFields(log.Fields{
-		"wallet_challenges":    result.WalletChallenges,
-		"payment_intents":      result.PaymentIntents,
-		"solana_transactions":  result.SolanaTransactions,
-		"notifications_seen":   result.NotificationsSeen,
-		"notifications_unseen": result.NotificationsAll,
+		"wallet_challenges":         result.WalletChallenges,
+		"payment_intents":           result.PaymentIntents,
+		"solana_transactions":       result.SolanaTransactions,
+		"checkout_sessions_expired": result.CheckoutSessionsExpired,
+		"notifications_seen":        result.NotificationsSeen,
+		"notifications_unseen":      result.NotificationsAll,
 	}).Info("Cleanup completed")
 
 	return nil
@@ -181,6 +190,22 @@ func (w CleanupExpiredDataWorker) cleanupSolanaTransactions(ctx context.Context,
 		Exec(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("delete solana transactions: %w", err)
+	}
+
+	rows, _ := res.RowsAffected()
+	return rows, nil
+}
+
+func (w CleanupExpiredDataWorker) expireCheckoutSessions(ctx context.Context, now time.Time) (int64, error) {
+	res, err := w.DB.GetDB().NewUpdate().
+		TableExpr("billing.checkout_sessions").
+		Set("status = ?", models.CheckoutSessionStatusExpired).
+		Set("updated_at = ?", now).
+		Where("expires_at IS NOT NULL AND expires_at < ?", now).
+		Where("status IN ('created', 'requires_action', 'processing')").
+		Exec(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("expire checkout sessions: %w", err)
 	}
 
 	rows, _ := res.RowsAffected()
