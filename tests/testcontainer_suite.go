@@ -448,11 +448,6 @@ func (suite *TestContainerSuite) SetMockClock(t ...time.Time) *clockwork.FakeClo
 		rt.PaymentService.Clock = mockClock
 	}
 
-	// Solana services
-	if rt.SolanaPaymentService != nil {
-		rt.SolanaPaymentService.Clock = mockClock
-	}
-
 	// Vault and payment method services
 	if rt.VaultService != nil {
 		rt.VaultService.Clock = mockClock

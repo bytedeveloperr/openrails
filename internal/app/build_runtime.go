@@ -95,7 +95,6 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 
 	// Set emailService on the NotificationService that was created in createServices
 	serviceInstances.NotificationService.SetEmailService(emailService)
-	serviceInstances.SolanaPaymentService.SetNotificationService(serviceInstances.NotificationService)
 
 	runtime := &Runtime{
 		DB:               database,
@@ -115,7 +114,6 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 		PaymentService:       serviceInstances.PurchaseService,
 		EntitlementService:   serviceInstances.EntitlementService,
 		VaultService:         serviceInstances.VaultService,
-		SolanaPaymentService: serviceInstances.SolanaPaymentService,
 		SolanaPayService:     serviceInstances.SolanaPayService,
 		SolanaPayPoller:      serviceInstances.SolanaPayPoller,
 
@@ -344,7 +342,6 @@ type servicesInstances struct {
 	PurchaseService      *services.PaymentService
 	EntitlementService   *services.EntitlementService
 	VaultService         *services.VaultService
-	SolanaPaymentService *services.SolanaPaymentService
 	SolanaPayService     *services.SolanaPayService
 	SolanaPayPoller      *services.SolanaPayPoller
 
@@ -378,8 +375,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	creditsService.Clock = clock
 	processorCustomerService := services.NewProcessorCustomerService(database)
 	profileRepo := repo.NewProfileRepo(database)
-	solanaPaymentService := services.NewSolanaPaymentService(database, cfg, priceService, purchaseService, productService, entitlementService, nil)
-	solanaPaymentService.Clock = clock
 	// Note: solanaPayService and SolanaPayPoller need checkoutService, which is created later
 	// We'll create solanaPayService with nil checkoutService and set it after checkoutService is created
 	solanaPayService := services.NewSolanaPayService(database, redisClient, cfg, priceService, productService, nil)
@@ -524,7 +519,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		PurchaseService:              purchaseService,
 		EntitlementService:           entitlementService,
 		VaultService:                 vaultService,
-		SolanaPaymentService:         solanaPaymentService,
 		SolanaPayService:             solanaPayService,
 		SolanaPayPoller:              solanaPayPoller,
 		UserSubscriptionService:      userSubscriptionService,

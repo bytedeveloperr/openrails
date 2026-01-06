@@ -54,7 +54,6 @@ type Runtime struct {
 	CreditsService           *services.CreditsService
 	ProcessorCustomerService *services.ProcessorCustomerService
 
-	SolanaPaymentService *services.SolanaPaymentService
 	SolanaPayService     *services.SolanaPayService
 	SolanaPayPoller      *services.SolanaPayPoller
 
