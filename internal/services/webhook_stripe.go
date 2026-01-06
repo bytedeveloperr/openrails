@@ -93,6 +93,8 @@ func (s *StripeWebhookService) handleEvent(ctx context.Context, eventType string
 		return s.handleInvoicePaid(ctx, obj)
 	case "checkout.session.completed":
 		return s.handleCheckoutSessionCompleted(ctx, obj)
+	case "checkout.session.expired":
+		return s.handleCheckoutSessionExpired(ctx, obj)
 	case "customer.subscription.updated":
 		return s.handleSubscriptionUpdated(ctx, obj)
 	case "customer.subscription.deleted":
@@ -206,6 +208,43 @@ func (s *StripeWebhookService) handleInvoicePaid(ctx context.Context, obj json.R
 				}).Warn("failed to update checkout session from stripe invoice")
 			}
 		}
+	}
+	return nil
+}
+
+func (s *StripeWebhookService) handleCheckoutSessionExpired(ctx context.Context, obj json.RawMessage) error {
+	if s.CheckoutSessionService == nil {
+		return nil
+	}
+
+	var sess stripeCheckoutSession
+	if err := json.Unmarshal(obj, &sess); err != nil {
+		return fmt.Errorf("parse checkout session: %w", err)
+	}
+
+	sessionID := parseCheckoutSessionID(sess.Metadata)
+	if sessionID == uuid.Nil {
+		userID := pickMetadata(sess.Metadata, "user_id", "userId", "uid")
+		if userID == "" {
+			return nil
+		}
+		priceID, _, err := s.resolvePriceFromMetadata(ctx, sess.Metadata, nil)
+		if err != nil {
+			return nil
+		}
+		if session, err := s.CheckoutSessionService.FindOpenByUserPriceProcessor(ctx, userID, priceID, models.ProcessorStripe); err == nil && session != nil {
+			sessionID = session.ID
+		}
+	}
+
+	if sessionID == uuid.Nil {
+		return nil
+	}
+
+	if err := s.CheckoutSessionService.MarkExpired(ctx, sessionID, "checkout expired"); err != nil {
+		log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+			"checkout_session_id": sessionID,
+		}).Warn("failed to update checkout session from stripe expiration")
 	}
 	return nil
 }

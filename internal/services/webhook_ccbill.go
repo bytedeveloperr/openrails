@@ -461,6 +461,27 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 			}
 		}
 
+		if s.CheckoutSessionService != nil && price != nil {
+			session, err := s.CheckoutSessionService.FindOpenByUserPriceProcessor(ctx, userID, price.ID, models.ProcessorCCBill)
+			if err != nil {
+				log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+					"user_id":  userID,
+					"price_id": price.ID,
+				}).Warn("failed to locate checkout session for CCBill failure")
+			} else if session != nil {
+				message := strings.TrimSpace(failureReason)
+				if message == "" {
+					message = "payment failed"
+				}
+				if err := s.CheckoutSessionService.MarkFailed(ctx, session.ID, message, failureCode); err != nil {
+					log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+						"checkout_session_id": session.ID,
+						"transaction_id":      transactionID,
+					}).Warn("failed to update checkout session from CCBill failure")
+				}
+			}
+		}
+
 		log.WithContext(ctx).WithFields(log.Fields{
 			"userID":        userID,
 			"email":         email,

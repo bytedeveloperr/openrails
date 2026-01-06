@@ -650,6 +650,11 @@ func (s *CheckoutSessionService) sessionToResponse(session *models.CheckoutSessi
 		if val, ok := session.ProcessorState["redirect_url"].(string); ok && strings.TrimSpace(val) != "" {
 			resp.Payment.RedirectURL = val
 		}
+		if val, ok := session.ProcessorState["message"].(string); ok && strings.TrimSpace(val) != "" {
+			resp.Message = strings.TrimSpace(val)
+		} else if val, ok := session.ProcessorState["failure_reason"].(string); ok && strings.TrimSpace(val) != "" {
+			resp.Message = strings.TrimSpace(val)
+		}
 	}
 
 	if action := s.buildNextAction(resp); action != nil {
@@ -680,6 +685,9 @@ func (s *CheckoutSessionService) isExpired(session *models.CheckoutSession) bool
 
 func (s *CheckoutSessionService) buildNextAction(resp *CheckoutSessionResponse) *CheckoutSessionNextAction {
 	if resp == nil {
+		return nil
+	}
+	if resp.Status != string(models.CheckoutSessionStatusRequiresAction) {
 		return nil
 	}
 	if resp.Payment.RedirectURL != "" {
@@ -790,6 +798,58 @@ func (s *CheckoutSessionService) MarkSucceeded(ctx context.Context, sessionID uu
 	}
 	if strings.TrimSpace(transactionID) != "" {
 		session.TransactionID = stringPtr(transactionID)
+	}
+
+	return s.repo.Update(ctx, session)
+}
+
+func (s *CheckoutSessionService) MarkFailed(ctx context.Context, sessionID uuid.UUID, reason, code string) error {
+	session, err := s.repo.GetByID(ctx, sessionID)
+	if err != nil {
+		return ErrCheckoutSessionNotFound
+	}
+	if s.isTerminal(session.Status) {
+		if session.Status == models.CheckoutSessionStatusFailed {
+			return nil
+		}
+		return ErrCheckoutSessionConflict
+	}
+
+	session.Status = models.CheckoutSessionStatusFailed
+	session.UpdatedAt = s.now()
+	if session.ProcessorState == nil {
+		session.ProcessorState = map[string]any{}
+	}
+	if msg := strings.TrimSpace(reason); msg != "" {
+		session.ProcessorState["message"] = msg
+		session.ProcessorState["failure_reason"] = msg
+	}
+	if strings.TrimSpace(code) != "" {
+		session.ProcessorState["failure_code"] = strings.TrimSpace(code)
+	}
+
+	return s.repo.Update(ctx, session)
+}
+
+func (s *CheckoutSessionService) MarkExpired(ctx context.Context, sessionID uuid.UUID, message string) error {
+	session, err := s.repo.GetByID(ctx, sessionID)
+	if err != nil {
+		return ErrCheckoutSessionNotFound
+	}
+	if s.isTerminal(session.Status) {
+		if session.Status == models.CheckoutSessionStatusExpired {
+			return nil
+		}
+		return ErrCheckoutSessionConflict
+	}
+
+	session.Status = models.CheckoutSessionStatusExpired
+	session.UpdatedAt = s.now()
+	if msg := strings.TrimSpace(message); msg != "" {
+		if session.ProcessorState == nil {
+			session.ProcessorState = map[string]any{}
+		}
+		session.ProcessorState["message"] = msg
 	}
 
 	return s.repo.Update(ctx, session)
