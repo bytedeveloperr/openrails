@@ -11,7 +11,6 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	"github.com/doujins-org/doujins-billing/internal/processors"
-	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -251,77 +250,6 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 			"notification_type": notification.EventType,
 			"error":             err.Error(),
 		}).Error("Failed to create notification during admin subscription operation")
-	}
-
-	return nil
-}
-
-// UpdateStatusParams contains parameters for updating subscription status
-type UpdateStatusParams struct {
-	SubscriptionID string
-	Status         models.SubscriptionStatus
-	CancelFeedback string            // Optional cancel feedback message
-	CancelType     models.CancelType // Optional cancel type
-}
-
-// UpdateStatus updates a subscription's status with appropriate side effects.
-// For cancellation, use CancelSubscription() instead for full NMI cancellation and entitlement revocation.
-// This method is for status changes that don't require external processor calls.
-func (s *AdminSubscriptionService) UpdateStatus(ctx context.Context, params *UpdateStatusParams) error {
-	subID, err := api.ParseSubscriptionID(params.SubscriptionID)
-	if err != nil {
-		return fmt.Errorf("invalid subscription id: %w", err)
-	}
-
-	subscription, err := s.SubscriptionService.GetByID(ctx, subID)
-	if err != nil {
-		return fmt.Errorf("subscription not found: %w", err)
-	}
-
-	subscription.Status = params.Status
-	subscription.UpdatedAt = s.now()
-
-	switch params.Status {
-	case models.StatusActive:
-		if subscription.StartedAt.IsZero() {
-			subscription.StartedAt = s.now()
-		}
-	case models.StatusPastDue:
-		// StatusPastDue means payment failed but we're still trying to rebill
-		// No additional fields to set
-	case models.StatusCancelled:
-		if params.CancelFeedback != "" {
-			subscription.CancelFeedback = &params.CancelFeedback
-		}
-		if params.CancelType != "" {
-			subscription.CancelType = &params.CancelType
-		}
-		cancelledAt := s.now()
-		subscription.CancelledAt = &cancelledAt
-		subscription.EndedAt = &cancelledAt
-	}
-
-	if err := s.SubscriptionService.Update(ctx, subscription); err != nil {
-		return fmt.Errorf("failed to update subscription: %w", err)
-	}
-
-	// Add notification based on status change
-	switch params.Status {
-	case models.StatusCancelled, models.StatusPastDue:
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    subscription.UserID,
-			EventType: models.NotificationPremiumEnded,
-			Data:      map[string]any{"reason": string(PremiumEndReasonAdmin)},
-		}
-		if err := s.NotificationService.Create(ctx, notification); err != nil {
-			log.WithFields(log.Fields{
-				"subscription_id":   subscription.ID,
-				"user_id":           subscription.UserID,
-				"notification_type": notification.EventType,
-				"error":             err.Error(),
-			}).Error("Failed to create notification during subscription status update")
-		}
 	}
 
 	return nil

@@ -1,9 +1,5 @@
 package handlers
 
-import (
-	"time"
-)
-
 type IRequest interface {
 	Path() any
 	Query() any
@@ -223,67 +219,6 @@ func (r *UpdatePaymentMethodRequest) Path() any {
 
 func (r *UpdatePaymentMethodRequest) Body() any {
 	return &r.UpdatePaymentMethodBodyParams
-}
-
-// -------------------------------- GetBillingHistory Request --------------------------------
-
-type GetBillingHistoryQueryParams struct {
-	PaginationParams
-	StartDate     *time.Time `form:"start_date" time_format:"2006-01-02"`
-	EndDate       *time.Time `form:"end_date" time_format:"2006-01-02"`
-	Processor     *string    `form:"processor" validate:"omitempty,oneof=ccbill nmi system"`
-	MinAmount     *float64   `form:"min_amount" validate:"omitempty,min=0"`
-	MaxAmount     *float64   `form:"max_amount" validate:"omitempty,min=0"`
-	IncludeStats  bool       `form:"include_stats" default:"false"`
-	IncludeEvents bool       `form:"include_events" default:"true"`
-}
-
-type GetBillingHistoryRequest struct {
-	BaseRequest
-	GetBillingHistoryQueryParams
-}
-
-func (r *GetBillingHistoryRequest) Query() any {
-	return &r.GetBillingHistoryQueryParams
-}
-
-func (r *GetBillingHistoryRequest) SetDefaults() {
-	r.SetPaginationDefaults(20)
-}
-
-// -------------------------------- GetUserBillingHistory Request (Admin) --------------------------------
-
-type GetUserBillingHistoryPathParams struct {
-	UserID string `uri:"user_id" binding:"required"`
-}
-
-type GetUserBillingHistoryQueryParams struct {
-	PaginationParams
-	StartDate     *time.Time `form:"start_date" time_format:"2006-01-02"`
-	EndDate       *time.Time `form:"end_date" time_format:"2006-01-02"`
-	Processor     *string    `form:"processor" validate:"omitempty,oneof=ccbill nmi system"`
-	MinAmount     *float64   `form:"min_amount" validate:"omitempty,min=0"`
-	MaxAmount     *float64   `form:"max_amount" validate:"omitempty,min=0"`
-	IncludeStats  bool       `form:"include_stats" default:"false"`
-	IncludeEvents bool       `form:"include_events" default:"true"`
-}
-
-type GetUserBillingHistoryRequest struct {
-	BaseRequest
-	GetUserBillingHistoryPathParams
-	GetUserBillingHistoryQueryParams
-}
-
-func (r *GetUserBillingHistoryRequest) Path() any {
-	return &r.GetUserBillingHistoryPathParams
-}
-
-func (r *GetUserBillingHistoryRequest) Query() any {
-	return &r.GetUserBillingHistoryQueryParams
-}
-
-func (r *GetUserBillingHistoryRequest) SetDefaults() {
-	r.SetPaginationDefaults(20)
 }
 
 // -------------------------------- Checkout Session Requests --------------------------------
