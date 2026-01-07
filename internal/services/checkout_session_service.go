@@ -318,6 +318,9 @@ func (s *CheckoutSessionService) ConfirmSession(ctx context.Context, sessionID u
 		}
 	}
 	if s.isExpired(session) {
+		if !s.isTerminal(session.Status) {
+			_ = s.MarkExpired(ctx, session.ID, "checkout session expired")
+		}
 		return nil, ErrCheckoutSessionExpired
 	}
 
@@ -880,10 +883,15 @@ func (s *CheckoutSessionService) MarkFailed(ctx context.Context, sessionID uuid.
 		return ErrCheckoutSessionNotFound
 	}
 	if s.isTerminal(session.Status) {
-		if session.Status == models.CheckoutSessionStatusFailed {
+		switch session.Status {
+		case models.CheckoutSessionStatusFailed,
+			models.CheckoutSessionStatusSucceeded,
+			models.CheckoutSessionStatusExpired,
+			models.CheckoutSessionStatusCanceled:
 			return nil
+		default:
+			return ErrCheckoutSessionConflict
 		}
-		return ErrCheckoutSessionConflict
 	}
 
 	session.Status = models.CheckoutSessionStatusFailed
@@ -908,10 +916,7 @@ func (s *CheckoutSessionService) MarkExpired(ctx context.Context, sessionID uuid
 		return ErrCheckoutSessionNotFound
 	}
 	if s.isTerminal(session.Status) {
-		if session.Status == models.CheckoutSessionStatusExpired {
-			return nil
-		}
-		return ErrCheckoutSessionConflict
+		return nil
 	}
 
 	session.Status = models.CheckoutSessionStatusExpired

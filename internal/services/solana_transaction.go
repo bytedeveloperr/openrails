@@ -49,15 +49,6 @@ func NewSolanaTransactionService(db *db.DB, rpc *SolanaRPCService, cfg *config.C
 	}
 }
 
-// TransactionRequest represents a payment transaction request
-type TransactionRequest struct {
-	PriceID    uuid.UUID
-	TokenMint  solana.PublicKey
-	FromWallet solana.PublicKey
-	ToWallet   solana.PublicKey
-	Amount     uint64 // Amount in token's smallest unit (lamports for SOL, smallest unit for SPL tokens)
-}
-
 // TransactionResponse contains the built transaction and metadata
 type TransactionResponse struct {
 	Transaction       *solana.Transaction
