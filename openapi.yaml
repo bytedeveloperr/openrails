@@ -317,7 +317,7 @@ components:
         delayed_start:
           type: string
           format: date-time
-    CheckoutSessionPayment:
+    CheckoutSessionPaymentRequest:
       type: object
       required: [processor]
       properties:
@@ -352,6 +352,12 @@ components:
           type: string
         country:
           type: string
+    CheckoutSessionPaymentResponse:
+      type: object
+      properties:
+        processor:
+          type: string
+          enum: [mobius, ccbill, solana, stripe]
         reference:
           type: string
         transaction_url:
@@ -372,7 +378,7 @@ components:
           type: string
           enum: [one_off, subscription]
         payment:
-          $ref: '#/components/schemas/CheckoutSessionPayment'
+          $ref: '#/components/schemas/CheckoutSessionPaymentRequest'
         metadata:
           type: object
           additionalProperties:
@@ -421,7 +427,7 @@ components:
         price_id:
           type: string
         payment:
-          $ref: '#/components/schemas/CheckoutSessionPayment'
+          $ref: '#/components/schemas/CheckoutSessionPaymentResponse'
         payment_id:
           type: string
         subscription_id:
@@ -433,6 +439,10 @@ components:
           $ref: '#/components/schemas/CheckoutSessionNextAction'
         message:
           type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
     UpdateSubscriptionPaymentMethodRequest:
       type: object
       required: [subscription_id, payment_method_id]
@@ -1095,30 +1105,6 @@ paths:
           description: Authentication required
         '404':
           description: Checkout session not found
-  /v1/me/checkout:
-    post:
-      summary: Unified checkout
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CheckoutRequest'
-      responses:
-        '200':
-          description: Checkout accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CheckoutResponse'
-        '400':
-          description: Validation failure
-        '401':
-          description: Authentication required
-        '409':
-          description: Purchase blocked
   /v1/me/subscriptions:
     get:
       summary: Subscription history

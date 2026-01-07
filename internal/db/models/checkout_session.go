@@ -48,6 +48,8 @@ type CheckoutSession struct {
 	PaymentID      *uuid.UUID `bun:"payment_id,type:uuid,nullzero" json:"payment_id,omitempty"`
 	SubscriptionID *uuid.UUID `bun:"subscription_id,type:uuid,nullzero" json:"subscription_id,omitempty"`
 
+	Metadata map[string]string `bun:"metadata,type:jsonb,nullzero" json:"metadata,omitempty"`
+
 	ProcessorFields map[string]any `bun:"processor_fields,type:jsonb,nullzero" json:"processor_fields,omitempty"`
 	ProcessorState  map[string]any `bun:"processor_state,type:jsonb,nullzero" json:"processor_state,omitempty"`
 

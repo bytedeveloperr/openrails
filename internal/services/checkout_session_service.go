@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 const (
 	checkoutSessionIdempotencyOp = "checkout_session_create"
 	defaultCheckoutSessionTTL    = 15 * time.Minute
+	redirectCheckoutSessionTTL   = 24 * time.Hour
 )
 
 var (
@@ -101,6 +103,7 @@ type CheckoutSessionResponse struct {
 	ExpiresAt      *time.Time                     `json:"expires_at,omitempty"`
 	NextAction     *CheckoutSessionNextAction     `json:"next_action,omitempty"`
 	Message        string                         `json:"message,omitempty"`
+	Metadata       map[string]string              `json:"metadata,omitempty"`
 }
 
 type CheckoutSessionService struct {
@@ -156,6 +159,8 @@ func (s *CheckoutSessionService) CreateSession(ctx context.Context, req *Checkou
 	if req == nil {
 		return nil, fmt.Errorf("%w: request is required", ErrCheckoutSessionValidation)
 	}
+
+	req.IdempotencyKey = scopeIdempotencyKey(user.ID, req.IdempotencyKey)
 
 	claimed := false
 	if s.idempotencyService != nil && strings.TrimSpace(req.IdempotencyKey) != "" {
@@ -234,6 +239,10 @@ func (s *CheckoutSessionService) createSessionWithValidation(ctx context.Context
 	}
 
 	now := s.now()
+	ttl := defaultCheckoutSessionTTL
+	if processor == "ccbill" || processor == "stripe" {
+		ttl = redirectCheckoutSessionTTL
+	}
 	session := &models.CheckoutSession{
 		ID:              uuid.New(),
 		UserID:          user.ID,
@@ -243,7 +252,8 @@ func (s *CheckoutSessionService) createSessionWithValidation(ctx context.Context
 		Status:          models.CheckoutSessionStatusCreated,
 		Amount:          price.Amount,
 		Currency:        price.Currency,
-		ExpiresAt:       timePtr(now.Add(defaultCheckoutSessionTTL)),
+		ExpiresAt:       timePtr(now.Add(ttl)),
+		Metadata:        normalizeMetadata(req.Metadata),
 		ProcessorFields: s.buildProcessorFields(processor, &req.Payment),
 		ProcessorState:  map[string]any{},
 		CreatedAt:       now,
@@ -253,12 +263,18 @@ func (s *CheckoutSessionService) createSessionWithValidation(ctx context.Context
 		session.IdempotencyKey = stringPtr(strings.TrimSpace(req.IdempotencyKey))
 	}
 
+	if err := s.repo.Create(ctx, session); err != nil {
+		return nil, fmt.Errorf("failed to create checkout session: %w", err)
+	}
+
 	if err := s.initializeSession(ctx, session, &req.Payment, user); err != nil {
+		_ = s.MarkFailed(ctx, session.ID, err.Error(), "")
 		return nil, err
 	}
 
-	if err := s.repo.Create(ctx, session); err != nil {
-		return nil, fmt.Errorf("failed to create checkout session: %w", err)
+	session.UpdatedAt = s.now()
+	if err := s.repo.Update(ctx, session); err != nil {
+		return nil, fmt.Errorf("failed to update checkout session: %w", err)
 	}
 
 	return s.sessionToResponse(session), nil
@@ -293,14 +309,14 @@ func (s *CheckoutSessionService) ConfirmSession(ctx context.Context, sessionID u
 		return nil, ErrCheckoutSessionForbidden
 	}
 
-	if s.isExpired(session) {
-		return nil, ErrCheckoutSessionExpired
-	}
 	if s.isTerminal(session.Status) {
 		if session.Status == models.CheckoutSessionStatusSucceeded {
 			return s.sessionToResponse(session), nil
 		}
 		return nil, ErrCheckoutSessionConflict
+	}
+	if s.isExpired(session) {
+		return nil, ErrCheckoutSessionExpired
 	}
 
 	processor := strings.ToLower(strings.TrimSpace(req.Payment.Processor))
@@ -583,6 +599,12 @@ func requireBillingFields(payment *CheckoutSessionPaymentRequest) error {
 		strings.TrimSpace(payment.Country) == "" {
 		return fmt.Errorf("%w: billing fields are required", ErrCheckoutSessionValidation)
 	}
+	if _, err := mail.ParseAddress(strings.TrimSpace(payment.Email)); err != nil {
+		return fmt.Errorf("%w: email is invalid", ErrCheckoutSessionValidation)
+	}
+	if len(strings.TrimSpace(payment.Country)) != 2 {
+		return fmt.Errorf("%w: country must be ISO-3166 alpha-2", ErrCheckoutSessionValidation)
+	}
 	return nil
 }
 
@@ -626,6 +648,9 @@ func (s *CheckoutSessionService) sessionToResponse(session *models.CheckoutSessi
 		},
 		ExpiresAt: session.ExpiresAt,
 	}
+	if session.Metadata != nil && len(session.Metadata) > 0 {
+		resp.Metadata = session.Metadata
+	}
 
 	if session.Reference != nil {
 		resp.Payment.Reference = *session.Reference
@@ -665,6 +690,32 @@ func (s *CheckoutSessionService) sessionToResponse(session *models.CheckoutSessi
 	}
 
 	return resp
+}
+
+func normalizeMetadata(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		k := strings.TrimSpace(key)
+		if k == "" {
+			continue
+		}
+		out[k] = strings.TrimSpace(value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func scopeIdempotencyKey(userID, key string) string {
+	trimmedKey := strings.TrimSpace(key)
+	if strings.TrimSpace(userID) == "" || trimmedKey == "" {
+		return trimmedKey
+	}
+	return fmt.Sprintf("%s:%s", strings.TrimSpace(userID), trimmedKey)
 }
 
 func (s *CheckoutSessionService) isTerminal(status models.CheckoutSessionStatus) bool {
@@ -745,6 +796,14 @@ func (s *CheckoutSessionService) confirmSolanaSession(ctx context.Context, sessi
 	expectedAmount := getUint64Field(session.ProcessorState, "token_amount")
 	expectedRecipient := strings.TrimSpace(s.config.Solana.RecipientWallet)
 	expectedPayer := strings.TrimSpace(getStringField(session.ProcessorFields, "wallet"))
+	if reqWallet := strings.TrimSpace(req.Payment.Wallet); reqWallet != "" {
+		if expectedPayer != "" && expectedPayer != reqWallet {
+			return nil, fmt.Errorf("%w: wallet does not match session", ErrCheckoutSessionValidation)
+		}
+		if expectedPayer == "" {
+			expectedPayer = reqWallet
+		}
+	}
 	reference := session.Reference
 
 	if _, err := s.solanaTransactionService.VerifyTransactionWithContent(
@@ -791,7 +850,9 @@ func (s *CheckoutSessionService) MarkSucceeded(ctx context.Context, sessionID uu
 		if session.Status == models.CheckoutSessionStatusSucceeded {
 			return nil
 		}
-		return ErrCheckoutSessionConflict
+		if session.Status != models.CheckoutSessionStatusExpired {
+			return ErrCheckoutSessionConflict
+		}
 	}
 
 	session.Status = models.CheckoutSessionStatusSucceeded
@@ -867,7 +928,9 @@ func (s *CheckoutSessionService) MarkSucceededWithSubscription(ctx context.Conte
 		if session.Status == models.CheckoutSessionStatusSucceeded {
 			return nil
 		}
-		return ErrCheckoutSessionConflict
+		if session.Status != models.CheckoutSessionStatusExpired {
+			return ErrCheckoutSessionConflict
+		}
 	}
 
 	session.Status = models.CheckoutSessionStatusSucceeded
