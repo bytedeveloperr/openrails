@@ -496,6 +496,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		redisClient,
 		cfg,
 		solanaPayService,
+		solanaTransactionService,
 		checkoutService,
 		checkoutSessionService,
 	)

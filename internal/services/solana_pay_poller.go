@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,6 +27,7 @@ type SolanaPayPoller struct {
 	cfg                    *config.Config
 	rpc                    *SolanaRPCService
 	solanaPayService       *SolanaPayService
+	solanaTransactionSvc   *SolanaTransactionService
 	checkoutService        *CheckoutService
 	checkoutSessionService *CheckoutSessionService
 
@@ -40,6 +42,7 @@ func NewSolanaPayPoller(
 	redis *redis.Client,
 	cfg *config.Config,
 	solanaPayService *SolanaPayService,
+	solanaTransactionService *SolanaTransactionService,
 	checkoutService *CheckoutService,
 	checkoutSessionService *CheckoutSessionService,
 ) *SolanaPayPoller {
@@ -54,6 +57,7 @@ func NewSolanaPayPoller(
 		cfg:                    cfg,
 		rpc:                    rpc,
 		solanaPayService:       solanaPayService,
+		solanaTransactionSvc:   solanaTransactionService,
 		checkoutService:        checkoutService,
 		checkoutSessionService: checkoutSessionService,
 	}
@@ -171,7 +175,7 @@ func (p *SolanaPayPoller) checkPayment(ctx context.Context, reference string) {
 		}
 
 		// Verify the transaction matches our expected payment
-		if p.verifyPayment(ctx, pending) {
+		if p.verifyPayment(ctx, reference, sig.Signature.String(), pending) {
 			log.WithFields(log.Fields{
 				"reference": reference,
 				"signature": sig.Signature.String(),
@@ -193,15 +197,44 @@ func (p *SolanaPayPoller) checkPayment(ctx context.Context, reference string) {
 }
 
 // verifyPayment validates that a transaction matches our expected payment
-func (p *SolanaPayPoller) verifyPayment(ctx context.Context, pending *PendingSolanaPayment) bool {
-	// For now, we trust that if a transaction references our unique reference key,
-	// it's likely our payment. More sophisticated verification can be added:
-	// - Check recipient address matches
-	// - Check token mint matches
-	// - Check amount matches (within tolerance)
-	//
-	// The reference key is cryptographically random (32 bytes), making collisions
-	// essentially impossible.
+func (p *SolanaPayPoller) verifyPayment(ctx context.Context, reference string, signature string, pending *PendingSolanaPayment) bool {
+	if p.solanaTransactionSvc == nil {
+		// Reference key is cryptographically random (32 bytes); fallback to reference-only checks.
+		return true
+	}
+	expectedRecipient := strings.TrimSpace(pending.Recipient)
+	expectedMint := strings.TrimSpace(pending.TokenMint)
+	expectedAmount := pending.TokenAmount
+	if expectedRecipient == "" || expectedMint == "" || expectedAmount == 0 {
+		log.WithFields(log.Fields{
+			"reference": reference,
+			"user_id":   pending.UserID,
+		}).Warn("missing expected solana payment fields; skipping verification")
+		return false
+	}
+
+	var refPtr *string
+	ref := strings.TrimSpace(reference)
+	if ref != "" {
+		refPtr = &ref
+	}
+	if _, err := p.solanaTransactionSvc.VerifyTransactionWithContent(
+		ctx,
+		strings.TrimSpace(signature),
+		expectedAmount,
+		expectedRecipient,
+		expectedMint,
+		"",
+		refPtr,
+	); err != nil {
+		log.WithError(err).WithFields(log.Fields{
+			"reference": reference,
+			"signature": signature,
+			"user_id":   pending.UserID,
+		}).Warn("solana pay verification failed")
+		return false
+	}
+
 	return true
 }
 
