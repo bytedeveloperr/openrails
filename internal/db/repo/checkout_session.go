@@ -61,7 +61,6 @@ func (r *CheckoutSessionRepo) GetLatestOpenByUserPriceProcessor(ctx context.Cont
 	openStatuses := []models.CheckoutSessionStatus{
 		models.CheckoutSessionStatusCreated,
 		models.CheckoutSessionStatusRequiresAction,
-		models.CheckoutSessionStatusProcessing,
 	}
 	if err := r.db.GetDB().NewSelect().
 		Model(session).

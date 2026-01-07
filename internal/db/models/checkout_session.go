@@ -19,7 +19,6 @@ type CheckoutSessionStatus string
 const (
 	CheckoutSessionStatusCreated        CheckoutSessionStatus = "created"
 	CheckoutSessionStatusRequiresAction CheckoutSessionStatus = "requires_action"
-	CheckoutSessionStatusProcessing     CheckoutSessionStatus = "processing"
 	CheckoutSessionStatusSucceeded      CheckoutSessionStatus = "succeeded"
 	CheckoutSessionStatusFailed         CheckoutSessionStatus = "failed"
 	CheckoutSessionStatusExpired        CheckoutSessionStatus = "expired"

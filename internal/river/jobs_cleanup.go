@@ -169,7 +169,7 @@ func (w CleanupExpiredDataWorker) expireCheckoutSessions(ctx context.Context, no
 		Set("status = ?", models.CheckoutSessionStatusExpired).
 		Set("updated_at = ?", now).
 		Where("expires_at IS NOT NULL AND expires_at < ?", now).
-		Where("status IN ('created', 'requires_action', 'processing')").
+		Where("status IN ('created', 'requires_action')").
 		Exec(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("expire checkout sessions: %w", err)

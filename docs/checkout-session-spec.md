@@ -19,7 +19,7 @@ Checkout Session represents a payment flow (not just a charge attempt). It can:
 - resolve into a finalized `payment` record.
 
 ### Status Lifecycle
-`created -> requires_action -> processing -> succeeded|failed|expired`
+`created -> requires_action -> succeeded|failed|expired`
 
 Sessions are single-use. Once terminal, they cannot be reused.
 
@@ -77,7 +77,7 @@ All endpoints require authentication.
 {
   "object": "checkout_session",
   "id": "cs_...",
-  "status": "requires_action|processing|succeeded|failed|expired",
+  "status": "requires_action|succeeded|failed|expired",
   "mode": "one_off|subscription",
   "price_id": "price_...",
   "payment": {
@@ -95,7 +95,8 @@ All endpoints require authentication.
     "type": "redirect_to_url|solana_qr|solana_transaction|none",
     "redirect_to_url": { "url": "..." }
   },
-  "message": "string"
+  "message": "string",
+  "metadata": { "source": "web" }
 }
 ```
 
@@ -127,7 +128,7 @@ All endpoints require authentication.
 1) Create session with `payment.processor = solana`, `token_symbol`, optional `flow`.
 2) Response:
    - `flow=transfer_request` -> `payment.transaction_url`, `payment.reference`, `next_action=solana_qr`.
-   - `flow=transaction_request` -> `payment.transaction_data`, `payment.reference`, `next_action=solana_transaction`.
+   - `flow=transaction_request` -> `payment.transaction_data`, `next_action=solana_transaction`.
 3) Client signs/broadcasts, then `POST /v1/checkout/{id}/confirm` with signature.
 4) System verifies amount, recipient, token mint, and reference before finalizing.
 5) On success: create `payment` record and grant entitlements.
@@ -170,6 +171,7 @@ that duration defines the entitlement window for the one-off purchase.
 - `reference` (Solana)
 - `transaction_id` (processor transaction identifier)
 - `payment_id`
+- `metadata` (JSON, client-provided metadata)
 - `processor_fields` (JSON, sanitized request inputs)
 - `processor_state` (JSON, generated outputs)
 - `created_at`, `updated_at`

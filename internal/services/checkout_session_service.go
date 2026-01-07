@@ -313,7 +313,9 @@ func (s *CheckoutSessionService) ConfirmSession(ctx context.Context, sessionID u
 		if session.Status == models.CheckoutSessionStatusSucceeded {
 			return s.sessionToResponse(session), nil
 		}
-		return nil, ErrCheckoutSessionConflict
+		if session.Status != models.CheckoutSessionStatusExpired {
+			return nil, ErrCheckoutSessionConflict
+		}
 	}
 	if s.isExpired(session) {
 		return nil, ErrCheckoutSessionExpired

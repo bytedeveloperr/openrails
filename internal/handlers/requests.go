@@ -224,30 +224,30 @@ func (r *UpdatePaymentMethodRequest) Body() any {
 // -------------------------------- Checkout Session Requests --------------------------------
 
 type CheckoutSessionPaymentParams struct {
-	Processor       string `json:"processor" validate:"required,oneof=mobius ccbill solana stripe"`
-	PaymentMethodID string `json:"payment_method_id,omitempty" validate:"omitempty"`
+	Processor       string `json:"processor" binding:"required,oneof=mobius ccbill solana stripe"`
+	PaymentMethodID string `json:"payment_method_id,omitempty" binding:"omitempty"`
 	PaymentToken    string `json:"payment_token,omitempty"`
 
 	// Solana-specific fields
-	TokenSymbol string `json:"token_symbol,omitempty" validate:"omitempty"`
-	Flow        string `json:"flow,omitempty" validate:"omitempty,oneof=transfer_request transaction_request"`
-	Wallet      string `json:"wallet,omitempty" validate:"omitempty"`
+	TokenSymbol string `json:"token_symbol,omitempty" binding:"omitempty"`
+	Flow        string `json:"flow,omitempty" binding:"omitempty,oneof=transfer_request transaction_request"`
+	Wallet      string `json:"wallet,omitempty" binding:"omitempty"`
 
 	// CCBill/Stripe billing fields (flattened)
-	Email     string `json:"email,omitempty" validate:"omitempty,email"`
-	FirstName string `json:"first_name,omitempty" validate:"omitempty,max=100"`
-	LastName  string `json:"last_name,omitempty" validate:"omitempty,max=100"`
-	Address1  string `json:"address1,omitempty" validate:"omitempty,max=200"`
-	City      string `json:"city,omitempty" validate:"omitempty,max=100"`
-	State     string `json:"state,omitempty" validate:"omitempty,max=50"`
-	Zip       string `json:"zip,omitempty" validate:"omitempty,max=20"`
-	Country   string `json:"country,omitempty" validate:"omitempty,max=2"`
+	Email     string `json:"email,omitempty" binding:"omitempty,email"`
+	FirstName string `json:"first_name,omitempty" binding:"omitempty,max=100"`
+	LastName  string `json:"last_name,omitempty" binding:"omitempty,max=100"`
+	Address1  string `json:"address1,omitempty" binding:"omitempty,max=200"`
+	City      string `json:"city,omitempty" binding:"omitempty,max=100"`
+	State     string `json:"state,omitempty" binding:"omitempty,max=50"`
+	Zip       string `json:"zip,omitempty" binding:"omitempty,max=20"`
+	Country   string `json:"country,omitempty" binding:"omitempty,max=2"`
 }
 
 type CheckoutSessionCreateBodyParams struct {
-	PriceID  string                       `json:"price_id" validate:"required"`
-	Mode     string                       `json:"mode,omitempty" validate:"omitempty,oneof=one_off subscription"`
-	Payment  CheckoutSessionPaymentParams `json:"payment" validate:"required"`
+	PriceID  string                       `json:"price_id" binding:"required"`
+	Mode     string                       `json:"mode,omitempty" binding:"omitempty,oneof=one_off subscription"`
+	Payment  CheckoutSessionPaymentParams `json:"payment" binding:"required"`
 	Metadata map[string]string            `json:"metadata,omitempty"`
 }
 
@@ -263,10 +263,10 @@ func (r *CheckoutSessionCreateRequest) Body() any {
 
 type CheckoutSessionConfirmBodyParams struct {
 	Payment struct {
-		Processor string `json:"processor" validate:"required,oneof=solana"`
+		Processor string `json:"processor" binding:"required,oneof=solana"`
 		Signature string `json:"signature,omitempty"`
 		Wallet    string `json:"wallet,omitempty"`
-	} `json:"payment" validate:"required"`
+	} `json:"payment" binding:"required"`
 }
 
 type CheckoutSessionConfirmRequest struct {
