@@ -491,7 +491,12 @@ func (s *CheckoutSessionService) initializeSolanaSession(ctx context.Context, se
 		if strings.TrimSpace(payment.Wallet) == "" {
 			return fmt.Errorf("%w: wallet is required for transaction_request", ErrCheckoutSessionValidation)
 		}
-		txResp, err := s.solanaTransactionService.BuildPaymentTransaction(ctx, session.UserID, session.PriceID, tokenSymbol, payment.Wallet)
+		reference, err := generateReference()
+		if err != nil {
+			return fmt.Errorf("failed to generate reference: %w", err)
+		}
+		session.Reference = &reference
+		txResp, err := s.solanaTransactionService.BuildPaymentTransaction(ctx, session.UserID, session.PriceID, tokenSymbol, payment.Wallet, session.Reference)
 		if err != nil {
 			return err
 		}

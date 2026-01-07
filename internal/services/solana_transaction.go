@@ -70,7 +70,7 @@ type TransactionResponse struct {
 }
 
 // BuildPaymentTransaction creates a real Solana transaction for payment
-func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, userID string, priceID uuid.UUID, tokenSymbol, userWallet string) (*TransactionResponse, error) {
+func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, userID string, priceID uuid.UUID, tokenSymbol, userWallet string, reference *string) (*TransactionResponse, error) {
 	// Get price information
 	price, err := s.priceService.GetByID(ctx, priceID)
 	if err != nil {
@@ -120,17 +120,32 @@ func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, 
 		return nil, fmt.Errorf("failed to get blockhash: %w", err)
 	}
 
+	var referencePub *solana.PublicKey
+	if reference != nil {
+		trimmed := strings.TrimSpace(*reference)
+		if trimmed != "" {
+			refKey, err := solana.PublicKeyFromBase58(trimmed)
+			if err != nil {
+				return nil, fmt.Errorf("invalid reference key: %w", err)
+			}
+			referencePub = &refKey
+		}
+	}
+
 	var transaction *solana.Transaction
 	var instructions []solana.Instruction
 
 	if tokenSymbol == "SOL" {
 		// Native SOL transfer
-		instruction := system.NewTransferInstruction(
+		transfer := system.NewTransferInstruction(
 			tokenAmount,
 			fromWallet,
 			toWallet,
-		).Build()
-		instructions = append(instructions, instruction)
+		)
+		if referencePub != nil {
+			transfer.AccountMetaSlice = append(transfer.AccountMetaSlice, solana.Meta(*referencePub))
+		}
+		instructions = append(instructions, transfer.Build())
 	} else {
 		// SPL Token transfer
 		var tokenMint solana.PublicKey
@@ -153,14 +168,17 @@ func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, 
 		}
 
 		// Create transfer instruction
-		instruction := token.NewTransferInstruction(
+		transfer := token.NewTransferInstruction(
 			tokenAmount,
 			fromTokenAccount,
 			toTokenAccount,
 			fromWallet,
 			[]solana.PublicKey{},
-		).Build()
-		instructions = append(instructions, instruction)
+		)
+		if referencePub != nil {
+			transfer.Accounts = append(transfer.Accounts, solana.Meta(*referencePub))
+		}
+		instructions = append(instructions, transfer.Build())
 	}
 
 	// Build transaction
