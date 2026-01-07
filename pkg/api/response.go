@@ -76,44 +76,6 @@ type InvoiceObject struct {
 	ID            string               `json:"id"`
 	Object        string               `json:"object"` // Always "invoice"
 	Status        string               `json:"status"`
-	PaymentIntent *PaymentIntentObject `json:"payment_intent,omitempty"`
-}
-
-// PaymentIntentObject represents a payment intent
-type PaymentIntentObject struct {
-	ID           string            `json:"id"`
-	Object       string            `json:"object"` // Always "payment_intent"
-	Status       string            `json:"status"` // "pending", "processing", "confirmed", "failed"
-	Amount       int64             `json:"amount"` // Amount in cents (USD)
-	Currency     string            `json:"currency"`
-	ClientSecret string            `json:"client_secret,omitempty"`
-	NextAction   *NextActionObject `json:"next_action,omitempty"`
-	// Solana-specific fields
-	PaymentMethod *PaymentIntentPaymentMethod `json:"payment_method,omitempty"`
-	Transaction   *PaymentIntentTransaction   `json:"transaction,omitempty"`
-	ExpiresAt     int64                       `json:"expires_at,omitempty"`
-	Created       int64                       `json:"created"`
-}
-
-// PaymentIntentPaymentMethod describes the payment method for the intent
-type PaymentIntentPaymentMethod struct {
-	Type        string `json:"type"`                   // "solana"
-	Token       string `json:"token,omitempty"`        // Token symbol (SOL, USDC)
-	TokenMint   string `json:"token_mint,omitempty"`   // Token mint address
-	TokenAmount string `json:"token_amount,omitempty"` // Human-readable token amount
-	Wallet      string `json:"wallet,omitempty"`       // Payer wallet address
-}
-
-// PaymentIntentTransaction contains transaction details for Solana payments
-type PaymentIntentTransaction struct {
-	// For direct flow: base64-encoded transaction to sign
-	Data string `json:"data,omitempty"`
-	// For QR flow: Solana Pay URL
-	URL string `json:"url,omitempty"`
-	// Reference key for looking up on-chain (QR flow)
-	Reference string `json:"reference,omitempty"`
-	// Transaction signature after confirmation
-	Signature string `json:"signature,omitempty"`
 }
 
 // NextActionObject describes the next action the user must take

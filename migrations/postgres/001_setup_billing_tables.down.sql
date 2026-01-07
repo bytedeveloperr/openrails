@@ -8,7 +8,6 @@ DROP TABLE IF EXISTS billing.idempotency_requests CASCADE;
 DROP TABLE IF EXISTS billing.solana_wallet_challenges CASCADE;
 DROP TABLE IF EXISTS billing.solana_wallets CASCADE;
 DROP TABLE IF EXISTS billing.solana_transactions CASCADE;
-DROP TABLE IF EXISTS billing.solana_payment_intents CASCADE;
 DROP TABLE IF EXISTS billing.notification_queue CASCADE;
 DROP TABLE IF EXISTS billing.payments CASCADE;
 DROP TABLE IF EXISTS billing.payment_methods CASCADE;

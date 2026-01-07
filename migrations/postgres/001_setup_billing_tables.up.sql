@@ -281,37 +281,7 @@ CREATE INDEX IF NOT EXISTS idx_payments_subscription_id ON billing.payments(subs
 
 COMMENT ON COLUMN billing.payments.subscription_id IS 'Links a payment to the subscription that generated it (nullable for one-off payments)';
 
--- 4.4: Create solana_payment_intents table (unified Solana payment flow)
-CREATE TABLE IF NOT EXISTS billing.solana_payment_intents (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
-    price_id UUID NOT NULL,
-    flow_type TEXT NOT NULL, -- direct | solanapay
-    token TEXT NOT NULL,
-    token_mint TEXT NOT NULL,
-    amount BIGINT NOT NULL, -- Token amount in smallest unit (lamports for SOL, base units for SPL tokens)
-    currency TEXT NOT NULL,
-    expected_amount_lamports BIGINT NOT NULL,
-    payer_wallet TEXT,
-    recipient_wallet TEXT NOT NULL,
-    reference TEXT,
-    memo TEXT,
-    status TEXT NOT NULL DEFAULT 'pending',
-    signature TEXT,
-    transaction_signature TEXT,
-    error_message TEXT,
-    expires_at TIMESTAMPTZ,
-    confirmed_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
-    UNIQUE(reference)
-);
-
-CREATE INDEX IF NOT EXISTS idx_solana_payment_intents_user_status ON billing.solana_payment_intents(user_id, status);
-CREATE INDEX IF NOT EXISTS idx_solana_payment_intents_reference ON billing.solana_payment_intents(reference) WHERE reference IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_solana_payment_intents_expires ON billing.solana_payment_intents(expires_at) WHERE expires_at IS NOT NULL;
-
--- 4.5: Create solana_transactions table (pending and confirmed Solana payments)
+-- 4.4: Create solana_transactions table (pending and confirmed Solana payments)
 CREATE TABLE IF NOT EXISTS billing.solana_transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID, -- AuthKit user ID (UUID), nullable for anonymous intents
@@ -330,7 +300,6 @@ CREATE TABLE IF NOT EXISTS billing.solana_transactions (
     -- Optional references
     product_id UUID,
     payment_id UUID,
-    intent_id UUID REFERENCES billing.solana_payment_intents(id) ON DELETE SET NULL,
 
     -- Blockchain metadata
     block_time TIMESTAMPTZ,
@@ -356,7 +325,6 @@ CREATE TABLE IF NOT EXISTS billing.solana_transactions (
 CREATE INDEX IF NOT EXISTS idx_solana_transactions_user_id ON billing.solana_transactions(user_id);
 CREATE INDEX IF NOT EXISTS idx_solana_transactions_status ON billing.solana_transactions(status);
 CREATE INDEX IF NOT EXISTS idx_solana_transactions_expires_at ON billing.solana_transactions(expires_at) WHERE expires_at IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_solana_transactions_intent_id ON billing.solana_transactions(intent_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_solana_tx_signature ON billing.solana_transactions(signature) WHERE signature IS NOT NULL;
 
 -- ============================================================================

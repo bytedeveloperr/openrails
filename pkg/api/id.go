@@ -15,7 +15,6 @@ const (
 	PrefixSubscription    = "sub_"
 	PrefixPayment         = "pay_"
 	PrefixPaymentMethod   = "pm_"
-	PrefixPaymentIntent   = "pi_"
 	PrefixInvoice         = "inv_"
 	PrefixCheckoutSession = "cs_"
 	PrefixUser            = "usr_"
@@ -46,11 +45,6 @@ func FormatPaymentID(id uuid.UUID) string {
 // FormatPaymentMethodID formats a UUID as a payment method ID (pm_xxx)
 func FormatPaymentMethodID(id uuid.UUID) string {
 	return PrefixPaymentMethod + id.String()
-}
-
-// FormatPaymentIntentID formats a UUID as a payment intent ID (pi_xxx)
-func FormatPaymentIntentID(id uuid.UUID) string {
-	return PrefixPaymentIntent + id.String()
 }
 
 // FormatInvoiceID formats a UUID as an invoice ID (inv_xxx)
@@ -104,11 +98,6 @@ func ParsePaymentMethodID(id string) (uuid.UUID, error) {
 	return parseID(id, PrefixPaymentMethod, "payment_method")
 }
 
-// ParsePaymentIntentID parses a prefixed payment intent ID and returns the UUID
-func ParsePaymentIntentID(id string) (uuid.UUID, error) {
-	return parseID(id, PrefixPaymentIntent, "payment_intent")
-}
-
 // ParseInvoiceID parses a prefixed invoice ID and returns the UUID
 func ParseInvoiceID(id string) (uuid.UUID, error) {
 	return parseID(id, PrefixInvoice, "invoice")
@@ -160,7 +149,7 @@ func TryParseID(id string) (uuid.UUID, bool, error) {
 	// Check for known prefixes
 	prefixes := []string{
 		PrefixProduct, PrefixPrice, PrefixSubscription,
-		PrefixPayment, PrefixPaymentMethod, PrefixPaymentIntent,
+		PrefixPayment, PrefixPaymentMethod,
 		PrefixInvoice, PrefixCheckoutSession, PrefixUser, PrefixEvent, PrefixAdminGrant,
 	}
 
