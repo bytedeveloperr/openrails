@@ -257,7 +257,7 @@ services:
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
       # Private service API key for server-to-server calls (X-API-KEY header)
       API_KEY: "${BILLING_API_KEY:-dev-service-api-key-change-me}"
-    command: ["server"]
+    command: ["server", "--start-workers"]
 
   # Billing workers (River + other background loops)
   billing-worker:
