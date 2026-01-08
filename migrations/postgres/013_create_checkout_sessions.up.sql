@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS billing.checkout_sessions (
     subscription_id UUID REFERENCES billing.subscriptions(id),
     processor_fields JSONB,
     processor_state JSONB,
+    metadata JSONB,
     idempotency_key TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp
