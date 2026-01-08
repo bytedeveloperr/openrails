@@ -13,8 +13,7 @@ type AdminCancelSubscriptionRequest struct {
 
 // AdminCancelSubscription cancels a subscription by subscription ID (admin)
 func AdminCancelSubscription(r *Request) {
-	idStr := r.GinCtx.Param("id")
-	subscriptionID, err := api.ParseSubscriptionID(idStr)
+	subscriptionID, err := api.ParseSubscriptionID(r.GinCtx.Param("id"))
 	if err != nil {
 		r.ErrorJSON(http.StatusBadRequest, "invalid subscription ID")
 		return
@@ -22,6 +21,7 @@ func AdminCancelSubscription(r *Request) {
 
 	req := new(AdminCancelSubscriptionRequest)
 	if !r.BindJSON(req) {
+		r.ErrorJSON(http.StatusBadRequest, "invalid request body")
 		return
 	}
 

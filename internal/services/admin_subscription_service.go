@@ -206,6 +206,10 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 		return fmt.Errorf("subscription is not active")
 	}
 
+	if !processors.IsNMIBackedProcessor(subscription.Processor) {
+		return fmt.Errorf("cancel operation not supported for processor '%s'", subscription.Processor)
+	}
+
 	// Cancel with payment processor first (NMI)
 	if err := s.cancelWithNMI(subscription); err != nil {
 		return err
