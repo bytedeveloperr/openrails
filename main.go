@@ -50,6 +50,7 @@ func main() {
 		RunE:    runServer,
 		Short:   "Start the billing service server",
 	}
+	serverCmd.Flags().Bool("start-workers", false, "Start background workers alongside the HTTP server")
 
 	workerCmd := &cobra.Command{
 		Use:   "worker",
@@ -122,6 +123,10 @@ func main() {
 
 func runServer(cmd *cobra.Command, args []string) error {
 	cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
+	startWorkers, err := cmd.Flags().GetBool("start-workers")
+	if err != nil {
+		return fmt.Errorf("failed to read start-workers flag: %w", err)
+	}
 
 	if cfg.Env == "production" || cfg.Env == "prod" {
 		gin.SetMode(gin.ReleaseMode)
@@ -178,12 +183,42 @@ func runServer(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
-	// Wait for interrupt signal to gracefully shutdown the server
-	<-sigChan
-	log.Info("Shutdown signal received, shutting down server...")
+	var (
+		workerCancel context.CancelFunc
+		workerErrCh  chan error
+		workerErr    error
+	)
+	if startWorkers {
+		workerCtx, cancel := context.WithCancel(cmd.Context())
+		workerCancel = cancel
+		workerErrCh = make(chan error, 1)
+		go func() {
+			log.Info("Starting billing background workers")
+			workerErrCh <- embeddedApp.RunWorkers(workerCtx)
+		}()
+	}
+
+	// Wait for interrupt signal or worker failure to gracefully shutdown the server
+	if workerErrCh == nil {
+		<-sigChan
+		log.Info("Shutdown signal received, shutting down server...")
+	} else {
+		select {
+		case <-sigChan:
+			log.Info("Shutdown signal received, shutting down server...")
+		case workerErr = <-workerErrCh:
+			if workerErr != nil && workerErr != context.Canceled {
+				log.WithError(workerErr).Error("Background workers stopped unexpectedly")
+			}
+		}
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
+
+	if workerCancel != nil {
+		workerCancel()
+	}
 
 	if err := publicSrv.Shutdown(shutdownCtx); err != nil {
 		log.WithError(err).Error("Public server forced to shutdown")
@@ -196,6 +231,13 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	if err := embeddedApp.Close(shutdownCtx); err != nil {
 		log.WithError(err).Error("Application shutdown encountered issues")
+	}
+
+	if workerErrCh != nil && workerErr == nil {
+		workerErr = <-workerErrCh
+	}
+	if workerErr != nil && workerErr != context.Canceled {
+		return workerErr
 	}
 
 	log.Info("Billing service shutdown complete")
