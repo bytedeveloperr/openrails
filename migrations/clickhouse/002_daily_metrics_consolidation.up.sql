@@ -97,7 +97,6 @@ per_sub AS (
         subscription_id,
         argMax(status, timestamp) AS status,
         argMax(price_amount, timestamp) AS price_amount,
-        argMax(price_currency, timestamp) AS price_currency,
         argMax(billing_cycle_days, timestamp) AS billing_cycle_days,
         argMax(processor, timestamp) AS processor
     FROM subscription_events
@@ -321,17 +320,17 @@ SELECT
     coalesce(last_value(mrr_cents) IGNORE NULLS OVER w, 0) AS mrr_cents,
     coalesce(se.entitlements_granted, 0) AS entitlements_granted,
     -- processor nested arrays aligned (actives carried in proc_carried, flows remain per-day)
-    proc_name AS processor.name,
-    proc_active AS processor.active_subscriptions,
-    proc_new AS processor.new_subscriptions,
-    proc_cancel AS processor.cancellations,
-    proc_rev_total AS processor.revenue_total_cents,
-    proc_rev_sub AS processor.revenue_subscription_cents,
-    proc_rev_one_time AS processor.revenue_one_time_cents,
-    proc_refunds AS processor.revenue_refunds_cents,
-    proc_chargebacks AS processor.revenue_chargebacks_cents,
-    proc_pay_success AS processor.payments_successful,
-    proc_pay_failed AS processor.payments_failed,
+    proc_name,
+    proc_active,
+    proc_new,
+    proc_cancel,
+    proc_rev_total,
+    proc_rev_sub,
+    proc_rev_one_time,
+    proc_refunds,
+    proc_chargebacks,
+    proc_pay_success,
+    proc_pay_failed,
     now('UTC') AS created_at,
     now('UTC') AS version
 FROM daily
