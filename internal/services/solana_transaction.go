@@ -8,7 +8,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
-	solanaintegration "github.com/doujins-org/doujins-billing/internal/integrations/solana"
+	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
 	log "github.com/sirupsen/logrus"
@@ -17,7 +17,7 @@ import (
 // SolanaTransactionService builds real Solana transactions for payments.
 type SolanaTransactionService struct {
 	db           *db.DB
-	rpc          *solanaintegration.RPCClient
+	rpc          *solana.RPCClient
 	cfg          *config.Config
 	priceService *PriceService
 	paymentSvc   *PaymentService
@@ -33,7 +33,7 @@ func (s *SolanaTransactionService) now() time.Time {
 }
 
 // NewSolanaTransactionService creates a new transaction service.
-func NewSolanaTransactionService(db *db.DB, rpc *solanaintegration.RPCClient, cfg *config.Config, price *PriceService, payment *PaymentService) *SolanaTransactionService {
+func NewSolanaTransactionService(db *db.DB, rpc *solana.RPCClient, cfg *config.Config, price *PriceService, payment *PaymentService) *SolanaTransactionService {
 	return &SolanaTransactionService{
 		db:           db,
 		rpc:          rpc,
@@ -91,7 +91,7 @@ func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, 
 		referenceStr = strings.TrimSpace(*reference)
 	}
 
-	txResp, err := s.rpc.BuildTransferTransaction(ctx, solanaintegration.TransferRequest{
+	txResp, err := s.rpc.BuildTransferTransaction(ctx, solana.TransferRequest{
 		FromWallet:  userWallet,
 		ToWallet:    merchantWallet,
 		TokenSymbol: tokenSymbol,
@@ -136,7 +136,7 @@ func (s *SolanaTransactionService) VerifyTransactionWithContent(ctx context.Cont
 		reference = strings.TrimSpace(*expectedReference)
 	}
 
-	return s.rpc.VerifyTransfer(ctx, solanaintegration.VerifyTransferRequest{
+	return s.rpc.VerifyTransfer(ctx, solana.VerifyTransferRequest{
 		Signature:         strings.TrimSpace(signature),
 		ExpectedAmount:    expectedAmount,
 		ExpectedRecipient: strings.TrimSpace(expectedRecipient),

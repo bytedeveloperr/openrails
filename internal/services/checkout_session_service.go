@@ -15,7 +15,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
-	solanaintegration "github.com/doujins-org/doujins-billing/internal/integrations/solana"
+	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -495,7 +495,7 @@ func (s *CheckoutSessionService) initializeSolanaSession(ctx context.Context, se
 		if strings.TrimSpace(payment.Wallet) == "" {
 			return fmt.Errorf("%w: wallet is required for transaction_request", ErrCheckoutSessionValidation)
 		}
-		reference, err := solanaintegration.GenerateReference()
+		reference, err := solana.GenerateReference()
 		if err != nil {
 			return fmt.Errorf("failed to generate reference: %w", err)
 		}

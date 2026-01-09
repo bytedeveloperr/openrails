@@ -9,7 +9,7 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	solanaintegration "github.com/doujins-org/doujins-billing/internal/integrations/solana"
+	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/google/uuid"
 	redis "github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
@@ -25,7 +25,7 @@ type SolanaPayPoller struct {
 	db                     *db.DB
 	redis                  *redis.Client
 	cfg                    *config.Config
-	rpc                    *solanaintegration.RPCClient
+	rpc                    *solana.RPCClient
 	solanaPayService       *SolanaPayService
 	solanaTransactionSvc   *SolanaTransactionService
 	checkoutService        *CheckoutService
@@ -46,9 +46,9 @@ func NewSolanaPayPoller(
 	checkoutService *CheckoutService,
 	checkoutSessionService *CheckoutSessionService,
 ) *SolanaPayPoller {
-	var rpc *solanaintegration.RPCClient
+	var rpc *solana.RPCClient
 	if cfg.Solana != nil {
-		rpc = solanaintegration.NewRPCClient(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
+		rpc = solana.NewRPCClient(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
 	}
 
 	return &SolanaPayPoller{

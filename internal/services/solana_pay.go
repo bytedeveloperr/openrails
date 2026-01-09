@@ -10,7 +10,7 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	solanaintegration "github.com/doujins-org/doujins-billing/internal/integrations/solana"
+	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
 	redis "github.com/redis/go-redis/v9"
@@ -150,7 +150,7 @@ func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, p
 	}
 
 	// Generate reference for Solana Pay
-	reference, err := solanaintegration.GenerateReference()
+	reference, err := solana.GenerateReference()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate reference: %w", err)
 	}
