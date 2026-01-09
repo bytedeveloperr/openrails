@@ -9,9 +9,9 @@ import (
 // GenerateReference creates a new random public key and returns it as a base58 string.
 // The private key is discarded.
 func GenerateReference() (string, error) {
-	wallet := solanago.NewWallet()
-	if wallet == nil {
-		return "", fmt.Errorf("failed to generate solana wallet")
+	privateKey, err := solanago.NewRandomPrivateKey()
+	if err != nil {
+		return "", fmt.Errorf("failed to generate solana private key: %w", err)
 	}
-	return wallet.PublicKey().String(), nil
+	return privateKey.PublicKey().String(), nil
 }

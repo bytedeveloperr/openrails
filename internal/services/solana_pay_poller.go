@@ -159,6 +159,12 @@ func (p *SolanaPayPoller) checkPayment(ctx context.Context, reference string) {
 	}
 
 	// Query blockchain for transactions with this reference
+	if err := solana.ValidateAddress(reference); err != nil {
+		log.WithError(err).WithField("reference", reference).Warn("Invalid Solana reference; removing pending payment")
+		p.solanaPayService.RemovePendingPayment(ctx, reference)
+		return
+	}
+
 	limit := 10
 	sigs, err := p.rpc.GetSignaturesForAddress(ctx, reference, limit)
 	if err != nil {
