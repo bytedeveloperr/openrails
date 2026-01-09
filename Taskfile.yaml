@@ -31,8 +31,8 @@ tasks:
   dev:
     desc: Run the application in development mode with hot reload
     cmds:
-      - echo "Running in development mode..."
-      - go run ./ server
+      - echo "Running in development mode with Air..."
+      - air -c .air.toml
 
   test:
     desc: Run tests

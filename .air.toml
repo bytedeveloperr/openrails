@@ -1,0 +1,75 @@
+# Air configuration for hot-reload development
+# https://github.com/air-verse/air
+
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+cmd = "go build -buildvcs=false -o ./tmp/main.exe ."
+entrypoint = "tmp/main.exe"
+args_bin = ["run-server"]
+
+include_ext = ["go"]
+exclude_dir = [
+  ".cache",
+  ".claude",
+  ".git",
+  ".gocache",
+  ".gomodcache",
+  ".opencode",
+  ".runtime",
+  ".secrets",
+  ".task",
+  "agents",
+  "bin",
+  "cozy_client",
+  "docs",
+  "examples",
+  "frontend",
+  "migrations",
+  "scripts",
+  "static",
+  "tests",
+  "tmp",
+  "vendor",
+]
+
+# Avoid inotify watcher limits in large repos/containers.
+poll = true
+poll_interval = 1000
+
+log = "air.log"
+
+# It's not necessary to trigger build each time file changes if it's too frequent.
+delay = 1000 # ms
+
+# Stop running old binary when build errors occur.
+stop_on_error = true
+
+# Send Interrupt signal before killing process (windows does not support this feature)
+send_interrupt = false
+
+# Delay after sending Interrupt signal
+kill_delay = 500 # ms
+
+[log]
+  # Show log time
+  time = true
+  # Only show main log (silences watcher, build, runner)
+  main_only = false
+
+[color]
+  # Customize each part's color. If no color found, use the raw app log.
+  main = "magenta"
+  watcher = "cyan"
+  build = "yellow"
+  runner = "green"
+
+[misc]
+  # Delete tmp directory on exit
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = true
+  keep_scroll = true
