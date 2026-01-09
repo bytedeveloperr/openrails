@@ -41,6 +41,11 @@ func CreatePaymentMethod(r *Request) {
 	ctx, cancel := context.WithTimeout(r.Request.Context(), 10*time.Second)
 	defer cancel()
 
+	// Ensure LastFour is only the last 4 digits
+	lastFour := strings.TrimSpace(req.LastFour)
+	if len(lastFour) > 4 {
+		lastFour = lastFour[len(lastFour)-4:]
+	}
 	createReq := &services.CreateVaultRequest{
 		PaymentToken: req.PaymentToken,
 		FirstName:    req.FirstName,
@@ -54,7 +59,7 @@ func CreatePaymentMethod(r *Request) {
 		Company:      req.Company,
 		Address2:     req.Address2,
 		Provider:     req.Provider,
-		LastFour:     req.LastFour,
+		LastFour:     lastFour,
 		CardType:     req.CardType,
 		ExpiryDate:   req.ExpiryDate,
 	}
