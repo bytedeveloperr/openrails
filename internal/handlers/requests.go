@@ -185,6 +185,9 @@ type CreatePaymentMethodRequest struct {
 	Company      string `json:"company" binding:"omitempty"`
 	Address2     string `json:"address2" binding:"omitempty"`
 	Provider     string `json:"provider" binding:"omitempty"`
+	LastFour     string `json:"last_four" binding:"omitempty"`
+	CardType     string `json:"card_type" binding:"omitempty"`
+	ExpiryDate   string `json:"expiry_date" binding:"omitempty"`
 }
 
 type UpdatePaymentMethodPathParams struct {

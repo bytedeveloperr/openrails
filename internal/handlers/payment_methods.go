@@ -54,6 +54,9 @@ func CreatePaymentMethod(r *Request) {
 		Company:      req.Company,
 		Address2:     req.Address2,
 		Provider:     req.Provider,
+		LastFour:     req.LastFour,
+		CardType:     req.CardType,
+		ExpiryDate:   req.ExpiryDate,
 	}
 
 	if req.Email != "" {
