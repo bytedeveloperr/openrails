@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -185,33 +186,35 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	var (
 		workerCancel context.CancelFunc
-		workerErrCh  chan error
-		workerErr    error
+		workerDone   chan struct{}
+		workerErr    atomic.Pointer[error]
 	)
 	if startWorkers {
 		workerCtx, cancel := context.WithCancel(cmd.Context())
 		workerCancel = cancel
-		workerErrCh = make(chan error, 1)
+		workerDone = make(chan struct{})
 		go func() {
+			defer close(workerDone)
 			log.Info("Starting billing background workers")
-			workerErrCh <- embeddedApp.RunWorkers(workerCtx)
+			err := embeddedApp.RunWorkers(workerCtx)
+			errCopy := err
+			workerErr.Store(&errCopy)
+
+			switch {
+			case err == nil:
+				log.Warn("Background workers exited without error; continuing without workers")
+			case err == context.Canceled:
+				// Normal shutdown path.
+			default:
+				log.WithError(err).Error("Background workers stopped unexpectedly; continuing without workers")
+			}
 		}()
 	}
 
-	// Wait for interrupt signal or worker failure to gracefully shutdown the server
-	if workerErrCh == nil {
-		<-sigChan
-		log.Info("Shutdown signal received, shutting down server...")
-	} else {
-		select {
-		case <-sigChan:
-			log.Info("Shutdown signal received, shutting down server...")
-		case workerErr = <-workerErrCh:
-			if workerErr != nil && workerErr != context.Canceled {
-				log.WithError(workerErr).Error("Background workers stopped unexpectedly")
-			}
-		}
-	}
+	// Wait for interrupt signal to gracefully shutdown the server.
+	// If workers stop unexpectedly, keep serving HTTP (especially useful in dev/zero-config mode).
+	<-sigChan
+	log.Info("Shutdown signal received, shutting down server...")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -233,11 +236,16 @@ func runServer(cmd *cobra.Command, args []string) error {
 		log.WithError(err).Error("Application shutdown encountered issues")
 	}
 
-	if workerErrCh != nil && workerErr == nil {
-		workerErr = <-workerErrCh
+	if workerDone != nil {
+		select {
+		case <-workerDone:
+		case <-shutdownCtx.Done():
+			log.Warn("Timed out waiting for background workers to stop")
+		}
 	}
-	if workerErr != nil && workerErr != context.Canceled {
-		return workerErr
+
+	if p := workerErr.Load(); p != nil && *p != nil && *p != context.Canceled {
+		return *p
 	}
 
 	log.Info("Billing service shutdown complete")
