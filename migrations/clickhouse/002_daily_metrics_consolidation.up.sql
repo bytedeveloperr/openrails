@@ -195,11 +195,14 @@ proc_arrays AS (
     proc_dim AS (
         SELECT DISTINCT currency, processor FROM proc_join
     ),
-    proc_spine AS (
-        SELECT s.snapshot_date, d.currency, d.processor
-        FROM spine s
-        INNER JOIN proc_dim d ON s.currency = d.currency
-    ),
+	    proc_spine AS (
+	        SELECT
+	            s.snapshot_date AS snapshot_date,
+	            d.currency AS currency,
+	            d.processor AS processor
+	        FROM spine s
+	        INNER JOIN proc_dim d ON s.currency = d.currency
+	    ),
     proc_filled AS (
         SELECT
             ps.snapshot_date,
