@@ -100,7 +100,10 @@ per_sub AS (
         argMax(billing_cycle_days, timestamp) AS billing_cycle_days,
         argMax(processor, timestamp) AS processor
     FROM subscription_events
-    GROUP BY snapshot_date, currency, subscription_id
+    GROUP BY
+        toDate(timestamp),
+        if(price_currency = '', 'usd', price_currency),
+        subscription_id
 ),
 sub_status AS (
     SELECT
@@ -126,7 +129,9 @@ sub_events AS (
         countIf(event_type = 'subscription_cancelled' AND cancel_type = 'chargeback') AS cancellations_chargeback,
         countIf(event_type IN ('subscription_created','subscription_reactivated') AND status IN ('active','past_due')) AS entitlements_granted
     FROM subscription_events
-    GROUP BY snapshot_date, currency
+    GROUP BY
+        toDate(timestamp),
+        if(price_currency = '', 'usd', price_currency)
 ),
 sub_proc AS (
     SELECT
@@ -137,7 +142,10 @@ sub_proc AS (
         toInt64(countIf(event_type IN ('subscription_cancelled','subscription_expired'))) AS cancellations,
         toInt64(countIf(status = 'active')) AS active_subscriptions
     FROM subscription_events
-    GROUP BY snapshot_date, currency, processor
+    GROUP BY
+        toDate(timestamp),
+        if(price_currency = '', 'usd', price_currency),
+        processor
 ),
 pay_events AS (
     SELECT
@@ -151,7 +159,9 @@ pay_events AS (
         toInt64(countIf(event_type = 'charge_success')) AS payments_successful,
         toInt64(countIf(event_type = 'charge_failure')) AS payments_failed
     FROM payment_events
-    GROUP BY snapshot_date, currency
+    GROUP BY
+        toDate(timestamp),
+        if(currency = '', 'usd', currency)
 ),
 pay_proc AS (
     SELECT
@@ -166,7 +176,10 @@ pay_proc AS (
         toInt64(countIf(event_type = 'charge_success')) AS payments_successful,
         toInt64(countIf(event_type = 'charge_failure')) AS payments_failed
     FROM payment_events
-    GROUP BY snapshot_date, currency, processor
+    GROUP BY
+        toDate(timestamp),
+        if(currency = '', 'usd', currency),
+        processor
 ),
 proc_join AS (
     SELECT
