@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -54,8 +55,8 @@ type Runtime struct {
 	CreditsService           *services.CreditsService
 	ProcessorCustomerService *services.ProcessorCustomerService
 
-	SolanaPayService     *services.SolanaPayService
-	SolanaPayPoller      *services.SolanaPayPoller
+	SolanaPayService *services.SolanaPayService
+	SolanaPayPoller  *services.SolanaPayPoller
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 	WebhookDispatcher            *services.WebhookDispatcher
@@ -84,7 +85,11 @@ func (r *Runtime) Close(ctx context.Context) error {
 	if r.RiverClient != nil && r.riverStarted {
 		log.Info("Stopping River background workers...")
 		if err := r.RiverClient.Stop(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to stop River client: %w", err))
+			// During shutdown, Stop can surface context cancellation if the passed ctx is cancelled.
+			// Treat this as an expected shutdown condition.
+			if !errors.Is(err, context.Canceled) {
+				errs = append(errs, fmt.Errorf("failed to stop River client: %w", err))
+			}
 		}
 		r.riverStarted = false
 	}
@@ -108,7 +113,10 @@ func (r *Runtime) Close(ctx context.Context) error {
 	}
 	if r.RedisClient != nil {
 		if err := r.RedisClient.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to close Redis client: %w", err))
+			// Make shutdown idempotent: Close can be called multiple times across layers.
+			if !errors.Is(err, redis.ErrClosed) {
+				errs = append(errs, fmt.Errorf("failed to close Redis client: %w", err))
+			}
 		}
 	}
 	if len(errs) == 0 {

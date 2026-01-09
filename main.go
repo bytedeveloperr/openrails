@@ -185,13 +185,11 @@ func runServer(cmd *cobra.Command, args []string) error {
 	}
 
 	var (
-		workerCancel context.CancelFunc
-		workerDone   chan struct{}
-		workerErr    atomic.Pointer[error]
+		workerDone chan struct{}
+		workerErr  atomic.Pointer[error]
 	)
 	if startWorkers {
-		workerCtx, cancel := context.WithCancel(cmd.Context())
-		workerCancel = cancel
+		workerCtx := cmd.Context()
 		workerDone = make(chan struct{})
 		go func() {
 			defer close(workerDone)
@@ -219,10 +217,6 @@ func runServer(cmd *cobra.Command, args []string) error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
-	if workerCancel != nil {
-		workerCancel()
-	}
-
 	if err := publicSrv.Shutdown(shutdownCtx); err != nil {
 		log.WithError(err).Error("Public server forced to shutdown")
 	}
@@ -235,6 +229,10 @@ func runServer(cmd *cobra.Command, args []string) error {
 	if err := embeddedApp.Close(shutdownCtx); err != nil {
 		log.WithError(err).Error("Application shutdown encountered issues")
 	}
+
+	// Note: we intentionally do NOT cancel the worker context during shutdown.
+	// `embeddedApp.Close()` stops workers via River's Stop() and avoids generating
+	// noisy "context canceled" errors during normal shutdown.
 
 	if workerDone != nil {
 		select {
