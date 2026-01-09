@@ -26,7 +26,7 @@ func CreateCheckoutSession(r *Request) {
 		return
 	}
 
-	req.IdempotencyKey = r.GinCtx.GetHeader("Idempotency-Key")
+	req.IdempotencyKey = r.GinCtx.GetHeader("X-Idempotency-Key")
 	svcReq := &services.CheckoutSessionCreateRequest{
 		PriceID:        req.PriceID,
 		Mode:           req.Mode,
