@@ -7,7 +7,7 @@ require (
 	github.com/PaulFidika/authkit v0.2.2
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/doujins-org/ginapi v0.1.0
-	github.com/doujins-org/migratekit v0.7.10
+	github.com/doujins-org/migratekit v0.7.11
 	github.com/doujins-org/solana-go v1.13.0
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.11.0
