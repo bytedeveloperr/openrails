@@ -301,17 +301,24 @@ func createRedisClient(cfg *config.Config) (*redis.Client, error) {
 }
 
 func createCCBillClient(cfg *config.Config) *ccbill.CCBillClient {
-	if cfg.CCBill != nil {
-		if cfg.CCBill.TestMode {
-			log.Warn("⚠️  CCBill TEST MODE is ENABLED - no real charges will be processed")
-		} else {
-			log.Warn("🔴 CCBill TEST MODE is DISABLED - REAL CHARGES WILL BE PROCESSED!")
-		}
+	if cfg.CCBill == nil {
+		log.Info("CCBill config missing; CCBill integration disabled")
+		return nil
 	}
+
+	if cfg.CCBill.TestMode {
+		log.Warn("⚠️  CCBill TEST MODE is ENABLED - no real charges will be processed")
+	} else {
+		log.Warn("🔴 CCBill TEST MODE is DISABLED - REAL CHARGES WILL BE PROCESSED!")
+	}
+
 	return ccbill.NewClient(cfg.CCBill, cfg.Env == config.EnvProd)
 }
 
 func createCCBillRESTClient(cfg *config.Config) *ccbill.RESTClient {
+	if cfg.CCBill == nil {
+		return nil
+	}
 	return ccbill.NewRESTClient(cfg.CCBill)
 }
 

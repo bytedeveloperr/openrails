@@ -49,6 +49,9 @@ const (
 )
 
 func NewClient(cfg *config.CCBillConfig, isProd bool) *CCBillClient {
+	if cfg == nil {
+		return nil
+	}
 	baseURL := sandboxFlexFormBase
 	if !cfg.TestMode && isProd {
 		baseURL = prodFlexFormBase
