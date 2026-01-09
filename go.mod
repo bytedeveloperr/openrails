@@ -7,13 +7,12 @@ require (
 	github.com/PaulFidika/authkit v0.2.2
 	github.com/btcsuite/btcutil v1.0.2
 	github.com/doujins-org/ginapi v0.1.0
-	github.com/doujins-org/migratekit v0.7.8
+	github.com/doujins-org/migratekit v0.7.10
 	github.com/doujins-org/solana-go v1.13.0
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.0
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgconn v1.14.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/jonboulle/clockwork v0.5.0
 	github.com/knadh/koanf/parsers/yaml v1.1.0
@@ -39,9 +38,6 @@ require (
 	github.com/gorilla/schema v1.2.0 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
-	github.com/jackc/chunkreader/v2 v2.0.1 // indirect
-	github.com/jackc/pgio v1.0.0 // indirect
-	github.com/jackc/pgproto3/v2 v2.3.3 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/quic-go/qpack v0.5.1 // indirect
 	github.com/quic-go/quic-go v0.54.0 // indirect
