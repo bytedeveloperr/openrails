@@ -2,16 +2,15 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/btcsuite/btcutil/base58"
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	solanaintegration "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
 	redis "github.com/redis/go-redis/v9"
@@ -61,7 +60,6 @@ type SolanaPayService struct {
 	priceService    *PriceService
 	productService  *ProductService
 	checkoutService *CheckoutService
-	rpc             *SolanaRPCService
 }
 
 // NewSolanaPayService creates a new SolanaPayService
@@ -73,10 +71,6 @@ func NewSolanaPayService(
 	productService *ProductService,
 	checkoutService *CheckoutService,
 ) *SolanaPayService {
-	var rpc *SolanaRPCService
-	if cfg != nil && cfg.Solana != nil {
-		rpc = NewSolanaRPCService(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
-	}
 	return &SolanaPayService{
 		db:              db,
 		redis:           redis,
@@ -84,7 +78,6 @@ func NewSolanaPayService(
 		priceService:    priceService,
 		productService:  productService,
 		checkoutService: checkoutService,
-		rpc:             rpc,
 	}
 }
 
@@ -156,8 +149,8 @@ func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, p
 		return nil, fmt.Errorf("failed to calculate token quote: %w", err)
 	}
 
-	// Generate reference (32 bytes, base58 encoded per Solana Pay spec)
-	reference, err := generateReference()
+	// Generate reference for Solana Pay
+	reference, err := solanaintegration.GenerateReference()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate reference: %w", err)
 	}
@@ -382,15 +375,6 @@ func (s *SolanaPayService) getPaymentByReference(ctx context.Context, reference 
 	}
 
 	return &payment, nil
-}
-
-// generateReference generates a 32-byte random reference, base58 encoded
-func generateReference() (string, error) {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("failed to generate random bytes: %w", err)
-	}
-	return base58.Encode(buf), nil
 }
 
 // formatTokenAmount formats a token amount with the appropriate decimal places

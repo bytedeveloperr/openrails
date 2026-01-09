@@ -20,6 +20,7 @@ import (
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	solanaintegration "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	clickhousemigrations "github.com/doujins-org/doujins-billing/migrations/clickhouse"
@@ -386,9 +387,9 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	// We'll create solanaPayService with nil checkoutService and set it after checkoutService is created
 	solanaPayService := services.NewSolanaPayService(database, redisClient, cfg, priceService, productService, nil)
 	solanaPayService.Clock = clock
-	var solanaRPC *services.SolanaRPCService
+	var solanaRPC *solanaintegration.RPCClient
 	if cfg != nil && cfg.Solana != nil {
-		solanaRPC = services.NewSolanaRPCService(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
+		solanaRPC = solanaintegration.NewRPCClient(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
 	}
 	solanaTransactionService := services.NewSolanaTransactionService(database, solanaRPC, cfg, priceService, purchaseService)
 	solanaTransactionService.Clock = clock

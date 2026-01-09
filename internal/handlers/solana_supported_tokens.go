@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/services"
+	jupiter "github.com/doujins-org/doujins-billing/internal/integrations/jupiter"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -45,7 +45,7 @@ func GetSupportedTokens(r *Request) {
 	ctx, cancel := context.WithTimeout(r.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	prices, err := services.FetchJupiterPrices(ctx, mainnetMints)
+	prices, err := jupiter.FetchJupiterPrices(ctx, mainnetMints)
 	if err != nil {
 		log.WithError(err).Warn("Failed to fetch Solana token prices from Jupiter")
 		prices = map[string]float64{}
