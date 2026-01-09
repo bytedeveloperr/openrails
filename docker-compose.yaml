@@ -299,8 +299,6 @@ services:
       start_period: 40s
     volumes:
       - billing_spool:/var/lib/doujins-billing/spool
-    networks:
-      - local-doujins
 
 volumes:
   postgres_data:

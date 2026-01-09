@@ -149,8 +149,8 @@ sub_proc AS (
 ),
 pay_events AS (
     SELECT
-        toDate(timestamp) AS snapshot_date,
-        if(currency = '', 'usd', currency) AS currency,
+        snapshot_date,
+        currency,
         toInt64(sumIf(amount * 100, event_type = 'charge_success' AND subscription_id IS NOT NULL)) AS subscription_revenue_cents,
         toInt64(sumIf(amount * 100, event_type = 'charge_success' AND subscription_id IS NULL)) AS one_time_revenue_cents,
         toInt64(sumIf(abs(amount) * 100, event_type = 'refund')) AS refunds_cents,
@@ -158,15 +158,21 @@ pay_events AS (
         toInt64(sumIf(amount * 100, event_type = 'charge_success')) AS total_revenue_cents,
         toInt64(countIf(event_type = 'charge_success')) AS payments_successful,
         toInt64(countIf(event_type = 'charge_failure')) AS payments_failed
-    FROM payment_events
-    GROUP BY
-        toDate(timestamp),
-        if(currency = '', 'usd', currency)
+    FROM (
+        SELECT
+            toDate(timestamp) AS snapshot_date,
+            if(currency = '', 'usd', currency) AS currency,
+            amount,
+            event_type,
+            subscription_id
+        FROM payment_events
+    )
+    GROUP BY snapshot_date, currency
 ),
 pay_proc AS (
     SELECT
-        toDate(timestamp) AS snapshot_date,
-        if(currency = '', 'usd', currency) AS currency,
+        snapshot_date,
+        currency,
         processor,
         toInt64(sumIf(amount * 100, event_type = 'charge_success')) AS revenue_total_cents,
         toInt64(sumIf(amount * 100, event_type = 'charge_success' AND subscription_id IS NOT NULL)) AS revenue_subscription_cents,
@@ -175,11 +181,17 @@ pay_proc AS (
         toInt64(sumIf(abs(amount) * 100, event_type = 'chargeback')) AS revenue_chargebacks_cents,
         toInt64(countIf(event_type = 'charge_success')) AS payments_successful,
         toInt64(countIf(event_type = 'charge_failure')) AS payments_failed
-    FROM payment_events
-    GROUP BY
-        toDate(timestamp),
-        if(currency = '', 'usd', currency),
-        processor
+    FROM (
+        SELECT
+            toDate(timestamp) AS snapshot_date,
+            if(currency = '', 'usd', currency) AS currency,
+            processor,
+            amount,
+            event_type,
+            subscription_id
+        FROM payment_events
+    )
+    GROUP BY snapshot_date, currency, processor
 ),
 proc_join AS (
     SELECT
@@ -274,8 +286,8 @@ GROUP BY snapshot_date, currency
 -- Merge daily aggregates per currency
 daily AS (
     SELECT
-        s.snapshot_date,
-        s.currency,
+        s.snapshot_date AS snapshot_date,
+        s.currency AS currency,
         coalesce(pe.subscription_revenue_cents, 0) AS subscription_revenue_cents,
         coalesce(pe.one_time_revenue_cents, 0) AS one_time_revenue_cents,
         coalesce(pe.refunds_cents, 0) AS refunds_cents,
@@ -283,16 +295,18 @@ daily AS (
     coalesce(pe.total_revenue_cents, 0) AS total_revenue_cents,
     coalesce(pe.payments_successful, 0) AS payments_successful,
     coalesce(pe.payments_failed, 0) AS payments_failed,
-    coalesce(se.new_subscriptions, 0) AS new_subscriptions,
-    coalesce(se.reactivations, 0) AS reactivations,
-    coalesce(se.cancellations_user, 0) AS cancellations_user,
-    coalesce(se.cancellations_merchant, 0) AS cancellations_merchant,
-    coalesce(se.cancellations_expired, 0) AS cancellations_expired,
-    coalesce(se.cancellations_chargeback, 0) AS cancellations_chargeback,
-    ss.active_count_end AS active_count_end,
-    ss.past_due_count_end AS past_due_count_end,
-    ss.pending_count_end AS pending_count_end,
-    ss.mrr_cents AS mrr_cents,
+	    coalesce(se.new_subscriptions, 0) AS new_subscriptions,
+	    coalesce(se.scheduled_starts, 0) AS scheduled_starts,
+	    coalesce(se.reactivations, 0) AS reactivations,
+	    coalesce(se.cancellations_user, 0) AS cancellations_user,
+	    coalesce(se.cancellations_merchant, 0) AS cancellations_merchant,
+	    coalesce(se.cancellations_expired, 0) AS cancellations_expired,
+	    coalesce(se.cancellations_chargeback, 0) AS cancellations_chargeback,
+	    coalesce(se.entitlements_granted, 0) AS entitlements_granted,
+	    ss.active_count_end AS active_count_end,
+	    ss.past_due_count_end AS past_due_count_end,
+	    ss.pending_count_end AS pending_count_end,
+	    ss.mrr_cents AS mrr_cents,
         arrayMap(x -> x.1, pa.proc_sorted) AS proc_name,
         arrayMap(x -> x.2, pa.proc_sorted) AS proc_active,
         arrayMap(x -> x.3, pa.proc_sorted) AS proc_new,
@@ -321,33 +335,33 @@ SELECT
     total_revenue_cents - refunds_cents - chargebacks_cents AS total_revenue_net_cents,
     payments_successful,
     payments_failed,
-    if(payments_successful = 0, 0, toInt64((total_revenue_cents - refunds_cents - chargebacks_cents) / payments_successful)) AS avg_payment_amount_cents,
-    new_subscriptions,
-    coalesce(se.scheduled_starts, 0) AS scheduled_starts,
-    cancellations_user,
-    cancellations_merchant,
-    cancellations_expired,
-    cancellations_chargeback,
-    reactivations,
+	    if(payments_successful = 0, 0, toInt64((total_revenue_cents - refunds_cents - chargebacks_cents) / payments_successful)) AS avg_payment_amount_cents,
+	    new_subscriptions,
+	    scheduled_starts,
+	    cancellations_user,
+	    cancellations_merchant,
+	    cancellations_expired,
+	    cancellations_chargeback,
+	    reactivations,
     -- carry-forward status counts and MRR
     coalesce(last_value(active_count_end) IGNORE NULLS OVER w, 0) AS active_count_end,
     coalesce(last_value(past_due_count_end) IGNORE NULLS OVER w, 0) AS past_due_count_end,
-    coalesce(last_value(pending_count_end) IGNORE NULLS OVER w, 0) AS pending_count_end,
-    coalesce(last_value(mrr_cents) IGNORE NULLS OVER w, 0) AS mrr_cents,
-    coalesce(se.entitlements_granted, 0) AS entitlements_granted,
-    -- processor nested arrays aligned (actives carried in proc_carried, flows remain per-day)
-    proc_name,
-    proc_active,
-    proc_new,
-    proc_cancel,
-    proc_rev_total,
-    proc_rev_sub,
-    proc_rev_one_time,
-    proc_refunds,
-    proc_chargebacks,
-    proc_pay_success,
-    proc_pay_failed,
-    now('UTC') AS created_at,
-    now('UTC') AS version
-FROM daily
-WINDOW w AS (PARTITION BY currency ORDER BY snapshot_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW);
+	    coalesce(last_value(pending_count_end) IGNORE NULLS OVER w, 0) AS pending_count_end,
+	    coalesce(last_value(mrr_cents) IGNORE NULLS OVER w, 0) AS mrr_cents,
+	    entitlements_granted,
+	    -- processor nested arrays aligned (actives carried in proc_carried, flows remain per-day)
+	    proc_name AS `processor.name`,
+	    proc_active AS `processor.active_subscriptions`,
+	    proc_new AS `processor.new_subscriptions`,
+	    proc_cancel AS `processor.cancellations`,
+	    proc_rev_total AS `processor.revenue_total_cents`,
+	    proc_rev_sub AS `processor.revenue_subscription_cents`,
+	    proc_rev_one_time AS `processor.revenue_one_time_cents`,
+	    proc_refunds AS `processor.revenue_refunds_cents`,
+	    proc_chargebacks AS `processor.revenue_chargebacks_cents`,
+	    proc_pay_success AS `processor.payments_successful`,
+	    proc_pay_failed AS `processor.payments_failed`,
+	    now('UTC') AS created_at,
+	    now('UTC') AS version
+	FROM daily
+	WINDOW w AS (PARTITION BY currency ORDER BY snapshot_date ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW);
