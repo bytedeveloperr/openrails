@@ -37,6 +37,12 @@ components:
           type: string
         active:
           type: boolean
+        livemode:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
         created:
           type: integer
           format: int64
@@ -64,15 +70,99 @@ components:
         currency:
           type: string
           example: usd
+        type:
+          type: string
+          enum: [one_time, recurring]
         recurring:
           $ref: '#/components/schemas/RecurringInfo'
         product:
           type: string
         active:
           type: boolean
+        livemode:
+          type: boolean
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
         created:
           type: integer
           format: int64
+    CreditsSpec:
+      type: object
+      properties:
+        promo_amount_cents:
+          type: integer
+        promo_expires_days:
+          type: integer
+        grant_on:
+          type: string
+    ProductRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        slug:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        entitlements_spec:
+          type: object
+          additionalProperties:
+            type: integer
+            nullable: true
+        credits_spec:
+          $ref: '#/components/schemas/CreditsSpec'
+        tier_group:
+          type: string
+          nullable: true
+        tier_rank:
+          type: integer
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        prices:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceRecord'
+    PriceRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        product_id:
+          type: string
+        display_name:
+          type: string
+        is_active:
+          type: boolean
+        amount:
+          type: integer
+        currency:
+          type: string
+        billing_cycle_days:
+          type: integer
+          nullable: true
+        processors:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     RecurringInfo:
       type: object
       properties:
@@ -148,14 +238,19 @@ components:
           type: string
         source_type:
           type: string
+          nullable: true
         source_id:
           type: string
+          nullable: true
         subscription_id:
           type: string
+          nullable: true
         processor:
           type: string
+          nullable: true
         processor_subscription_id:
           type: string
+          nullable: true
         start_at:
           type: string
           format: date-time
@@ -163,48 +258,108 @@ components:
           type: string
           format: date-time
           nullable: true
-    UserSubscription:
+    SubscriptionRecord:
       type: object
       properties:
         id:
           type: string
+        user_id:
+          type: string
+        product_id:
+          type: string
+        price_id:
+          type: string
+        scheduled_price_id:
+          type: string
+          nullable: true
         status:
           type: string
+          enum: [pending, active, past_due, cancelled]
+        started_at:
+          type: string
+          format: date-time
+        ended_at:
+          type: string
+          format: date-time
+          nullable: true
+        current_period_starts_at:
+          type: string
+          format: date-time
+          nullable: true
+        current_period_ends_at:
+          type: string
+          format: date-time
+          nullable: true
         processor:
           type: string
         processor_subscription_id:
           type: string
-        price_id:
+        user_email:
           type: string
-        current_period_starts_at:
+          nullable: true
+        payment_method_id:
+          type: string
+          nullable: true
+        last_retry_at:
           type: string
           format: date-time
-        current_period_ends_at:
+          nullable: true
+        retry_attempts:
+          type: integer
+          nullable: true
+        next_retry_at:
           type: string
           format: date-time
+          nullable: true
+        cancel_feedback:
+          type: string
+          nullable: true
+        cancel_type:
+          type: string
+          nullable: true
         canceled_at:
           type: string
           format: date-time
           nullable: true
-        product:
-          $ref: '#/components/schemas/Product'
-        price:
-          $ref: '#/components/schemas/Price'
-        access:
-          $ref: '#/components/schemas/UserAccessGrant'
-    Payment:
+        gateway_response:
+          type: object
+          additionalProperties: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        payment_method:
+          $ref: '#/components/schemas/PaymentMethod'
+    UserSubscription:
+      allOf:
+        - $ref: '#/components/schemas/SubscriptionRecord'
+        - type: object
+          properties:
+            product:
+              $ref: '#/components/schemas/ProductRecord'
+            price:
+              $ref: '#/components/schemas/PriceRecord'
+            access:
+              $ref: '#/components/schemas/UserAccessGrant'
+    PaymentObject:
       type: object
       properties:
         id:
           type: string
         object:
           type: string
-          example: payment
+          example: charge
+        status:
+          type: string
         amount:
           type: integer
         amount_refunded:
           type: integer
         currency:
+          type: string
+        user:
           type: string
         processor:
           type: string
@@ -213,35 +368,159 @@ components:
         subscription:
           type: string
           nullable: true
+        payment_method:
+          type: string
+          nullable: true
         refunded:
           type: boolean
+        captured:
+          type: boolean
+        failure_code:
+          type: string
+          nullable: true
+        failure_message:
+          type: string
+          nullable: true
+        refunds:
+          $ref: '#/components/schemas/PaymentRefundsList'
         created:
           type: integer
           format: int64
+        price:
+          $ref: '#/components/schemas/Price'
+    PaymentRefundsList:
+      type: object
+      properties:
+        object:
+          type: string
+          example: list
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentObject'
+    PaymentRecord:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        price_id:
+          type: string
+        subscription_id:
+          type: string
+          nullable: true
+        refunded_payment_id:
+          type: string
+          nullable: true
+        processor:
+          type: string
+        transaction_id:
+          type: string
+        amount:
+          type: integer
+        currency:
+          type: string
+        purchased_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        price:
+          $ref: '#/components/schemas/PriceRecord'
+        subscription:
+          $ref: '#/components/schemas/SubscriptionRecord'
     PaymentMethod:
       type: object
       properties:
         id:
           type: string
+        object:
+          type: string
+          example: payment_method
+        type:
+          type: string
+          example: card
         processor:
           type: string
-        brand:
+        customer:
           type: string
-        last_four:
-          type: string
-        exp_month:
-          type: integer
-        exp_year:
-          type: integer
+          nullable: true
+        billing_details:
+          $ref: '#/components/schemas/PaymentMethodBillingDetails'
+        card:
+          $ref: '#/components/schemas/PaymentMethodCardDetails'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        livemode:
+          type: boolean
         is_active:
           type: boolean
-        created_at:
+        created:
+          type: integer
+          format: int64
+        failure_reason:
           type: string
-          format: date-time
+          nullable: true
+    PaymentMethodBillingDetails:
+      type: object
+      properties:
+        name:
+          type: string
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        address:
+          $ref: '#/components/schemas/PaymentMethodAddress'
+    PaymentMethodAddress:
+      type: object
+      properties:
+        line1:
+          type: string
+          nullable: true
+        line2:
+          type: string
+          nullable: true
+        city:
+          type: string
+          nullable: true
+        state:
+          type: string
+          nullable: true
+        postal_code:
+          type: string
+          nullable: true
+        country:
+          type: string
+          nullable: true
+    PaymentMethodCardDetails:
+      type: object
+      properties:
+        brand:
+          type: string
+          nullable: true
+        last4:
+          type: string
+          nullable: true
+        exp_month:
+          type: integer
+          nullable: true
+        exp_year:
+          type: integer
+          nullable: true
     Notification:
       type: object
       properties:
         id:
+          type: string
+        user_id:
           type: string
         event_type:
           type: string
@@ -256,6 +535,10 @@ components:
     Entitlement:
       type: object
       properties:
+        id:
+          type: string
+        user_id:
+          type: string
         entitlement:
           type: string
         start_at:
@@ -269,54 +552,399 @@ components:
           type: string
         source_id:
           type: string
-    CheckoutRequest:
+        revoked_at:
+          type: string
+          format: date-time
+          nullable: true
+        revoke_reason:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ServiceEntitlementRecord:
       type: object
-      required: [price_id, processor]
       properties:
-        price_id:
+        id:
           type: string
-        processor:
+        user_id:
           type: string
-          enum: [mobius, ccbill, solana]
-        payment_method_id:
+        entitlement:
           type: string
-        payment_token:
+        start_at:
           type: string
-        email:
+          format: date-time
+        end_at:
           type: string
-          format: email
-        first_name:
+          format: date-time
+          nullable: true
+        source_id:
           type: string
-        last_name:
+          nullable: true
+        source_type:
           type: string
-        address1:
+        revoked_at:
           type: string
-        city:
+          format: date-time
+          nullable: true
+        revoke_reason:
           type: string
-        state:
+          nullable: true
+        created_at:
           type: string
-        zip:
+          format: date-time
+        updated_at:
           type: string
-        country:
+          format: date-time
+    CreditBalance:
+      type: object
+      properties:
+        type:
           type: string
-    CheckoutResponse:
+        display_name:
+          type: string
+        unit:
+          type: string
+        decimal_places:
+          type: integer
+        balance:
+          type: integer
+        held_balance:
+          type: integer
+        permanent_balance:
+          type: integer
+        expiring_balance:
+          type: integer
+        earliest_expiry:
+          type: integer
+          format: int64
+          nullable: true
+    ServiceCreditBalance:
+      type: object
+      properties:
+        type:
+          type: string
+        balance:
+          type: integer
+        held_balance:
+          type: integer
+        permanent_balance:
+          type: integer
+        expiring_balance:
+          type: integer
+    CreditTransaction:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        credit_type_id:
+          type: string
+        amount:
+          type: integer
+        balance_after:
+          type: integer
+        transaction_type:
+          type: string
+        source:
+          type: string
+        source_id:
+          type: string
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    CreditHold:
+      type: object
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        credit_type_id:
+          type: string
+        amount:
+          type: integer
+        source:
+          type: string
+        source_id:
+          type: string
+        status:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        captured_amount:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreditWithdrawRequest:
+      type: object
+      required: [user_id, credit_type, amount, source]
+      properties:
+        user_id:
+          type: string
+        credit_type:
+          type: string
+        amount:
+          type: integer
+        source:
+          type: string
+        source_id:
+          type: string
+          nullable: true
+    CreditHoldRequest:
+      type: object
+      required: [user_id, credit_type, amount, source, source_id, expires_at]
+      properties:
+        user_id:
+          type: string
+        credit_type:
+          type: string
+        amount:
+          type: integer
+        source:
+          type: string
+        source_id:
+          type: string
+        expires_at:
+          type: integer
+          format: int64
+    CreditCaptureRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: integer
+    PortalResponse:
+      type: object
+      properties:
+        redirect_url:
+          type: string
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+    QueuedResponse:
       type: object
       properties:
         status:
+          type: string
+          example: queued
+    PaymentMethodActionResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+    UpdateSubscriptionPaymentMethodResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        subscription_id:
+          type: string
+        payment_method_id:
+          type: string
+    CancelSubscriptionExternalResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        support_url:
+          type: string
+        code:
+          type: string
+    OkResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+    ExtendSubscriptionRequest:
+      type: object
+      required: [subscription_id, duration]
+      properties:
+        subscription_id:
+          type: string
+        duration:
+          type: string
+          example: 72h
+    AdminCancelSubscriptionRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+    RefundRequest:
+      type: object
+      required: [amount, refund_transaction_id]
+      properties:
+        amount:
+          type: integer
+        refund_transaction_id:
+          type: string
+    ChangeSubscriptionRequest:
+      type: object
+      required: [price_id]
+      properties:
+        price_id:
+          type: string
+    ChangeSubscriptionResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        action:
           type: string
         message:
           type: string
         subscription_id:
           type: string
-        payment_id:
+          nullable: true
+    GrantEntitlementRequest:
+      type: object
+      required: [entitlement]
+      properties:
+        entitlement:
+          type: string
+        days:
+          type: integer
+          nullable: true
+    AdminGrantRequest:
+      type: object
+      required: [price_id, reason]
+      properties:
+        price_id:
+          type: string
+        reason:
+          type: string
+        duration_days:
+          type: integer
+          nullable: true
+        amount:
+          type: integer
+        currency:
           type: string
         transaction_id:
           type: string
-        redirect_url:
+    AdminGrantResponse:
+      type: object
+      properties:
+        object:
           type: string
-        delayed_start:
+        admin_grant_id:
           type: string
-          format: date-time
+        payment_id:
+          type: string
+          nullable: true
+        entitlements_granted:
+          type: array
+          items:
+            type: string
+    AdminGrantItem:
+      type: object
+      properties:
+        object:
+          type: string
+        id:
+          type: string
+        user_id:
+          type: string
+        price_id:
+          type: string
+        granted_by:
+          type: string
+        reason:
+          type: string
+        duration_days:
+          type: integer
+          nullable: true
+        created_at:
+          type: integer
+          format: int64
+        payment_id:
+          type: string
+          nullable: true
+    AdminGrantDetail:
+      type: object
+      properties:
+        object:
+          type: string
+        id:
+          type: string
+        user_id:
+          type: string
+        price_id:
+          type: string
+        granted_by:
+          type: string
+        reason:
+          type: string
+        duration_days:
+          type: integer
+          nullable: true
+        created_at:
+          type: integer
+          format: int64
+        payment_id:
+          type: string
+          nullable: true
+        price:
+          type: object
+          properties:
+            id:
+              type: string
+            display_name:
+              type: string
+            product_id:
+              type: string
+    AdminUserBillingProfile:
+      type: object
+      properties:
+        user_id:
+          type: string
+        subscription:
+          $ref: '#/components/schemas/SubscriptionRecord'
+        entitlements:
+          type: array
+          items:
+            $ref: '#/components/schemas/Entitlement'
+        payments:
+          type: array
+          items:
+            $ref: '#/components/schemas/PaymentRecord'
+    AdminSubscription:
+      allOf:
+        - $ref: '#/components/schemas/SubscriptionRecord'
+        - type: object
+          properties:
+            product:
+              $ref: '#/components/schemas/ProductRecord'
+            price:
+              $ref: '#/components/schemas/PriceRecord'
+            payments:
+              type: array
+              items:
+                $ref: '#/components/schemas/PaymentRecord'
     CheckoutSessionPaymentRequest:
       type: object
       required: [processor]
@@ -389,7 +1017,7 @@ components:
       properties:
         payment:
           type: object
-          required: [processor]
+          required: [processor, signature]
           properties:
             processor:
               type: string
@@ -518,42 +1146,6 @@ components:
         address2:
           type: string
         provider:
-          type: string
-    SolanaPayRequest:
-      type: object
-      required: [price_id, token]
-      properties:
-        price_id:
-          type: string
-        token:
-          type: string
-    SolanaPayResponse:
-      type: object
-      properties:
-        url:
-          type: string
-        reference:
-          type: string
-        amount:
-          type: integer
-        currency:
-          type: string
-        token_amount:
-          type: string
-        token:
-          type: string
-        expires_at:
-          type: integer
-          format: int64
-    SolanaPayStatusResponse:
-      type: object
-      properties:
-        status:
-          type: string
-          enum: [pending, confirmed, expired]
-        payment_id:
-          type: string
-        signature:
           type: string
     NotificationReadResponse:
       type: object
@@ -928,20 +1520,23 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    symbol:
-                      type: string
-                    name:
-                      type: string
-                    mint:
-                      type: string
-                    decimals:
-                      type: integer
-                    enabled:
-                      type: boolean
+                type: object
+                properties:
+                  tokens:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        symbol:
+                          type: string
+                        name:
+                          type: string
+                        mint:
+                          type: string
+                        decimals:
+                          type: integer
+                        price:
+                          type: number
   /v1/webhooks/{provider}:
     post:
       summary: Processor webhook receiver
@@ -951,7 +1546,7 @@ paths:
           required: true
           schema:
             type: string
-            enum: [ccbill, mobius, solana]
+            enum: [ccbill, mobius, stripe]
       responses:
         '200':
           description: Webhook accepted
@@ -961,50 +1556,6 @@ paths:
           description: Signature missing/invalid
         '403':
           description: Source not authorised
-  /v1/solana/pay:
-    post:
-      summary: Create Solana Pay transfer request
-      security:
-        - BearerAuth: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SolanaPayRequest'
-      responses:
-        '200':
-          description: Transfer request created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SolanaPayResponse'
-        '400':
-          description: Invalid request
-        '401':
-          description: Authentication required
-  /v1/solana/pay/{reference}:
-    get:
-      summary: Get Solana Pay status by reference
-      security:
-        - BearerAuth: []
-      parameters:
-        - in: path
-          name: reference
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Status payload
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SolanaPayStatusResponse'
-        '400':
-          description: Missing reference
-        '401':
-          description: Authentication required
   /v1/me/status:
     get:
       summary: Current premium status
@@ -1036,6 +1587,12 @@ paths:
       summary: Create checkout session
       security:
         - BearerAuth: []
+      parameters:
+        - in: header
+          name: X-Idempotency-Key
+          required: false
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -1053,6 +1610,8 @@ paths:
           description: Validation failure
         '401':
           description: Authentication required
+        '409':
+          description: Checkout session conflict or pending
   /v1/checkout/{id}:
     get:
       summary: Retrieve checkout session
@@ -1071,8 +1630,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CheckoutSessionResponse'
+        '400':
+          description: Invalid checkout session id
         '401':
           description: Authentication required
+        '403':
+          description: Access denied
         '404':
           description: Checkout session not found
   /v1/checkout/{id}/confirm:
@@ -1103,8 +1666,14 @@ paths:
           description: Validation failure
         '401':
           description: Authentication required
+        '403':
+          description: Access denied
         '404':
           description: Checkout session not found
+        '409':
+          description: Checkout session conflict
+        '410':
+          description: Checkout session expired
   /v1/me/subscriptions:
     get:
       summary: Subscription history
@@ -1131,16 +1700,23 @@ paths:
               schema:
                 type: object
                 properties:
+                  object:
+                    type: string
+                    example: list
                   data:
                     type: array
                     items:
-                      $ref: '#/components/schemas/SubscriptionSummary'
-                  total_items:
+                      $ref: '#/components/schemas/UserSubscription'
+                  total:
                     type: integer
                   limit:
                     type: integer
                   offset:
                     type: integer
+                  has_more:
+                    type: boolean
+                  url:
+                    type: string
         '401':
           description: Authentication required
   /v1/me/subscriptions/payment-method:
@@ -1157,6 +1733,10 @@ paths:
       responses:
         '200':
           description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateSubscriptionPaymentMethodResponse'
         '400':
           description: Validation error
         '401':
@@ -1173,12 +1753,64 @@ paths:
             schema:
               $ref: '#/components/schemas/CancelSubscriptionRequest'
       responses:
-        '200':
-          description: Cancelled
+        '202':
+          description: Cancellation queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueuedResponse'
         '401':
           description: Authentication required
         '422':
           description: Requires external cancellation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelSubscriptionExternalResponse'
+  /v1/me/subscriptions/resume:
+    post:
+      summary: Resume a cancelled Stripe subscription
+      security:
+        - BearerAuth: []
+      responses:
+        '202':
+          description: Resume queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueuedResponse'
+        '400':
+          description: Resume not supported
+        '401':
+          description: Authentication required
+        '404':
+          description: No resumable subscription found
+  /v1/me/subscriptions/change:
+    post:
+      summary: Change Stripe subscription plan
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeSubscriptionRequest'
+      responses:
+        '200':
+          description: Plan updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeSubscriptionResponse'
+        '400':
+          description: Validation failure
+        '401':
+          description: Authentication required
+        '404':
+          description: Subscription or price not found
+        '409':
+          description: Plan conflict
   /v1/me/payments:
     get:
       summary: List user payments
@@ -1205,16 +1837,23 @@ paths:
               schema:
                 type: object
                 properties:
+                  object:
+                    type: string
+                    example: list
                   data:
                     type: array
                     items:
-                      $ref: '#/components/schemas/Payment'
-                  total_items:
+                      $ref: '#/components/schemas/PaymentRecord'
+                  total:
                     type: integer
                   limit:
                     type: integer
                   offset:
                     type: integer
+                  has_more:
+                    type: boolean
+                  url:
+                    type: string
         '401':
           description: Authentication required
   /v1/me/payment-methods:
@@ -1243,16 +1882,21 @@ paths:
               schema:
                 type: object
                 properties:
+                  object:
+                    type: string
+                    example: list
                   data:
                     type: array
                     items:
                       $ref: '#/components/schemas/PaymentMethod'
-                  total_items:
+                  total:
                     type: integer
                   limit:
                     type: integer
                   offset:
                     type: integer
+                  has_more:
+                    type: boolean
         '401':
           description: Authentication required
     post:
@@ -1317,6 +1961,10 @@ paths:
       responses:
         '200':
           description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethodActionResponse'
         '401':
           description: Authentication required
   /v1/me/payment-methods/{id}/activate:
@@ -1333,6 +1981,10 @@ paths:
       responses:
         '200':
           description: Activated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentMethodActionResponse'
         '401':
           description: Authentication required
   /v1/me/notifications:
@@ -1342,11 +1994,11 @@ paths:
         - BearerAuth: []
       parameters:
         - in: query
-          name: page
+          name: limit
           schema:
             type: integer
         - in: query
-          name: page_size
+          name: offset
           schema:
             type: integer
         - in: query
@@ -1361,12 +2013,23 @@ paths:
               schema:
                 type: object
                 properties:
+                  object:
+                    type: string
+                    example: list
                   data:
                     type: array
                     items:
                       $ref: '#/components/schemas/Notification'
-                  total_items:
+                  total:
                     type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  has_more:
+                    type: boolean
+                  url:
+                    type: string
         '401':
           description: Authentication required
   /v1/me/notifications/unread-count:
@@ -1406,6 +2069,106 @@ paths:
                 $ref: '#/components/schemas/NotificationReadResponse'
         '401':
           description: Authentication required
+  /v1/me/credits:
+    get:
+      summary: List credit balances
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Credit balances
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CreditBalance'
+        '401':
+          description: Authentication required
+  /v1/me/credits/{type}:
+    get:
+      summary: Get credit balance by type
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Credit balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditBalance'
+        '401':
+          description: Authentication required
+        '404':
+          description: Credit type not found
+  /v1/me/credits/{type}/transactions:
+    get:
+      summary: List credit transactions
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: offset
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Credit transactions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object:
+                    type: string
+                    example: list
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CreditTransaction'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  has_more:
+                    type: boolean
+                  url:
+                    type: string
+        '401':
+          description: Authentication required
+  /v1/me/portal:
+    post:
+      summary: Create Stripe customer portal session
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Portal session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortalResponse'
+        '401':
+          description: Authentication required
+        '404':
+          description: Stripe customer not found
   /v1/admin/subscriptions:
     get:
       summary: Admin subscription listing
@@ -1414,6 +2177,28 @@ paths:
       responses:
         '200':
           description: Subscription list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object:
+                    type: string
+                    example: list
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminSubscription'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  has_more:
+                    type: boolean
+                  url:
+                    type: string
         '403':
           description: Admin role required
   /v1/admin/subscriptions/{id}:
@@ -1430,6 +2215,10 @@ paths:
       responses:
         '200':
           description: Subscription detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSubscription'
         '403':
           description: Admin role required
   /v1/admin/subscriptions/{id}/extend:
@@ -1442,22 +2231,32 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                duration:
-                  type: string
-                  example: 72h
+              $ref: '#/components/schemas/ExtendSubscriptionRequest'
       responses:
         '200':
           description: Extended
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
   /v1/admin/subscriptions/{id}/cancel:
     post:
       summary: Cancel subscription (admin)
       security:
         - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminCancelSubscriptionRequest'
       responses:
         '200':
           description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
   /v1/admin/payments:
     get:
       summary: Admin payment listing
@@ -1466,6 +2265,28 @@ paths:
       responses:
         '200':
           description: Payment list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  object:
+                    type: string
+                    example: list
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PaymentObject'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  has_more:
+                    type: boolean
+                  url:
+                    type: string
   /v1/admin/payments/{id}:
     get:
       summary: Payment detail (admin)
@@ -1480,6 +2301,10 @@ paths:
       responses:
         '200':
           description: Payment detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentObject'
   /v1/admin/payments/{id}/refund:
     post:
       summary: Create refund
@@ -1490,13 +2315,14 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                amount:
-                  type: integer
+              $ref: '#/components/schemas/RefundRequest'
       responses:
-        '200':
+        '201':
           description: Refund initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentObject'
   /v1/admin/users/{user_id}:
     get:
       summary: Get billing profile for a user
@@ -1511,6 +2337,10 @@ paths:
       responses:
         '200':
           description: Billing profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserBillingProfile'
   /v1/admin/users/{user_id}/entitlements:
     get:
       summary: List entitlements for a user
@@ -1522,6 +2352,11 @@ paths:
           required: true
           schema:
             type: string
+        - in: query
+          name: at
+          schema:
+            type: string
+            format: date-time
       responses:
         '200':
           description: Entitlement list
@@ -1530,7 +2365,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Entitlement'
+                  $ref: '#/components/schemas/ServiceEntitlementRecord'
     post:
       summary: Grant entitlement
       security:
@@ -1540,10 +2375,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Entitlement'
+              $ref: '#/components/schemas/GrantEntitlementRequest'
       responses:
-        '200':
+        '201':
           description: Granted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Entitlement'
   /v1/admin/users/{user_id}/entitlements/{id}:
     delete:
       summary: Revoke entitlement
@@ -1563,6 +2402,10 @@ paths:
       responses:
         '200':
           description: Revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
   /v1/admin/users/{user_id}/grants:
     get:
       summary: List admin grants for a user
@@ -1574,9 +2417,25 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/AdminGrant'
+                type: object
+                properties:
+                  object:
+                    type: string
+                    example: list
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminGrantItem'
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+                  has_more:
+                    type: boolean
+                  url:
+                    type: string
     post:
       summary: Create admin grant
       security:
@@ -1586,10 +2445,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AdminGrant'
+              $ref: '#/components/schemas/AdminGrantRequest'
       responses:
-        '200':
+        '201':
           description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminGrantResponse'
   /v1/admin/grants/{id}:
     get:
       summary: Fetch grant detail
@@ -1604,6 +2467,10 @@ paths:
       responses:
         '200':
           description: Grant detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminGrantDetail'
   /v1/admin/metrics/summary:
     get:
       summary: Summary metrics for admin dashboard
@@ -1625,6 +2492,10 @@ paths:
           schema:
             type: string
             description: Optional shorthand period (7d, 30d, month, quarter)
+        - in: query
+          name: currency
+          schema:
+            type: string
       responses:
         '200':
           description: Summary metrics
@@ -1655,6 +2526,10 @@ paths:
           schema:
             type: string
             enum: [day, week, month]
+        - in: query
+          name: currency
+          schema:
+            type: string
       responses:
         '200':
           description: Revenue buckets
@@ -1683,6 +2558,10 @@ paths:
           schema:
             type: string
             enum: [day, month]
+        - in: query
+          name: currency
+          schema:
+            type: string
       responses:
         '200':
           description: Subscription buckets
@@ -1706,6 +2585,10 @@ paths:
           schema:
             type: string
             format: date
+        - in: query
+          name: currency
+          schema:
+            type: string
       responses:
         '200':
           description: Processor snapshot
@@ -1729,6 +2612,10 @@ paths:
           schema:
             type: string
             format: date
+        - in: query
+          name: currency
+          schema:
+            type: string
       responses:
         '200':
           description: Churn summary
@@ -1747,6 +2634,11 @@ paths:
           required: true
           schema:
             type: string
+        - in: query
+          name: at
+          schema:
+            type: string
+            format: date-time
       responses:
         '200':
           description: Entitlements
@@ -1755,6 +2647,122 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Entitlement'
+                  $ref: '#/components/schemas/ServiceEntitlementRecord'
+        '401':
+          description: API key missing or invalid
+  /v1/users/{user_id}/credits:
+    get:
+      summary: Service credit balance lookup
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: user_id
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: type
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Credit balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceCreditBalance'
+        '401':
+          description: API key missing or invalid
+  /v1/credits/withdraw:
+    post:
+      summary: Withdraw credits (service)
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditWithdrawRequest'
+      responses:
+        '200':
+          description: Withdrawal transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditTransaction'
+        '402':
+          description: Insufficient credits
+        '401':
+          description: API key missing or invalid
+  /v1/credits/hold:
+    post:
+      summary: Create credit hold (service)
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditHoldRequest'
+      responses:
+        '200':
+          description: Hold created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditHold'
+        '402':
+          description: Insufficient credits
+        '401':
+          description: API key missing or invalid
+  /v1/credits/hold/{id}/capture:
+    post:
+      summary: Capture credit hold (service)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditCaptureRequest'
+      responses:
+        '200':
+          description: Capture transaction
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditTransaction'
+        '402':
+          description: Insufficient credits
+        '401':
+          description: API key missing or invalid
+  /v1/credits/hold/{id}/release:
+    post:
+      summary: Release credit hold (service)
+      security:
+        - ApiKeyAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Hold released
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
         '401':
           description: API key missing or invalid

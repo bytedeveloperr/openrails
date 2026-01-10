@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/doujins-org/doujins-billing/config"
+	jupiter "github.com/doujins-org/doujins-billing/internal/integrations/jupiter"
 )
 
 // calculateTokenQuote converts a fiat USD amount (in cents) into token units/decimal amount based on live prices.
@@ -25,7 +26,7 @@ func calculateTokenQuote(ctx context.Context, tokenCfg config.SolanaToken, amoun
 		return 0, 0, fmt.Errorf("token %s missing mint configuration", tokenCfg.Symbol)
 	}
 
-	prices, err := FetchJupiterPrices(ctx, []string{mint})
+	prices, err := jupiter.FetchJupiterPrices(ctx, []string{mint})
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to fetch token price: %w", err)
 	}

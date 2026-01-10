@@ -9,7 +9,7 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/solana-go"
+	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/google/uuid"
 	redis "github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
@@ -25,7 +25,7 @@ type SolanaPayPoller struct {
 	db                     *db.DB
 	redis                  *redis.Client
 	cfg                    *config.Config
-	rpc                    *SolanaRPCService
+	rpc                    *solana.RPCClient
 	solanaPayService       *SolanaPayService
 	solanaTransactionSvc   *SolanaTransactionService
 	checkoutService        *CheckoutService
@@ -46,9 +46,9 @@ func NewSolanaPayPoller(
 	checkoutService *CheckoutService,
 	checkoutSessionService *CheckoutSessionService,
 ) *SolanaPayPoller {
-	var rpc *SolanaRPCService
+	var rpc *solana.RPCClient
 	if cfg.Solana != nil {
-		rpc = NewSolanaRPCService(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
+		rpc = solana.NewRPCClient(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
 	}
 
 	return &SolanaPayPoller{
@@ -150,15 +150,8 @@ func (p *SolanaPayPoller) checkPayment(ctx context.Context, reference string) {
 	}
 
 	// Query blockchain for transactions with this reference
-	refPubkey, err := solana.PublicKeyFromBase58(reference)
-	if err != nil {
-		log.WithError(err).WithField("reference", reference).Error("Invalid reference public key")
-		p.solanaPayService.RemovePendingPayment(ctx, reference)
-		return
-	}
-
 	limit := 10
-	sigs, err := p.rpc.GetSignaturesForAddress(ctx, refPubkey, &limit)
+	sigs, err := p.rpc.GetSignaturesForAddress(ctx, reference, limit)
 	if err != nil {
 		log.WithError(err).WithField("reference", reference).Debug("Failed to get signatures for reference")
 		return
@@ -170,21 +163,21 @@ func (p *SolanaPayPoller) checkPayment(ctx context.Context, reference string) {
 
 	// Found a transaction - verify it matches our expected payment
 	for _, sig := range sigs {
-		if sig.Err != nil {
+		if sig.HasError {
 			continue // Skip failed transactions
 		}
 
 		// Verify the transaction matches our expected payment
-		if p.verifyPayment(ctx, reference, sig.Signature.String(), pending) {
+		if p.verifyPayment(ctx, reference, sig.Signature, pending) {
 			log.WithFields(log.Fields{
 				"reference": reference,
-				"signature": sig.Signature.String(),
+				"signature": sig.Signature,
 				"user_id":   pending.UserID,
 				"amount":    pending.Amount,
 			}).Info("Solana payment confirmed")
 
 			// Process the confirmed payment
-			if err := p.processConfirmedPayment(ctx, reference, sig.Signature.String(), pending); err != nil {
+			if err := p.processConfirmedPayment(ctx, reference, sig.Signature, pending); err != nil {
 				log.WithError(err).WithField("reference", reference).Error("Failed to process confirmed payment")
 				continue
 			}
@@ -218,7 +211,7 @@ func (p *SolanaPayPoller) verifyPayment(ctx context.Context, reference string, s
 	if ref != "" {
 		refPtr = &ref
 	}
-	if _, err := p.solanaTransactionSvc.VerifyTransactionWithContent(
+	if err := p.solanaTransactionSvc.VerifyTransactionWithContent(
 		ctx,
 		strings.TrimSpace(signature),
 		expectedAmount,

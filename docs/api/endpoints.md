@@ -1,41 +1,58 @@
 # Billing Service API Reference
 
-The billing service exposes a small set of HTTP APIs split across public catalog routes, authenticated
-user routes, administrative endpoints, and a private service-to-service surface. All responses are
-JSON encoded and use the standard error envelope:
+The billing service exposes public catalog routes, authenticated user APIs, administrative endpoints, processor webhooks,
+and a private service-to-service surface. All responses are JSON encoded. Unless otherwise stated, errors follow the
+Stripe-style envelope:
 
 ```json
 {
-  "error": "machine_readable_code",
-  "message": "human readable description"
+  "error": {
+    "type": "invalid_request_error",
+    "code": "invalid_parameter",
+    "message": "Human readable description",
+    "param": "optional_param_name"
+  }
 }
 ```
+
+List endpoints use a Stripe-like envelope:
+
+```json
+{
+  "object": "list",
+  "data": [],
+  "total": 0,
+  "limit": 20,
+  "offset": 0,
+  "has_more": false,
+  "url": "/v1/example"
+}
+```
+
+`url` is included only on endpoints that use server-side pagination helpers; other list endpoints omit it.
 
 ## Authentication & Security
 
 | Surface | How to authenticate |
 |---------|---------------------|
 | Public catalog (`/`, `/v1/products`, `/v1/prices`, `/v1/solana/tokens`, health probes) | No auth required |
-| User routes (`/v1/solana/pay`, `/v1/me/*`) | `Authorization: Bearer <JWT>` issued by AuthKit |
+| User routes (`/v1/checkout`, `/v1/me/*`) | `Authorization: Bearer <JWT>` issued by AuthKit |
 | Admin routes (`/v1/admin/*`) | Same JWT header, user must have the `admin` role |
-| Service API (private port 8060, `/v1/users/:user_id/entitlements`) | `X-API-KEY` header matching `config.api_key` |
-| Webhooks (`/v1/webhooks/:provider`) | Provider-specific verification (CCBill IP allow-list, NMI HMAC, Solana reference check, Stripe signature) |
-
-Unless stated otherwise, list endpoints use the Stripe-like envelope defined in `pkg/api.ListResponse`:
-`{ object: "list", data: [...], total, limit, offset, has_more }`.
+| Service API (private port 8060) | `X-API-KEY` header matching `config.api_key` |
+| Webhooks (`/v1/webhooks/:provider`) | Provider-specific verification (see notes) |
 
 ## Health & Service Banner
 
 ### GET /
-Returns a short JSON banner (`{"service":"billing","status":"ok","endpoints":[...]}`) so load
-balancers can confirm the API is reachable.
+Returns a short JSON banner (`{"service":"billing","status":"ok","endpoints":[...]}`) so load balancers can
+confirm the API is reachable.
 
 ### GET /health/live, /healthz
 Unconditional liveness probes.
 
 ### GET /health/ready, /readyz
-Runs readiness checks against Postgres, Redis, and the AuthKit verifier. Returns 200 when all checks
-pass, or 503 with `{ status: "not_ready", checks: {...} }`.
+Runs readiness checks against Postgres, Redis, and the AuthKit verifier. Returns 200 when all checks pass,
+or 503 with `{ status: "not_ready", checks: {...} }`.
 
 ## Public Catalog Endpoints
 
@@ -53,27 +70,53 @@ Same endpoint; explicitly documenting that product filters accept either the `pr
 raw UUID.
 
 ### GET /v1/solana/tokens
-Returns the currently enabled Solana tokens from configuration so clients can present token choices
-(`[{ symbol, name, mint, decimals, enabled }]`).
+Returns the currently supported Solana tokens and live pricing:
+
+```json
+{
+  "tokens": [
+    { "symbol": "USDC", "name": "USD Coin", "mint": "...", "decimals": 6, "price": 1.0 }
+  ]
+}
+```
 
 ### POST /v1/webhooks/{provider}
-Receives processor webhooks. `provider` is `ccbill`, `mobius`, `solana`, or `stripe`.
-- `ccbill`: form-encoded payload, verified via source IP ranges and optional signature.
-- `mobius`/`nmi`: JSON body with `X-Signature`/`X-NMI-Signature` header.
-- `solana`: JSON envelope emitted by the Solana Pay poller when on-chain confirmation occurs.
+Receives processor webhooks. `provider` is `ccbill`, `mobius`, or `stripe` (legacy `nmi` is accepted as an alias for
+`mobius`).
+- `ccbill`: form-encoded payload, verified via source IP ranges (unless test mode).
+- `mobius`/NMI-backed: JSON body with `X-Signature`/`X-NMI-Signature` header.
 - `stripe`: JSON body with `Stripe-Signature` header (if configured).
-Returns 200 on success, 401/403 for auth failures, 400 if the provider path is unknown.
+Returns 200 with `{ status: "accepted" }` on success, 401/403 for auth failures, 400 for unknown provider.
 
-## Solana Pay (Authenticated)
+## Checkout Sessions (Authenticated)
 
-### POST /v1/solana/pay
-Creates a Solana Pay transfer request for a recurring price.
+### POST /v1/checkout
+Creates a checkout session for subscriptions and one-off purchases.
 - Auth: bearer token
-- Body: `{ "price_id": "price_...", "token": "USDC" }`
-- Response: `{ url, reference, amount, currency, token_amount, token, expires_at }`
+- Optional header: `X-Idempotency-Key` to dedupe create requests
+- Body:
+  - `price_id` (required)
+  - `mode` (optional) – `one_off` or `subscription`; if omitted, resolved from the price
+  - `payment` (required):
+    - `processor` (required) – `mobius`, `ccbill`, `solana`, or `stripe`
+    - `payment_method_id` or `payment_token` for `mobius`/`stripe`
+    - `token_symbol` for `solana`
+    - `flow` for `solana` – `transfer_request` (default) or `transaction_request`
+    - `wallet` required for `transaction_request`
+    - Billing details for `ccbill`/`stripe`: `email`, `first_name`, `last_name`, `address1`, `city`, `state`, `zip`, `country`
+  - `metadata` (optional string map)
+- Response: `CheckoutSessionResponse` with `payment` details, `next_action` (redirect/solana), and optional
+  `payment_id` / `subscription_id` once completed.
 
-### GET /v1/solana/pay/{reference}
-Polls the status of a Solana Pay request created above. Returns `{ status: "pending|confirmed|expired", payment_id?, signature? }`.
+### GET /v1/checkout/{id}
+Retrieves a checkout session by ID. Returns `CheckoutSessionResponse`. Responds with 403 if the session
+belongs to another user.
+
+### POST /v1/checkout/{id}/confirm
+Confirms a Solana checkout session.
+- Body: `{ payment: { processor: "solana", signature: "...", wallet?: "..." } }`
+- Response: `CheckoutSessionResponse`
+- Errors: 400 validation, 403 forbidden, 404 not found, 409 conflict, 410 expired
 
 ## Authenticated User API (`/v1/me`)
 
@@ -81,45 +124,65 @@ Every endpoint in this section requires a valid JWT for the current user.
 
 ### GET /v1/me/status
 Aggregated premium status: whether the user currently has an active membership, the enriched
-subscription object (price/product/access), the next renewal timestamp, and active entitlements.
-Response mirrors `handlers.GetMyBillingStatus` and includes `has_active_subscription`,
-`subscription`, `next_renewal_at`, and `entitlements`.
-
-### POST /v1/me/checkout
-Unified checkout entry point for subscriptions and one-time purchases.
-- Body (fields optional unless noted):
-  - `price_id` (required) – target price UUID or prefixed ID
-  - `processor` (required) – `mobius`, `ccbill`, or `solana`
-  - `payment_method_id` or `payment_token` for Mobius/NMI purchases
-  - Billing details: `email`, `first_name`, `last_name`, `address1`, `city`, `state`, `zip`, `country`
-- Response: `{ status: success|redirect_required|blocked|pending, message, subscription_id?, payment_id?, transaction_id?, redirect_url?, delayed_start? }`
+subscription object, the next renewal timestamp, and all entitlement records.
+Response includes `has_active_subscription`, `subscription`, `next_renewal_at`, and `entitlements`.
 
 ### GET /v1/me/subscriptions
-History of the caller’s subscriptions. Query params: `status` (`active`, `cancelled`, `past_due`,
-`all`), `limit`, `offset`. Response: paginated array of subscription summaries (`{ id, status,
-processor, current_period_starts_at, current_period_ends_at, canceled_at? }`).
+History of the caller’s subscriptions. Query params: `status` (`pending`, `active`, `past_due`, `cancelled`, or `all`),
+`limit`, `offset`. Response: `ListResponse<UserSubscription>` (with `product`, `price`, `access`).
 
 ### PUT /v1/me/subscriptions/payment-method
-Request body `{ "subscription_id": "sub_uuid", "payment_method_id": "pm_uuid" }`. Updates the card
-vault entry used for an NMI-backed subscription (CCBill subscriptions cannot be reassigned). Returns
-`{ message: "payment method updated" }`.
+Request body `{ "subscription_id": "sub_uuid", "payment_method_id": "pm_uuid" }`. Updates the card vault entry
+used for an NMI-backed subscription (CCBill/Solana subscriptions cannot be reassigned). Returns:
+`{ success, message, subscription_id, payment_method_id }`.
 
 ### POST /v1/me/subscriptions/cancel
-Body `{ "feedback": "optional text" }`. Cancels the user’s active subscription or returns
-`{ error, support_url }` when the subscription is managed externally (e.g., CCBill requires portal
-cancellation).
+Body `{ "feedback": "optional text" }`. Cancels the user’s active subscription and returns
+`202 { "status": "queued" }`. For CCBill subscriptions, returns
+`422 { error, support_url, code }` because cancellation must be performed via the CCBill portal.
+
+### POST /v1/me/subscriptions/resume
+Queues a resume for a cancelled Stripe subscription. Returns `202 { "status": "queued" }`.
+
+### POST /v1/me/subscriptions/change
+Stripe-only plan change. Body `{ "price_id": "price_..." }`. Response:
+`{ status, action, message, subscription_id }` where `action` is `upgrade` or `downgrade`.
 
 ### GET /v1/me/payments
-Lists one-off payments. Query params: `type` (processor filter), `limit`, `offset`. Response:
-`ListResponse<Payment>`.
+Lists one-off payments. Query params: `type` (processor filter), `limit`, `offset`.
+Response: list of `PaymentRecord` entries (raw payment model with optional `price` and `subscription`).
 
 ### GET /v1/me/payment-methods
-Query params: `limit`, `offset`, `include_inactive`. Response: list of stored payment methods with
-fields `{ id, processor, last_four, brand, exp_month, exp_year, is_active, created_at }`.
+Query params: `limit`, `offset`, `include_inactive`. Response: list of stored payment methods.
+
+### POST /v1/me/payment-methods
+Body includes `payment_token` (Collect.js token) plus billing details (`first_name`, `last_name`, `address1`, `city`,
+`state`, `zip`, `country`, optional `email`, `phone`, `company`, `address2`, `provider`). Creates and activates an NMI
+vault record. Response: payment method object.
+
+### PUT /v1/me/payment-methods/{id}
+Body accepts a new `payment_token` and optional billing fields (all pointers). Replaces the stored vault card for the
+referenced method. Returns updated payment method.
+
+### DELETE /v1/me/payment-methods/{id}
+Soft-deletes the stored method. Response `{ success, message }`.
+
+### PUT /v1/me/payment-methods/{id}/activate
+Re-verifies and marks the method active. Response `{ success, message }`.
+
+### GET /v1/me/notifications
+Query params: `limit` (1-100), `offset`, `seen` (`true`/`false`). Response list of
+notifications `{ id, event_type, data, seen, created_at }`.
+
+### GET /v1/me/notifications/unread-count
+Returns `{ unread_count: <int> }`.
+
+### POST /v1/me/notifications/{id}/read
+Marks the notification as read. Response `{ message: "notification marked as read" }`.
 
 ### GET /v1/me/credits
-Returns all active credit balances for the current user (promo + purchased). Response is an array of
-`{ type, display_name, unit, decimal_places, balance, held_balance, permanent_balance, expiring_balance, earliest_expiry? }`.
+Returns all active credit balances for the current user (promo + purchased).
+Each entry: `{ type, display_name, unit, decimal_places, balance, held_balance, permanent_balance, expiring_balance, earliest_expiry? }`.
 
 ### GET /v1/me/credits/{type}
 Returns the credit balance for a single credit type (e.g. `api_credits`).
@@ -127,95 +190,78 @@ Returns the credit balance for a single credit type (e.g. `api_credits`).
 ### GET /v1/me/credits/{type}/transactions
 Lists credit ledger entries for the credit type. Query params: `limit`, `offset`.
 
+### POST /v1/me/portal
+Creates a Stripe customer portal session. Response `{ redirect_url }`.
+
 ## Service API (Private Port 8060)
 
 All endpoints require `X-API-KEY` and run on the private port.
 
 ### GET /v1/users/{user_id}/entitlements
-Returns active entitlements for the user at the current time.
+Returns active entitlements for the user at the current time. Optional query param `at` (RFC3339) to query
+entitlements at a specific time. Response: array of entitlement records.
 
 ### GET /v1/users/{user_id}/credits
 Returns credit balance summary for a user. Optional query param `type` (defaults to `api_credits`).
+Response: `{ type, balance, held_balance, permanent_balance, expiring_balance }`.
 
 ### POST /v1/credits/withdraw
 Withdraw credits. Body: `{ user_id, credit_type, amount, source, source_id? }`.
+Returns a `CreditTransaction`. On insufficient credits, returns 402 with `insufficient_credits`.
 
 ### POST /v1/credits/hold
 Reserve credits for long-running jobs. Body: `{ user_id, credit_type, amount, source, source_id, expires_at }` (epoch seconds).
+Returns a `CreditHold`. On insufficient credits, returns 402.
 
 ### POST /v1/credits/hold/{id}/capture
-Capture a hold: `{ amount }` (amount <= hold).
+Capture a hold: `{ amount }` (amount <= hold). Returns a `CreditTransaction`.
 
 ### POST /v1/credits/hold/{id}/release
-Release a hold without spending credits.
-
-### POST /v1/me/payment-methods
-Body includes `payment_token` (Collect.js token) plus billing details (`first_name`, `last_name`,
-`address1`, `city`, `state`, `zip`, `country`, optional `email`, `phone`, `company`, `address2`,
-`provider`). Creates and immediately activates an NMI vault record. Response: payment method object.
-
-### PUT /v1/me/payment-methods/{id}
-Body accepts a new `payment_token` and optional billing fields (all pointers). Replaces the stored
-vault card for the referenced method. Returns updated payment method.
-
-### DELETE /v1/me/payment-methods/{id}
-Soft-deletes the stored method. Response `{ success: true }`.
-
-### PUT /v1/me/payment-methods/{id}/activate
-Re-verifies and marks the method active. Response `{ success: true }`.
-
-### GET /v1/me/notifications
-Query params: `page` (>=1), `page_size` (1-100, default 20), `seen` (`true`/`false`). Response list of
-notifications `{ id, event_type, data, seen, created_at }`.
-
-### GET /v1/me/notifications/unread-count
-Returns `{ unread_count: <int> }`.
-
-### POST /v1/me/notifications/{id}/read
-Marks the notification as read. Empty body, response `{ message: "notification marked as read" }`.
+Release a hold without spending credits. Response `{ ok: true }`.
 
 ## Admin API (`/v1/admin`, JWT + `admin` role)
 
 ### GET /v1/admin/subscriptions
-List subscriptions with extensive filtering (limit/offset/status query params). Response:
-`ListResponse<SubscriptionObject>`.
+List subscriptions with filtering. Common query params include `user_id`, `status`, `price_id`, `processor`,
+`created_after`, `created_before`, `cancelled_after`, `cancelled_before`, `expires_before`, `sort_by`, `sort_order`,
+plus `limit`/`offset`. Response: list of admin subscription records (raw subscription + product/price).
 
 ### GET /v1/admin/subscriptions/{id}
-Detailed subscription record including lifecycle metadata and linked user information.
+Detailed subscription record including linked payments.
 
 ### PUT /v1/admin/subscriptions/{id}/extend
-Body `{ "duration": "72h30m" }` (Go duration string). Extends the current billing period.
+Body `{ "subscription_id": "sub_uuid", "duration": "72h30m" }` (Go duration string).
+Extends the current billing period.
 
 ### POST /v1/admin/subscriptions/{id}/cancel
-Immediate cancellation of the referenced subscription.
+Immediate cancellation of the referenced subscription. Body `{ "reason": "optional" }`.
 
 ### GET /v1/admin/payments
-List of payments with filtering by processor, status, date range, etc. Response: list envelope of
-`Payment` objects.
+List of payments with filtering by processor, status, date range, etc. Response: list envelope of Stripe-style
+`PaymentObject` entries.
 
 ### GET /v1/admin/payments/{id}
 Full payment detail including refund history.
 
 ### POST /v1/admin/payments/{id}/refund
-Body `{ "amount": 1234 }` (optional – defaults to full refund). Initiates a refund via the underlying
-processor.
+Body `{ "amount": 1234, "refund_transaction_id": "..." }`. Initiates a refund via the underlying processor.
+Returns the refund payment object.
 
 ### GET /v1/admin/users/{user_id}
-Returns the user’s billing profile (current subscription, payment methods, entitlements).
+Returns the user’s billing profile: `{ user_id, subscription, entitlements, payments }`.
 
 ### GET /v1/admin/users/{user_id}/entitlements
-Lists all entitlements (subscription-derived or manually granted).
+Lists all entitlements. Optional `at` query param (RFC3339) for point-in-time lookup.
 
 ### POST /v1/admin/users/{user_id}/entitlements
-Body `{ "entitlement": "premium", "start_at": "2024-01-01T00:00:00Z", "end_at": null }`. Grants a manual
-entitlement with audit trail support.
+Body `{ "entitlement": "premium", "days": 30 }`. Grants an entitlement for the requested duration (or indefinite
+if `days` is omitted).
 
 ### DELETE /v1/admin/users/{user_id}/entitlements/{id}
 Revokes the referenced admin entitlement.
 
 ### POST /v1/admin/users/{user_id}/grants
-Creates a structured grant record (product-based, includes reason/audit info). Body mirrors the
-`AdminGrant` struct.
+Creates a structured grant record. Body `{ price_id, reason, duration_days?, amount?, currency?, transaction_id? }`.
 
 ### GET /v1/admin/users/{user_id}/grants
 Lists grants issued to the user.
@@ -224,38 +270,27 @@ Lists grants issued to the user.
 Fetches a single grant record.
 
 ### GET /v1/admin/metrics/summary
-Returns the KPI card data (MRR, ARR, total revenue, churn, ARPU). Query params:
-`start`, `end`, or `period` (`7d`, `30d`, `month`, etc.). Response includes previous-period deltas.
+Returns KPI card data (MRR, ARR, total revenue, churn, ARPU). Query params: `start`, `end`, `period`, `currency`.
 
 ### GET /v1/admin/metrics/revenue
-Time-series revenue buckets. Query params: `start`, `end`, and optional `granularity`
-(`day`, `week`, `month`). Each bucket includes subscription vs one-time revenue, refunds, and
-payment counts/averages.
+Time-series revenue buckets. Query params: `start`, `end`, optional `granularity` (`day`, `week`, `month`), `currency`.
 
 ### GET /v1/admin/metrics/subscriptions
-Subscription activity series (new subs, cancels, reactivations, net change). Supports `start`,
-`end`, `granularity`.
+Subscription activity series (new subs, cancels, reactivations, net change). Supports `start`, `end`, `granularity`,
+`currency`.
 
 ### GET /v1/admin/metrics/processors
-Aggregated revenue + counts by processor for a date range (defaults to last 30 days). Helpful for
-identifying processor-specific issues.
+Aggregated revenue + counts by processor for a date range (defaults to last 30 days). Query params: `start`, `end`,
+`currency`.
 
 ### GET /v1/admin/metrics/churn
-Monthly churn summary plus cancellation reason counts and coarse cohort retention info. Accepts
-`start`/`end` month boundaries (defaults to last six months).
-
-## Private Service-to-Service API (port 8060)
-
-### GET /v1/users/{user_id}/entitlements
-Header `X-API-KEY` must match `config.api_key`. Returns active entitlements so other services can
-check premium status: `[{ entitlement, start_at, end_at, source_type, source_id }]`.
+Monthly churn summary plus cancellation reason counts and coarse cohort retention info. Accepts `start`, `end`,
+`currency`.
 
 ## Webhook Notes
 
-- **CCBill**: Must originate from the published IP ranges; the handler also validates `formName`/
-  `flexId` against the price metadata.
-- **Mobius/NMI**: Supply `X-Signature`/`X-NMI-Signature`. When test mode is enabled via config the
+- **CCBill**: Must originate from the published IP ranges; the handler also validates `formName`/`flexId`
+  against the price metadata.
+- **Mobius/NMI-backed**: Supply `X-Signature`/`X-NMI-Signature`. When test mode is enabled via config the
   signature check is bypassed.
-- **Solana**: Called internally by the Solana Pay poller when an on-chain reference confirms.
-
-Refer to `internal/services/webhook` for processor-specific payload schemas.
+- **Stripe**: Uses the `Stripe-Signature` header with the configured webhook secret.

@@ -309,6 +309,8 @@ func (c *NMIClient) CreateCustomerVault(data CreateCustomerVaultData) (*CreateCu
 		return nil, err
 	}
 
+	log.Println("output r", output.Encode())
+
 	if output.Get("response") != "1" {
 		return nil, fmt.Errorf("failed to create customer vault: %s", output.Get("response_message"))
 	}

@@ -1,4 +1,4 @@
-package services
+package solana
 
 import (
 	"context"
@@ -6,20 +6,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/solana-go"
+	solanago "github.com/doujins-org/solana-go"
 	"github.com/doujins-org/solana-go/rpc"
 	log "github.com/sirupsen/logrus"
 )
 
-// SolanaRPCService handles interactions with the Solana blockchain
-type SolanaRPCService struct {
+// RPCClient handles interactions with the Solana blockchain
+type RPCClient struct {
 	client   *rpc.Client
 	endpoint string
 	network  string // "mainnet", "devnet", "testnet"
 }
 
-// NewSolanaRPCService creates a new Solana RPC service
-func NewSolanaRPCService(endpoint, network string) *SolanaRPCService {
+// NewRPCClient creates a new Solana RPC client
+func NewRPCClient(endpoint, network string) *RPCClient {
 	if endpoint == "" {
 		switch network {
 		case "mainnet":
@@ -40,16 +40,16 @@ func NewSolanaRPCService(endpoint, network string) *SolanaRPCService {
 		"network":  network,
 	}).Info("Initialized Solana RPC client")
 
-	return &SolanaRPCService{
+	return &RPCClient{
 		client:   client,
 		endpoint: endpoint,
 		network:  network,
 	}
 }
 
-// GetBalance returns the SOL balance for an address
-func (s *SolanaRPCService) GetBalance(ctx context.Context, address solana.PublicKey) (uint64, error) {
-	balance, err := s.client.GetBalance(ctx, address, rpc.CommitmentFinalized)
+// GetBalance returns the SOL balance for an address.
+func (c *RPCClient) GetBalance(ctx context.Context, address solanago.PublicKey) (uint64, error) {
+	balance, err := c.client.GetBalance(ctx, address, rpc.CommitmentFinalized)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get balance for %s: %w", address.String(), err)
 	}
@@ -57,8 +57,8 @@ func (s *SolanaRPCService) GetBalance(ctx context.Context, address solana.Public
 }
 
 // GetTokenBalance returns the SPL token balance for an address and mint
-func (s *SolanaRPCService) GetTokenBalance(ctx context.Context, tokenAccount solana.PublicKey) (*rpc.UiTokenAmount, error) {
-	resp, err := s.client.GetTokenAccountBalance(ctx, tokenAccount, rpc.CommitmentFinalized)
+func (c *RPCClient) GetTokenBalance(ctx context.Context, tokenAccount solanago.PublicKey) (*rpc.UiTokenAmount, error) {
+	resp, err := c.client.GetTokenAccountBalance(ctx, tokenAccount, rpc.CommitmentFinalized)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get token balance for %s: %w", tokenAccount.String(), err)
 	}
@@ -66,8 +66,8 @@ func (s *SolanaRPCService) GetTokenBalance(ctx context.Context, tokenAccount sol
 }
 
 // SimulateTransaction simulates a transaction to check if it would succeed
-func (s *SolanaRPCService) SimulateTransaction(ctx context.Context, tx *solana.Transaction) (*rpc.SimulateTransactionResponse, error) {
-	resp, err := s.client.SimulateTransaction(ctx, tx)
+func (c *RPCClient) SimulateTransaction(ctx context.Context, tx *solanago.Transaction) (*rpc.SimulateTransactionResponse, error) {
+	resp, err := c.client.SimulateTransaction(ctx, tx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to simulate transaction: %w", err)
 	}
@@ -75,25 +75,25 @@ func (s *SolanaRPCService) SimulateTransaction(ctx context.Context, tx *solana.T
 }
 
 // SendTransaction submits a transaction to the blockchain
-func (s *SolanaRPCService) SendTransaction(ctx context.Context, tx *solana.Transaction) (solana.Signature, error) {
-	sig, err := s.client.SendTransaction(ctx, tx)
+func (c *RPCClient) SendTransaction(ctx context.Context, tx *solanago.Transaction) (solanago.Signature, error) {
+	sig, err := c.client.SendTransaction(ctx, tx)
 	if err != nil {
-		return solana.Signature{}, fmt.Errorf("failed to send transaction: %w", err)
+		return solanago.Signature{}, fmt.Errorf("failed to send transaction: %w", err)
 	}
 
 	log.WithFields(log.Fields{
 		"signature": sig.String(),
-		"network":   s.network,
+		"network":   c.network,
 	}).Info("Transaction sent to Solana")
 
 	return sig, nil
 }
 
 // GetTransaction retrieves transaction details by signature
-func (s *SolanaRPCService) GetTransaction(ctx context.Context, signature solana.Signature) (*rpc.GetTransactionResult, error) {
-	resp, err := s.client.GetTransaction(ctx, signature, &rpc.GetTransactionOpts{
+func (c *RPCClient) GetTransaction(ctx context.Context, signature solanago.Signature) (*rpc.GetTransactionResult, error) {
+	resp, err := c.client.GetTransaction(ctx, signature, &rpc.GetTransactionOpts{
 		Commitment: rpc.CommitmentConfirmed,
-		Encoding:   solana.EncodingBase64,
+		Encoding:   solanago.EncodingBase64,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get transaction %s: %w", signature.String(), err)
@@ -101,10 +101,10 @@ func (s *SolanaRPCService) GetTransaction(ctx context.Context, signature solana.
 	return resp, nil
 }
 
-func (s *SolanaRPCService) GetTransactionWithRetry(ctx context.Context, signature solana.Signature, attempts int, delay time.Duration) (*rpc.GetTransactionResult, error) {
+func (c *RPCClient) GetTransactionWithRetry(ctx context.Context, signature solanago.Signature, attempts int, delay time.Duration) (*rpc.GetTransactionResult, error) {
 	var lastErr error
 	for i := 0; i < attempts; i++ {
-		resp, err := s.GetTransaction(ctx, signature)
+		resp, err := c.GetTransaction(ctx, signature)
 		if err == nil {
 			return resp, nil
 		}
@@ -129,7 +129,7 @@ func isNotFoundError(err error) bool {
 }
 
 // ConfirmTransaction waits for a transaction to be confirmed
-func (s *SolanaRPCService) ConfirmTransaction(ctx context.Context, signature solana.Signature, commitment rpc.CommitmentType) error {
+func (c *RPCClient) ConfirmTransaction(ctx context.Context, signature solanago.Signature, commitment rpc.CommitmentType) error {
 	timeout := 60 * time.Second
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -142,7 +142,7 @@ func (s *SolanaRPCService) ConfirmTransaction(ctx context.Context, signature sol
 		case <-ctx.Done():
 			return fmt.Errorf("transaction confirmation timeout for %s", signature.String())
 		case <-ticker.C:
-			status, err := s.client.GetSignatureStatuses(ctx, true, signature)
+			status, err := c.client.GetSignatureStatuses(ctx, true, signature)
 			if err != nil {
 				log.WithError(err).Warn("Failed to get signature status")
 				continue
@@ -182,17 +182,17 @@ func (s *SolanaRPCService) ConfirmTransaction(ctx context.Context, signature sol
 }
 
 // GetLatestBlockhash gets the latest blockhash for transaction creation
-func (s *SolanaRPCService) GetLatestBlockhash(ctx context.Context) (solana.Hash, error) {
-	resp, err := s.client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
+func (c *RPCClient) GetLatestBlockhash(ctx context.Context) (solanago.Hash, error) {
+	resp, err := c.client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
 	if err != nil {
-		return solana.Hash{}, fmt.Errorf("failed to get latest blockhash: %w", err)
+		return solanago.Hash{}, fmt.Errorf("failed to get latest blockhash: %w", err)
 	}
 	return resp.Value.Blockhash, nil
 }
 
 // GetMinimumBalanceForRentExemption returns the minimum balance needed for rent exemption
-func (s *SolanaRPCService) GetMinimumBalanceForRentExemption(ctx context.Context, dataSize uint64) (uint64, error) {
-	balance, err := s.client.GetMinimumBalanceForRentExemption(ctx, dataSize, rpc.CommitmentFinalized)
+func (c *RPCClient) GetMinimumBalanceForRentExemption(ctx context.Context, dataSize uint64) (uint64, error) {
+	balance, err := c.client.GetMinimumBalanceForRentExemption(ctx, dataSize, rpc.CommitmentFinalized)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get minimum balance for rent exemption: %w", err)
 	}
@@ -200,45 +200,64 @@ func (s *SolanaRPCService) GetMinimumBalanceForRentExemption(ctx context.Context
 }
 
 // IsValidAddress checks if a public key string is valid
-func (s *SolanaRPCService) IsValidAddress(address string) bool {
-	_, err := solana.PublicKeyFromBase58(address)
+func (c *RPCClient) IsValidAddress(address string) bool {
+	_, err := solanago.PublicKeyFromBase58(address)
 	return err == nil
 }
 
 // ParseAddress converts a base58 string to PublicKey
-func (s *SolanaRPCService) ParseAddress(address string) (solana.PublicKey, error) {
-	return solana.PublicKeyFromBase58(address)
+func (c *RPCClient) ParseAddress(address string) (solanago.PublicKey, error) {
+	return solanago.PublicKeyFromBase58(address)
 }
 
 // GetNetwork returns the current network
-func (s *SolanaRPCService) GetNetwork() string {
-	return s.network
+func (c *RPCClient) GetNetwork() string {
+	return c.network
 }
 
 // GetEndpoint returns the current RPC endpoint
-func (s *SolanaRPCService) GetEndpoint() string {
-	return s.endpoint
+func (c *RPCClient) GetEndpoint() string {
+	return c.endpoint
 }
 
-// GetSignaturesForAddress finds transactions that reference a specific address
-func (s *SolanaRPCService) GetSignaturesForAddress(ctx context.Context, address solana.PublicKey, limit *int) ([]*rpc.TransactionSignature, error) {
+// SignatureInfo is a pared-down view of a signature lookup.
+type SignatureInfo struct {
+	Signature string
+	HasError  bool
+}
+
+// GetSignaturesForAddress finds transactions that reference a specific address.
+func (c *RPCClient) GetSignaturesForAddress(ctx context.Context, address string, limit int) ([]SignatureInfo, error) {
+	pubkey, err := solanago.PublicKeyFromBase58(strings.TrimSpace(address))
+	if err != nil {
+		return nil, fmt.Errorf("invalid address: %w", err)
+	}
+
 	opts := &rpc.GetSignaturesForAddressOpts{
 		Commitment: rpc.CommitmentFinalized,
 	}
-	if limit != nil {
-		limitVal := *limit
+	if limit > 0 {
+		limitVal := limit
 		opts.Limit = &limitVal
 	}
 
-	resp, err := s.client.GetSignaturesForAddressWithOpts(ctx, address, opts)
+	resp, err := c.client.GetSignaturesForAddressWithOpts(ctx, pubkey, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get signatures for address %s: %w", address.String(), err)
+		return nil, fmt.Errorf("failed to get signatures for address %s: %w", pubkey.String(), err)
 	}
 
-	return resp, nil
+	results := make([]SignatureInfo, 0, len(resp))
+	for _, sig := range resp {
+		results = append(results, SignatureInfo{
+			Signature: sig.Signature.String(),
+			HasError:  sig.Err != nil,
+		})
+	}
+
+	return results, nil
 }
 
 // GetClient returns the underlying RPC client for direct access when needed
-func (s *SolanaRPCService) GetClient() *rpc.Client {
-	return s.client
+func (c *RPCClient) GetClient() *rpc.Client {
+	return c.client
 }
