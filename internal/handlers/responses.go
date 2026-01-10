@@ -3,6 +3,7 @@ package handlers
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
@@ -285,6 +286,14 @@ type SubscriptionEventItem struct {
 
 // -------------------------------- Payment Method Responses --------------------------------
 
+// SubscriptionSummary represents a minimal subscription for payment method responses
+type SubscriptionSummary struct {
+	ID          string    `json:"id"`
+	DisplayName string    `json:"display_name"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // PaymentMethodResponse represents a Stripe-style payment method (card)
 type PaymentMethodResponse struct {
 	ID             string                       `json:"id"`                 // pm_xxx
@@ -299,7 +308,7 @@ type PaymentMethodResponse struct {
 	IsActive       bool                         `json:"is_active"` // legacy field; mirrors livemode/active
 	Created        int64                        `json:"created"`   // Unix epoch seconds
 	FailureReason  *string                      `json:"failure_reason,omitempty"`
-	Subscriptions  []*models.Subscription       `json:"subscriptions,omitempty"`
+	Subscriptions  []SubscriptionSummary        `json:"subscriptions,omitempty"`
 }
 
 type PaymentMethodBillingDetails struct {
@@ -338,6 +347,20 @@ func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
 		}
 	}
 
+	// Compose subscription summaries
+	var subs []SubscriptionSummary
+	for _, s := range pm.Subscriptions {
+		summary := SubscriptionSummary{
+			ID:        s.ID.String(),
+			CreatedAt: s.CreatedAt,
+		}
+		if s.Product != nil {
+			summary.DisplayName = s.Product.DisplayName
+			summary.Description = s.Product.Description
+		}
+		subs = append(subs, summary)
+	}
+
 	return PaymentMethodResponse{
 		ID:            api.FormatPaymentMethodID(pm.ID),
 		Object:        "payment_method",
@@ -348,7 +371,7 @@ func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
 		Created:       api.ToUnix(pm.CreatedAt),
 		Metadata:      map[string]string{},
 		FailureReason: pm.FailureReason,
-		Subscriptions: pm.Subscriptions,
+		Subscriptions: subs,
 	}
 }
 
