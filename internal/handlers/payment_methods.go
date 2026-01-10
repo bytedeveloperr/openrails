@@ -295,8 +295,8 @@ func DeletePaymentMethod(r *Request) {
 				"user_id":             user.ID,
 				"subscription_id":     s.ID,
 				"subscription_status": s.Status,
-			}).Warn("Cannot delete payment method linked to active or past_due subscription")
-			r.ErrorJSON(http.StatusConflict, "Cannot delete payment method linked to active or past_due subscription")
+			}).Warn("Cannot delete payment method linked to active or pending subscription")
+			r.ErrorJSON(http.StatusConflict, "Cannot delete payment method linked to active or pending subscription")
 			return
 		}
 	}
