@@ -288,6 +288,19 @@ func DeletePaymentMethod(r *Request) {
 		}
 	}
 
+	for _, s := range paymentMethod.Subscriptions {
+		if s.Status == "active" || s.Status == "pending" {
+			log.WithFields(log.Fields{
+				"payment_method_id":   id,
+				"user_id":             user.ID,
+				"subscription_id":     s.ID,
+				"subscription_status": s.Status,
+			}).Warn("Cannot delete payment method linked to active or past_due subscription")
+			r.ErrorJSON(http.StatusConflict, "Cannot delete payment method linked to active or past_due subscription")
+			return
+		}
+	}
+
 	// Perform the deletion
 	if err := r.State.PaymentMethodService.Delete(r.Request.Context(), id); err != nil {
 		if errors.Is(err, services.ErrPaymentMethodNotFound) {

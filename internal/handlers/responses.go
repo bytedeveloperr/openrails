@@ -51,16 +51,15 @@ func PaymentToAPI(p *models.Payment, refunds []*models.Payment) api.PaymentObjec
 	// Calculate refund totals
 	var amountRefunded int64
 	var refundObjects []api.PaymentObject
-	if refunds != nil {
-		for _, r := range refunds {
-			// Refunds have negative amounts, so we negate to get positive refund amount
-			if r.Amount < 0 {
-				amountRefunded += -r.Amount
-			} else {
-				amountRefunded += r.Amount
-			}
-			refundObjects = append(refundObjects, PaymentToAPI(r, nil))
+
+	for _, r := range refunds {
+		// Refunds have negative amounts, so we negate to get positive refund amount
+		if r.Amount < 0 {
+			amountRefunded += -r.Amount
+		} else {
+			amountRefunded += r.Amount
 		}
+		refundObjects = append(refundObjects, PaymentToAPI(r, nil))
 	}
 
 	status := "succeeded"
@@ -331,7 +330,6 @@ func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
 		Brand: pm.CardType,
 		Last4: pm.LastFour,
 	}
-
 	if pm.ExpiryDate != nil {
 		if month, year, ok := parseExpiry(*pm.ExpiryDate); ok {
 			card.ExpMonth = &month
@@ -372,31 +370,16 @@ func parseExpiry(exp string) (int, int, bool) {
 		sep = "-"
 	}
 	parts := strings.Split(exp, sep)
-	if len(parts) == 2 {
-		month, err1 := strconv.Atoi(parts[0])
-		year, err2 := strconv.Atoi(parts[1])
-		if err1 != nil || err2 != nil {
-			return 0, 0, false
-		}
-		if year < 100 {
-			year += 2000
-		}
-		return month, year, true
+	if len(parts) != 2 {
+		return 0, 0, false
 	}
-	// Support MMYY or MMYYYY (e.g., 1028 or 102028)
-	if len(parts) == 1 {
-		raw := parts[0]
-		if len(raw) == 4 || len(raw) == 6 {
-			month, err1 := strconv.Atoi(raw[:2])
-			year, err2 := strconv.Atoi(raw[2:])
-			if err1 != nil || err2 != nil {
-				return 0, 0, false
-			}
-			if len(raw) == 4 && year < 100 {
-				year += 2000
-			}
-			return month, year, true
-		}
+	month, err1 := strconv.Atoi(parts[0])
+	year, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
 	}
-	return 0, 0, false
+	if year < 100 {
+		year += 2000
+	}
+	return month, year, true
 }

@@ -44,7 +44,10 @@ func (r *PaymentMethodRepo) Create(ctx context.Context, m *models.PaymentMethod)
 
 func (r *PaymentMethodRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
-	err := r.db.GetDB().NewSelect().Model(pm).Where("pm.id = ?", id).Scan(ctx)
+	err := r.db.GetDB().NewSelect().Model(pm).
+		Where("pm.id = ?", id).
+		Relation("Subscription").
+		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("payment method %s: %w", id, ErrPaymentMethodNotFound)
