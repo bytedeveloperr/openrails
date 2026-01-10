@@ -299,6 +299,7 @@ type PaymentMethodResponse struct {
 	IsActive       bool                         `json:"is_active"` // legacy field; mirrors livemode/active
 	Created        int64                        `json:"created"`   // Unix epoch seconds
 	FailureReason  *string                      `json:"failure_reason,omitempty"`
+	Subscriptions  []*models.Subscription       `json:"subscriptions,omitempty"`
 }
 
 type PaymentMethodBillingDetails struct {
@@ -347,6 +348,7 @@ func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
 		Created:       api.ToUnix(pm.CreatedAt),
 		Metadata:      map[string]string{},
 		FailureReason: pm.FailureReason,
+		Subscriptions: pm.Subscriptions,
 	}
 }
 

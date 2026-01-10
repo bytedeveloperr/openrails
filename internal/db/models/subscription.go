@@ -69,6 +69,9 @@ type Subscription struct {
 	Price         *Price         `bun:"rel:belongs-to,join:price_id=id" json:"price,omitempty"`
 	PaymentMethod *PaymentMethod `bun:"rel:belongs-to,join:payment_method_id=id" json:"payment_method,omitempty"`
 
+	// Product relation for description
+	Product *Product `bun:"rel:belongs-to,join:product_id=id" json:"product,omitempty"`
+
 	Metadata json.RawMessage `bun:"gateway_response,type:jsonb,nullzero" json:"gateway_response,omitempty"` // Renamed from GatewayResponse - stores arbitrary subscription metadata
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
