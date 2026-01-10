@@ -7,6 +7,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
+	log "github.com/sirupsen/logrus"
 )
 
 // CreateCheckoutSession handles POST /v1/checkout
@@ -52,6 +53,7 @@ func CreateCheckoutSession(r *Request) {
 
 	resp, err := r.State.CheckoutSessionService.CreateSession(r.Request.Context(), svcReq, user)
 	if err != nil {
+		log.WithError(err).Error("Failed to create checkout session")
 		writeCheckoutSessionError(r, err)
 		return
 	}

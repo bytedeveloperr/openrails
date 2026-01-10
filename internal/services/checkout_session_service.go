@@ -235,7 +235,7 @@ func (s *CheckoutSessionService) createSessionWithValidation(ctx context.Context
 	}
 
 	if err := s.validatePayment(ctx, processor, &req.Payment, user); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error validating payment: %s", err)
 	}
 
 	now := s.now()
@@ -259,6 +259,7 @@ func (s *CheckoutSessionService) createSessionWithValidation(ctx context.Context
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
+
 	if strings.TrimSpace(req.IdempotencyKey) != "" {
 		session.IdempotencyKey = stringPtr(strings.TrimSpace(req.IdempotencyKey))
 	}
