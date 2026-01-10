@@ -48,6 +48,9 @@ func CreateCheckoutSession(r *Request) {
 			State:           req.Payment.State,
 			Zip:             req.Payment.Zip,
 			Country:         req.Payment.Country,
+			LastFour:        req.Payment.LastFour,
+			CardType:        req.Payment.CardType,
+			ExpiryDate:      req.Payment.ExpiryDate,
 		},
 	}
 

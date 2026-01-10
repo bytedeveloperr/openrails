@@ -245,6 +245,10 @@ type CheckoutSessionPaymentParams struct {
 	State     string `json:"state,omitempty" binding:"omitempty,max=50"`
 	Zip       string `json:"zip,omitempty" binding:"omitempty,max=20"`
 	Country   string `json:"country,omitempty" binding:"omitempty,max=2"`
+
+	LastFour   string `json:"last_four,omitempty" binding:"omitempty"`
+	CardType   string `json:"card_type,omitempty" binding:"omitempty"`
+	ExpiryDate string `json:"expiry_date,omitempty" binding:"omitempty"`
 }
 
 type CheckoutSessionCreateBodyParams struct {

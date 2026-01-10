@@ -45,14 +45,17 @@ type CheckoutSessionPaymentRequest struct {
 	Flow        string
 	Wallet      string
 
-	Email     string
-	FirstName string
-	LastName  string
-	Address1  string
-	City      string
-	State     string
-	Zip       string
-	Country   string
+	Email      string
+	FirstName  string
+	LastName   string
+	Address1   string
+	City       string
+	State      string
+	Zip        string
+	Country    string
+	LastFour   string
+	CardType   string
+	ExpiryDate string
 }
 
 type CheckoutSessionCreateRequest struct {
@@ -259,6 +262,9 @@ func (s *CheckoutSessionService) createSessionWithValidation(ctx context.Context
 		ProcessorState:  map[string]any{},
 		CreatedAt:       now,
 		UpdatedAt:       now,
+		LastFour:        &req.Payment.LastFour,
+		CardType:        &req.Payment.CardType,
+		ExpiryDate:      &req.Payment.ExpiryDate,
 	}
 
 	if strings.TrimSpace(req.IdempotencyKey) != "" {
@@ -542,7 +548,11 @@ func (s *CheckoutSessionService) initializeCheckoutSession(ctx context.Context, 
 		State:           payment.State,
 		Zip:             payment.Zip,
 		Country:         payment.Country,
+		LastFour:        payment.LastFour,
+		CardType:        payment.CardType,
+		ExpiryDate:      payment.ExpiryDate,
 	}
+
 	if session.IdempotencyKey != nil {
 		req.IdempotencyKey = strings.TrimSpace(*session.IdempotencyKey)
 	}

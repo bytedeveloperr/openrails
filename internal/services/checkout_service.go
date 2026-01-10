@@ -41,14 +41,17 @@ type CheckoutRequest struct {
 	CheckoutSessionID string `json:"-"`
 
 	// Optional billing info (used when creating vault from payment token)
-	Email     string `json:"email,omitempty"`
-	FirstName string `json:"first_name,omitempty"`
-	LastName  string `json:"last_name,omitempty"`
-	Address1  string `json:"address1,omitempty"`
-	City      string `json:"city,omitempty"`
-	State     string `json:"state,omitempty"`
-	Zip       string `json:"zip,omitempty"`
-	Country   string `json:"country,omitempty"`
+	Email      string `json:"email,omitempty"`
+	FirstName  string `json:"first_name,omitempty"`
+	LastName   string `json:"last_name,omitempty"`
+	Address1   string `json:"address1,omitempty"`
+	City       string `json:"city,omitempty"`
+	State      string `json:"state,omitempty"`
+	Zip        string `json:"zip,omitempty"`
+	Country    string `json:"country,omitempty"`
+	LastFour   string `json:"last_four,omitempty"`
+	CardType   string `json:"card_type,omitempty"`
+	ExpiryDate string `json:"expiry_date,omitempty"`
 }
 
 // CheckoutResponse represents the unified checkout response
@@ -1218,6 +1221,14 @@ func (s *CheckoutService) resolveVault(ctx context.Context, req *CheckoutRequest
 		Zip:          req.Zip,
 		Country:      req.Country,
 		Email:        req.Email,
+		LastFour: func() string {
+			if len(req.LastFour) > 4 {
+				return req.LastFour[len(req.LastFour)-4:]
+			}
+			return req.LastFour
+		}(),
+		CardType:   req.CardType,
+		ExpiryDate: req.ExpiryDate,
 	})
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create payment method: %w", err)
@@ -1268,7 +1279,7 @@ func (s *CheckoutService) grantProductEntitlements(
 		_, err := s.EntitlementService.GrantWindow(
 			ctx,
 			userID,
-			entitlementName,
+			entitlementName, // "premium", // etc.
 			startAt,
 			endAt,
 			paymentMode,
@@ -1290,7 +1301,7 @@ func (s *CheckoutService) grantProductEntitlements(
 			"payment_id":  paymentID,
 			"start_at":    startAt,
 			"end_at":      endAt,
-		}).Info("granted entitlement from one-time purchase")
+		}).Info(fmt.Sprintf("granted entitlement from %s purchase", paymentMode))
 	}
 
 	return nil
