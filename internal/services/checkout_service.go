@@ -1237,7 +1237,7 @@ func (s *CheckoutService) resolveVault(ctx context.Context, req *CheckoutRequest
 	return pm.VaultID, pm, nil
 }
 
-// grantProductEntitlements grants entitlements from product spec after a one-time purchase
+// grantProductEntitlements grants entitlements from product spec after a one-time or subscriptionpurchase
 func (s *CheckoutService) grantProductEntitlements(
 	ctx context.Context,
 	userID string,
@@ -1472,7 +1472,7 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 		"entitlements":   grantedEntitlements,
 		"delayed_start":  delayedStart,
 		"eligibility":    eligibility.Status,
-	}).Info("registered one-time purchase")
+	}).Info("registered purchase") // one-time
 
 	return &RegisterPurchaseResponse{
 		PaymentID:    paymentID,
