@@ -11,7 +11,7 @@ func (s *Server) registerAdminRoutes() {
 	// Now they're unified on the main server with proper JWT-based authorization.
 	admin := s.publicHandler.Group("/v1/admin")
 	admin.Use(s.authProvider.Required())
-	admin.Use(authpolicy.AdminRequired())
+	admin.Use(authpolicy.AdminRequired(s.runtime.DB.GetDB()))
 
 	// Subscription management
 	admin.GET("/subscriptions", s.wrap(handlers.GetAdminSubscriptions))

@@ -73,9 +73,9 @@ type SubscriptionItemObject struct {
 
 // InvoiceObject represents an invoice (simplified for now)
 type InvoiceObject struct {
-	ID            string               `json:"id"`
-	Object        string               `json:"object"` // Always "invoice"
-	Status        string               `json:"status"`
+	ID     string `json:"id"`
+	Object string `json:"object"` // Always "invoice"
+	Status string `json:"status"`
 }
 
 // NextActionObject describes the next action the user must take

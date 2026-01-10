@@ -24,8 +24,8 @@ type SolanaTransaction struct {
 	TokenMint string `bun:",notnull" json:"token_mint"` // Token mint address
 
 	// Addresses
-	FromAddress string     `bun:",notnull" json:"from_address"` // Payer address
-	ToAddress   string     `bun:",notnull" json:"to_address"`   // Recipient address
+	FromAddress string `bun:",notnull" json:"from_address"` // Payer address
+	ToAddress   string `bun:",notnull" json:"to_address"`   // Recipient address
 
 	// Product reference
 	ProductID *uuid.UUID `bun:",type:uuid" json:"product_id,omitempty"`
