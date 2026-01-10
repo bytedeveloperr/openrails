@@ -798,6 +798,20 @@ func (s *CheckoutService) processNMISubscription(
 		message = fmt.Sprintf("Subscription scheduled to start on %s", delayedStart.Format("2006-01-02"))
 	}
 
+	_, err = s.RegisterPurchase(ctx, &RegisterPurchaseRequest{
+		UserID:         user.ID,
+		PriceID:        price.ID,
+		Processor:      "mobius",
+		TransactionID:  resp.TransactionID,
+		Amount:         price.Amount,
+		Currency:       price.Currency,
+		SubscriptionID: &subscriptionID,
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to register purchase: %w", err)
+	}
+
 	return &CheckoutResponse{
 		Status:         statusMsg,
 		Action:         "new",
@@ -1219,6 +1233,7 @@ func (s *CheckoutService) grantProductEntitlements(
 	product *models.Product,
 	paymentID uuid.UUID,
 	coverage *CoverageInfo,
+	subscription bool,
 ) error {
 	if s.EntitlementService == nil || product.EntitlementsSpec == nil {
 		return nil
@@ -1246,15 +1261,20 @@ func (s *CheckoutService) grantProductEntitlements(
 		}
 		// If durationDays is nil or 0, endAt stays nil (indefinite)
 
+		paymentMode := models.EntitlementSourceOneOff
+		if subscription {
+			paymentMode = models.EntitlementSourceSubscription
+		}
 		_, err := s.EntitlementService.GrantWindow(
 			ctx,
 			userID,
 			entitlementName,
 			startAt,
 			endAt,
-			models.EntitlementSourceOneOff,
+			paymentMode,
 			&paymentID,
 		)
+
 		if err != nil {
 			log.WithError(err).WithFields(log.Fields{
 				"user_id":     userID,
@@ -1416,7 +1436,7 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 
 	// Grant entitlements
 	var grantedEntitlements []string
-	if err := s.grantProductEntitlements(ctx, req.UserID, product, paymentID, coverage); err != nil {
+	if err := s.grantProductEntitlements(ctx, req.UserID, product, paymentID, coverage, req.SubscriptionID != nil && req.SubscriptionID.String() != ""); err != nil {
 		log.WithError(err).WithField("payment_id", paymentID).Error("failed to grant entitlements after payment")
 		// Don't fail - payment record was created successfully
 	} else if product.EntitlementsSpec != nil {
