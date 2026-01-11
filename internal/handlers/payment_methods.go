@@ -73,6 +73,15 @@ func CreatePaymentMethod(r *Request) {
 	pm, err := r.State.VaultService.CreateVault(ctx, user, createReq)
 	if err != nil {
 		log.WithError(err).WithField("user_id", user.ID).Error("Failed to create payment method")
+		var vaultErr *services.VaultError
+		if errors.As(err, &vaultErr) {
+			code := api.CodePaymentFailed
+			if strings.TrimSpace(vaultErr.LocalizationID) != "" {
+				code = vaultErr.LocalizationID
+			}
+			r.APIError(api.NewAPIError(http.StatusBadRequest, api.ErrorTypeCard, code, vaultErr.Error()))
+			return
+		}
 		r.ErrorJSON(http.StatusBadRequest, err.Error())
 		return
 	}

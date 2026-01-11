@@ -1231,7 +1231,7 @@ func (s *CheckoutService) resolveVault(ctx context.Context, req *CheckoutRequest
 		ExpiryDate: req.ExpiryDate,
 	})
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to create payment method: %w", err)
+		return "", nil, err
 	}
 
 	return pm.VaultID, pm, nil
