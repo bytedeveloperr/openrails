@@ -801,15 +801,17 @@ func (s *CheckoutService) processNMISubscription(
 		message = fmt.Sprintf("Subscription scheduled to start on %s", delayedStart.Format("2006-01-02"))
 	}
 
-	_, err = s.RegisterPurchase(ctx, &RegisterPurchaseRequest{
-		UserID:         user.ID,
-		PriceID:        price.ID,
-		Processor:      "mobius",
-		TransactionID:  resp.TransactionID,
-		Amount:         price.Amount,
-		Currency:       price.Currency,
-		SubscriptionID: &subscriptionID,
-	})
+	if delayedStart == nil {
+		_, err = s.RegisterPurchase(ctx, &RegisterPurchaseRequest{
+			UserID:         user.ID,
+			PriceID:        price.ID,
+			Processor:      "mobius",
+			TransactionID:  resp.TransactionID,
+			Amount:         price.Amount,
+			Currency:       price.Currency,
+			SubscriptionID: &subscriptionID,
+		})
+	}
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to register purchase: %w", err)
