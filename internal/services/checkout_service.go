@@ -733,14 +733,23 @@ func (s *CheckoutService) processNMISubscription(
 	// Create subscription with NMI
 	resp, err := client.AddRecurringSubscription(params)
 	if err != nil {
+		wrappedErr := fmt.Errorf("failed to create subscription: %w", err)
+		var nmiErr *nmi.CustomerVaultError
+		if errors.As(err, &nmiErr) {
+			wrappedErr = &VaultError{
+				Err:            wrappedErr,
+				LocalizationID: nmiErr.LocalizationID,
+				Message:        wrappedErr.Error(),
+			}
+		}
 		// Cleanup vault if we created it
 		if createdPaymentMethod != nil && s.VaultService != nil {
 			if cleanupErr := s.VaultService.DeleteVault(ctx, createdPaymentMethod); cleanupErr != nil {
 				log.WithError(cleanupErr).WithField("vault_id", customerVaultID).Warn("failed to cleanup payment method after subscription error")
 			}
 		}
-		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
-		return nil, fmt.Errorf("failed to create subscription: %w", err)
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, wrappedErr)
+		return nil, wrappedErr
 	}
 
 	// Determine initial status
@@ -765,6 +774,7 @@ func (s *CheckoutService) processNMISubscription(
 		Status:                  status,
 		Processor:               models.ProcessorMobius,
 		UserEmail:               emailPtr,
+		StartedAt:               *timePtr(time.Now()),
 	}
 
 	if createdPaymentMethod != nil {
@@ -802,6 +812,8 @@ func (s *CheckoutService) processNMISubscription(
 	}
 
 	if delayedStart == nil {
+		// Leaving RegisterPurchase for immediate starts only,
+		// TODO - Test in production to see when NMI charges the card.
 		_, err = s.RegisterPurchase(ctx, &RegisterPurchaseRequest{
 			UserID:         user.ID,
 			PriceID:        price.ID,
@@ -1663,6 +1675,14 @@ func (s *CheckoutService) processUpgrade(
 	resp, err := client.AddRecurringSubscription(params)
 	if err != nil {
 		subErr := fmt.Errorf("failed to create upgraded subscription: %w", err)
+		var nmiErr *nmi.CustomerVaultError
+		if errors.As(err, &nmiErr) {
+			subErr = &VaultError{
+				Err:            subErr,
+				LocalizationID: nmiErr.LocalizationID,
+				Message:        subErr.Error(),
+			}
+		}
 		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, subErr)
 		return nil, subErr
 	}

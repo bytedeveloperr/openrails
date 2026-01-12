@@ -360,7 +360,7 @@ func newCustomerVaultError(rawResponse string, output url.Values) error {
 	}
 	message = fmt.Sprintf("failed to create customer vault: %s", message)
 
-	responseCode, _ := strconv.Atoi(output.Get("response_code"))
+	responseCode := parseMobiusResponseCode(output)
 
 	return &CustomerVaultError{
 		Message:        message,
@@ -369,6 +369,40 @@ func newCustomerVaultError(rawResponse string, output url.Values) error {
 		Detail:         mobiusResponseDetail(responseCode),
 		RawResponse:    rawResponse,
 	}
+}
+
+func newAddSubscriptionError(rawResponse string, output url.Values) error {
+	message := output.Get("response_message")
+	if message == "" {
+		message = output.Get("responsetext")
+	}
+	if message == "" {
+		message = rawResponse
+	}
+	message = fmt.Sprintf("failed to add subscription: %s", message)
+
+	responseCode := parseMobiusResponseCode(output)
+
+	return &CustomerVaultError{
+		Message:        message,
+		ResponseCode:   responseCode,
+		LocalizationID: mobiusLocalizationID(responseCode),
+		Detail:         mobiusResponseDetail(responseCode),
+		RawResponse:    rawResponse,
+	}
+}
+
+func parseMobiusResponseCode(output url.Values) int {
+	codeStr := strings.TrimSpace(output.Get("response_code"))
+	if codeStr == "2" {
+		codeStr = "200"
+	}
+
+	code, _ := strconv.Atoi(codeStr)
+	if code == 0 && strings.TrimSpace(output.Get("response")) == "2" {
+		return 200
+	}
+	return code
 }
 
 func (c *NMIClient) CreateCustomerVault(data CreateCustomerVaultData) (*CreateCustomerVaultResponse, error) {
@@ -684,7 +718,7 @@ func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSub
 	}
 
 	if output.Get("response") != "1" {
-		return nil, fmt.Errorf("failed to add subscription: %s", output.Get("responsetext"))
+		return nil, newAddSubscriptionError(response, output)
 	}
 
 	return &AddSubscriptionResponse{
