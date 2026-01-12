@@ -2,14 +2,18 @@ openapi: 3.0.3
 info:
   title: Doujins Billing API
   version: 1.0.0
-  description: |
-    HTTP surface for the Doujins billing service. The spec describes the currently
-    deployed endpoints (public catalog, authenticated user flows, admin APIs, processor webhooks,
+  description: >
+    HTTP surface for the Doujins billing service. The spec describes the
+    currently
+
+    deployed endpoints (public catalog, authenticated user flows, admin APIs,
+    processor webhooks,
+
     and the internal service-to-service entitlement lookup).
 servers:
-  - url: https://billing.doujins.com
+  - url: 'https://billing.doujins.com'
     description: Primary public API
-  - url: https://billing-internal.doujins.com
+  - url: 'https://billing-internal.doujins.com'
     description: Private service API (port 8060)
 components:
   securitySchemes:
@@ -72,7 +76,9 @@ components:
           example: usd
         type:
           type: string
-          enum: [one_time, recurring]
+          enum:
+            - one_time
+            - recurring
         recurring:
           $ref: '#/components/schemas/RecurringInfo'
         product:
@@ -168,7 +174,11 @@ components:
       properties:
         interval:
           type: string
-          enum: [day, week, month, year]
+          enum:
+            - day
+            - week
+            - month
+            - year
         interval_count:
           type: integer
     ListResponseProducts:
@@ -214,10 +224,17 @@ components:
           type: string
         status:
           type: string
-          enum: [pending, active, past_due, cancelled]
+          enum:
+            - pending
+            - active
+            - past_due
+            - cancelled
         processor:
           type: string
-          enum: [mobius, ccbill, solana]
+          enum:
+            - mobius
+            - ccbill
+            - solana
         current_period_starts_at:
           type: string
           format: date-time
@@ -274,7 +291,11 @@ components:
           nullable: true
         status:
           type: string
-          enum: [pending, active, past_due, cancelled]
+          enum:
+            - pending
+            - active
+            - past_due
+            - cancelled
         started_at:
           type: string
           format: date-time
@@ -465,6 +486,22 @@ components:
         failure_reason:
           type: string
           nullable: true
+        subscriptions:
+          type: array
+          items:
+            $ref: '#/components/schemas/MethodSubscriptionSummary'
+    MethodSubscriptionSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        display_name:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
     PaymentMethodBillingDetails:
       type: object
       properties:
@@ -696,7 +733,11 @@ components:
           format: date-time
     CreditWithdrawRequest:
       type: object
-      required: [user_id, credit_type, amount, source]
+      required:
+        - user_id
+        - credit_type
+        - amount
+        - source
       properties:
         user_id:
           type: string
@@ -711,7 +752,13 @@ components:
           nullable: true
     CreditHoldRequest:
       type: object
-      required: [user_id, credit_type, amount, source, source_id, expires_at]
+      required:
+        - user_id
+        - credit_type
+        - amount
+        - source
+        - source_id
+        - expires_at
       properties:
         user_id:
           type: string
@@ -728,7 +775,8 @@ components:
           format: int64
     CreditCaptureRequest:
       type: object
-      required: [amount]
+      required:
+        - amount
       properties:
         amount:
           type: integer
@@ -782,7 +830,9 @@ components:
           type: boolean
     ExtendSubscriptionRequest:
       type: object
-      required: [subscription_id, duration]
+      required:
+        - subscription_id
+        - duration
       properties:
         subscription_id:
           type: string
@@ -796,7 +846,9 @@ components:
           type: string
     RefundRequest:
       type: object
-      required: [amount, refund_transaction_id]
+      required:
+        - amount
+        - refund_transaction_id
       properties:
         amount:
           type: integer
@@ -804,7 +856,8 @@ components:
           type: string
     ChangeSubscriptionRequest:
       type: object
-      required: [price_id]
+      required:
+        - price_id
       properties:
         price_id:
           type: string
@@ -822,7 +875,8 @@ components:
           nullable: true
     GrantEntitlementRequest:
       type: object
-      required: [entitlement]
+      required:
+        - entitlement
       properties:
         entitlement:
           type: string
@@ -831,7 +885,9 @@ components:
           nullable: true
     AdminGrantRequest:
       type: object
-      required: [price_id, reason]
+      required:
+        - price_id
+        - reason
       properties:
         price_id:
           type: string
@@ -947,11 +1003,16 @@ components:
                 $ref: '#/components/schemas/PaymentRecord'
     CheckoutSessionPaymentRequest:
       type: object
-      required: [processor]
+      required:
+        - processor
       properties:
         processor:
           type: string
-          enum: [mobius, ccbill, solana, stripe]
+          enum:
+            - mobius
+            - ccbill
+            - solana
+            - stripe
         payment_method_id:
           type: string
         payment_token:
@@ -960,7 +1021,9 @@ components:
           type: string
         flow:
           type: string
-          enum: [transfer_request, transaction_request]
+          enum:
+            - transfer_request
+            - transaction_request
         wallet:
           type: string
         email:
@@ -980,12 +1043,22 @@ components:
           type: string
         country:
           type: string
+        last_four:
+          type: string
+        card_type:
+          type: string
+        expiry_date:
+          type: string
     CheckoutSessionPaymentResponse:
       type: object
       properties:
         processor:
           type: string
-          enum: [mobius, ccbill, solana, stripe]
+          enum:
+            - mobius
+            - ccbill
+            - solana
+            - stripe
         reference:
           type: string
         transaction_url:
@@ -998,13 +1071,17 @@ components:
           type: string
     CheckoutSessionCreateRequest:
       type: object
-      required: [price_id, payment]
+      required:
+        - price_id
+        - payment
       properties:
         price_id:
           type: string
         mode:
           type: string
-          enum: [one_off, subscription]
+          enum:
+            - one_off
+            - subscription
         payment:
           $ref: '#/components/schemas/CheckoutSessionPaymentRequest'
         metadata:
@@ -1013,15 +1090,19 @@ components:
             type: string
     CheckoutSessionConfirmRequest:
       type: object
-      required: [payment]
+      required:
+        - payment
       properties:
         payment:
           type: object
-          required: [processor, signature]
+          required:
+            - processor
+            - signature
           properties:
             processor:
               type: string
-              enum: [solana]
+              enum:
+                - solana
             signature:
               type: string
             wallet:
@@ -1038,7 +1119,11 @@ components:
       properties:
         type:
           type: string
-          enum: [redirect_to_url, solana_qr, solana_transaction, none]
+          enum:
+            - redirect_to_url
+            - solana_qr
+            - solana_transaction
+            - none
         redirect_to_url:
           $ref: '#/components/schemas/CheckoutSessionRedirectToURL'
     CheckoutSessionResponse:
@@ -1073,7 +1158,9 @@ components:
             type: string
     UpdateSubscriptionPaymentMethodRequest:
       type: object
-      required: [subscription_id, payment_method_id]
+      required:
+        - subscription_id
+        - payment_method_id
       properties:
         subscription_id:
           type: string
@@ -1087,7 +1174,14 @@ components:
           maxLength: 500
     CreatePaymentMethodRequest:
       type: object
-      required: [payment_token, first_name, last_name, address1, city, zip, country]
+      required:
+        - payment_token
+        - first_name
+        - last_name
+        - address1
+        - city
+        - zip
+        - country
       properties:
         payment_token:
           type: string
@@ -1116,9 +1210,16 @@ components:
           type: string
         provider:
           type: string
+        last_four:
+          type: string
+        card_type:
+          type: string
+        expiry_date:
+          type: string
     UpdatePaymentMethodRequest:
       type: object
-      required: [payment_token]
+      required:
+        - payment_token
       properties:
         payment_token:
           type: string
@@ -1495,7 +1596,9 @@ paths:
           name: type
           schema:
             type: string
-            enum: [recurring, one_time]
+            enum:
+              - recurring
+              - one_time
         - in: query
           name: limit
           schema:
@@ -1537,7 +1640,7 @@ paths:
                           type: integer
                         price:
                           type: number
-  /v1/webhooks/{provider}:
+  '/v1/webhooks/{provider}':
     post:
       summary: Processor webhook receiver
       parameters:
@@ -1546,7 +1649,10 @@ paths:
           required: true
           schema:
             type: string
-            enum: [ccbill, mobius, stripe]
+            enum:
+              - ccbill
+              - mobius
+              - stripe
       responses:
         '200':
           description: Webhook accepted
@@ -1612,7 +1718,7 @@ paths:
           description: Authentication required
         '409':
           description: Checkout session conflict or pending
-  /v1/checkout/{id}:
+  '/v1/checkout/{id}':
     get:
       summary: Retrieve checkout session
       security:
@@ -1638,7 +1744,7 @@ paths:
           description: Access denied
         '404':
           description: Checkout session not found
-  /v1/checkout/{id}/confirm:
+  '/v1/checkout/{id}/confirm':
     post:
       summary: Confirm checkout session
       security:
@@ -1920,7 +2026,7 @@ paths:
           description: Validation error
         '401':
           description: Authentication required
-  /v1/me/payment-methods/{id}:
+  '/v1/me/payment-methods/{id}':
     put:
       summary: Update payment method
       security:
@@ -1967,7 +2073,7 @@ paths:
                 $ref: '#/components/schemas/PaymentMethodActionResponse'
         '401':
           description: Authentication required
-  /v1/me/payment-methods/{id}/activate:
+  '/v1/me/payment-methods/{id}/activate':
     put:
       summary: Reactivate payment method
       security:
@@ -2049,7 +2155,7 @@ paths:
                     type: integer
         '401':
           description: Authentication required
-  /v1/me/notifications/{id}/read:
+  '/v1/me/notifications/{id}/read':
     post:
       summary: Mark notification read
       security:
@@ -2085,7 +2191,7 @@ paths:
                   $ref: '#/components/schemas/CreditBalance'
         '401':
           description: Authentication required
-  /v1/me/credits/{type}:
+  '/v1/me/credits/{type}':
     get:
       summary: Get credit balance by type
       security:
@@ -2107,7 +2213,7 @@ paths:
           description: Authentication required
         '404':
           description: Credit type not found
-  /v1/me/credits/{type}/transactions:
+  '/v1/me/credits/{type}/transactions':
     get:
       summary: List credit transactions
       security:
@@ -2201,7 +2307,7 @@ paths:
                     type: string
         '403':
           description: Admin role required
-  /v1/admin/subscriptions/{id}:
+  '/v1/admin/subscriptions/{id}':
     get:
       summary: Admin subscription detail
       security:
@@ -2221,7 +2327,7 @@ paths:
                 $ref: '#/components/schemas/AdminSubscription'
         '403':
           description: Admin role required
-  /v1/admin/subscriptions/{id}/extend:
+  '/v1/admin/subscriptions/{id}/extend':
     put:
       summary: Extend subscription
       security:
@@ -2239,7 +2345,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageResponse'
-  /v1/admin/subscriptions/{id}/cancel:
+  '/v1/admin/subscriptions/{id}/cancel':
     post:
       summary: Cancel subscription (admin)
       security:
@@ -2287,7 +2393,7 @@ paths:
                     type: boolean
                   url:
                     type: string
-  /v1/admin/payments/{id}:
+  '/v1/admin/payments/{id}':
     get:
       summary: Payment detail (admin)
       security:
@@ -2305,7 +2411,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaymentObject'
-  /v1/admin/payments/{id}/refund:
+  '/v1/admin/payments/{id}/refund':
     post:
       summary: Create refund
       security:
@@ -2323,7 +2429,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PaymentObject'
-  /v1/admin/users/{user_id}:
+  '/v1/admin/users/{user_id}':
     get:
       summary: Get billing profile for a user
       security:
@@ -2341,7 +2447,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminUserBillingProfile'
-  /v1/admin/users/{user_id}/entitlements:
+  '/v1/admin/users/{user_id}/entitlements':
     get:
       summary: List entitlements for a user
       security:
@@ -2383,7 +2489,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Entitlement'
-  /v1/admin/users/{user_id}/entitlements/{id}:
+  '/v1/admin/users/{user_id}/entitlements/{id}':
     delete:
       summary: Revoke entitlement
       security:
@@ -2406,7 +2512,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageResponse'
-  /v1/admin/users/{user_id}/grants:
+  '/v1/admin/users/{user_id}/grants':
     get:
       summary: List admin grants for a user
       security:
@@ -2453,7 +2559,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminGrantResponse'
-  /v1/admin/grants/{id}:
+  '/v1/admin/grants/{id}':
     get:
       summary: Fetch grant detail
       security:
@@ -2491,7 +2597,7 @@ paths:
           name: period
           schema:
             type: string
-            description: Optional shorthand period (7d, 30d, month, quarter)
+            description: 'Optional shorthand period (7d, 30d, month, quarter)'
         - in: query
           name: currency
           schema:
@@ -2525,7 +2631,10 @@ paths:
           name: granularity
           schema:
             type: string
-            enum: [day, week, month]
+            enum:
+              - day
+              - week
+              - month
         - in: query
           name: currency
           schema:
@@ -2557,7 +2666,9 @@ paths:
           name: granularity
           schema:
             type: string
-            enum: [day, month]
+            enum:
+              - day
+              - month
         - in: query
           name: currency
           schema:
@@ -2623,7 +2734,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AdminChurnResponse'
-  /v1/users/{user_id}/entitlements:
+  '/v1/users/{user_id}/entitlements':
     get:
       summary: Service-to-service entitlement lookup
       security:
@@ -2650,7 +2761,7 @@ paths:
                   $ref: '#/components/schemas/ServiceEntitlementRecord'
         '401':
           description: API key missing or invalid
-  /v1/users/{user_id}/credits:
+  '/v1/users/{user_id}/credits':
     get:
       summary: Service credit balance lookup
       security:
@@ -2692,10 +2803,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CreditTransaction'
-        '402':
-          description: Insufficient credits
         '401':
           description: API key missing or invalid
+        '402':
+          description: Insufficient credits
   /v1/credits/hold:
     post:
       summary: Create credit hold (service)
@@ -2714,11 +2825,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CreditHold'
-        '402':
-          description: Insufficient credits
         '401':
           description: API key missing or invalid
-  /v1/credits/hold/{id}/capture:
+        '402':
+          description: Insufficient credits
+  '/v1/credits/hold/{id}/capture':
     post:
       summary: Capture credit hold (service)
       security:
@@ -2742,11 +2853,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CreditTransaction'
-        '402':
-          description: Insufficient credits
         '401':
           description: API key missing or invalid
-  /v1/credits/hold/{id}/release:
+        '402':
+          description: Insufficient credits
+  '/v1/credits/hold/{id}/release':
     post:
       summary: Release credit hold (service)
       security:

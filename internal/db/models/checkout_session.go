@@ -56,5 +56,8 @@ type CheckoutSession struct {
 	CreatedAt      time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt      time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`
 
-	Price *Price `bun:"rel:belongs-to,join:price_id=id" json:"price,omitempty"`
+	Price      *Price  `bun:"rel:belongs-to,join:price_id=id" json:"price,omitempty"`
+	LastFour   *string `bun:"-" json:"last_four,omitempty"`
+	CardType   *string `bun:"-" json:"card_type,omitempty"`
+	ExpiryDate *string `bun:"-" json:"expiry_date,omitempty"`
 }

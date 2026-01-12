@@ -48,6 +48,9 @@ func CreateCheckoutSession(r *Request) {
 			State:           req.Payment.State,
 			Zip:             req.Payment.Zip,
 			Country:         req.Payment.Country,
+			LastFour:        req.Payment.LastFour,
+			CardType:        req.Payment.CardType,
+			ExpiryDate:      req.Payment.ExpiryDate,
 		},
 	}
 
@@ -141,6 +144,16 @@ func ConfirmCheckoutSession(r *Request) {
 }
 
 func writeCheckoutSessionError(r *Request, err error) {
+	var vaultErr *services.VaultError
+	if errors.As(err, &vaultErr) {
+		code := api.CodePaymentFailed
+		if strings.TrimSpace(vaultErr.LocalizationID) != "" {
+			code = vaultErr.LocalizationID
+		}
+		r.APIError(api.NewAPIError(http.StatusBadRequest, api.ErrorTypeCard, code, vaultErr.Error()))
+		return
+	}
+
 	switch {
 	case errors.Is(err, services.ErrCheckoutSessionNotFound):
 		r.ErrorJSON(http.StatusNotFound, err.Error())

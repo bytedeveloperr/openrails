@@ -133,6 +133,113 @@ type ManualRebillResponse struct {
 	ErrorMessage  string
 }
 
+type CustomerVaultError struct {
+	Message        string
+	ResponseCode   int
+	LocalizationID string
+	Detail         string
+	RawResponse    string
+}
+
+func (e *CustomerVaultError) Error() string {
+	extras := []string{}
+	if e.Detail != "" {
+		extras = append(extras, e.Detail)
+	}
+	if e.ResponseCode != 0 {
+		extras = append(extras, fmt.Sprintf("code: %d", e.ResponseCode))
+	}
+	if e.LocalizationID != "" {
+		extras = append(extras, fmt.Sprintf("localization_id: %s", e.LocalizationID))
+	}
+	if len(extras) == 0 {
+		return e.Message
+	}
+	return fmt.Sprintf("%s (%s)", e.Message, strings.Join(extras, ", "))
+}
+
+var mobiusResponseMessages = map[int]string{
+	100: "Transaction was approved.",
+	200: "Transaction was declined by processor.",
+	201: "Do not honor.",
+	202: "Insufficient funds.",
+	203: "Over limit.",
+	204: "Transaction not allowed.",
+	220: "Incorrect payment information.",
+	221: "No such card issuer.",
+	222: "No card number on file with issuer.",
+	223: "Expired card.",
+	224: "Invalid expiration date.",
+	225: "Invalid card security code.",
+	226: "Invalid PIN.",
+	240: "Call issuer for further information.",
+	250: "Pick up card.",
+	251: "Lost card.",
+	252: "Stolen card.",
+	253: "Fraudulent card.",
+	260: "Declined with further instructions available. (See response text)",
+	261: "Declined-Stop all recurring payments.",
+	262: "Declined-Stop this recurring program.",
+	263: "Declined-Update cardholder data available.",
+	264: "Declined-Retry in a few days.",
+	300: "Transaction was rejected by gateway.",
+	400: "Transaction error returned by processor.",
+	410: "Invalid merchant configuration.",
+	411: "Merchant account is inactive.",
+	420: "Communication error.",
+	421: "Communication error with issuer.",
+	430: "Duplicate transaction at processor.",
+	440: "Processor format error.",
+	441: "Invalid transaction information.",
+	460: "Processor feature not available.",
+	461: "Unsupported card type.",
+}
+
+var mobiusLocalizationIDs = map[int]string{
+	100: "transaction_was_approved",
+	200: "transaction_was_declined_by_processor",
+	201: "do_not_honor",
+	202: "insufficient_funds",
+	203: "over_limit",
+	204: "transaction_not_allowed",
+	220: "incorrect_payment_information",
+	221: "no_such_card_issuer",
+	222: "no_card_number_on_file_with_issuer",
+	223: "expired_card",
+	224: "invalid_expiration_date",
+	225: "invalid_card_security_code",
+	226: "invalid_pin",
+	240: "call_issuer_for_further_information",
+	250: "pick_up_card",
+	251: "lost_card",
+	252: "stolen_card",
+	253: "fraudulent_card",
+	260: "declined_with_further_instructions_available_see_response_text",
+	261: "declined_stop_all_recurring_payments",
+	262: "declined_stop_this_recurring_program",
+	263: "declined_update_cardholder_data_available",
+	264: "declined_retry_in_a_few_days",
+	300: "transaction_was_rejected_by_gateway",
+	400: "transaction_error_returned_by_processor",
+	410: "invalid_merchant_configuration",
+	411: "merchant_account_is_inactive",
+	420: "communication_error",
+	421: "communication_error_with_issuer",
+	430: "duplicate_transaction_at_processor",
+	440: "processor_format_error",
+	441: "invalid_transaction_information",
+	460: "processor_feature_not_available",
+	461: "unsupported_card_type",
+}
+
+func mobiusLocalizationID(code int) string {
+	return mobiusLocalizationIDs[code]
+}
+
+func mobiusResponseDetail(code int) string {
+	return mobiusResponseMessages[code]
+}
+
 func resolveWebhookSecret(provider string, cfg *config.NMIProviderSettings) string {
 	upperProvider := strings.ToUpper(provider)
 	secrets := []string{
@@ -243,6 +350,61 @@ func (c *NMIClient) checkConfiguration() error {
 	return nil
 }
 
+func newCustomerVaultError(rawResponse string, output url.Values) error {
+	message := output.Get("response_message")
+	if message == "" {
+		message = output.Get("responsetext")
+	}
+	if message == "" {
+		message = rawResponse
+	}
+	message = fmt.Sprintf("failed to create customer vault: %s", message)
+
+	responseCode := parseMobiusResponseCode(output)
+
+	return &CustomerVaultError{
+		Message:        message,
+		ResponseCode:   responseCode,
+		LocalizationID: mobiusLocalizationID(responseCode),
+		Detail:         mobiusResponseDetail(responseCode),
+		RawResponse:    rawResponse,
+	}
+}
+
+func newAddSubscriptionError(rawResponse string, output url.Values) error {
+	message := output.Get("response_message")
+	if message == "" {
+		message = output.Get("responsetext")
+	}
+	if message == "" {
+		message = rawResponse
+	}
+	message = fmt.Sprintf("failed to add subscription: %s", message)
+
+	responseCode := parseMobiusResponseCode(output)
+
+	return &CustomerVaultError{
+		Message:        message,
+		ResponseCode:   responseCode,
+		LocalizationID: mobiusLocalizationID(responseCode),
+		Detail:         mobiusResponseDetail(responseCode),
+		RawResponse:    rawResponse,
+	}
+}
+
+func parseMobiusResponseCode(output url.Values) int {
+	codeStr := strings.TrimSpace(output.Get("response_code"))
+	if codeStr == "2" {
+		codeStr = "200"
+	}
+
+	code, _ := strconv.Atoi(codeStr)
+	if code == 0 && strings.TrimSpace(output.Get("response")) == "2" {
+		return 200
+	}
+	return code
+}
+
 func (c *NMIClient) CreateCustomerVault(data CreateCustomerVaultData) (*CreateCustomerVaultResponse, error) {
 	if err := c.checkConfiguration(); err != nil {
 		return nil, err
@@ -300,19 +462,13 @@ func (c *NMIClient) CreateCustomerVault(data CreateCustomerVaultData) (*CreateCu
 		return nil, err
 	}
 
-	if !strings.Contains(response, "response=1") {
-		return nil, fmt.Errorf("failed to create customer vault: %s", response)
-	}
-
 	output, err := url.ParseQuery(response)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse create customer vault response: %w", err)
 	}
 
-	log.Println("output r", output.Encode())
-
 	if output.Get("response") != "1" {
-		return nil, fmt.Errorf("failed to create customer vault: %s", output.Get("response_message"))
+		return nil, newCustomerVaultError(response, output)
 	}
 
 	vaultID := output.Get("customer_vault_id")
@@ -562,7 +718,7 @@ func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSub
 	}
 
 	if output.Get("response") != "1" {
-		return nil, fmt.Errorf("failed to add subscription: %s", output.Get("responsetext"))
+		return nil, newAddSubscriptionError(response, output)
 	}
 
 	return &AddSubscriptionResponse{

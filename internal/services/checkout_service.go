@@ -41,14 +41,17 @@ type CheckoutRequest struct {
 	CheckoutSessionID string `json:"-"`
 
 	// Optional billing info (used when creating vault from payment token)
-	Email     string `json:"email,omitempty"`
-	FirstName string `json:"first_name,omitempty"`
-	LastName  string `json:"last_name,omitempty"`
-	Address1  string `json:"address1,omitempty"`
-	City      string `json:"city,omitempty"`
-	State     string `json:"state,omitempty"`
-	Zip       string `json:"zip,omitempty"`
-	Country   string `json:"country,omitempty"`
+	Email      string `json:"email,omitempty"`
+	FirstName  string `json:"first_name,omitempty"`
+	LastName   string `json:"last_name,omitempty"`
+	Address1   string `json:"address1,omitempty"`
+	City       string `json:"city,omitempty"`
+	State      string `json:"state,omitempty"`
+	Zip        string `json:"zip,omitempty"`
+	Country    string `json:"country,omitempty"`
+	LastFour   string `json:"last_four,omitempty"`
+	CardType   string `json:"card_type,omitempty"`
+	ExpiryDate string `json:"expiry_date,omitempty"`
 }
 
 // CheckoutResponse represents the unified checkout response
@@ -730,14 +733,23 @@ func (s *CheckoutService) processNMISubscription(
 	// Create subscription with NMI
 	resp, err := client.AddRecurringSubscription(params)
 	if err != nil {
+		wrappedErr := fmt.Errorf("failed to create subscription: %w", err)
+		var nmiErr *nmi.CustomerVaultError
+		if errors.As(err, &nmiErr) {
+			wrappedErr = &VaultError{
+				Err:            wrappedErr,
+				LocalizationID: nmiErr.LocalizationID,
+				Message:        wrappedErr.Error(),
+			}
+		}
 		// Cleanup vault if we created it
 		if createdPaymentMethod != nil && s.VaultService != nil {
 			if cleanupErr := s.VaultService.DeleteVault(ctx, createdPaymentMethod); cleanupErr != nil {
 				log.WithError(cleanupErr).WithField("vault_id", customerVaultID).Warn("failed to cleanup payment method after subscription error")
 			}
 		}
-		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, err)
-		return nil, fmt.Errorf("failed to create subscription: %w", err)
+		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, wrappedErr)
+		return nil, wrappedErr
 	}
 
 	// Determine initial status
@@ -762,6 +774,7 @@ func (s *CheckoutService) processNMISubscription(
 		Status:                  status,
 		Processor:               models.ProcessorMobius,
 		UserEmail:               emailPtr,
+		StartedAt:               *timePtr(time.Now()),
 	}
 
 	if createdPaymentMethod != nil {
@@ -796,6 +809,24 @@ func (s *CheckoutService) processNMISubscription(
 	message := "Subscription created successfully"
 	if delayedStart != nil {
 		message = fmt.Sprintf("Subscription scheduled to start on %s", delayedStart.Format("2006-01-02"))
+	}
+
+	if delayedStart == nil {
+		// Leaving RegisterPurchase for immediate starts only,
+		// TODO - Test in production to see when NMI charges the card.
+		_, err = s.RegisterPurchase(ctx, &RegisterPurchaseRequest{
+			UserID:         user.ID,
+			PriceID:        price.ID,
+			Processor:      "mobius",
+			TransactionID:  resp.TransactionID,
+			Amount:         price.Amount,
+			Currency:       price.Currency,
+			SubscriptionID: &subscriptionID,
+		})
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to register purchase: %w", err)
 	}
 
 	return &CheckoutResponse{
@@ -1204,21 +1235,30 @@ func (s *CheckoutService) resolveVault(ctx context.Context, req *CheckoutRequest
 		Zip:          req.Zip,
 		Country:      req.Country,
 		Email:        req.Email,
+		LastFour: func() string {
+			if len(req.LastFour) > 4 {
+				return req.LastFour[len(req.LastFour)-4:]
+			}
+			return req.LastFour
+		}(),
+		CardType:   req.CardType,
+		ExpiryDate: req.ExpiryDate,
 	})
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to create payment method: %w", err)
+		return "", nil, err
 	}
 
 	return pm.VaultID, pm, nil
 }
 
-// grantProductEntitlements grants entitlements from product spec after a one-time purchase
+// grantProductEntitlements grants entitlements from product spec after a one-time or subscriptionpurchase
 func (s *CheckoutService) grantProductEntitlements(
 	ctx context.Context,
 	userID string,
 	product *models.Product,
 	paymentID uuid.UUID,
 	coverage *CoverageInfo,
+	subscription bool,
 ) error {
 	if s.EntitlementService == nil || product.EntitlementsSpec == nil {
 		return nil
@@ -1246,15 +1286,20 @@ func (s *CheckoutService) grantProductEntitlements(
 		}
 		// If durationDays is nil or 0, endAt stays nil (indefinite)
 
+		paymentMode := models.EntitlementSourceOneOff
+		if subscription {
+			paymentMode = models.EntitlementSourceSubscription
+		}
 		_, err := s.EntitlementService.GrantWindow(
 			ctx,
 			userID,
-			entitlementName,
+			entitlementName, // "premium", // etc.
 			startAt,
 			endAt,
-			models.EntitlementSourceOneOff,
+			paymentMode,
 			&paymentID,
 		)
+
 		if err != nil {
 			log.WithError(err).WithFields(log.Fields{
 				"user_id":     userID,
@@ -1270,7 +1315,7 @@ func (s *CheckoutService) grantProductEntitlements(
 			"payment_id":  paymentID,
 			"start_at":    startAt,
 			"end_at":      endAt,
-		}).Info("granted entitlement from one-time purchase")
+		}).Info(fmt.Sprintf("granted entitlement from %s purchase", paymentMode))
 	}
 
 	return nil
@@ -1416,7 +1461,7 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 
 	// Grant entitlements
 	var grantedEntitlements []string
-	if err := s.grantProductEntitlements(ctx, req.UserID, product, paymentID, coverage); err != nil {
+	if err := s.grantProductEntitlements(ctx, req.UserID, product, paymentID, coverage, req.SubscriptionID != nil && req.SubscriptionID.String() != ""); err != nil {
 		log.WithError(err).WithField("payment_id", paymentID).Error("failed to grant entitlements after payment")
 		// Don't fail - payment record was created successfully
 	} else if product.EntitlementsSpec != nil {
@@ -1441,7 +1486,7 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 		"entitlements":   grantedEntitlements,
 		"delayed_start":  delayedStart,
 		"eligibility":    eligibility.Status,
-	}).Info("registered one-time purchase")
+	}).Info("registered purchase") // one-time
 
 	return &RegisterPurchaseResponse{
 		PaymentID:    paymentID,
@@ -1630,6 +1675,14 @@ func (s *CheckoutService) processUpgrade(
 	resp, err := client.AddRecurringSubscription(params)
 	if err != nil {
 		subErr := fmt.Errorf("failed to create upgraded subscription: %w", err)
+		var nmiErr *nmi.CustomerVaultError
+		if errors.As(err, &nmiErr) {
+			subErr = &VaultError{
+				Err:            subErr,
+				LocalizationID: nmiErr.LocalizationID,
+				Message:        subErr.Error(),
+			}
+		}
 		_ = s.IdempotencyService.Fail(ctx, idempOp, idempotencyKey, subErr)
 		return nil, subErr
 	}

@@ -73,6 +73,15 @@ func CreatePaymentMethod(r *Request) {
 	pm, err := r.State.VaultService.CreateVault(ctx, user, createReq)
 	if err != nil {
 		log.WithError(err).WithField("user_id", user.ID).Error("Failed to create payment method")
+		var vaultErr *services.VaultError
+		if errors.As(err, &vaultErr) {
+			code := api.CodePaymentFailed
+			if strings.TrimSpace(vaultErr.LocalizationID) != "" {
+				code = vaultErr.LocalizationID
+			}
+			r.APIError(api.NewAPIError(http.StatusBadRequest, api.ErrorTypeCard, code, vaultErr.Error()))
+			return
+		}
 		r.ErrorJSON(http.StatusBadRequest, err.Error())
 		return
 	}
@@ -284,6 +293,20 @@ func DeletePaymentMethod(r *Request) {
 				"user_id":           user.ID,
 			}).Error("Failed to validate payment method ownership")
 			r.ErrorJSON(http.StatusInternalServerError, "Failed to validate payment method")
+			return
+		}
+	}
+
+	for _, s := range paymentMethod.Subscriptions {
+
+		if s.Status == "active" || s.Status == "pending" || s.Status == "past_due" {
+			log.WithFields(log.Fields{
+				"payment_method_id":   id,
+				"user_id":             user.ID,
+				"subscription_id":     s.ID,
+				"subscription_status": s.Status,
+			}).Warn("Cannot delete payment method linked to active, past_due or pending subscription")
+			r.ErrorJSON(http.StatusConflict, "Cannot delete payment method linked to active, past_due or pending subscription")
 			return
 		}
 	}

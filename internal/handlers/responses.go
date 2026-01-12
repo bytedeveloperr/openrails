@@ -3,6 +3,7 @@ package handlers
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
@@ -51,16 +52,15 @@ func PaymentToAPI(p *models.Payment, refunds []*models.Payment) api.PaymentObjec
 	// Calculate refund totals
 	var amountRefunded int64
 	var refundObjects []api.PaymentObject
-	if refunds != nil {
-		for _, r := range refunds {
-			// Refunds have negative amounts, so we negate to get positive refund amount
-			if r.Amount < 0 {
-				amountRefunded += -r.Amount
-			} else {
-				amountRefunded += r.Amount
-			}
-			refundObjects = append(refundObjects, PaymentToAPI(r, nil))
+
+	for _, r := range refunds {
+		// Refunds have negative amounts, so we negate to get positive refund amount
+		if r.Amount < 0 {
+			amountRefunded += -r.Amount
+		} else {
+			amountRefunded += r.Amount
 		}
+		refundObjects = append(refundObjects, PaymentToAPI(r, nil))
 	}
 
 	status := "succeeded"
@@ -286,6 +286,14 @@ type SubscriptionEventItem struct {
 
 // -------------------------------- Payment Method Responses --------------------------------
 
+// SubscriptionSummary represents a minimal subscription for payment method responses
+type SubscriptionSummary struct {
+	ID          string    `json:"id"`
+	DisplayName string    `json:"display_name"`
+	Description string    `json:"description"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
 // PaymentMethodResponse represents a Stripe-style payment method (card)
 type PaymentMethodResponse struct {
 	ID             string                       `json:"id"`                 // pm_xxx
@@ -300,6 +308,7 @@ type PaymentMethodResponse struct {
 	IsActive       bool                         `json:"is_active"` // legacy field; mirrors livemode/active
 	Created        int64                        `json:"created"`   // Unix epoch seconds
 	FailureReason  *string                      `json:"failure_reason,omitempty"`
+	Subscriptions  []SubscriptionSummary        `json:"subscriptions,omitempty"`
 }
 
 type PaymentMethodBillingDetails struct {
@@ -331,12 +340,25 @@ func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
 		Brand: pm.CardType,
 		Last4: pm.LastFour,
 	}
-
 	if pm.ExpiryDate != nil {
 		if month, year, ok := parseExpiry(*pm.ExpiryDate); ok {
 			card.ExpMonth = &month
 			card.ExpYear = &year
 		}
+	}
+
+	// Compose subscription summaries
+	var subs []SubscriptionSummary
+	for _, s := range pm.Subscriptions {
+		summary := SubscriptionSummary{
+			ID:        s.ID.String(),
+			CreatedAt: s.CreatedAt,
+		}
+		if s.Product != nil {
+			summary.DisplayName = s.Product.DisplayName
+			summary.Description = s.Product.Description
+		}
+		subs = append(subs, summary)
 	}
 
 	return PaymentMethodResponse{
@@ -349,6 +371,7 @@ func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
 		Created:       api.ToUnix(pm.CreatedAt),
 		Metadata:      map[string]string{},
 		FailureReason: pm.FailureReason,
+		Subscriptions: subs,
 	}
 }
 
@@ -372,31 +395,16 @@ func parseExpiry(exp string) (int, int, bool) {
 		sep = "-"
 	}
 	parts := strings.Split(exp, sep)
-	if len(parts) == 2 {
-		month, err1 := strconv.Atoi(parts[0])
-		year, err2 := strconv.Atoi(parts[1])
-		if err1 != nil || err2 != nil {
-			return 0, 0, false
-		}
-		if year < 100 {
-			year += 2000
-		}
-		return month, year, true
+	if len(parts) != 2 {
+		return 0, 0, false
 	}
-	// Support MMYY or MMYYYY (e.g., 1028 or 102028)
-	if len(parts) == 1 {
-		raw := parts[0]
-		if len(raw) == 4 || len(raw) == 6 {
-			month, err1 := strconv.Atoi(raw[:2])
-			year, err2 := strconv.Atoi(raw[2:])
-			if err1 != nil || err2 != nil {
-				return 0, 0, false
-			}
-			if len(raw) == 4 && year < 100 {
-				year += 2000
-			}
-			return month, year, true
-		}
+	month, err1 := strconv.Atoi(parts[0])
+	year, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return 0, 0, false
 	}
-	return 0, 0, false
+	if year < 100 {
+		year += 2000
+	}
+	return month, year, true
 }

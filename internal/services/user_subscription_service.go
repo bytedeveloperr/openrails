@@ -53,9 +53,9 @@ func (s *UserSubscriptionService) now() time.Time {
 // UserSubscriptionResponse represents a user's subscription with enriched data
 type UserSubscriptionResponse struct {
 	*models.Subscription
-	Product *models.Product  `json:"product,omitempty"`
-	Price   *models.Price    `json:"price,omitempty"`
-	Access  *UserAccessGrant `json:"access,omitempty"`
+	//	Product *models.Product  `json:"product,omitempty"`
+	Price  *models.Price    `json:"price,omitempty"`
+	Access *UserAccessGrant `json:"access,omitempty"`
 }
 
 // UserAccessGrant summarizes how the user currently has premium access (subscription vs one-off entitlement).

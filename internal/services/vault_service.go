@@ -66,6 +66,27 @@ type UpdateVaultRequest struct {
 	Address2     *string
 }
 
+// VaultError carries additional context for vault creation failures, including localization codes.
+type VaultError struct {
+	Err            error
+	LocalizationID string
+	Message        string
+}
+
+func (e *VaultError) Error() string {
+	if e.Message != "" {
+		return e.Message
+	}
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return "vault error"
+}
+
+func (e *VaultError) Unwrap() error {
+	return e.Err
+}
+
 func NewVaultService(pm *PaymentMethodService, sub *SubscriptionService, nmiClients map[string]*nmi.NMIClient, dbx *db.DB) *VaultService {
 	return &VaultService{
 		PaymentMethodService: pm,
@@ -103,6 +124,14 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 	nmiResponse, err := client.CreateCustomerVault(vaultData)
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{"user_id": user.ID}).Error("Failed to create vault in NMI")
+		var nmiErr *nmi.CustomerVaultError
+		if errors.As(err, &nmiErr) {
+			return nil, &VaultError{
+				Err:            err,
+				LocalizationID: nmiErr.LocalizationID,
+				Message:        fmt.Sprintf("failed to create payment vault: %s", err.Error()),
+			}
+		}
 		return nil, fmt.Errorf("failed to create payment vault: %w", err)
 	}
 

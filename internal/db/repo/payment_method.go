@@ -44,7 +44,11 @@ func (r *PaymentMethodRepo) Create(ctx context.Context, m *models.PaymentMethod)
 
 func (r *PaymentMethodRepo) GetByID(ctx context.Context, id uuid.UUID) (*models.PaymentMethod, error) {
 	pm := new(models.PaymentMethod)
-	err := r.db.GetDB().NewSelect().Model(pm).Where("pm.id = ?", id).Scan(ctx)
+	err := r.db.GetDB().NewSelect().Model(pm).
+		Where("pm.id = ?", id).
+		Relation("Subscriptions").
+		Relation("Subscriptions.Product").
+		Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("payment method %s: %w", id, ErrPaymentMethodNotFound)
@@ -112,7 +116,10 @@ func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, inc
 	methods := []*models.PaymentMethod{}
 	dataQuery := r.db.GetDB().NewSelect().Model(&methods).
 		Where("pm.user_id = ?", userID).
+		Relation("Subscriptions").
+		Relation("Subscriptions.Product").
 		OrderExpr("pm.created_at DESC")
+
 	if !includeInactive {
 		dataQuery.Where("pm.is_active = ?", true)
 	}

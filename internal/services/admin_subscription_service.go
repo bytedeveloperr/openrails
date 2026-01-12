@@ -53,7 +53,7 @@ func (s *AdminSubscriptionService) now() time.Time {
 // AdminSubscriptionResponse represents a subscription with enriched admin data
 type AdminSubscriptionResponse struct {
 	*models.Subscription
-	Product  *models.Product   `json:"product,omitempty"`
+	//Product  *models.Product   `json:"product,omitempty"`
 	Price    *models.Price     `json:"price,omitempty"`
 	Payments []*models.Payment `json:"payments,omitempty"`
 }
