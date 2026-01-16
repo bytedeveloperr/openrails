@@ -23,12 +23,15 @@ func (s *Server) registerAdminRoutes() {
 	admin.GET("/payments", s.wrap(handlers.GetAdminPayments))
 	admin.GET("/payments/:id", s.wrap(handlers.GetAdminPayment))
 	admin.POST("/payments/:id/refund", s.wrap(handlers.AdminRefundPayment))
+	admin.GET("/users/:user_id/payments", s.wrap(handlers.GetAdminUserPayments))
 
 	// User management
 	admin.GET("/users/:user_id", s.wrap(handlers.GetAdminUserBillingProfile))
 	admin.GET("/users/:user_id/entitlements", s.wrap(handlers.GetAdminUserEntitlements))
 	admin.POST("/users/:user_id/entitlements", s.wrap(handlers.GrantAdminEntitlement))
 	admin.DELETE("/users/:user_id/entitlements/:id", s.wrap(handlers.RevokeAdminEntitlement))
+	admin.GET("/users/:user_id/mobius", s.wrap(handlers.GetAdminUserMobius))
+	admin.GET("/users/:user_id/mobius/metrics", s.wrap(handlers.GetAdminUserMobiusMetrics))
 
 	// Admin grants (product-based grants with audit trail)
 	admin.POST("/users/:user_id/grants", s.wrap(handlers.CreateAdminGrant))

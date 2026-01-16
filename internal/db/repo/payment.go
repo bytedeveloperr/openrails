@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
@@ -216,6 +217,69 @@ func (r *PaymentRepo) GetPayments(ctx context.Context, opts query.QueryOptions[P
 	}
 
 	return payments, int64(total), nil
+}
+
+func (r *PaymentRepo) GetLatestByUserAndProcessor(ctx context.Context, userID string, processor models.Processor) (*models.Payment, error) {
+	payment := new(models.Payment)
+	err := r.db.GetDB().
+		NewSelect().
+		Model(payment).
+		Where("purch.user_id = ?", userID).
+		Where("purch.processor = ?", processor).
+		OrderExpr("purch.purchased_at DESC").
+		Limit(1).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return payment, nil
+}
+
+func (r *PaymentRepo) GetLatestBySubscriptionID(ctx context.Context, subscriptionID uuid.UUID) (*models.Payment, error) {
+	payment := new(models.Payment)
+	err := r.db.GetDB().
+		NewSelect().
+		Model(payment).
+		Where("purch.subscription_id = ?", subscriptionID).
+		OrderExpr("purch.purchased_at DESC").
+		Limit(1).
+		Scan(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return payment, nil
+}
+
+func (r *PaymentRepo) CountByUserAndProcessor(ctx context.Context, userID string, processor models.Processor) (successful int, failed int, err error) {
+	if userID == "" {
+		return 0, 0, fmt.Errorf("user_id is required")
+	}
+
+	// Successful payments (positive amount)
+	successful, err = r.db.GetDB().
+		NewSelect().
+		Model((*models.Payment)(nil)).
+		Where("purch.user_id = ?", userID).
+		Where("purch.processor = ?", processor).
+		Where("purch.amount > 0").
+		Count(ctx)
+	if err != nil {
+		return
+	}
+
+	// Failed/negative/zero payments
+	failed, err = r.db.GetDB().
+		NewSelect().
+		Model((*models.Payment)(nil)).
+		Where("purch.user_id = ?", userID).
+		Where("purch.processor = ?", processor).
+		Where("purch.amount <= 0").
+		Count(ctx)
+	if err != nil {
+		return
+	}
+
+	return
 }
 
 func applyPaymentSorting(q *bun.SelectQuery, sortBy, sortOrder string) *bun.SelectQuery {

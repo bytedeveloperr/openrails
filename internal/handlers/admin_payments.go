@@ -56,24 +56,11 @@ func AdminRefundPayment(r *Request) {
 // GetAdminPayments returns a paginated list of payments with filters
 // GET /v1/admin/payments
 func GetAdminPayments(r *Request) {
-	queryOpts := query.QueryOptions[services.GetPaymentsFilters]{
-		Limit:  50,
-		Offset: 0,
-	}
-
-	// Parse pagination parameters
+	queryOpts := query.QueryOptions[services.GetPaymentsFilters]{}
 	if err := r.Inner().ShouldBindQuery(&queryOpts); err != nil {
 		r.ErrorJSON(http.StatusBadRequest, err.Error())
 		return
 	}
-
-	// Parse filters from query params
-	var filters services.GetPaymentsFilters
-	if err := r.Inner().ShouldBindQuery(&filters); err != nil {
-		r.ErrorJSON(http.StatusBadRequest, err.Error())
-		return
-	}
-	queryOpts.Filters = filters
 
 	if r.State.PaymentService == nil {
 		r.ErrorJSON(http.StatusInternalServerError, "payment service unavailable")
