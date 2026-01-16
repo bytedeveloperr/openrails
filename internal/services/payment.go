@@ -137,3 +137,15 @@ func (s *PaymentService) GetPayments(ctx context.Context, queryOpts query.QueryO
 
 	return s.repo.GetPayments(ctx, repoOpts)
 }
+
+func (s *PaymentService) GetLatestByUserAndProcessor(ctx context.Context, userID string, processor models.Processor) (*models.Payment, error) {
+	return s.repo.GetLatestByUserAndProcessor(ctx, userID, processor)
+}
+
+func (s *PaymentService) GetLatestBySubscriptionID(ctx context.Context, subscriptionID uuid.UUID) (*models.Payment, error) {
+	return s.repo.GetLatestBySubscriptionID(ctx, subscriptionID)
+}
+
+func (s *PaymentService) CountByUserAndProcessor(ctx context.Context, userID string, processor models.Processor) (successful int, failed int, err error) {
+	return s.repo.CountByUserAndProcessor(ctx, userID, processor)
+}
