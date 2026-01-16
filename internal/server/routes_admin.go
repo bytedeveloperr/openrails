@@ -23,6 +23,7 @@ func (s *Server) registerAdminRoutes() {
 	admin.GET("/payments", s.wrap(handlers.GetAdminPayments))
 	admin.GET("/payments/:id", s.wrap(handlers.GetAdminPayment))
 	admin.POST("/payments/:id/refund", s.wrap(handlers.AdminRefundPayment))
+	admin.GET("/users/:user_id/payments", s.wrap(handlers.GetAdminUserPayments))
 
 	// User management
 	admin.GET("/users/:user_id", s.wrap(handlers.GetAdminUserBillingProfile))
