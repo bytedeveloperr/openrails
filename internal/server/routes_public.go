@@ -9,15 +9,6 @@ import (
 )
 
 func (s *Server) registerUserRoutes(e *gin.Engine) {
-	// Root: simple JSON banner for API servers
-	e.GET("/", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"service":   "billing",
-			"status":    "ok",
-			"endpoints": []string{"/health/live", "/health/ready", "/v1"},
-		})
-	})
-
 	api := e.Group("/v1")
 
 	// Products and Prices - public catalog endpoints
@@ -56,6 +47,25 @@ func (s *Server) registerUserRoutes(e *gin.Engine) {
 	me.GET("/credits/:type", s.wrap(handlers.GetMyCreditsType))
 	me.GET("/credits/:type/transactions", s.wrap(handlers.GetMyCreditTransactions))
 	me.POST("/portal", s.wrap(handlers.CreatePortalSession))
+}
+
+func (s *Server) registerWebhookRoutes(e *gin.Engine) {
+	api := e.Group("/v1")
+	webhooks := api.Group("/webhooks")
+	webhooks.POST("/:provider", s.wrap(handlers.Webhook))
+}
+
+// registerStandaloneMetaRoutes registers banner/health endpoints that are appropriate for the
+// standalone billing service, but should not be forced onto embedded hosts.
+func (s *Server) registerStandaloneMetaRoutes(e *gin.Engine) {
+	// Root: simple JSON banner for API servers
+	e.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"service":   "billing",
+			"status":    "ok",
+			"endpoints": []string{"/health/live", "/health/ready", "/v1"},
+		})
+	})
 
 	e.GET("/health/live", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})
@@ -70,14 +80,9 @@ func (s *Server) registerUserRoutes(e *gin.Engine) {
 	e.GET("/readyz", s.readyHandler)
 }
 
-func (s *Server) registerWebhookRoutes(e *gin.Engine) {
-	api := e.Group("/v1")
-	webhooks := api.Group("/webhooks")
-	webhooks.POST("/:provider", s.wrap(handlers.Webhook))
-}
-
 func (s *Server) registerPublicRoutes() {
 	// Standalone public handler: full surface area for convenience.
+	s.registerStandaloneMetaRoutes(s.publicHandler)
 	s.registerUserRoutes(s.publicHandler)
 	s.registerWebhookRoutes(s.publicHandler)
 

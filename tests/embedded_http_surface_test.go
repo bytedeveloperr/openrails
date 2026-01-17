@@ -16,6 +16,12 @@ func TestEmbeddedHandlers_SurfaceSplitting(t *testing.T) {
 
 	// Full handler should include user + admin + webhooks.
 	{
+		req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, req)
+		require.NotEqual(t, http.StatusNotFound, w.Code)
+	}
+	{
 		req := httptest.NewRequest(http.MethodGet, "/v1/products", nil)
 		w := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(w, req)
@@ -37,6 +43,13 @@ func TestEmbeddedHandlers_SurfaceSplitting(t *testing.T) {
 	}
 
 	// Split handlers should expose only their intended surfaces.
+	{
+		// Embedded minimal surfaces should NOT include standalone health endpoints.
+		req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
+		w := httptest.NewRecorder()
+		srv.UserHandler().ServeHTTP(w, req)
+		require.Equal(t, http.StatusNotFound, w.Code)
+	}
 	{
 		req := httptest.NewRequest(http.MethodGet, "/v1/products", nil)
 		w := httptest.NewRecorder()
