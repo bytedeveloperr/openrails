@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/services"
+	billingservice "github.com/doujins-org/doujins-billing/pkg/service"
 	"github.com/google/uuid"
 )
 
@@ -170,14 +170,19 @@ func ServiceWithdrawCredits(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, "invalid request")
 		return
 	}
-	trx, err := r.State.CreditsService.Withdraw(r.Request.Context(), services.CreditWithdrawParams{
+	svc, err := billingservice.New(r.State)
+	if err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, "billing service unavailable")
+		return
+	}
+	trx, err := svc.WithdrawCredits(r.Request.Context(), billingservice.WithdrawCreditsRequest{
 		UserID:     req.UserID,
 		CreditType: req.CreditType,
 		Amount:     req.Amount,
 		Source:     req.Source,
 		SourceID:   req.SourceID,
 	})
-	if err == services.ErrInsufficientCredits {
+	if err == billingservice.ErrInsufficientCredits {
 		r.ErrorJSON(http.StatusPaymentRequired, "insufficient_credits")
 		return
 	}
@@ -203,16 +208,20 @@ func ServiceHoldCredits(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, "invalid request")
 		return
 	}
-	hold, err := r.State.CreditsService.Hold(
-		r.Request.Context(),
-		req.UserID,
-		req.CreditType,
-		req.Amount,
-		req.Source,
-		req.SourceID,
-		time.Unix(req.ExpiresAt, 0).UTC(),
-	)
-	if err == services.ErrInsufficientCredits {
+	svc, err := billingservice.New(r.State)
+	if err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, "billing service unavailable")
+		return
+	}
+	hold, err := svc.HoldCredits(r.Request.Context(), billingservice.HoldCreditsRequest{
+		UserID:     req.UserID,
+		CreditType: req.CreditType,
+		Amount:     req.Amount,
+		Source:     req.Source,
+		SourceID:   req.SourceID,
+		ExpiresAt:  time.Unix(req.ExpiresAt, 0).UTC(),
+	})
+	if err == billingservice.ErrInsufficientCredits {
 		r.ErrorJSON(http.StatusPaymentRequired, "insufficient_credits")
 		return
 	}
@@ -238,8 +247,13 @@ func ServiceCaptureHold(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, "invalid request")
 		return
 	}
-	trx, err := r.State.CreditsService.CaptureHold(r.Request.Context(), holdID, req.Amount)
-	if err == services.ErrInsufficientCredits {
+	svc, err := billingservice.New(r.State)
+	if err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, "billing service unavailable")
+		return
+	}
+	trx, err := svc.CaptureHold(r.Request.Context(), billingservice.CaptureHoldRequest{HoldID: holdID, Amount: req.Amount})
+	if err == billingservice.ErrInsufficientCredits {
 		r.ErrorJSON(http.StatusPaymentRequired, "insufficient_credits")
 		return
 	}
@@ -256,7 +270,12 @@ func ServiceReleaseHold(r *Request) {
 		r.ErrorJSON(http.StatusBadRequest, "invalid hold id")
 		return
 	}
-	if err := r.State.CreditsService.ReleaseHold(r.Request.Context(), holdID); err != nil {
+	svc, err := billingservice.New(r.State)
+	if err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, "billing service unavailable")
+		return
+	}
+	if err := svc.ReleaseHold(r.Request.Context(), holdID); err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, "release failed")
 		return
 	}

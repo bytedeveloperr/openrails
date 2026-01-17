@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	billingservice "github.com/doujins-org/doujins-billing/pkg/service"
 	"github.com/google/uuid"
 )
 
@@ -51,19 +52,18 @@ func ServiceGetUserEntitlements(r *Request) {
 		at = &parsed
 	}
 
-	if r.State.EntitlementService == nil {
-		r.ErrorJSON(http.StatusInternalServerError, "entitlement service not available")
-		return
-	}
-
 	// Use current time if not specified
 	queryTime := time.Now()
 	if at != nil {
 		queryTime = *at
 	}
 
-	// Get active entitlements for the user
-	entitlements, err := r.State.EntitlementService.ListActiveRecords(r.Request.Context(), userID, queryTime)
+	svc, err := billingservice.New(r.State)
+	if err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, "billing service unavailable")
+		return
+	}
+	entitlements, err := svc.ListActiveEntitlementRecords(r.Request.Context(), userID, queryTime)
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, "failed to fetch entitlements")
 		return
@@ -77,7 +77,7 @@ func ServiceGetUserEntitlements(r *Request) {
 			UserID:      e.UserID,
 			Entitlement: e.Entitlement,
 			StartAt:     e.StartAt,
-			SourceType:  string(e.SourceType),
+			SourceType:  e.SourceType,
 			CreatedAt:   e.CreatedAt,
 			UpdatedAt:   e.UpdatedAt,
 		}
@@ -92,8 +92,7 @@ func ServiceGetUserEntitlements(r *Request) {
 			rec.RevokedAt = e.RevokedAt
 		}
 		if e.RevokeReason != nil {
-			reasonStr := string(*e.RevokeReason)
-			rec.RevokeReason = &reasonStr
+			rec.RevokeReason = e.RevokeReason
 		}
 		result = append(result, rec)
 	}

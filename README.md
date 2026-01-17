@@ -48,7 +48,14 @@ if err != nil {
 defer emb.Close(ctx)
 
 router.Handle("/billing/", emb.Handler())
-router.Handle("/billing-internal/", emb.PrivateHandler())
+
+// For internal billing operations (holds/capture/release, entitlements, etc.),
+// use the in-process service API instead of mounting private HTTP routes:
+svc, err := emb.Service()
+if err != nil {
+  return err
+}
+_ = svc
 ```
 
 If you want background workers in the same process:

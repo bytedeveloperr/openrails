@@ -14,6 +14,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/server"
 	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/doujins-org/doujins-billing/pkg/cache"
+	"github.com/doujins-org/doujins-billing/pkg/service"
 )
 
 type Options struct {
@@ -87,6 +88,14 @@ func (e *Embedded) PrivateHandler() http.Handler {
 		return nil
 	}
 	return e.server.PrivateHandler()
+}
+
+// Service returns the in-process billing API for embedded hosts.
+func (e *Embedded) Service() (*service.Service, error) {
+	if e == nil || e.app == nil {
+		return nil, fmt.Errorf("embedded billing: app not initialized")
+	}
+	return service.New(e.app.Runtime)
 }
 
 func (e *Embedded) RunWorkers(ctx context.Context) error {
