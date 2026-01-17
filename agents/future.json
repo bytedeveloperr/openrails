@@ -65,6 +65,32 @@
         "[ ] Documentation: how host apps should emit usage events, and what guarantees are required"
       ],
       "completed": false
+    },
+    {
+      "name": "auto-topup (low-balance automatic credit purchases)",
+      "description": "Add an optional per-user auto-topup feature for prepaid credits.\n\nUse case: a user opts in to auto-buy more API credits when their balance drops below a threshold (e.g. below $5, automatically purchase enough to reach $100).\n\nThis is not postpaid metering; it is **prepaid auto-replenishment**.\n\n## Goals\n\n- Users can opt in/out and set:\n  - `threshold_cents` (trigger when balance <= threshold)\n  - `target_cents` or `topup_amount_cents` (how much to buy)\n  - `price_id` (which credits package / product to purchase)\n  - optional safety caps (e.g. max topups per day/week/month)\n- Topups are idempotent and safe under concurrency (no double-charging).\n- Works with whichever processor supports one-off purchases for that user (Stripe/NMI/etc), but the internal model is processor-agnostic.\n\n## Non-goals (initially)\n\n- Complex dynamic pricing or tiered metering.\n- Automatic retries forever; we should stop after a bounded number of failures and notify the user.\n\n## Design sketch\n\n- Data model:\n  - `billing.auto_topups` (per user): {id, user_id, enabled, price_id, threshold_cents, target_cents, max_per_day?, max_per_week?, last_triggered_at?, created_at, updated_at}\n  - `billing.auto_topup_events` (append-only): {id, auto_topup_id, user_id, observed_balance_cents, triggered_at, status, payment_id?, error_code?, error_message?}\n  - Reuse existing `billing.payments` as the purchase record; entitlements/credits granted are sourced from that payment.\n\n- Triggering:\n  - Option A (recommended): piggyback on credit spend paths.\n    - When credits are withdrawn/captured, check if balance <= threshold and enqueue an auto-topup job.\n  - Option B: scheduled worker that scans for low-balance users (requires indexes and careful load control).\n\n- Worker:\n  - Load user config and current balance.\n  - If balance > threshold or auto-topup disabled, no-op.\n  - Compute purchase amount (either fixed package via `price_id` or \"to target\" semantics if supported).\n  - Perform purchase using the same internal checkout/payment service used for one-off credit purchases.\n  - Idempotency key should include: user_id + auto_topup_id + “balance_snapshot”/period bucket.\n  - On success: create payment + credit grant, record auto_topup_event.\n  - On failure: record event, increment failure counters, disable auto-topup after N consecutive failures, and notify user.\n\n- Safety:\n  - Enforce rate limits/caps (max topups per time window).\n  - Require a valid payment method on file / processor customer.\n  - Never run for users on unpaid/past_due subscription states unless explicitly allowed.\n\n",
+      "tasks": [
+        "FOUNDATION:",
+        "[ ] Define user-facing settings (threshold, target, price selection, caps) and defaults",
+        "[ ] Decide trigger strategy: spend-hook enqueue vs periodic scanner (prefer spend-hook)",
+        "",
+        "DATA MODEL:",
+        "[ ] Add migrations for auto_topups + auto_topup_events tables",
+        "[ ] Add indexes for enabled lookups and rate-limit enforcement (by user_id, triggered_at)",
+        "",
+        "WORKERS + IDP:",
+        "[ ] Implement River worker to execute an auto-topup purchase with a strict idempotency key",
+        "[ ] Implement safety caps (max per day/week/month) and disable-on-failure behavior",
+        "",
+        "INTEGRATION:",
+        "[ ] Hook into credits spend/capture path to enqueue auto-topup checks",
+        "[ ] Ensure topups create a normal Payment and grant credits sourced from that payment (no special casing)",
+        "",
+        "TESTS + DOCS:",
+        "[ ] Integration tests for: trigger threshold, idempotency (double enqueue), caps, and failure disablement",
+        "[ ] Document the user/admin UX and operational guardrails"
+      ],
+      "completed": false
     }
   ]
 }
