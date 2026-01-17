@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
@@ -23,7 +22,6 @@ func NewPaymentMethodService(db *db.DB) *PaymentMethodService {
 var (
 	ErrPaymentMethodNotFound     = errors.New("payment method not found")
 	ErrPaymentMethodAccessDenied = errors.New("payment method access denied")
-	ErrPaymentMethodInactive     = errors.New("payment method is inactive")
 )
 
 func (s *PaymentMethodService) Create(ctx context.Context, method *models.PaymentMethod) error {
@@ -45,11 +43,7 @@ func (s *PaymentMethodService) GetByUserID(ctx context.Context, userID string) (
 	return s.repo.GetByUserID(ctx, userID)
 }
 
-func (s *PaymentMethodService) GetActiveByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	return s.repo.GetActiveByUserID(ctx, userID)
-}
-
-func (s *PaymentMethodService) ListByUserID(ctx context.Context, userID string, includeInactive bool, limit, offset int) ([]*models.PaymentMethod, int64, error) {
+func (s *PaymentMethodService) ListByUserID(ctx context.Context, userID string, limit, offset int) ([]*models.PaymentMethod, int64, error) {
 	if userID == "" {
 		return nil, 0, errors.New("user ID is required")
 	}
@@ -60,7 +54,7 @@ func (s *PaymentMethodService) ListByUserID(ctx context.Context, userID string, 
 		offset = 0
 	}
 
-	items, total, err := s.repo.ListByUserID(ctx, userID, includeInactive, limit, offset)
+	items, total, err := s.repo.ListByUserID(ctx, userID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -124,40 +118,14 @@ func (s *PaymentMethodService) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// DeactivateByUserID deactivates all payment methods for a user
-func (s *PaymentMethodService) DeactivateByUserID(ctx context.Context, userID string) error {
-	return s.repo.DeactivateByUserID(ctx, userID)
-}
-
-// ActivateByID activates a specific payment method
-func (s *PaymentMethodService) ActivateByID(ctx context.Context, id uuid.UUID) error {
-	if err := s.repo.ActivateByID(ctx, id); err != nil {
-		if errors.Is(err, repo.ErrPaymentMethodNotFound) {
-			return ErrPaymentMethodNotFound
-		}
-		return err
-	}
-	return nil
-}
-
 // GetAllNMI returns all NMI payment methods
 func (s *PaymentMethodService) GetAllNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
 	return s.repo.GetAllNMI(ctx)
 }
 
-// GetActiveNMI returns all active NMI payment methods
-func (s *PaymentMethodService) GetActiveNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
-	return s.repo.GetActiveNMI(ctx)
-}
-
 // GetNMIByUserID returns NMI payment methods for a specific user
 func (s *PaymentMethodService) GetNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
 	return s.repo.GetNMIByUserID(ctx, userID)
-}
-
-// GetActiveNMIByUserID returns active NMI payment methods for a specific user
-func (s *PaymentMethodService) GetActiveNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	return s.repo.GetActiveNMIByUserID(ctx, userID)
 }
 
 // GetACUPendingMethods is deprecated since payment methods only support NMI
@@ -215,13 +183,6 @@ func (s *PaymentMethodService) ValidatePaymentMethodOperation(ctx context.Contex
 			return nil, ErrPaymentMethodAccessDenied
 		}
 		return nil, err
-	}
-
-	if !paymentMethod.IsActive {
-		if paymentMethod.FailureReason != nil && strings.TrimSpace(*paymentMethod.FailureReason) != "" {
-			return nil, fmt.Errorf("%w: %s", ErrPaymentMethodInactive, strings.TrimSpace(*paymentMethod.FailureReason))
-		}
-		return nil, ErrPaymentMethodInactive
 	}
 
 	return paymentMethod, nil

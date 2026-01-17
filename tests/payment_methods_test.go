@@ -106,7 +106,6 @@ func TestListPaymentMethods(t *testing.T) {
 	pm1 := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
-		IsActive:  true,
 		LastFour:  "4242",
 		CardType:  "Visa",
 	})
@@ -212,7 +211,6 @@ func TestCreatePaymentMethod(t *testing.T) {
 
 		assert.NotEmpty(t, response["id"], "Should return payment method ID")
 		assert.Equal(t, "mobius", response["processor"], "Processor should be mobius")
-		assert.True(t, response["is_active"].(bool), "Should be active by default")
 	})
 
 	t.Run("returns error without payment_token", func(t *testing.T) {
@@ -243,8 +241,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
-		})
+			})
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("DELETE", "/v1/me/payment-methods/"+pm.ID.String(), nil)
@@ -284,8 +281,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
-		})
+			})
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("DELETE", "/v1/me/payment-methods/"+pm.ID.String(), nil)
@@ -311,7 +307,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 func TestActivatePaymentMethod(t *testing.T) {
 	suite, token, userID := setupTestSuiteWithAuth(t)
 
-	// Note: Due to database default:true on is_active, newly created payment methods
+	// Note: Newly created payment methods
 	// are always active. The activate endpoint will return success either way.
 
 	t.Run("returns success for payment method", func(t *testing.T) {
@@ -319,8 +315,7 @@ func TestActivatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
-		})
+			})
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", pm.ID.String()), nil)
@@ -353,8 +348,7 @@ func TestActivatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
-		})
+			})
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", pm.ID.String()), nil)
@@ -382,8 +376,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
-		})
+			})
 
 		body := map[string]string{
 			"payment_token": "new-token",
@@ -412,8 +405,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
-		})
+			})
 
 		body := map[string]string{
 			"first_name": "Updated",
@@ -453,8 +445,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
-		})
+			})
 
 		body := map[string]string{
 			"payment_token": "new-token",

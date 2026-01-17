@@ -71,6 +71,67 @@ If you want background workers in the same process:
 go emb.RunWorkers(ctx)
 ```
 
+**Alternative: Route Registration Functions**
+
+For more control, you can register routes directly on your own Gin router:
+
+```go
+import (
+  "github.com/doujins-org/doujins-billing/pkg/routes"
+  "github.com/doujins-org/doujins-billing/pkg/service"
+)
+
+// Register user routes (products, checkout, subscriptions, payments, etc.)
+api := router.Group("/v1")
+routes.RegisterUserRoutes(api, runtime, routes.Options{
+  AuthProvider: myAuthProvider,
+})
+
+// Register admin routes (requires admin role)
+admin := router.Group("/v1/admin")
+routes.RegisterAdminRoutes(admin, runtime, routes.Options{
+  AuthProvider: myAuthProvider,
+})
+
+// Register webhook routes
+webhooks := router.Group("/v1/webhooks")
+routes.RegisterWebhookRoutes(webhooks, runtime)
+
+// Register health check routes
+routes.RegisterHealthRoutes(router, runtime)
+```
+
+**In-Process Go API**
+
+For programmatic access without HTTP, use `pkg/service.Service`:
+
+```go
+import "github.com/doujins-org/doujins-billing/pkg/service"
+
+svc, err := service.New(runtime)
+if err != nil {
+  return err
+}
+
+// User operations
+products, err := svc.GetProducts(ctx, service.GetProductsOptions{})
+session, err := svc.CreateCheckoutSession(ctx, userID, service.CreateCheckoutSessionRequest{...})
+status, err := svc.GetBillingStatus(ctx, userID)
+subscriptions, err := svc.GetSubscriptions(ctx, userID, service.GetSubscriptionsOptions{})
+
+// Admin operations
+metrics, err := svc.AdminGetMetricsSummary(ctx, service.MetricsOptions{...})
+err = svc.AdminRefundPayment(ctx, paymentID, service.RefundPaymentRequest{...})
+
+// Credits operations (already available)
+hold, err := svc.HoldCredits(ctx, service.HoldCreditsRequest{...})
+tx, err := svc.CaptureHold(ctx, service.CaptureHoldRequest{...})
+err = svc.ReleaseHold(ctx, holdID)
+
+// Webhook handling
+result, err := svc.HandleWebhook(ctx, service.HandleWebhookRequest{...})
+```
+
 Developer tasks
 - Build: `task build` → outputs `bin/billing`
 - Run (binary): `task run` → builds then runs `billing server`
@@ -358,7 +419,7 @@ Admin endpoints are under `/v1/admin/*` and require:
 - a valid JWT
 - the user to have the `admin` role in AuthKit (`profiles.user_roles`)
 
-See `openapi.yaml` for the full contract. Key endpoints:
+Key endpoints:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|

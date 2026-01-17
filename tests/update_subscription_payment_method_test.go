@@ -56,7 +56,6 @@ func TestUpdateSubscriptionPaymentMethodSuccess(t *testing.T) {
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
 		VaultID:   "old-vault-123",
-		IsActive:  true,
 		LastFour:  "4242",
 		CardType:  "Visa",
 	})
@@ -75,7 +74,6 @@ func TestUpdateSubscriptionPaymentMethodSuccess(t *testing.T) {
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
 		VaultID:   "new-vault-456",
-		IsActive:  true,
 		LastFour:  "1234",
 		CardType:  "Mastercard",
 	})
@@ -157,7 +155,6 @@ func TestUpdateSubscriptionPaymentMethodNotOwned(t *testing.T) {
 	pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
-		IsActive:  true,
 	})
 
 	t.Run("returns 403 for subscription owned by another user", func(t *testing.T) {
@@ -199,7 +196,6 @@ func TestUpdateSubscriptionPaymentMethodNotOwnedPM(t *testing.T) {
 	otherPM := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    otherUserID,
 		Processor: models.ProcessorMobius,
-		IsActive:  true,
 	})
 
 	t.Run("returns 403 for payment method owned by another user", func(t *testing.T) {
@@ -217,49 +213,6 @@ func TestUpdateSubscriptionPaymentMethodNotOwnedPM(t *testing.T) {
 		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusForbidden, w.Code, "Should return 403 Forbidden")
-	})
-}
-
-// TestUpdateSubscriptionPaymentMethodInactive tests that inactive payment methods are rejected
-func TestUpdateSubscriptionPaymentMethodInactive(t *testing.T) {
-	suite, _ := SetupSuiteWithMockNMI(t)
-
-	// Seed products and prices
-	products := suite.SeedProducts()
-	priceID := products[0].Prices[0].ID
-
-	// Create auth token for test user
-	userID := uuid.New().String()
-	email := "update-pm-inactive-" + t.Name() + "@test.example.com"
-	token := getTestIssuer().CreateToken(userID, email)
-
-	// Create subscription for user
-	sub := suite.CreateTestSubscription(userID, priceID, models.StatusActive)
-
-	// Create inactive payment method
-	inactivePM := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
-		UserID:    userID,
-		Processor: models.ProcessorMobius,
-		IsActive:  false,
-	})
-	// Explicitly set to inactive since default is true
-	suite.SetPaymentMethodInactive(inactivePM.ID)
-
-	t.Run("returns error for inactive payment method", func(t *testing.T) {
-		body := map[string]string{
-			"subscription_id":   sub.ID.String(),
-			"payment_method_id": inactivePM.ID.String(),
-		}
-		jsonBody, _ := json.Marshal(body)
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", "/v1/me/subscriptions/payment-method", bytes.NewReader(jsonBody))
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request for inactive payment method")
 	})
 }
 
@@ -288,7 +241,6 @@ func TestUpdateSubscriptionPaymentMethodCancelledSub(t *testing.T) {
 	pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
-		IsActive:  true,
 	})
 
 	t.Run("returns error for cancelled subscription", func(t *testing.T) {
@@ -334,7 +286,6 @@ func TestUpdateSubscriptionPaymentMethodCCBillNotSupported(t *testing.T) {
 	pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
-		IsActive:  true,
 	})
 
 	t.Run("returns error for CCBill subscription", func(t *testing.T) {
@@ -375,7 +326,6 @@ func TestUpdateSubscriptionPaymentMethodNotFound(t *testing.T) {
 	pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
-		IsActive:  true,
 	})
 
 	t.Run("returns 404 for non-existent subscription", func(t *testing.T) {
@@ -498,7 +448,6 @@ func TestUpdateSubscriptionPaymentMethodPastDue(t *testing.T) {
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
 		VaultID:   "new-vault-pastdue",
-		IsActive:  true,
 	})
 
 	t.Run("allows updating payment method for past_due subscription", func(t *testing.T) {
@@ -547,7 +496,6 @@ func TestUpdateSubscriptionPaymentMethodNMIFailure(t *testing.T) {
 	pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
-		IsActive:  true,
 	})
 
 	t.Run("returns error when NMI API fails", func(t *testing.T) {

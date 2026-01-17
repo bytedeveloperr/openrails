@@ -321,7 +321,6 @@ func TestDunningWorkerWithRealNMI(t *testing.T) {
 		Processor: models.ProcessorMobius,
 		VaultID:   vaultID,
 		BillingID: billingID,
-		IsActive:  true,
 		LastFour:  "1111",
 		CardType:  "Visa",
 	})

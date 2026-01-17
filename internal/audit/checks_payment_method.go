@@ -8,24 +8,24 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// PM-1: Active subscription with inactive payment method
-type CheckActiveSubscriptionInactivePaymentMethod struct{}
+// PM-1: Active subscription with payment method that has a failure reason
+type CheckActiveSubscriptionFailedPaymentMethod struct{}
 
-func (c *CheckActiveSubscriptionInactivePaymentMethod) ID() string { return "PM-1" }
-func (c *CheckActiveSubscriptionInactivePaymentMethod) Name() string {
-	return "active_subscription_inactive_payment_method"
+func (c *CheckActiveSubscriptionFailedPaymentMethod) ID() string { return "PM-1" }
+func (c *CheckActiveSubscriptionFailedPaymentMethod) Name() string {
+	return "active_subscription_failed_payment_method"
 }
-func (c *CheckActiveSubscriptionInactivePaymentMethod) Category() string   { return "payment_method" }
-func (c *CheckActiveSubscriptionInactivePaymentMethod) Severity() Severity { return SeverityHigh }
+func (c *CheckActiveSubscriptionFailedPaymentMethod) Category() string   { return "payment_method" }
+func (c *CheckActiveSubscriptionFailedPaymentMethod) Severity() Severity { return SeverityHigh }
 
-func (c *CheckActiveSubscriptionInactivePaymentMethod) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
+func (c *CheckActiveSubscriptionFailedPaymentMethod) Run(ctx context.Context, db bun.IDB, opts Options) ([]Finding, error) {
 	var findings []Finding
 
 	type result struct {
 		SubID           uuid.UUID `bun:"sub_id"`
 		UserID          string    `bun:"user_id"`
 		PaymentMethodID uuid.UUID `bun:"pm_id"`
-		FailureReason   *string   `bun:"failure_reason"`
+		FailureReason   string    `bun:"failure_reason"`
 	}
 
 	var results []result
@@ -38,21 +38,17 @@ func (c *CheckActiveSubscriptionInactivePaymentMethod) Run(ctx context.Context, 
 		FROM billing.subscriptions sub
 		JOIN billing.payment_methods pm ON sub.payment_method_id = pm.id
 		WHERE sub.status = 'active'
-		  AND pm.is_active = false
+		  AND pm.failure_reason IS NOT NULL
+		  AND pm.failure_reason != ''
 	`).Scan(ctx, &results)
 
 	if err != nil {
-		return nil, fmt.Errorf("query active sub inactive pm: %w", err)
+		return nil, fmt.Errorf("query active sub failed pm: %w", err)
 	}
 
 	for _, r := range results {
 		if opts.UserID != "" && r.UserID != opts.UserID {
 			continue
-		}
-
-		reason := "unknown"
-		if r.FailureReason != nil {
-			reason = *r.FailureReason
 		}
 
 		findings = append(findings, Finding{
@@ -62,7 +58,7 @@ func (c *CheckActiveSubscriptionInactivePaymentMethod) Run(ctx context.Context, 
 			EntityType:     EntitySubscription,
 			EntityID:       r.SubID,
 			UserID:         r.UserID,
-			Description:    fmt.Sprintf("Active subscription uses inactive payment method (reason: %s)", reason),
+			Description:    fmt.Sprintf("Active subscription uses payment method with failure reason: %s", r.FailureReason),
 			Recommendation: "Prompt user to update payment method or transition subscription to past_due",
 			AutoFixable:    false,
 			Details: map[string]any{
@@ -110,7 +106,6 @@ func (c *CheckExpiredCardActiveSubscription) Run(ctx context.Context, db bun.IDB
 		JOIN billing.payment_methods pm ON sub.payment_method_id = pm.id
 		WHERE sub.status = 'active'
 		  AND pm.expiry_date IS NOT NULL
-		  AND pm.is_active = true
 		  AND TO_DATE(pm.expiry_date, 'MM/YY') < DATE_TRUNC('month', NOW())
 	`).Scan(ctx, &results)
 

@@ -285,19 +285,5 @@ func (r *CheckoutSessionConfirmRequest) Body() any {
 	return &r.CheckoutSessionConfirmBodyParams
 }
 
-// -------------------------------- UpdateSubscriptionPaymentMethod Request --------------------------------
-// PUT /v1/me/subscriptions/payment-method - Update which payment method a subscription uses
-
-type UpdateSubscriptionPaymentMethodBodyParams struct {
-	SubscriptionID  string `json:"subscription_id" binding:"required"`
-	PaymentMethodID string `json:"payment_method_id" binding:"required"`
-}
-
-type UpdateSubscriptionPaymentMethodRequest struct {
-	BaseRequest
-	UpdateSubscriptionPaymentMethodBodyParams
-}
-
-func (r *UpdateSubscriptionPaymentMethodRequest) Body() any {
-	return &r.UpdateSubscriptionPaymentMethodBodyParams
-}
+// Note: UpdateSubscriptionPaymentMethod uses a local struct in the handler
+// with subscription ID from path param and payment_method_id in body.

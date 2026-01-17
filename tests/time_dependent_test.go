@@ -1054,7 +1054,6 @@ func TestVaultTimestamps(t *testing.T) {
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
 		VaultID:   "test-vault-" + uuid.New().String()[:8],
-		IsActive:  true,
 		CreatedAt: mockClock.Now(),
 		UpdatedAt: mockClock.Now(),
 	}
@@ -1081,7 +1080,6 @@ func TestVaultTimestamps(t *testing.T) {
 		_, err := suite.BunDB.NewUpdate().
 			Model((*models.PaymentMethod)(nil)).
 			Set("updated_at = ?", mockClock.Now()).
-			Set("is_active = ?", false).
 			Where("id = ?", pm.ID).
 			Exec(ctx)
 		require.NoError(t, err)

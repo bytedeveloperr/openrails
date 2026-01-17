@@ -1,6 +1,7 @@
 {
   "completed": [
     {
+      "id": 1,
       "name": "seed-data-helpers",
       "category": "testing-infra",
       "description": "Add seed data helpers to TestContainerSuite",
@@ -14,6 +15,7 @@
       ]
     },
     {
+      "id": 2,
       "name": "migrate-tests-to-seed-helpers",
       "category": "testing-infra",
       "description": "Update existing tests to use seed data helpers",
@@ -27,6 +29,7 @@
       ]
     },
     {
+      "id": 3,
       "name": "test-billing-status",
       "category": "testing",
       "description": "Test GetMyBillingStatus returns correct premium status",
@@ -38,6 +41,7 @@
       ]
     },
     {
+      "id": 4,
       "name": "test-get-products",
       "category": "testing",
       "description": "Test GetProducts endpoint returns seeded products",
@@ -49,6 +53,7 @@
       ]
     },
     {
+      "id": 5,
       "name": "test-get-subscription",
       "category": "testing",
       "description": "Test GetSubscription endpoint returns user's subscription",
@@ -60,6 +65,7 @@
       ]
     },
     {
+      "id": 6,
       "name": "test-subscription-history",
       "category": "testing",
       "description": "Test GetSubscriptionHistory returns subscription history",
@@ -71,6 +77,7 @@
       ]
     },
     {
+      "id": 7,
       "name": "test-payment-history",
       "category": "testing",
       "description": "Test GetUserPayments returns payment history",
@@ -82,6 +89,7 @@
       ]
     },
     {
+      "id": 8,
       "name": "ccbill-test-mode",
       "category": "testing-infra",
       "description": "Enable CCBill test_mode in test suite to bypass IP verification",
@@ -93,6 +101,7 @@
       ]
     },
     {
+      "id": 9,
       "name": "ccbill-webhook-db-assertions",
       "category": "testing",
       "description": "Add database assertions to CCBill webhook tests",
@@ -105,6 +114,7 @@
       ]
     },
     {
+      "id": 10,
       "name": "async-webhook-wait-helper",
       "category": "testing-infra",
       "description": "Add helper to wait for async webhook processing in tests",
@@ -116,6 +126,7 @@
       ]
     },
     {
+      "id": 11,
       "name": "test-webhook-subscription-lifecycle",
       "category": "testing",
       "description": "Test webhook processing creates/updates subscriptions",
@@ -128,6 +139,7 @@
       ]
     },
     {
+      "id": 12,
       "name": "test-subscribe-endpoint",
       "category": "testing",
       "description": "Test Subscribe endpoint processes new subscriptions",
@@ -141,6 +153,7 @@
       ]
     },
     {
+      "id": 13,
       "name": "test-cancel-subscription",
       "category": "testing",
       "description": "Test CancelSubscription actually cancels subscription",
@@ -153,6 +166,7 @@
       ]
     },
     {
+      "id": 14,
       "name": "test-access-status",
       "category": "testing",
       "description": "Test GetAccessStatus returns correct entitlements",
@@ -164,6 +178,7 @@
       ]
     },
     {
+      "id": 15,
       "name": "test-payment-methods-crud",
       "category": "testing",
       "description": "Test payment method CRUD operations",
@@ -176,6 +191,7 @@
       ]
     },
     {
+      "id": 16,
       "name": "test-notifications-crud",
       "category": "testing",
       "description": "Test notifications CRUD operations",
@@ -188,6 +204,7 @@
       ]
     },
     {
+      "id": 17,
       "name": "test-admin-subscription-mgmt",
       "category": "testing",
       "description": "Test admin subscription management endpoints",
@@ -200,6 +217,7 @@
       ]
     },
     {
+      "id": 18,
       "name": "test-admin-metrics",
       "category": "testing",
       "description": "Test admin metrics endpoints",
@@ -212,6 +230,7 @@
       ]
     },
     {
+      "id": 19,
       "name": "test-ccbill-flexform",
       "category": "testing",
       "description": "Test CCBill FlexForm URL generation",
@@ -223,6 +242,7 @@
       ]
     },
     {
+      "id": 20,
       "name": "test-solana-wallet-linking",
       "category": "testing",
       "description": "Test Solana wallet linking flow",
@@ -236,6 +256,7 @@
       ]
     },
     {
+      "id": 21,
       "name": "test-solana-payment-flow",
       "category": "testing",
       "description": "Test Solana payment flow",
@@ -250,6 +271,7 @@
       ]
     },
     {
+      "id": 22,
       "name": "ccbill-all-event-types",
       "category": "testing",
       "description": "Expand CCBill webhook replay tests to cover all event types",
@@ -263,6 +285,7 @@
       ]
     },
     {
+      "id": 23,
       "name": "sync-webhook-processing",
       "category": "refactor",
       "description": "Process webhooks synchronously instead of async via River",
@@ -277,6 +300,7 @@
       ]
     },
     {
+      "id": 24,
       "name": "fix-nmi-cancel-wrong-param",
       "category": "bug",
       "description": "Fix user cancel passing wrong parameter to NMI API",
@@ -288,6 +312,7 @@
       ]
     },
     {
+      "id": 25,
       "name": "fix-admin-cancel-no-nmi-call",
       "category": "bug",
       "description": "Admin cancel subscription doesn't call NMI API",
@@ -300,6 +325,7 @@
       ]
     },
     {
+      "id": 26,
       "name": "ccbill-cancel-user-flow",
       "category": "feature",
       "description": "Improve CCBill cancellation user experience",
@@ -311,6 +337,7 @@
       ]
     },
     {
+      "id": 27,
       "name": "combine-dunning-workers",
       "category": "refactor",
       "description": "Combine DunningSweepWorker and DunningAttemptWorker into a single worker",
@@ -326,6 +353,7 @@
       ]
     },
     {
+      "id": 28,
       "name": "test-dunning-worker",
       "category": "testing",
       "description": "Test combined DunningWorker processes failed payments",
@@ -339,6 +367,7 @@
       ]
     },
     {
+      "id": 29,
       "name": "stripe-like-api-structs",
       "category": "refactor",
       "description": "Create Stripe-like response envelopes (Object wrappers) with our pagination system",
@@ -352,6 +381,7 @@
       ]
     },
     {
+      "id": 30,
       "name": "stripe-like-api-subscriptions",
       "category": "refactor",
       "description": "Refactor Subscription creation endpoints to cleaner RESTful patterns",
@@ -364,6 +394,7 @@
       ]
     },
     {
+      "id": 31,
       "name": "time-mocking",
       "category": "testing-infra",
       "description": "Add time-mocking capability for testing time-dependent logic",
@@ -377,6 +408,7 @@
       ]
     },
     {
+      "id": 32,
       "name": "river-workers-in-tests",
       "category": "testing-infra",
       "description": "Start River workers in test suite for async job testing",
@@ -391,6 +423,7 @@
       ]
     },
     {
+      "id": 33,
       "name": "nmi-demo-integration",
       "category": "testing-infra",
       "description": "Add NMI demo account to test suite for real API integration tests",
@@ -405,6 +438,7 @@
       ]
     },
     {
+      "id": 34,
       "name": "amounts-in-cents",
       "category": "refactor",
       "description": "Store amounts in cents (integers) instead of floats",
@@ -420,6 +454,7 @@
       ]
     },
     {
+      "id": 35,
       "name": "test-cancel-auth-boundaries",
       "category": "testing",
       "description": "Add tests for cancel subscription authorization boundaries",
@@ -432,6 +467,7 @@
       ]
     },
     {
+      "id": 36,
       "name": "test-subscription-renewal-webhook",
       "category": "testing",
       "description": "Test that renewal webhook extends subscription period",
@@ -443,6 +479,7 @@
       ]
     },
     {
+      "id": 37,
       "name": "test-failed-payment-webhook",
       "category": "testing",
       "description": "Test that failed payment webhook sets subscription to past_due",
@@ -454,6 +491,7 @@
       ]
     },
     {
+      "id": 38,
       "name": "test-cancel-access-at-period-end",
       "category": "testing",
       "description": "Test user cancellation keeps access until period end, then revokes",
@@ -467,6 +505,7 @@
       ]
     },
     {
+      "id": 39,
       "name": "test-admin-revoke-access",
       "category": "testing",
       "description": "Test admin revocation removes access immediately",
@@ -478,6 +517,7 @@
       ]
     },
     {
+      "id": 40,
       "name": "test-dunning-retry-schedule",
       "category": "testing",
       "description": "Test dunning worker respects retry schedule with clock advancement",
@@ -491,6 +531,7 @@
       ]
     },
     {
+      "id": 41,
       "name": "test-dunning-max-retries",
       "category": "testing",
       "description": "Test subscription fails after max dunning attempts",
@@ -503,6 +544,7 @@
       ]
     },
     {
+      "id": 42,
       "name": "test-dunning-success-reactivates",
       "category": "testing",
       "description": "Test successful dunning reactivates subscription",
@@ -516,6 +558,7 @@
       ]
     },
     {
+      "id": 43,
       "name": "test-entitlement-expiry",
       "category": "testing",
       "description": "Test time-limited entitlements expire correctly",
@@ -527,6 +570,7 @@
       ]
     },
     {
+      "id": 44,
       "name": "test-entitlement-stacking",
       "category": "testing",
       "description": "Test entitlement stacking extends expiry",
@@ -539,6 +583,7 @@
       ]
     },
     {
+      "id": 45,
       "name": "test-indefinite-entitlement",
       "category": "testing",
       "description": "Test indefinite entitlements never expire",
@@ -550,6 +595,7 @@
       ]
     },
     {
+      "id": 46,
       "name": "test-payment-intent-expiry",
       "category": "testing",
       "description": "Test expired Solana payment intents are rejected",
@@ -561,6 +607,7 @@
       ]
     },
     {
+      "id": 47,
       "name": "test-wallet-challenge-expiry",
       "category": "testing",
       "description": "Test wallet verification challenges expire",
@@ -571,6 +618,7 @@
       ]
     },
     {
+      "id": 48,
       "name": "fix-test-cancel-access-at-period-end",
       "category": "testing",
       "description": "Fix TestCancelAccessAtPeriodEnd to properly test period-end revocation with mock clock",
@@ -583,6 +631,7 @@
       ]
     },
     {
+      "id": 49,
       "name": "fix-test-dunning-retry-schedule",
       "category": "testing",
       "description": "Fix TestDunningRetrySchedule to actually run the dunning worker with mock clock",
@@ -596,6 +645,7 @@
       ]
     },
     {
+      "id": 50,
       "name": "fix-test-dunning-max-retries",
       "category": "testing",
       "description": "Fix TestDunningMaxRetriesFailsSubscription to use mock clock and run dunning worker",
@@ -609,6 +659,7 @@
       ]
     },
     {
+      "id": 51,
       "name": "fix-test-dunning-success-reactivates",
       "category": "testing",
       "description": "Fix TestDunningSuccessReactivates to use mock clock and run dunning worker",
@@ -622,6 +673,7 @@
       ]
     },
     {
+      "id": 52,
       "name": "fix-test-payment-intent-expiry",
       "category": "testing",
       "description": "Fix TestPaymentIntentExpiry to use mock clock instead of time.Now()",
@@ -636,6 +688,7 @@
       ]
     },
     {
+      "id": 53,
       "name": "fix-test-wallet-challenge-expiry",
       "category": "testing",
       "description": "Fix TestWalletChallengeExpiry to use mock clock instead of time.Now()",
@@ -650,6 +703,7 @@
       ]
     },
     {
+      "id": 54,
       "name": "unix-epoch-timestamps",
       "category": "refactor",
       "description": "Standardize all API response timestamps to unix epochs (like Stripe)",
@@ -665,6 +719,7 @@
       ]
     },
     {
+      "id": 55,
       "name": "stripe-like-api-products",
       "category": "refactor",
       "description": "Refactor Product and Price endpoints to match Stripe patterns",
@@ -677,6 +732,7 @@
       ]
     },
     {
+      "id": 56,
       "name": "stripe-like-api-rest",
       "category": "refactor",
       "description": "Consolidate user-scoped endpoints under /v1/me/ and standardize RESTful patterns",
@@ -693,6 +749,7 @@
       ]
     },
     {
+      "id": 57,
       "name": "cleanup-worker",
       "category": "feature",
       "description": "Add cleanup worker for expired temporary data",
@@ -707,6 +764,7 @@
       ]
     },
     {
+      "id": 58,
       "name": "processor-jsonb-field",
       "category": "refactor",
       "description": "Consolidate processor config on Price model into single JSONB 'processors' field",
@@ -724,6 +782,7 @@
       ]
     },
     {
+      "id": 59,
       "name": "prefixed-resource-ids",
       "category": "refactor",
       "description": "Add Stripe-like prefixes to resource IDs in API layer (prod_xxx, price_xxx, sub_xxx)",
@@ -739,6 +798,7 @@
       ]
     },
     {
+      "id": 60,
       "name": "structured-error-responses",
       "category": "refactor",
       "description": "Standardize error responses to match Stripe's error format",
@@ -753,6 +813,7 @@
       ]
     },
     {
+      "id": 61,
       "name": "nmi-cleanup-remove-processor-nmi-constant",
       "category": "refactor",
       "description": "Remove ProcessorNMI constant usage - use ProcessorMobius or IsNMIBacked() instead",
@@ -768,6 +829,7 @@
       ]
     },
     {
+      "id": 62,
       "name": "nmi-cleanup-tests",
       "category": "refactor",
       "description": "Update all tests to use ProcessorMobius and 'mobius' instead of ProcessorNMI and 'nmi'",
@@ -784,6 +846,7 @@
       ]
     },
     {
+      "id": 63,
       "name": "nmi-cleanup-price-model",
       "category": "refactor",
       "description": "Update Price model GetNMIConfig() to work with processor names",
@@ -801,6 +864,7 @@
       ]
     },
     {
+      "id": 64,
       "name": "nmi-cleanup-central-processor-set",
       "category": "refactor",
       "description": "Create NMI-backed processors set in one central place for config-driven processor addition",
@@ -818,6 +882,7 @@
       ]
     },
     {
+      "id": 65,
       "name": "nmi-cleanup-webhook-routing",
       "category": "refactor",
       "description": "Update webhook routing to accept processor names only, not 'nmi'",
@@ -830,6 +895,7 @@
       ]
     },
     {
+      "id": 66,
       "name": "comprehensive-test-seed-data",
       "category": "testing-infra",
       "description": "Test seed data expanded to cover multiple products, currencies, durations, and pricing models",
@@ -845,6 +911,7 @@
       ]
     },
     {
+      "id": 67,
       "name": "webhook-lifecycle-entitlement-date-bug",
       "category": "bug",
       "description": "Webhook lifecycle tests fail due to PostgreSQL tstzrange constraint when entitlement start_at equals end_at",
@@ -865,6 +932,7 @@
       ]
     },
     {
+      "id": 68,
       "name": "admin-payments-endpoints",
       "category": "feature",
       "description": "Add Stripe-like admin endpoints for listing and viewing payments",
@@ -890,6 +958,7 @@
       "notes": "Initially used Stripe 'charge/ch_/customer' terminology, later refactored to 'payment/pay_/user' for clarity"
     },
     {
+      "id": 69,
       "name": "mock-clock-test-updates",
       "category": "testing",
       "description": "Update tests to take advantage of the new uniform mock clock infrastructure",
@@ -916,6 +985,7 @@
       ]
     },
     {
+      "id": 70,
       "name": "uniform-mock-clock-usage",
       "category": "refactor",
       "description": "Replace all time.Now() usages with injectable mock clock for consistent time-dependent testing",
@@ -950,6 +1020,7 @@
       ]
     },
     {
+      "id": 71,
       "name": "remove-nmi-from-codebase",
       "category": "refactor",
       "description": "Remove 'nmi' references from codebase - NMI should be an invisible implementation detail",
@@ -963,6 +1034,7 @@
       ]
     },
     {
+      "id": 72,
       "name": "ccbill-upgrade-url",
       "category": "feature",
       "description": "Add CCBill upgrade URL generation endpoint",
@@ -977,6 +1049,7 @@
       ]
     },
     {
+      "id": 73,
       "name": "ccbill-upgrade-entitlements",
       "category": "feature",
       "description": "Update entitlements on subscription upgrade",
@@ -990,6 +1063,7 @@
       ]
     },
     {
+      "id": 74,
       "name": "unify-admin-auth",
       "category": "refactor",
       "description": "Remove separate admin port and API key, use JWT with admin role claims instead",
@@ -1006,6 +1080,7 @@
       ]
     },
     {
+      "id": 75,
       "name": "admin-api-enhancements",
       "category": "feature",
       "description": "Add admin API endpoints for user lookup, subscription management, refunds, and entitlement management",
@@ -1025,6 +1100,7 @@
       ]
     },
     {
+      "id": 76,
       "name": "filter-inactive-products-prices",
       "category": "feature",
       "description": "Public product/price endpoints should only return active items; admins can optionally see inactive",
@@ -1040,6 +1116,7 @@
       ]
     },
     {
+      "id": 77,
       "name": "manage-subscription-uuid-panic",
       "category": "bug",
       "description": "Admin manage endpoints call uuid.MustParse on request payloads; malformed UUIDs crash the server instead of returning an error.",
@@ -1050,6 +1127,7 @@
       ]
     },
     {
+      "id": 78,
       "name": "payment-method-pagination-reset",
       "category": "bug",
       "description": "ListPaymentMethods sets defaults after parsing user-supplied page/page_size, overriding client pagination.",
@@ -1060,6 +1138,7 @@
       ]
     },
     {
+      "id": 79,
       "name": "redis-password-ignored-nonprod",
       "category": "bug",
       "description": "Redis client only sets password in production; staging/dev with protected Redis fail and rate limiting silently falls back to in-memory.",
@@ -1070,6 +1149,7 @@
       ]
     },
     {
+      "id": 80,
       "name": "admin-actions-ignore-request-context",
       "category": "refactor",
       "description": "Admin status/extend handlers run with context.Background(), so work continues after client disconnects and ignores request timeouts.",
@@ -1080,6 +1160,7 @@
       ]
     },
     {
+      "id": 81,
       "name": "simplify-solana-pay-architecture",
       "category": "refactor",
       "description": "Simplify Solana Pay to use Redis for pending state, server-side polling, and eliminate complex state machine",
@@ -1109,6 +1190,7 @@
       "completed_notes": "Implemented simplified Solana Pay architecture with Redis for pending payments, 500ms server-side polling, and Postgres only for confirmed payments. Routes registered in routes_public.go. Remaining cleanup (removing old SolanaPaymentIntent code) can be done separately."
     },
     {
+      "id": 82,
       "name": "remove-ccbill-alias-service",
       "category": "refactor",
       "description": "Completely removed CCBillAliasService - now using real usernames from JWT",
@@ -1136,6 +1218,7 @@
       "completed_notes": "Completely removed CCBillAliasService. CCBill checkout now sends the real username from the JWT. Webhook resolution looks up user IDs directly from profiles.users.username via ProfileRepo.GetUserIDByUsername(). No migration needed as the ccbill_username_aliases table was never defined in migrations. Test helpers updated to seed profiles.users instead of the deleted alias table."
     },
     {
+      "id": 83,
       "name": "unify-payment-recording-across-processors",
       "category": "refactor",
       "description": "All processors should use unified methods for recording purchases and renewals",
@@ -1155,6 +1238,7 @@
       "completed_notes": "All Payment records are now created inside lifecycle methods (RenewMembership and CreateMembership). Added payment fields to both params structs. NMI and CCBill webhooks refactored to pass payment info to lifecycle methods instead of creating Payment records separately. Dunning worker already used the pattern. All processors now use the same unified code paths."
     },
     {
+      "id": 84,
       "name": "ccbill-payment-records-and-deduplication",
       "category": "critical",
       "description": "CCBill webhook handlers are missing Payment record creation and deduplication - causing revenue reporting gaps",
@@ -1174,6 +1258,7 @@
       "completed_notes": "CCBill webhook handlers now create Payment records via lifecycle methods and check for duplicates. Payment records are now created inside CreateMembership() and RenewMembership() for consistency with NMI. Deduplication checks use IsDuplicate() method on DeduplicationService."
     },
     {
+      "id": 85,
       "name": "ccbill-use-webhook-currency",
       "category": "critical",
       "description": "CCBill webhook handlers hardcode 'usd' currency instead of using actual currency from webhook data",
@@ -1193,6 +1278,7 @@
       "completed_notes": "Added normalizeCurrency() helper function that extracts currency code from webhook data and normalizes to lowercase. Updated 12 locations from hardcoded 'usd' to use actual webhook currency fields. Uses BilledCurrencyCode for success events and AccountingCurrencyCode for refund/void/chargeback events. RenewalFailure event doesn't include currency in CCBill webhook format so it defaults to 'usd' with a comment explaining why."
     },
     {
+      "id": 86,
       "name": "ccbill-capture-card-information",
       "category": "high",
       "description": "CCBill webhook handlers ignore card information (Last4, CardType, ExpDate) that should be captured",
@@ -1210,6 +1296,7 @@
       "completed_notes": "Implemented metadata-only approach. Card information (CardType, Last4, ExpDate, Bin, AVSResponse, CVV2Response, ThreeDSecure) is now captured in ClickHouse PaymentEventData.Metadata and BillingInfo fields for handleNewSaleSuccess, handleUpgradeSuccess, and handleRenewalSuccess. This provides an audit trail for fraud monitoring and dispute resolution. RenewalSuccess has fewer card fields available from CCBill (no Bin, AVS, CVV2, 3DS)."
     },
     {
+      "id": 87,
       "name": "ccbill-capture-billing-address",
       "category": "medium",
       "description": "CCBill webhook handlers ignore billing address information that could be useful",
@@ -1223,6 +1310,7 @@
       "completed_notes": "Billing address fields (FirstName, LastName, Address1, City, State, Country, PostalCode, PhoneNumber, IPAddress) now captured in ClickHouse PaymentEventData.Metadata for handleNewSaleSuccess and handleUpgradeSuccess. BillingInfo also includes first_name, last_name, country for summary lookup. CCBill RenewalSuccess events don't include billing address so those are not captured."
     },
     {
+      "id": 88,
       "name": "webhook-use-processor-timestamps",
       "category": "medium",
       "description": "Webhook handlers use server time instead of processor timestamp for PurchasedAt",
@@ -1237,6 +1325,7 @@
       "completed_notes": "Added parseWebhookTimestamp() helper function that tries multiple timestamp formats (RFC3339, RFC3339Nano, common variants). Updated handleNewSaleSuccess and handleRenewalSuccess to use webhook timestamp for Payment.PurchasedAt, falling back to server time if parsing fails. NMI handlers not updated in this pass but could be done separately."
     },
     {
+      "id": 89,
       "name": "ccbill-capture-transaction-metadata",
       "category": "low",
       "description": "CCBill webhook handlers ignore useful transaction metadata fields",
@@ -1249,6 +1338,7 @@
       "completed_notes": "Added key business intelligence fields: card_sub_type (debit vs credit), affiliate_system (for tracking referrals), lifetime_subscription (for LTV calculations), sca_response_status (3D Secure compliance). Lower priority fields can be added later if needed."
     },
     {
+      "id": 90,
       "name": "ccbill-chargeback-missing-fields",
       "category": "medium",
       "description": "CCBill chargeback handler hardcodes 'unknown' for dispute_id and reason_code - CLARIFIED: CCBill doesn't provide these fields",
@@ -1262,6 +1352,7 @@
       "completed_notes": "Investigated CCBillChargebackEvent struct - it only has 'Reason' (free-text), not dispute_id or structured reason_code. Removed misleading 'unknown' values, added explanatory comments, and added card info (CardType, Last4, ExpDate, Bin) to chargeback metadata for fraud analysis."
     },
     {
+      "id": 91,
       "name": "simplify-webhook-processing",
       "category": "refactor",
       "description": "Remove async webhook retry mechanism - process webhooks synchronously only",
@@ -1291,6 +1382,7 @@
       "completed_notes": "Webhook processing is now synchronous-only. Webhooks are stored to DB for audit logging, processed immediately, and marked as processed/failed. No background retry workers. Payment processors (CCBill, NMI) will retry failed webhooks from their end."
     },
     {
+      "id": 92,
       "name": "normalize-currency-lowercase",
       "category": "refactor",
       "description": "Normalize all currency values to lowercase to match Stripe's API pattern",
@@ -1306,6 +1398,7 @@
       "completed_notes": "All currency values are now normalized to lowercase throughout the codebase. Webhook handlers (CCBill and NMI) normalize incoming uppercase currencies from payment processors to lowercase before storing. Seed data in tests/seed_data.go uses lowercase. API documentation updated to reflect lowercase currency codes. NMI integration tests send uppercase 'USD' to NMI API (which is correct - NMI expects uppercase), but our internal storage uses lowercase."
     },
     {
+      "id": 93,
       "name": "standardize-pagination-format",
       "category": "refactor",
       "description": "Standardize all list endpoints to use Stripe-like pagination: object/data/total/limit/offset/has_more",
@@ -1333,6 +1426,7 @@
       "completed_notes": "All list endpoints now use Stripe-like pagination format with object:'list', data, total, limit, offset, has_more. Two helper methods exist: api.NewListResponse (generic typed) and SuccessJSONPaginated (for dynamic data)."
     },
     {
+      "id": 94,
       "name": "prorated-upgrades-downgrades",
       "category": "design",
       "description": "Implement prorated upgrades and scheduled downgrades for subscription tier changes",
@@ -1363,6 +1457,7 @@
       "completed_notes": "Full upgrade/downgrade system is implemented. Upgrades are immediate with proration charge. Downgrades are scheduled and applied at next renewal via RenewMembership(). Entitlements are correctly granted/revoked based on product tier differences. Fixed bug where ActivateWithPrice() wasn't updating ProductID, and fixed bug where updateEntitlementsForUpgrade() was revoking ALL entitlements instead of just specific ones."
     },
     {
+      "id": 95,
       "name": "merge-manage-subscription-service",
       "category": "refactor",
       "description": "Merge ManageSubscriptionService into AdminSubscriptionService - it's redundant technical debt",
@@ -1385,6 +1480,7 @@
       "completed_notes": "Consolidated ManageSubscriptionService into AdminSubscriptionService. The manage.go handlers now use AdminSubscriptionService directly. This eliminates redundant code and simplifies the service layer. Also fixed pre-existing unused variable warnings in lifecycle_service.go that were blocking the build."
     },
     {
+      "id": 96,
       "name": "update-subscription-payment-method",
       "category": "feature",
       "description": "Allow users to change which stored payment method their NMI subscription uses",
@@ -1429,6 +1525,7 @@
       "completed_notes": "Implemented PUT /v1/me/subscriptions/payment-method endpoint allowing users to swap the payment method (customer vault) used for their NMI subscription. Particularly useful for users with past_due subscriptions who need to update their card after a failed payment. Handler validates all ownership and state requirements, calls NMI API to update the subscription's customer_vault_id, then updates local DB. Comprehensive test coverage for all validation scenarios and error cases."
     },
     {
+      "id": 97,
       "name": "simplify-solana-payment-flow",
       "category": "refactor",
       "description": "Simplified Solana payment flow - removed wallet linking/verification, payment intents, replaced with direct Solana Pay Transfer Request",
@@ -1460,6 +1557,7 @@
       "completed_notes": "All 9 Solana tests pass. Flow is now much simpler - no wallet linking, no verification challenges, no payment intents. Just create payment URL → poll status → done."
     },
     {
+      "id": 98,
       "name": "remove-wallet-verification-requirement",
       "category": "refactor",
       "description": "Removed mandatory wallet verification before Solana payments - transaction signatures prove ownership",

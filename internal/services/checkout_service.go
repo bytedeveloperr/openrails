@@ -66,6 +66,50 @@ type CheckoutResponse struct {
 	DelayedStart   *time.Time `json:"delayed_start,omitempty"`   // When subscription/entitlement will start
 }
 
+// TierChangeRequest represents a request to change subscription tier
+type TierChangeRequest struct {
+	PriceID        string    `json:"price_id"`
+	SubscriptionID uuid.UUID `json:"-"` // Set from path param
+	IdempotencyKey string    `json:"-"` // Set from header, not JSON body
+}
+
+// TierChangeResponse represents the response from a tier change operation.
+// This reuses the CheckoutSessionResponse envelope pattern for API consistency.
+type TierChangeResponse struct {
+	Object         string                         `json:"object"`                    // "tier_change"
+	ID             string                         `json:"id,omitempty"`              // Operation ID for tracking
+	Status         string                         `json:"status"`                    // succeeded, requires_action, blocked
+	Mode           string                         `json:"mode"`                      // "tier_change"
+	Action         string                         `json:"action,omitempty"`          // upgrade, downgrade
+	PriceID        string                         `json:"price_id"`                  // Target price ID
+	Payment        CheckoutSessionPaymentResponse `json:"payment"`                   // Processor info
+	SubscriptionID *string                        `json:"subscription_id,omitempty"` // Affected subscription
+	NextAction     *CheckoutSessionNextAction     `json:"next_action,omitempty"`     // For redirects
+	Message        string                         `json:"message,omitempty"`         // User-friendly message
+	DelayedStart   *time.Time                     `json:"delayed_start,omitempty"`   // For scheduled downgrades
+}
+
+// Sentinel errors for tier change operations
+var (
+	ErrTierChangeNoSubscription = errors.New("no active subscription found")
+	ErrTierChangeNotSupported   = errors.New("tier change not supported for this processor")
+	ErrTierChangeBlocked        = errors.New("tier change blocked")
+	ErrTierChangePending        = errors.New("tier change already pending")
+	ErrTierChangeSameProduct    = errors.New("already on this plan")
+	ErrTierChangeDifferentGroup = errors.New("cannot change to a different tier group")
+)
+
+// TierChangeError provides structured error details for tier change operations
+type TierChangeError struct {
+	HTTPStatus int
+	Message    string
+	Code       string
+}
+
+func (e *TierChangeError) Error() string {
+	return e.Message
+}
+
 // CoverageInfo represents the user's current product coverage
 type CoverageInfo struct {
 	HasCoverage  bool       // Whether user has any active coverage
@@ -320,11 +364,17 @@ func (s *CheckoutService) Checkout(ctx context.Context, req *CheckoutRequest, us
 				// Same product - this is a duplicate, not an upgrade/downgrade
 				// Fall through to normal coverage check below
 			} else if existingProduct.TierRank < product.TierRank {
-				// Upgrade: existing is lower tier than requested
-				return s.processUpgrade(ctx, req, user, price, product, existingSub, processor)
+				// Upgrade detected - direct to change-tier endpoint
+				return &CheckoutResponse{
+					Status:  "blocked",
+					Message: "Use POST /v1/me/subscriptions/change-tier for tier upgrades",
+				}, nil
 			} else if existingProduct.TierRank > product.TierRank {
-				// Downgrade: existing is higher tier than requested
-				return s.processDowngrade(ctx, req, user, price, product, existingSub, processor)
+				// Downgrade detected - direct to change-tier endpoint
+				return &CheckoutResponse{
+					Status:  "blocked",
+					Message: "Use POST /v1/me/subscriptions/change-tier for tier downgrades",
+				}, nil
 			} else {
 				// Same tier rank but different product - treat as duplicate
 				return &CheckoutResponse{
@@ -1918,4 +1968,313 @@ func (s *CheckoutService) cancelNMISubscription(ctx context.Context, sub *models
 	}
 
 	return client.DeleteRecurringSubscription(sub.ProcessorSubscriptionID)
+}
+
+// TierChange processes a subscription tier change (upgrade or downgrade).
+// This is the unified entry point that routes to processor-specific implementations.
+func (s *CheckoutService) TierChange(ctx context.Context, req *TierChangeRequest, user *UserIdentity) (*TierChangeResponse, error) {
+	// 1. Parse and validate price
+	priceID, err := api.ParsePriceID(req.PriceID)
+	if err != nil {
+		return nil, &TierChangeError{HTTPStatus: http.StatusBadRequest, Message: "invalid price_id"}
+	}
+
+	newPrice, err := s.PriceService.GetByID(ctx, priceID)
+	if err != nil {
+		return nil, &TierChangeError{HTTPStatus: http.StatusNotFound, Message: "price not found"}
+	}
+	if !newPrice.IsActive {
+		return nil, &TierChangeError{HTTPStatus: http.StatusBadRequest, Message: "price is not available"}
+	}
+
+	newProduct, err := s.ProductService.GetByID(ctx, newPrice.ProductID)
+	if err != nil {
+		return nil, &TierChangeError{HTTPStatus: http.StatusNotFound, Message: "product not found"}
+	}
+	if !newProduct.IsActive {
+		return nil, &TierChangeError{HTTPStatus: http.StatusBadRequest, Message: "product is not available"}
+	}
+
+	// 2. Get subscription (by ID if provided, otherwise active subscription)
+	var existingSub *models.Subscription
+	if req.SubscriptionID != uuid.Nil {
+		existingSub, err = s.SubscriptionService.GetByID(ctx, req.SubscriptionID)
+		if err != nil {
+			return nil, &TierChangeError{HTTPStatus: http.StatusNotFound, Message: "subscription not found"}
+		}
+		// Verify ownership
+		if existingSub.UserID != user.ID {
+			return nil, &TierChangeError{HTTPStatus: http.StatusNotFound, Message: "subscription not found"}
+		}
+	} else {
+		existingSub, err = s.SubscriptionService.GetActiveSubscription(ctx, user.ID)
+		if err != nil {
+			return nil, ErrTierChangeNoSubscription
+		}
+	}
+
+	// 3. Load current price and product
+	currentPrice, err := s.PriceService.GetByID(ctx, existingSub.PriceID)
+	if err != nil {
+		return nil, &TierChangeError{HTTPStatus: http.StatusInternalServerError, Message: "current price not found"}
+	}
+	existingSub.Price = currentPrice // Attach for downstream use
+
+	currentProduct, err := s.ProductService.GetByID(ctx, currentPrice.ProductID)
+	if err != nil {
+		return nil, &TierChangeError{HTTPStatus: http.StatusInternalServerError, Message: "current product not found"}
+	}
+
+	// 4. Validate tier group compatibility
+	if currentProduct.ID == newProduct.ID {
+		return nil, ErrTierChangeSameProduct
+	}
+	if currentProduct.TierGroup != nil && newProduct.TierGroup != nil {
+		if strings.TrimSpace(*currentProduct.TierGroup) != strings.TrimSpace(*newProduct.TierGroup) {
+			return nil, ErrTierChangeDifferentGroup
+		}
+	}
+
+	// 5. Determine action (upgrade vs downgrade)
+	action := "upgrade"
+	if newProduct.TierRank < currentProduct.TierRank {
+		action = "downgrade"
+	}
+
+	// 6. Route to processor-specific handler
+	processor := string(existingSub.Processor)
+
+	switch processor {
+	case "stripe":
+		return s.processTierChangeStripe(ctx, req, user, newPrice, newProduct, existingSub, currentProduct, action)
+	case "mobius", "nmi":
+		return s.processTierChangeMobius(ctx, req, user, newPrice, newProduct, existingSub, currentProduct, action)
+	case "ccbill":
+		return s.processTierChangeCCBill(ctx, req, user, newPrice, newProduct, existingSub, currentProduct, action)
+	case "solana":
+		return nil, &TierChangeError{
+			HTTPStatus: http.StatusBadRequest,
+			Message:    "Solana subscriptions do not support tier changes",
+		}
+	default:
+		return nil, &TierChangeError{
+			HTTPStatus: http.StatusBadRequest,
+			Message:    fmt.Sprintf("unsupported processor: %s", processor),
+		}
+	}
+}
+
+// processTierChangeStripe handles Stripe subscription tier changes.
+// Both upgrades and downgrades are processed immediately via Stripe's API.
+func (s *CheckoutService) processTierChangeStripe(
+	ctx context.Context,
+	req *TierChangeRequest,
+	user *UserIdentity,
+	newPrice *models.Price,
+	newProduct *models.Product,
+	existingSub *models.Subscription,
+	currentProduct *models.Product,
+	action string,
+) (*TierChangeResponse, error) {
+	// Validate Stripe configuration
+	stripePriceID, ok := newPrice.GetStripeConfig()
+	if !ok || strings.TrimSpace(stripePriceID) == "" {
+		return nil, &TierChangeError{
+			HTTPStatus: http.StatusBadRequest,
+			Message:    "target price not configured for Stripe",
+		}
+	}
+	if strings.TrimSpace(existingSub.ProcessorSubscriptionID) == "" {
+		return nil, &TierChangeError{
+			HTTPStatus: http.StatusBadRequest,
+			Message:    "subscription missing Stripe reference",
+		}
+	}
+
+	// Configure proration based on action
+	proration := "create_prorations"
+	billingAnchor := "now"
+	if action == "downgrade" {
+		proration = "none"
+		billingAnchor = "unchanged"
+	}
+
+	// Call Stripe API
+	stripeService := &StripeSubscriptionService{Config: s.Config}
+	itemID, err := stripeService.GetSubscriptionItemID(ctx, existingSub.ProcessorSubscriptionID)
+	if err != nil {
+		return nil, &TierChangeError{HTTPStatus: http.StatusBadRequest, Message: err.Error()}
+	}
+	if err := stripeService.UpdateSubscriptionPrice(ctx, existingSub.ProcessorSubscriptionID, itemID, stripePriceID, proration, billingAnchor); err != nil {
+		return nil, &TierChangeError{HTTPStatus: http.StatusBadRequest, Message: err.Error()}
+	}
+
+	// Update local subscription record
+	existingSub.PriceID = newPrice.ID
+	existingSub.ProductID = newPrice.ProductID
+	existingSub.ScheduledPriceID = nil
+	if err := s.SubscriptionService.Update(ctx, existingSub); err != nil {
+		return nil, &TierChangeError{HTTPStatus: http.StatusInternalServerError, Message: "failed to update subscription"}
+	}
+
+	subID := api.FormatSubscriptionID(existingSub.ID)
+	msg := "Plan updated"
+	if action == "downgrade" {
+		msg = "Plan downgraded"
+	}
+
+	return &TierChangeResponse{
+		Object:         "tier_change",
+		Status:         "succeeded",
+		Mode:           "tier_change",
+		Action:         action,
+		PriceID:        api.FormatPriceID(newPrice.ID),
+		Payment:        CheckoutSessionPaymentResponse{Processor: "stripe"},
+		SubscriptionID: &subID,
+		Message:        msg,
+	}, nil
+}
+
+// processTierChangeMobius handles Mobius/NMI subscription tier changes.
+// Upgrades: immediate proration charge + new subscription
+// Downgrades: scheduled for end of billing period
+func (s *CheckoutService) processTierChangeMobius(
+	ctx context.Context,
+	req *TierChangeRequest,
+	user *UserIdentity,
+	newPrice *models.Price,
+	newProduct *models.Product,
+	existingSub *models.Subscription,
+	currentProduct *models.Product,
+	action string,
+) (*TierChangeResponse, error) {
+	// Create a synthetic CheckoutRequest for reuse of existing upgrade/downgrade logic
+	checkoutReq := &CheckoutRequest{
+		PriceID:        req.PriceID,
+		Processor:      string(existingSub.Processor),
+		IdempotencyKey: req.IdempotencyKey,
+	}
+
+	// Route to existing methods which handle the heavy lifting
+	var checkoutResp *CheckoutResponse
+	var err error
+
+	if action == "upgrade" {
+		checkoutResp, err = s.processUpgrade(ctx, checkoutReq, user, newPrice, newProduct, existingSub, string(existingSub.Processor))
+	} else {
+		checkoutResp, err = s.processDowngrade(ctx, checkoutReq, user, newPrice, newProduct, existingSub, string(existingSub.Processor))
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Map CheckoutResponse to TierChangeResponse
+	return s.mapCheckoutToTierChangeResponse(checkoutResp, newPrice, action), nil
+}
+
+// processTierChangeCCBill handles CCBill subscription tier changes.
+// Upgrades: returns redirect URL to CCBill upgrade FlexForm
+// Downgrades: blocked (CCBill doesn't support programmatic downgrades)
+func (s *CheckoutService) processTierChangeCCBill(
+	ctx context.Context,
+	req *TierChangeRequest,
+	user *UserIdentity,
+	newPrice *models.Price,
+	newProduct *models.Product,
+	existingSub *models.Subscription,
+	currentProduct *models.Product,
+	action string,
+) (*TierChangeResponse, error) {
+	if action == "downgrade" {
+		return &TierChangeResponse{
+			Object:  "tier_change",
+			Status:  "blocked",
+			Mode:    "tier_change",
+			Action:  action,
+			PriceID: api.FormatPriceID(newPrice.ID),
+			Payment: CheckoutSessionPaymentResponse{Processor: "ccbill"},
+			Message: "CCBill subscription downgrades are not supported. Please cancel your current subscription and wait for it to expire, then subscribe to the lower tier.",
+		}, nil
+	}
+
+	// Use existing CCBill upgrade logic
+	checkoutResp, err := s.processCCBillUpgrade(ctx, user, newPrice, existingSub)
+	if err != nil {
+		return nil, err
+	}
+
+	// Map to TierChangeResponse
+	subID := api.FormatSubscriptionID(existingSub.ID)
+	resp := &TierChangeResponse{
+		Object:         "tier_change",
+		Status:         "requires_action",
+		Mode:           "tier_change",
+		Action:         action,
+		PriceID:        api.FormatPriceID(newPrice.ID),
+		SubscriptionID: &subID,
+		Payment: CheckoutSessionPaymentResponse{
+			Processor:   "ccbill",
+			RedirectURL: checkoutResp.RedirectURL,
+		},
+		Message: "Redirect to CCBill to complete upgrade",
+	}
+
+	// Build NextAction for redirect
+	if checkoutResp.RedirectURL != "" {
+		resp.NextAction = &CheckoutSessionNextAction{
+			Type: "redirect_to_url",
+			RedirectToURL: &CheckoutSessionRedirectToURL{
+				URL: checkoutResp.RedirectURL,
+			},
+		}
+	}
+
+	return resp, nil
+}
+
+// mapCheckoutToTierChangeResponse converts a CheckoutResponse to TierChangeResponse
+func (s *CheckoutService) mapCheckoutToTierChangeResponse(resp *CheckoutResponse, newPrice *models.Price, action string) *TierChangeResponse {
+	tierResp := &TierChangeResponse{
+		Object:  "tier_change",
+		Mode:    "tier_change",
+		Action:  action,
+		PriceID: api.FormatPriceID(newPrice.ID),
+		Payment: CheckoutSessionPaymentResponse{
+			TransactionID: resp.TransactionID,
+		},
+		Message:      resp.Message,
+		DelayedStart: resp.DelayedStart,
+	}
+
+	// Map status
+	switch resp.Status {
+	case "success":
+		tierResp.Status = "succeeded"
+	case "blocked":
+		tierResp.Status = "blocked"
+	case "redirect_required":
+		tierResp.Status = "requires_action"
+	default:
+		tierResp.Status = resp.Status
+	}
+
+	// Map subscription ID
+	if resp.SubscriptionID != nil {
+		subID := api.FormatSubscriptionID(*resp.SubscriptionID)
+		tierResp.SubscriptionID = &subID
+	}
+
+	// Map redirect
+	if resp.RedirectURL != "" {
+		tierResp.Payment.RedirectURL = resp.RedirectURL
+		tierResp.NextAction = &CheckoutSessionNextAction{
+			Type: "redirect_to_url",
+			RedirectToURL: &CheckoutSessionRedirectToURL{
+				URL: resp.RedirectURL,
+			},
+		}
+	}
+
+	return tierResp
 }

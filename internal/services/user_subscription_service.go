@@ -125,6 +125,40 @@ func (s *UserSubscriptionService) GetUserAccessStatus(ctx context.Context, userI
 	return grants, nil
 }
 
+// GetUserSubscriptionByID retrieves a subscription by ID with ownership verification and enriched data
+func (s *UserSubscriptionService) GetUserSubscriptionByID(ctx context.Context, userID string, subscriptionID uuid.UUID) (*UserSubscriptionResponse, error) {
+	subscription, err := s.SubscriptionService.GetByID(ctx, subscriptionID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrSubscriptionNotFound
+		}
+		return nil, fmt.Errorf("failed to get subscription: %w", err)
+	}
+
+	// Verify ownership
+	if subscription.UserID != userID {
+		return nil, ErrSubscriptionNotFound // Return not found to avoid leaking existence
+	}
+
+	resp := &UserSubscriptionResponse{
+		Subscription: subscription,
+		Access:       accessFromSubscription(subscription),
+	}
+
+	// Enrich with price and product data if available
+	if subscription.PriceID != uuid.Nil {
+		if price, err := s.PriceService.GetByID(ctx, subscription.PriceID); err == nil {
+			resp.Price = price
+
+			if product, err := s.ProductService.GetByID(ctx, price.ProductID); err == nil {
+				resp.Product = product
+			}
+		}
+	}
+
+	return resp, nil
+}
+
 // GetUserSubscriptionHistory retrieves subscription history for a user
 func (s *UserSubscriptionService) GetUserSubscriptionHistory(ctx context.Context, userID string, queryOpts *query.QueryOptions[GetSubscriptionsFilters]) ([]*UserSubscriptionResponse, int64, error) {
 	// Set user filter

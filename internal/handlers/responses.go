@@ -238,7 +238,6 @@ type PriceInfo struct {
 type PaymentMethodInfo struct {
 	ID        string `json:"id"`
 	Processor string `json:"processor"`
-	IsActive  bool   `json:"is_active"`
 }
 
 // PaymentItem represents a canonical payment record from Postgres
@@ -305,8 +304,7 @@ type PaymentMethodResponse struct {
 	Card           *PaymentMethodCardDetails    `json:"card,omitempty"`
 	Metadata       map[string]string            `json:"metadata,omitempty"`
 	Livemode       bool                         `json:"livemode"`
-	IsActive       bool                         `json:"is_active"` // legacy field; mirrors livemode/active
-	Created        int64                        `json:"created"`   // Unix epoch seconds
+	Created        int64                        `json:"created"` // Unix epoch seconds
 	FailureReason  *string                      `json:"failure_reason,omitempty"`
 	Subscriptions  []SubscriptionSummary        `json:"subscriptions,omitempty"`
 }
@@ -367,7 +365,6 @@ func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
 		Type:          "card",
 		Processor:     string(pm.Processor),
 		Card:          card,
-		IsActive:      pm.IsActive,
 		Created:       api.ToUnix(pm.CreatedAt),
 		Metadata:      map[string]string{},
 		FailureReason: pm.FailureReason,

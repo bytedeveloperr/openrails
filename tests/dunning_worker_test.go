@@ -249,8 +249,8 @@ func TestDunningWorkerMissingPaymentMethod(t *testing.T) {
 	}, updatedSub.Status)
 }
 
-// TestDunningWorkerInactivePaymentMethod tests that inactive payment methods fail the subscription
-func TestDunningWorkerInactivePaymentMethod(t *testing.T) {
+// TestDunningWorkerMissingPaymentMethodVault tests that payment methods with missing vault fail the subscription
+func TestDunningWorkerMissingPaymentMethodVault(t *testing.T) {
 	suite := setupTestSuite(t)
 
 	// Seed products first
@@ -260,11 +260,10 @@ func TestDunningWorkerInactivePaymentMethod(t *testing.T) {
 	// Create a user
 	userID := uuid.New().String()
 
-	// Create an INACTIVE payment method
+	// Create a payment method with empty VaultID
 	pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
-		UserID:   userID,
-		IsActive: false, // Inactive!
-		VaultID:  "vault-inactive",
+		UserID:  userID,
+		VaultID: "", // Missing vault!
 	})
 
 	pastTime := time.Now().Add(-1 * time.Hour)

@@ -2,22 +2,38 @@ package handlers
 
 import (
 	"database/sql"
+	"errors"
 	"net/http"
-	"time"
 
 	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
+	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/riverqueue/river"
 )
 
 // ResumeSubscription resumes a cancelled Stripe subscription (cancel_at_period_end=false).
+// POST /v1/me/subscriptions/:id/resume
 func ResumeSubscription(r *Request) {
 	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
 	if !ok || cl.UserID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
+
+	// Parse subscription ID from path
+	subscriptionIDStr := r.GinCtx.Param("id")
+	if subscriptionIDStr == "" {
+		r.ErrorJSON(http.StatusBadRequest, "subscription ID required")
+		return
+	}
+
+	subscriptionID, err := api.ParseSubscriptionID(subscriptionIDStr)
+	if err != nil {
+		r.ErrorJSON(http.StatusBadRequest, "Invalid subscription ID format")
+		return
+	}
+
 	if r.State == nil || r.State.DB == nil {
 		r.ErrorJSON(http.StatusInternalServerError, "database unavailable")
 		return
@@ -26,32 +42,41 @@ func ResumeSubscription(r *Request) {
 		r.ErrorJSON(http.StatusInternalServerError, "job queue unavailable")
 		return
 	}
+	if r.State.SubscriptionService == nil {
+		r.ErrorJSON(http.StatusInternalServerError, "subscription service unavailable")
+		return
+	}
 
-	now := time.Now().UTC()
-	sub := new(models.Subscription)
-	err := r.State.DB.GetDB().NewSelect().
-		Model(sub).
-		Where("sub.user_id = ?", cl.UserID).
-		Where("sub.status = ?", models.StatusCancelled).
-		Where("(sub.current_period_ends_at IS NULL OR sub.current_period_ends_at > ?)", now).
-		OrderExpr("sub.created_at DESC").
-		Limit(1).
-		Scan(r.Request.Context())
+	// Get subscription by ID and verify ownership
+	sub, err := r.State.SubscriptionService.GetByID(r.Request.Context(), subscriptionID)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			r.ErrorJSON(http.StatusNotFound, "no resumable subscription found")
+		if errors.Is(err, sql.ErrNoRows) {
+			r.ErrorJSON(http.StatusNotFound, "subscription not found")
 			return
 		}
 		r.ErrorJSON(http.StatusInternalServerError, "failed to load subscription")
 		return
 	}
+
+	// Verify ownership
+	if sub.UserID != cl.UserID {
+		r.ErrorJSON(http.StatusNotFound, "subscription not found")
+		return
+	}
+
 	if sub.Processor != models.ProcessorStripe {
 		r.ErrorJSON(http.StatusBadRequest, "resume unsupported for processor")
 		return
 	}
 
+	if sub.Status != models.StatusCancelled {
+		r.ErrorJSON(http.StatusBadRequest, "subscription is not cancelled")
+		return
+	}
+
 	if _, err := r.State.RiverProducer.Insert(r.Request.Context(), riverjobs.ResumeSubscriptionArgs{
-		UserID: cl.UserID,
+		UserID:         cl.UserID,
+		SubscriptionID: subscriptionID,
 	}, &river.InsertOpts{Queue: riverjobs.QueueBilling}); err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, "failed to enqueue resume")
 		return

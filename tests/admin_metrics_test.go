@@ -29,12 +29,12 @@ func seedMetricsData(t *testing.T, suite *TestContainerSuite, priceID uuid.UUID)
 	})
 
 	suite.CreateTestPaymentWithOptions(PaymentOptions{
-		UserID:        userID,
-		PriceID:       priceID,
+		UserID:         userID,
+		PriceID:        priceID,
 		SubscriptionID: &sub.ID,
-		Processor:     models.ProcessorMobius,
-		Amount:        999,
-		TransactionID: "txn-" + uuid.NewString()[:8],
+		Processor:      models.ProcessorMobius,
+		Amount:         999,
+		TransactionID:  "txn-" + uuid.NewString()[:8],
 	})
 }
 

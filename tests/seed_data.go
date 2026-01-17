@@ -55,7 +55,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 				EntitlementsSpec: map[string]*int{
 					"premium": nil, // Indefinite while subscription is active
 				},
-				IsActive: true,
 			},
 			Prices: []*models.Price{
 				{
@@ -78,8 +77,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					IsActive: true,
-				},
+					},
 				{
 					// Price 1.2: Quarterly USD recurring (discounted)
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222223"),
@@ -99,8 +97,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					IsActive: true,
-				},
+					},
 				{
 					// Price 1.3: Monthly EUR recurring
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222224"),
@@ -117,8 +114,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							models.ProcessorKeyCCBillFlexID:   "ccbill_monthly_eur_899",
 						},
 					},
-					IsActive: true,
-				},
+					},
 				{
 					// Price 1.4: Monthly JPY recurring
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222225"),
@@ -132,8 +128,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						},
 						// CCBill doesn't support JPY in this example
 					},
-					IsActive: true,
-				},
+					},
 				{
 					// Price 1.5: Yearly USD recurring (heavily discounted)
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222226"),
@@ -153,8 +148,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					IsActive: true,
-				},
+					},
 			},
 		},
 		{
@@ -169,7 +163,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					"priority_support": nil,
 					"api_access":       nil,
 				},
-				IsActive: true,
 			},
 			Prices: []*models.Price{
 				{
@@ -191,8 +184,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					IsActive: true,
-				},
+					},
 				{
 					// Price 2.2: Yearly USD recurring
 					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444445"),
@@ -212,8 +204,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					IsActive: true,
-				},
+					},
 				{
 					// Price 2.3: Monthly EUR recurring
 					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444446"),
@@ -230,8 +221,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							models.ProcessorKeyCCBillFlexID:   "ccbill_pro_monthly_eur_1799",
 						},
 					},
-					IsActive: true,
-				},
+					},
 			},
 		},
 		{
@@ -245,7 +235,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 					"premium":  nil, // Indefinite
 					"lifetime": nil, // Special lifetime marker
 				},
-				IsActive: true,
 			},
 			Prices: []*models.Price{
 				{
@@ -267,8 +256,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					IsActive: true,
-				},
+					},
 				{
 					// Price 3.2: One-time EUR purchase
 					ID:               uuid.MustParse("66666666-6666-6666-6666-666666666667"),
@@ -285,8 +273,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							models.ProcessorKeyCCBillFlexID:   "ccbill_lifetime_eur_26999",
 						},
 					},
-					IsActive: true,
-				},
+					},
 				{
 					// Price 3.3: One-time JPY purchase
 					ID:               uuid.MustParse("66666666-6666-6666-6666-666666666668"),
@@ -300,8 +287,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						},
 						// CCBill doesn't support JPY in this example
 					},
-					IsActive: true,
-				},
+					},
 			},
 		},
 		{
@@ -314,7 +300,6 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 				EntitlementsSpec: map[string]*int{
 					"basic": nil,
 				},
-				IsActive: true,
 			},
 			Prices: []*models.Price{
 				{
@@ -333,8 +318,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					IsActive: true,
-				},
+					},
 			},
 		},
 	}
@@ -412,8 +396,7 @@ func (suite *TestContainerSuite) TieredTestProducts() []TestProduct {
 							models.ProcessorKeyPlanID: "plan_premium_basic_1000",
 						},
 					},
-					IsActive: true,
-				},
+					},
 			},
 		},
 		{
@@ -442,8 +425,7 @@ func (suite *TestContainerSuite) TieredTestProducts() []TestProduct {
 							models.ProcessorKeyPlanID: "plan_premium_plus_2000",
 						},
 					},
-					IsActive: true,
-				},
+					},
 			},
 		},
 		{
@@ -473,8 +455,7 @@ func (suite *TestContainerSuite) TieredTestProducts() []TestProduct {
 							models.ProcessorKeyPlanID: "plan_premium_ultimate_3000",
 						},
 					},
-					IsActive: true,
-				},
+					},
 			},
 		},
 	}
@@ -668,7 +649,6 @@ func (suite *TestContainerSuite) CreateTestPaymentMethod(userID string) *models.
 		VaultID:              "vault-" + uuid.New().String()[:8],
 		BillingID:            strPtr("billing-" + uuid.New().String()[:8]),
 		InitialTransactionID: "txn-" + uuid.New().String()[:8],
-		IsActive:             true,
 		LastFour:             strPtr("4242"),
 		CardType:             strPtr("Visa"),
 		ExpiryDate:           strPtr("12/25"),
@@ -689,7 +669,6 @@ type PaymentMethodOptions struct {
 	VaultID              string
 	BillingID            string
 	InitialTransactionID string
-	IsActive             bool
 	LastFour             string
 	CardType             string
 	ExpiryDate           string
@@ -718,7 +697,6 @@ func (suite *TestContainerSuite) CreateTestPaymentMethodWithOptions(opts Payment
 		VaultID:              opts.VaultID,
 		BillingID:            strPtrOrNil(opts.BillingID),
 		InitialTransactionID: opts.InitialTransactionID,
-		IsActive:             opts.IsActive,
 		LastFour:             strPtrOrNil(opts.LastFour),
 		CardType:             strPtrOrNil(opts.CardType),
 		ExpiryDate:           strPtrOrNil(opts.ExpiryDate),
@@ -976,19 +954,6 @@ func (suite *TestContainerSuite) GetPaymentMethodsByUserID(userID string) []*mod
 	require.NoError(suite.t, err, "Failed to get payment methods for user %s", userID)
 
 	return pms
-}
-
-// SetPaymentMethodInactive sets a payment method to inactive
-func (suite *TestContainerSuite) SetPaymentMethodInactive(id uuid.UUID) {
-	suite.t.Helper()
-	ctx := context.Background()
-
-	_, err := suite.BunDB.NewUpdate().
-		Model((*models.PaymentMethod)(nil)).
-		Set("is_active = ?", false).
-		Where("id = ?", id).
-		Exec(ctx)
-	require.NoError(suite.t, err, "Failed to set payment method %s inactive", id)
 }
 
 // GetEntitlementsByUserID retrieves all active entitlements for a user

@@ -170,7 +170,7 @@ func (w *DunningWorker) processSubscription(
 
 	// Validate payment method
 	pm := sub.PaymentMethod
-	if pm == nil || !pm.IsActive || pm.VaultID == "" || pm.BillingID == nil || *pm.BillingID == "" {
+	if pm == nil || pm.VaultID == "" || pm.BillingID == nil || *pm.BillingID == "" {
 		reason := "payment method unavailable for rebill"
 		if idemClaimed && w.IdempotencyService != nil {
 			_ = w.IdempotencyService.Fail(ctx, idemOp, idemKey, errors.New(reason))
