@@ -47,7 +47,15 @@ if err != nil {
 }
 defer emb.Close(ctx)
 
+// Simplest: mount the full public HTTP surface (user + admin + webhooks):
 router.Handle("/billing/", emb.Handler())
+
+// If you want to minimize HTTP surface area in embedded mode, mount only what you need:
+// - user/public billing APIs:   emb.UserHandler()
+// - admin billing APIs:         emb.AdminHandler()
+// - processor webhooks:         emb.WebhookHandler()
+//
+// (Exact mounting depends on your router/prefix-stripping behavior.)
 
 // For internal billing operations (holds/capture/release, entitlements, etc.),
 // use the in-process service API instead of mounting private HTTP routes:

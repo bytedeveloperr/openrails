@@ -3,13 +3,14 @@ package server
 import (
 	authpolicy "github.com/doujins-org/doujins-billing/internal/auth/policy"
 	"github.com/doujins-org/doujins-billing/internal/handlers"
+	"github.com/gin-gonic/gin"
 )
 
-func (s *Server) registerAdminRoutes() {
+func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
 	// Admin routes are protected by JWT authentication + admin role requirement
 	// These routes were previously on a separate port with API key auth.
 	// Now they're unified on the main server with proper JWT-based authorization.
-	admin := s.publicHandler.Group("/v1/admin")
+	admin := e.Group("/v1/admin")
 	admin.Use(s.authProvider.Required())
 	admin.Use(authpolicy.AdminRequired(s.runtime.DB.GetDB()))
 
@@ -44,4 +45,9 @@ func (s *Server) registerAdminRoutes() {
 	admin.GET("/metrics/subscriptions", s.wrap(handlers.GetAdminMetricsSubscriptions))
 	admin.GET("/metrics/processors", s.wrap(handlers.GetAdminMetricsProcessors))
 	admin.GET("/metrics/churn", s.wrap(handlers.GetAdminMetricsChurn))
+}
+
+func (s *Server) registerAdminRoutes() {
+	s.registerAdminRoutesOn(s.publicHandler)
+	s.registerAdminRoutesOn(s.adminHandler)
 }

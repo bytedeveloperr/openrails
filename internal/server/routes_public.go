@@ -8,9 +8,9 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/handlers"
 )
 
-func (s *Server) registerPublicRoutes() {
+func (s *Server) registerUserRoutes(e *gin.Engine) {
 	// Root: simple JSON banner for API servers
-	s.publicHandler.GET("/", func(c *gin.Context) {
+	e.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"service":   "billing",
 			"status":    "ok",
@@ -18,15 +18,11 @@ func (s *Server) registerPublicRoutes() {
 		})
 	})
 
-	api := s.publicHandler.Group("/v1")
+	api := e.Group("/v1")
 
 	// Products and Prices - public catalog endpoints
 	api.GET("/products", s.authProvider.Optional(), s.wrap(handlers.GetProducts))
 	api.GET("/prices", s.authProvider.Optional(), s.wrap(handlers.GetPrices))
-
-	// Webhooks - single provider path (mobius/ccbill/solana)
-	webhooks := api.Group("/webhooks")
-	webhooks.POST("/:provider", s.wrap(handlers.Webhook))
 
 	// Solana tokens endpoint (public, no auth required)
 	api.GET("/solana/tokens", s.wrap(handlers.GetSupportedTokens))
@@ -61,17 +57,33 @@ func (s *Server) registerPublicRoutes() {
 	me.GET("/credits/:type/transactions", s.wrap(handlers.GetMyCreditTransactions))
 	me.POST("/portal", s.wrap(handlers.CreatePortalSession))
 
-	s.publicHandler.GET("/health/live", func(c *gin.Context) {
+	e.GET("/health/live", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})
 	})
 
-	s.publicHandler.GET("/health/ready", s.readyHandler)
+	e.GET("/health/ready", s.readyHandler)
 
 	// Kubernetes-style health check endpoints (aliases)
-	s.publicHandler.GET("/healthz", func(c *gin.Context) {
+	e.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})
 	})
-	s.publicHandler.GET("/readyz", s.readyHandler)
+	e.GET("/readyz", s.readyHandler)
+}
+
+func (s *Server) registerWebhookRoutes(e *gin.Engine) {
+	api := e.Group("/v1")
+	webhooks := api.Group("/webhooks")
+	webhooks.POST("/:provider", s.wrap(handlers.Webhook))
+}
+
+func (s *Server) registerPublicRoutes() {
+	// Standalone public handler: full surface area for convenience.
+	s.registerUserRoutes(s.publicHandler)
+	s.registerWebhookRoutes(s.publicHandler)
+
+	// Embedded split handlers: allow hosts to mount only what they need.
+	s.registerUserRoutes(s.userHandler)
+	s.registerWebhookRoutes(s.webhookHandler)
 }
 
 func (s *Server) readyHandler(c *gin.Context) {
