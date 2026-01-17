@@ -130,7 +130,6 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 
 		CheckoutService:          serviceInstances.CheckoutService,
 		CheckoutSessionService:   serviceInstances.CheckoutSessionService,
-		AdminGrantService:        serviceInstances.AdminGrantService,
 		CreditsService:           serviceInstances.CreditsService,
 		ProcessorCustomerService: serviceInstances.ProcessorCustomerService,
 	}
@@ -364,7 +363,6 @@ type servicesInstances struct {
 
 	CheckoutService          *services.CheckoutService
 	CheckoutSessionService   *services.CheckoutSessionService
-	AdminGrantService        *services.AdminGrantService
 	CreditsService           *services.CreditsService
 	ProcessorCustomerService *services.ProcessorCustomerService
 }
@@ -509,16 +507,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		checkoutSessionService,
 	)
 
-	// Create AdminGrantService for admin product grants
-	adminGrantService := services.NewAdminGrantService(
-		database,
-		priceService,
-		productService,
-		purchaseService,
-		entitlementService,
-	)
-	adminGrantService.Clock = clock
-
 	return &servicesInstances{
 		SubscriptionService:          subscriptionService,
 		ProductService:               productService,
@@ -539,7 +527,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		WebhookDispatcher:            webhookDispatcher,
 		CheckoutService:              checkoutService,
 		CheckoutSessionService:       checkoutSessionService,
-		AdminGrantService:            adminGrantService,
 		CreditsService:               creditsService,
 		ProcessorCustomerService:     processorCustomerService,
 	}

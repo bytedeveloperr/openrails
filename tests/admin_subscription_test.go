@@ -3,13 +3,11 @@
 package tests
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -29,18 +27,18 @@ func setupAdminTestSuite(t *testing.T) (*TestContainerSuite, string) {
 func TestAdminEndpointsRequireAuth(t *testing.T) {
 	suite, _ := setupAdminTestSuite(t)
 
-	t.Run("PUT extend subscription returns 401 without auth", func(t *testing.T) {
+	t.Run("GET subscriptions returns 401 without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", "/v1/admin/subscriptions/"+uuid.New().String()+"/extend", nil)
+		req, _ := http.NewRequest("GET", "/v1/admin/subscriptions", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusUnauthorized, w.Code, "Should return 401 Unauthorized")
 	})
 
-	t.Run("GET dashboard metrics returns 401 without auth", func(t *testing.T) {
+	t.Run("GET metrics summary returns 401 without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/admin/subscriptions/dashboard-metrics", nil)
+		req, _ := http.NewRequest("GET", "/v1/admin/metrics/summary", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
@@ -62,7 +60,7 @@ func TestAdminEndpointsRequireAuth(t *testing.T) {
 		userToken := CreateUserToken(t, userID)
 
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("GET", "/v1/admin/subscriptions/dashboard-metrics", nil)
+		req, _ := http.NewRequest("GET", "/v1/admin/subscriptions", nil)
 		req.Header.Set("Authorization", "Bearer "+userToken)
 
 		suite.Server.Handler().ServeHTTP(w, req)
@@ -71,78 +69,26 @@ func TestAdminEndpointsRequireAuth(t *testing.T) {
 	})
 }
 
-// TestAdminExtendSubscription tests the PUT extend subscription endpoint
-func TestAdminExtendSubscription(t *testing.T) {
+func TestRemovedAdminSubscriptionExtendRoute(t *testing.T) {
 	suite, adminToken := setupAdminTestSuite(t)
 
-	// Create test products and subscription
-	products := suite.SeedProducts()
-	priceID := products[0].Prices[0].ID
-	userID := uuid.New().String()
-
-	t.Run("extends subscription successfully", func(t *testing.T) {
-		// Create a fresh subscription for this test
-		now := time.Now()
-		periodEnd := now.Add(30 * 24 * time.Hour)
-		sub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
-			UserID:         userID,
-			PriceID:        priceID,
-			Status:         models.StatusActive,
-			Processor:      models.ProcessorMobius,
-			ProcessorSubID: "admin-extend-sub-" + uuid.New().String()[:8],
-			PeriodStart:    now,
-			PeriodEnd:      periodEnd,
-		})
-
-		// Extend by 30 days (30 * 24 hours in nanoseconds)
-		extendDuration := 30 * 24 * time.Hour
-		body, _ := json.Marshal(map[string]interface{}{
-			"SubscriptionID": sub.ID.String(),
-			"Duration":       int64(extendDuration),
-		})
-
+	t.Run("returns 404 without auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/admin/subscriptions/%s/extend", sub.ID.String()), bytes.NewReader(body))
-		req.Header.Set("Authorization", "Bearer "+adminToken)
-		req.Header.Set("Content-Type", "application/json")
+		req, _ := http.NewRequest("PUT", "/v1/admin/subscriptions/"+uuid.New().String()+"/extend", nil)
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
-		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got: %s", w.Body.String())
-
-		// Verify the subscription was extended
-		updatedSub := suite.GetSubscription(sub.ID)
-		require.NotNil(t, updatedSub.CurrentPeriodEndsAt, "Period end should be set")
-
-		// New end should be approximately 60 days from now (original 30 + extension 30)
-		expectedEnd := periodEnd.Add(extendDuration)
-		diff := updatedSub.CurrentPeriodEndsAt.Sub(expectedEnd)
-		assert.True(t, diff < time.Minute && diff > -time.Minute,
-			"Period should be extended by 30 days, got diff: %v", diff)
+		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 
-	t.Run("fails to extend cancelled subscription", func(t *testing.T) {
-		cancelledSub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
-			UserID:         userID,
-			PriceID:        priceID,
-			Status:         models.StatusCancelled,
-			Processor:      models.ProcessorMobius,
-			ProcessorSubID: "admin-extend-cancelled-" + uuid.New().String()[:8],
-		})
-
-		body, _ := json.Marshal(map[string]interface{}{
-			"SubscriptionID": cancelledSub.ID.String(),
-			"Duration":       int64(30 * 24 * time.Hour),
-		})
-
+	t.Run("returns 404 with admin auth", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/admin/subscriptions/%s/extend", cancelledSub.ID.String()), bytes.NewReader(body))
+		req, _ := http.NewRequest("PUT", "/v1/admin/subscriptions/"+uuid.New().String()+"/extend", nil)
 		req.Header.Set("Authorization", "Bearer "+adminToken)
-		req.Header.Set("Content-Type", "application/json")
 
 		suite.Server.Handler().ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusInternalServerError, w.Code, "Should fail for cancelled subscription")
+		assert.Equal(t, http.StatusNotFound, w.Code)
 	})
 }
 

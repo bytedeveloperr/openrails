@@ -819,6 +819,25 @@ func (suite *TestContainerSuite) CreateTestEntitlement(userID string, entitlemen
 	ctx := context.Background()
 	now := suite.GetClock().Now()
 
+	if sourceID == nil {
+		switch sourceType {
+		case models.EntitlementSourceAdmin:
+			adminGrant := &models.AdminGrant{
+				ID:           uuid.New(),
+				UserID:       userID,
+				GrantedBy:    "test-admin",
+				Reason:       "test_admin_entitlement",
+				DurationDays: nil,
+				CreatedAt:    now,
+			}
+			_, err := suite.BunDB.NewInsert().Model(adminGrant).Exec(ctx)
+			require.NoError(suite.t, err, "Failed to create test admin_grant source")
+			sourceID = &adminGrant.ID
+		default:
+			require.FailNow(suite.t, "sourceID is required for this sourceType", "sourceType=%s", sourceType)
+		}
+	}
+
 	// For subscription-sourced entitlements, end_at should be NULL (indefinite while subscription is active)
 	// For other sources, we may want a finite window
 	var endAt *time.Time

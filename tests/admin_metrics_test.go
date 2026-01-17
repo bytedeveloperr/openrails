@@ -17,7 +17,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 )
 
-func seedMetricsData(t *testing.T, suite *TestSuite, priceID uuid.UUID) {
+func seedMetricsData(t *testing.T, suite *TestContainerSuite, priceID uuid.UUID) {
 	t.Helper()
 	userID := uuid.New().String()
 	sub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
@@ -31,7 +31,7 @@ func seedMetricsData(t *testing.T, suite *TestSuite, priceID uuid.UUID) {
 	suite.CreateTestPaymentWithOptions(PaymentOptions{
 		UserID:        userID,
 		PriceID:       priceID,
-		Subscription:  sub,
+		SubscriptionID: &sub.ID,
 		Processor:     models.ProcessorMobius,
 		Amount:        999,
 		TransactionID: "txn-" + uuid.NewString()[:8],

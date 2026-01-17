@@ -111,18 +111,41 @@ func GrantAdminEntitlement(r *Request) {
 		return
 	}
 
-	// Calculate end time if days specified
-	var endAt *time.Time
-	if req.Days != nil && *req.Days > 0 {
-		now := time.Now()
-		if r.State.Clock != nil {
-			now = r.State.Clock.Now()
-		}
-		end := now.Add(time.Duration(*req.Days) * 24 * time.Hour)
-		endAt = &end
+	adminUser := r.GetUser()
+	if adminUser == nil || adminUser.ID == "" {
+		r.ErrorJSON(http.StatusUnauthorized, "missing admin identity")
+		return
+	}
+	if req.Days != nil && *req.Days <= 0 {
+		r.ErrorJSON(http.StatusBadRequest, "days must be > 0 (or omit for indefinite)")
+		return
 	}
 
-	ent, err := svc.GrantEntitlement(r.Request.Context(), path.UserID, req.Entitlement, endAt)
+	// Record an admin grant as the source-of-truth for this entitlement.
+	now := time.Now()
+	if r.State.Clock != nil {
+		now = r.State.Clock.Now()
+	}
+	adminGrant := &models.AdminGrant{
+		ID:           uuid.New(),
+		UserID:       path.UserID,
+		GrantedBy:    adminUser.ID,
+		Reason:       "admin_entitlement",
+		DurationDays: req.Days,
+		CreatedAt:    now,
+	}
+	if _, err := r.State.DB.GetDB().NewInsert().Model(adminGrant).Exec(r.Request.Context()); err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, "failed to create admin grant source record")
+		return
+	}
+
+	var ent *models.Entitlement
+	var err error
+	if req.Days != nil {
+		ent, err = svc.AppendEntitlementDays(r.Request.Context(), path.UserID, req.Entitlement, *req.Days, models.EntitlementSourceAdmin, &adminGrant.ID)
+	} else {
+		ent, err = svc.AppendIndefinite(r.Request.Context(), path.UserID, req.Entitlement, models.EntitlementSourceAdmin, adminGrant.ID)
+	}
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
 		return

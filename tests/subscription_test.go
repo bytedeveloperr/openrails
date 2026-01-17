@@ -318,13 +318,7 @@ func TestGetMyBillingStatusEndpoint(t *testing.T) {
 		assert.Nil(t, response.Subscription, "Should have no subscription")
 		assert.Nil(t, response.NextRenewalAt, "Should have no renewal date")
 
-		// Check entitlements list is empty or nil
-		if response.Entitlements != nil {
-			ents, ok := response.Entitlements.([]interface{})
-			if ok {
-				assert.Empty(t, ents, "Should have no entitlements")
-			}
-		}
+		assert.Empty(t, response.Entitlements, "Should have no entitlements")
 	})
 
 	t.Run("returns premium status for user with active subscription", func(t *testing.T) {

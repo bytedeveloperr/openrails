@@ -1,0 +1,43 @@
+{
+  "issues": [
+    {
+      "name": "admin-analytics-and-billing-dashboard",
+      "description": "Build an internal admin web UI for billing analytics and support operations.\n\n## Metadata\n\n- Category: product\n- Status: future\n- Passes: false\n\n## Goals\n\n- Primary: analytics visibility (sales, churn, failures, revenue).\n- Secondary: safe admin operations (support workflows) with audit trails.\n\n## Non-goals (initially)\n\n- Customer-facing self-serve dashboard.\n- Replacing core billing APIs.\n\n## Notes\n\n- Keep the surface area minimal: read-heavy analytics first, then a small set of high-confidence mutations.\n- Every mutation must be gated + audited (who/what/when/why).",
+      "tasks": [
+        "FOUNDATION:",
+        "[ ] Choose hosting path (serve via billing service, or separate static app + API calls)",
+        "[ ] Define admin authz model (role/entitlement) and enforce on all dashboard APIs",
+        "[ ] Add structured audit log table/events for admin actions (actor, action, target, before/after, request_id)",
+        "",
+        "ANALYTICS (READ):",
+        "[ ] Define core metrics: gross sales, net sales, refunds, chargebacks, MRR, active subs, churn, failed attempts",
+        "[ ] Implement time-series queries (today, 7d, 30d) with timezone handling",
+        "[ ] Add breakdowns: processor (NMI/CCBill/Solana), product/tier, country (if available)",
+        "[ ] Add payments funnel: attempts -> succeeded -> refunded/chargeback -> net",
+        "[ ] Add dunning visibility: past_due count, retries, recovered vs churned",
+        "",
+        "ADMIN OPS (MUTATIONS):",
+        "[ ] User lookup + detail view (subscriptions, payments, entitlements, processor IDs)",
+        "[ ] Support actions: cancel subscription, pause/resume, extend access, comp/refund (only where safe)",
+        "[ ] Guardrails: confirmation steps, rate limiting, and require a reason for every mutation",
+        "[ ] Safe idempotency for all admin operations (avoid double-cancel/refund)",
+        "",
+        "API + DATA LAYER:",
+        "[ ] Add dedicated admin endpoints (e.g. /v1/admin/analytics/*, /v1/admin/users/*)",
+        "[ ] Add indexes/materialized views if needed for dashboard performance",
+        "[ ] Add caching strategy for expensive aggregates (optional)",
+        "",
+        "UI:",
+        "[ ] Minimal dashboard pages: Overview, Payments, Subscriptions, Dunning, User Lookup",
+        "[ ] Tables: filter/sort/paginate; export CSV for key views",
+        "[ ] Detail drilldowns from charts -> filtered tables",
+        "",
+        "VERIFICATION:",
+        "[ ] Unit tests for analytics queries (edge dates/timezones) and authz checks",
+        "[ ] Integration tests for a small set of admin mutations + audit logging",
+        "[ ] Manual checklist for production access controls and least privilege"
+      ],
+      "completed": false
+    }
+  ]
+}

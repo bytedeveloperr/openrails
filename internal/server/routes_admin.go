@@ -17,7 +17,6 @@ func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
 	// Subscription management
 	admin.GET("/subscriptions", s.wrap(handlers.GetAdminSubscriptions))
 	admin.GET("/subscriptions/:id", s.wrap(handlers.GetAdminSubscription))
-	admin.PUT("/subscriptions/:id/extend", s.wrap(handlers.ExtendSubscription))
 	admin.POST("/subscriptions/:id/cancel", s.wrap(handlers.AdminCancelSubscription))
 
 	// Payment management
@@ -31,13 +30,6 @@ func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
 	admin.GET("/users/:user_id/entitlements", s.wrap(handlers.GetAdminUserEntitlements))
 	admin.POST("/users/:user_id/entitlements", s.wrap(handlers.GrantAdminEntitlement))
 	admin.DELETE("/users/:user_id/entitlements/:id", s.wrap(handlers.RevokeAdminEntitlement))
-	admin.GET("/users/:user_id/mobius", s.wrap(handlers.GetAdminUserMobius))
-	admin.GET("/users/:user_id/mobius/metrics", s.wrap(handlers.GetAdminUserMobiusMetrics))
-
-	// Admin grants (product-based grants with audit trail)
-	admin.POST("/users/:user_id/grants", s.wrap(handlers.CreateAdminGrant))
-	admin.GET("/users/:user_id/grants", s.wrap(handlers.ListAdminGrantsByUser))
-	admin.GET("/grants/:id", s.wrap(handlers.GetAdminGrant))
 
 	// Metrics
 	admin.GET("/metrics/summary", s.wrap(handlers.GetAdminMetricsSummary))
