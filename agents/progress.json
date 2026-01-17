@@ -612,7 +612,7 @@
         "[ ] Handlers: parse Stripe-like params (starting_after/ending_before, status filters), enforce currency when multi-currency, apply ownership checks, Stripe-style error envelopes.",
         "[ ] Services: add cursor pagination, map internal states to Stripe enums, compute refund fields, surface failure codes/messages, enforce customer ownership.",
         "[ ] OpenAPI: update paths/schemas to customer routes and new shapes; document /me as alias and multi-currency requirement.",
-        "[ ] Edge cases: idempotency keys on create/confirm flows, attach/detach semantics and default payment method rules, partial refunds, proration limits (single item), metadata/livemode consistency, created[gte/lte] filters, list url population.",
+    "[ ] Edge cases: idempotency keys on create/confirm flows, attach/detach semantics (no global/default payment method; subscriptions explicitly reference a payment_method_id), partial refunds, proration limits (single item), metadata/livemode consistency, created[gte/lte] filters, list url population.",
         "[ ] Testing: handler/service tests for cursor pagination, ID validation, ownership, status mapping, payment method create/update, and list envelopes."
       ],
       "completed": false
