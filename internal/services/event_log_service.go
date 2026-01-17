@@ -98,6 +98,27 @@ func (s *EventLogService) Ready(ctx context.Context) error {
 	return s.ensureConn(ctx)
 }
 
+// SubscriptionEventExists checks if a subscription event of the given type already exists.
+// Used to avoid emitting duplicate lifecycle events when multiple webhooks report the same state change.
+func (s *EventLogService) SubscriptionEventExists(ctx context.Context, subscriptionID uuid.UUID, eventType string) (bool, error) {
+	if err := s.ensureConn(ctx); err != nil {
+		return false, err
+	}
+
+	query := `SELECT 1 FROM subscription_events WHERE subscription_id = ? AND event_type = ? LIMIT 1`
+	rows, err := s.clickhouseConn.Query(ctx, query, subscriptionID, eventType)
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	hasRow := rows.Next()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return hasRow, nil
+}
+
 func defaultSpoolDir() string {
 	return "/var/lib/doujins-billing/spool"
 }
@@ -925,7 +946,11 @@ func initClickHouseConnection(cfg *config.ClickHouseConfig) (driver.Conn, error)
 	// Derive native protocol address from HTTPAddr.
 	// If an HTTP URL is provided (http://host:8123), translate to native (host:9000).
 	var serverAddr string
-	if strings.HasPrefix(cfg.HTTPAddr, "http://") || strings.HasPrefix(cfg.HTTPAddr, "https://") {
+	// Explicit client_addr takes precedence when set (e.g., custom port 9002).
+	if strings.TrimSpace(cfg.ClientAddr) != "" {
+		serverAddr = strings.TrimSpace(cfg.ClientAddr)
+	}
+	if serverAddr == "" && (strings.HasPrefix(cfg.HTTPAddr, "http://") || strings.HasPrefix(cfg.HTTPAddr, "https://")) {
 		if u, err := url.Parse(cfg.HTTPAddr); err == nil {
 			host := u.Hostname()
 			port := u.Port()

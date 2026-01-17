@@ -512,6 +512,9 @@ func (s *AdminMetricsService) GetSubscriptionSeries(ctx context.Context, rng Met
 	for _, resp := range responses {
 		out = append(out, *resp)
 	}
+	if len(out) == 0 {
+		return []SubscriptionSeriesResponse{}, nil
+	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Currency < out[j].Currency
 	})
@@ -566,6 +569,9 @@ func (s *AdminMetricsService) GetProcessorMetrics(ctx context.Context, rng Metri
 			return resp.Processors[i].Processor < resp.Processors[j].Processor
 		})
 		out = append(out, *resp)
+	}
+	if len(out) == 0 {
+		return []ProcessorMetricsResponse{}, nil
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Currency < out[j].Currency
