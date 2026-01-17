@@ -1,6 +1,23 @@
 {
   "issues": [
     {
+      "name": "Unify subscription tier changes behind POST /v1/me/subscriptions/tier-change",
+      "description": "Today, upgrading/downgrading subscription tiers is inconsistent by processor:\n- Stripe: uses POST /v1/me/subscriptions/change (in-place price change)\n- Mobius/NMI: uses POST /v1/checkout (processUpgrade/processDowngrade)\n- CCBill: upgrades use POST /v1/checkout (redirect upgrade FlexForm); downgrades blocked\n\nThis is confusing for the frontend and encourages processor-specific client logic.\n\n## Goal\n\nIntroduce a single canonical user endpoint for tier changes:\n\n- POST /v1/me/subscriptions/tier-change\n\nThe frontend should always use this endpoint for tier upgrades/downgrades. The server can still branch per processor internally.\n\n## Compatibility\n\nBreak compatibility intentionally:\n- Remove tier upgrade/downgrade behavior from POST /v1/checkout immediately.\n- /v1/checkout should only be used for new purchases/checkout sessions, not tier changes.\n- When a tier change is detected during /v1/checkout, return a clear error directing callers to POST /v1/me/subscriptions/tier-change.\n\n## Suggested Response Shape\n\nPrefer returning the same checkout-session envelope used by /v1/checkout so the frontend has one state machine:\n- succeeded immediately for Stripe and Mobius/NMI (when synchronous)\n- requires_action + redirect_url for CCBill upgrades\n- succeeded with delayed_start for scheduled downgrades (when supported)\n- blocked/conflict when a processor cannot support the requested action\n",
+      "tasks": [
+        "[ ] Decide the canonical response envelope (recommended: reuse CheckoutSessionResponse) and document it in openapi.yaml + docs",
+        "[ ] Add route + handler: POST /v1/me/subscriptions/tier-change",
+        "[ ] Implement service method: TierChange(user_id, target_price_id, ...) that detects upgrade/downgrade and routes per processor",
+        "[ ] Stripe: move existing /subscriptions/change logic behind TierChange (in-place price change + proration rules)",
+        "[ ] Mobius/NMI: route upgrades/downgrades through TierChange (reuse existing processUpgrade + processDowngrade behavior)",
+        "[ ] CCBill: route upgrades through TierChange (return requires_action + redirect_url; completion via existing webhooks); keep downgrade behavior consistent (blocked + message)",
+        "[ ] Idempotency: define consistent idempotency keying for tier-change (especially for NMI upgrades) and document expected frontend behavior",
+        "[ ] Remove tier upgrade/downgrade behavior from /v1/checkout (detect tier-change attempts and return an error pointing to /v1/me/subscriptions/tier-change)",
+        "[ ] Add integration tests: tier-change for Stripe/Mobius/CCBill (upgrade + downgrade where supported) and ensure /v1/checkout continues to behave the same",
+        "[ ] Update frontend guidance docs: “use /v1/me/subscriptions/tier-change for tier changes; /v1/checkout is for new purchases/checkout sessions”"
+      ],
+      "completed": false
+    },
+    {
       "name": "First-class embedded API (no HTTP) with parity to standalone mode",
       "description": "Make `doujins-billing` equally usable as (1) a standalone HTTP service and (2) an embedded library inside a host app, **without** forcing embedded hosts to call HTTP handlers for core operations (holds/capture/release, entitlements, credits, checkout, etc.). The standalone HTTP handlers must be thin wrappers around the same exported Go APIs.\n\n## Goals\n\n- Embedded hosts can call billing via exported Go interfaces (no JSON/HTTP routing).\n- Standalone server continues to expose the same HTTP API and behavior.\n- Both modes share identical business logic and data access.\n- Keep `internal/*` private; exported packages must not require importing internal packages from host apps.\n\n## Non-goals\n\n- Redesigning billing business rules.\n- Breaking existing HTTP routes or payloads.\n\n## Design sketch\n\n- Introduce an exported service layer (e.g. `pkg/billing` or `pkg/service`) with a stable API:\n  - `type Service struct { ... }` (or interfaces) with methods like:\n    - Credits: `HoldCredits`, `CaptureHold`, `ReleaseHold`, `GetBalances`, `GetEntitlements`.\n    - Checkout: `CreateCheckoutSession`, `CreatePortalSession`, etc.\n    - Webhooks: `HandleStripeWebhook(payload, headers, clientIP)` (or event meta) returning an `Accepted/Rejected` result.\n  - Inputs/outputs are exported structs that mirror current handler/service params.\n- Refactor current HTTP handlers to delegate to this exported service layer.\n- Embedded mode (`pkg/embedded`) returns BOTH:\n  - `PublicHandler()` (for mounting under `/billing`)\n  - `Service()` (for host-internal calls)\n  - `RunWorkers()` (unchanged)\n\n## Notes\n\n- This keeps the HTTP API as an adapter, not the core API.\n- The exported service layer should accept dependencies via Options (DB handle, logger, clock, etc.) but keep defaults so standalone remains simple.\n",
       "tasks": [
@@ -272,6 +289,18 @@
         "[ ] Add config option to choose between transfer vs transaction request mode",
         "BENEFIT: Enables complex transactions (swaps, multi-instruction), sponsored fees, and server-side transaction building",
         "[ ] Write tests for transaction request flow"
+      ],
+      "completed": false
+    },
+    {
+      "name": "solana-pay-fx-conversion-for-non-usd-prices",
+      "description": "Fix Solana token quoting when catalog prices are not USD.\n\n## Problem\n\nToday, Solana token quoting assumes `price.Amount` is USD cents regardless of `price.Currency`.\n\n- `internal/services/solana_token_quote.go` converts `amountCents` -> `amountUSD` via `amountCents/100`.\n- That produces incorrect token amounts for non-USD prices (e.g., EUR-pegged catalog).\n\n## Goals\n\n- Support catalog prices denominated in non-USD fiat currencies for Solana payments.\n- Quote token amounts using live token USD prices (already via Jupiter) + correct FX conversion for the catalog currency.\n- Store enough quote context (FX rate + token USD price snapshot + rounding) to audit and debug mismatches.\n\n## Plan\n\n- Introduce an internal FX quote interface to convert `currency -> USD` at quote time:\n  - `FXProvider.QuoteToUSD(ctx, currency string) (rate float64, asOf time.Time, err error)`.\n  - Keep it swappable/testable (mock in unit tests).\n\n- Update Solana quoting:\n  - Change `calculateTokenQuote(...)` to accept `(amountCents int64, currency string)`.\n  - If `currency != \"usd\"`:\n    - Fetch FX rate `currency->USD` and compute `amountUSD = (amountCents/100) * fxRate`.\n  - Fetch live token USD price (already via Jupiter) and compute token units.\n  - Define rounding strategy explicitly (ceil vs round) to avoid underpayment.\n\n- Persist quote snapshot:\n  - For checkout-session-based Solana flows, store in `checkout_sessions.processor_state`:\n    - `fx_rate_to_usd`, `fx_currency`, `token_price_usd`, `token_amount`, `quoted_at`, `quote_expires_at`.\n\n- Tests:\n  - Add unit tests for FX conversion path (mock FX provider + mock Jupiter price).\n  - Add integration test for a non-USD price (e.g. EUR) that asserts token quote changes with FX rate.\n\n- Guardrails:\n  - If FX provider is unavailable and `currency != usd`, fail checkout session creation with a clear error.\n  - Keep behavior unchanged for USD prices.\n",
+      "tasks": [
+        "[ ] Add FX provider interface + minimal implementation",
+        "[ ] Update Solana token quote code to use currency->USD FX conversion when needed",
+        "[ ] Store quote snapshot fields in checkout session processor_state for Solana flows",
+        "[ ] Add tests covering non-USD price quoting (unit + integration)",
+        "[ ] Document Solana pricing assumptions and failure modes (FX unavailable, rounding)"
       ],
       "completed": false
     },
