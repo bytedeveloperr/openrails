@@ -215,29 +215,29 @@
       "name": "Remove admin subscription extension; use entitlements/admin-grants instead",
       "description": "Fix the abstraction around subscriptions vs entitlements.\n\n## Problem\n\nToday, billing exposes an admin endpoint to \"extend\" a subscription by mutating `subscriptions.current_period_ends_at` in Postgres (`PUT /v1/admin/subscriptions/:id/extend`). This is the wrong abstraction.\n\n- Subscription records should reflect the source-of-truth processor (Stripe/NMI/CCBill/etc). We should not manually extend them.\n- What users actually need is an entitlement window (e.g. premium access).\n- Admins should grant additional entitlement time by creating a separate admin-grant record + entitlement window that appends after the user’s current/latest entitlement end (no gaps).\n\n## Requirement (new)\n\n- Every entitlement must have a source:\n  - `subscription` (source_id = subscription UUID)\n  - `one_off` (source_id = payment UUID)\n  - `admin` (source_id = admin_grant UUID)\n\nSo \"admin entitlements\" must not be created with a nil source_id.\n\n## Goals\n\n- Remove subscription mutation as an admin tool.\n- Ensure entitlement stacking works cleanly (subscription-backed entitlements + admin grants append without gaps).\n- Ensure admin-granted entitlements always have a source (admin_grant).\n\n## Plan\n\n- Remove the admin HTTP endpoint:\n  - Delete route `PUT /v1/admin/subscriptions/:id/extend`.\n  - Delete handler `handlers.ExtendSubscription`.\n  - Delete service methods `AdminSubscriptionService.ExtendSubscription*`.\n- Make admin entitlement grant create a source record:\n  - When an admin grants/extends access, create an `admin_grants` record and then create entitlements with `source_type=admin` and `source_id=<admin_grants.id>`.\n  - Ensure the entitlement window starts immediately after the user's latest entitlement end (no overlap/gaps).\n- Add tests:\n  - Attempting to call the removed endpoint should 404.\n  - Given an active subscription entitlement ending at T, granting N days yields [T, T+N] (or immediately after the latest end if there are existing grants).\n  - Entitlements created by admin flow always have a non-null `source_id`.\n- Update docs/admin UI expectations:\n  - Remove any reference to subscription extension.\n  - Document the correct support workflow: “grant extra entitlement days”.\n",
       "tasks": [
-        "[ ] Remove `PUT /v1/admin/subscriptions/:id/extend` route + handler + service methods",
-        "[ ] Remove Mobius-specific admin endpoints (`GET /v1/admin/users/:user_id/mobius` and `/v1/admin/users/:user_id/mobius/metrics`) in favor of generic admin subscription/payment/entitlement tooling",
-        "[ ] Update admin entitlement grant flow to always create `admin_grants` and set entitlement `source_type=admin` and `source_id=admin_grants.id` (no nil sources)",
-        "[ ] Verify entitlement stacking semantics: admin grants append after the current/latest entitlement end (no overlap/gaps)",
-        "[ ] Add integration tests for (1) removed subscription extend endpoint, (2) entitlement stacking, and (3) non-null admin entitlement sources",
-        "[ ] Update admin docs/UI notes to use admin grants/entitlements, not subscription edits"
+        "[x] Remove `PUT /v1/admin/subscriptions/:id/extend` route + handler + service methods",
+        "[x] Remove Mobius-specific admin endpoints (`GET /v1/admin/users/:user_id/mobius` and `/v1/admin/users/:user_id/mobius/metrics`) in favor of generic admin subscription/payment/entitlement tooling",
+        "[x] Update admin entitlement grant flow to always create `admin_grants` and set entitlement `source_type=admin` and `source_id=admin_grants.id` (no nil sources)",
+        "[x] Verify entitlement stacking semantics: admin grants append after the current/latest entitlement end (no overlap/gaps)",
+        "[x] Add integration tests for (1) removed subscription extend endpoint, (2) entitlement stacking, and (3) non-null admin entitlement sources",
+        "[x] Update admin docs/UI notes to use admin grants/entitlements, not subscription edits"
       ],
-      "completed": false
+      "completed": true
     },
     {
       "name": "Remove admin-grant routes; replace with off-channel checkout/payments",
       "description": "Remove the admin-grant HTTP routes (`POST /v1/admin/users/:user_id/grants`, `GET /v1/admin/users/:user_id/grants`, `GET /v1/admin/grants/:id`). We should not model \"granting products\" to users at fake prices.\n\n## Desired model\n\n- Subscriptions are source-of-truth from the payment processor; admins should not edit them.\n- Entitlements represent access windows.\n- Every entitlement must have a source:\n  - `subscription` (source_id = subscription UUID)\n  - `one_off` (source_id = payment UUID)\n  - `admin` (source_id = admin_grant UUID)\n\n## Admin actions (two distinct systems)\n\n- Admin entitlement grants (comps/support overrides):\n  - Creates an `admin_grants` record.\n  - Grants entitlements with `source_type=admin` and `source_id=<admin_grants.id>`.\n- Admin off-channel purchases (cash/manual sales recorded by an admin):\n  - Creates a real `payments` record (`processor=manual`).\n  - Grants entitlements with `source_type=one_off` and `source_id=<payments.id>`.\n  - This is NOT an admin-grant; it is a purchase recorded manually.\n\n## Discount / custom price support\n\n- A `price` is the canonical offer.\n- A `payment` is what the user actually paid (can differ from the canonical price due to discounts, comps, off-channel pricing, or price changes over time).\n- Store both: canonical `price_id`, paid amount, and list amount-at-purchase + optional discount metadata.\n\n## Plan\n\n- Remove the grant surface:\n  - Remove admin routes in `internal/server/routes_admin.go` for `/users/:user_id/grants` and `/grants/:id`.\n  - Delete `internal/handlers/admin_grants.go`.\n  - Remove `internal/services/admin_grant_service.go` and any runtime wiring.\n\n- Keep `billing.admin_grants` as an internal source table:\n  - Stop exposing product/price grants over HTTP.\n  - Use `admin_grants` only as the required source-of-truth row for admin-issued entitlements (comps/support overrides).\n\n- Add off-channel payment flow (admin-only):\n  - Add a new admin endpoint (name TBD) that records an off-channel payment against a user with a real amount/currency/transaction ref and a `price_id`.\n  - This endpoint should create a `payments` record with `processor=manual`/`cash` (new enum value if needed), and then grant entitlements derived from the price’s product spec.\n  - Entitlement granting must append after the latest end to avoid overlap/gaps.\n\n- Tests:\n  - Admin-grant routes return 404.\n  - Off-channel payment endpoint creates a payment record + appended entitlement window.\n  - Admin entitlement grants create `admin_grants` and produce entitlements with non-null `source_id`.\n\n- Docs:\n  - Document support workflows: use admin entitlement grant/append for comps; use off-channel payment endpoint for manual payments.\n",
       "tasks": [
-        "[ ] Remove admin-grant routes + handlers + service wiring",
-        "[ ] Add processor-agnostic off-channel payment endpoint (admin-only) that creates a real Payment record",
-        "[ ] Extend payments schema to record canonical/list amount-at-purchase + optional discount metadata (so paid amount can differ from price amount without creating new Prices)",
-        "[ ] Ensure normal checkout populates list amount-at-purchase (and leaves discount metadata empty unless applied)",
-        "[ ] Ensure entitlements are granted from price/product spec and append correctly (no gaps)",
-        "[ ] Ensure admin entitlement grants create `admin_grants` and all entitlements have non-null, correct `source_type/source_id`",
-        "[ ] Add integration tests for (1) removal of old routes, (2) new off-channel endpoint, and (3) entitlement source requirements",
-        "[ ] Add a migration/backfill to enforce non-null entitlement sources for admin entitlements (and prevent future nil sources)"
+        "[x] Remove admin-grant routes + handlers + service wiring",
+        "[x] Add processor-agnostic off-channel payment endpoint (admin-only) that creates a real Payment record",
+        "[x] Extend payments schema to record canonical/list amount-at-purchase + optional discount metadata (so paid amount can differ from price amount without creating new Prices)",
+        "[x] Ensure normal checkout populates list amount-at-purchase (and leaves discount metadata empty unless applied)",
+        "[x] Ensure entitlements are granted from price/product spec and append correctly (no gaps)",
+        "[x] Ensure admin entitlement grants create `admin_grants` and all entitlements have non-null, correct `source_type/source_id`",
+        "[x] Add integration tests for (1) removal of old routes, (2) new off-channel endpoint, and (3) entitlement source requirements",
+        "[x] Add a migration/backfill to enforce non-null entitlement sources for admin entitlements (and prevent future nil sources)"
       ],
-      "completed": false
+      "completed": true
     },
     {
       "name": "admin-rate-limiting",
@@ -612,7 +612,7 @@
         "[ ] Handlers: parse Stripe-like params (starting_after/ending_before, status filters), enforce currency when multi-currency, apply ownership checks, Stripe-style error envelopes.",
         "[ ] Services: add cursor pagination, map internal states to Stripe enums, compute refund fields, surface failure codes/messages, enforce customer ownership.",
         "[ ] OpenAPI: update paths/schemas to customer routes and new shapes; document /me as alias and multi-currency requirement.",
-    "[ ] Edge cases: idempotency keys on create/confirm flows, attach/detach semantics (no global/default payment method; subscriptions explicitly reference a payment_method_id), partial refunds, proration limits (single item), metadata/livemode consistency, created[gte/lte] filters, list url population.",
+        "[ ] Edge cases: idempotency keys on create/confirm flows, attach/detach semantics (no global/default payment method; subscriptions explicitly reference a payment_method_id), partial refunds, proration limits (single item), metadata/livemode consistency, created[gte/lte] filters, list url population.",
         "[ ] Testing: handler/service tests for cursor pagination, ID validation, ownership, status mapping, payment method create/update, and list envelopes."
       ],
       "completed": false

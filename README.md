@@ -351,20 +351,27 @@ Error types: `invalid_request_error`, `authentication_error`, `authorization_err
 
 ---
 
-### Admin Endpoints (Admin API - Port 8060)
+### Admin Endpoints
 
-Requires `X-API-KEY: <billing_api_key>` header.
+Admin endpoints are under `/v1/admin/*` and require:
+
+- a valid JWT
+- the user to have the `admin` role in AuthKit (`profiles.user_roles`)
+
+See `openapi.yaml` for the full contract. Key endpoints:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| PUT | `/v1/subscriptions/:id/extend` | Extend subscription period |
-| POST | `/v1/subscriptions/:id/cancel` | Admin cancel subscription |
-| POST | `/v1/users/:user_id/subscription/cancel` | Cancel user's subscription |
-| GET | `/v1/subscriptions/:id/details` | Get subscription details |
-| GET | `/v1/subscriptions/dashboard-metrics` | Get dashboard metrics |
-| GET | `/v1/subscriptions/daily-metrics` | Get daily metrics |
-| GET | `/v1/subscriptions/processor-metrics` | Get per-processor metrics |
-| GET | `/v1/users/:user_id/entitlements` | Get user's active entitlements |
+| GET | `/v1/admin/subscriptions` | List subscriptions |
+| GET | `/v1/admin/subscriptions/:id` | Get subscription |
+| POST | `/v1/admin/subscriptions/:id/cancel` | Admin-cancel subscription |
+| GET | `/v1/admin/payments` | List payments |
+| GET | `/v1/admin/payments/:id` | Get payment |
+| POST | `/v1/admin/payments/:id/refund` | Record refund |
+| POST | `/v1/admin/users/:user_id/payments/off-channel` | Record off-channel/manual purchase (creates Payment and grants entitlements) |
+| GET | `/v1/admin/users/:user_id/entitlements` | List active entitlement windows |
+| POST | `/v1/admin/users/:user_id/entitlements` | Grant entitlement (creates admin_grants source record) |
+| DELETE | `/v1/admin/users/:user_id/entitlements/:id` | Revoke entitlement |
 
 ---
 

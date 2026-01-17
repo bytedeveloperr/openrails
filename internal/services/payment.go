@@ -111,6 +111,7 @@ func (s *PaymentService) Refund(ctx context.Context, originalPaymentID uuid.UUID
 		Processor:     orig.Processor,
 		TransactionID: refundTransactionID,
 		Amount:        -amount,
+		ListAmount:    orig.ListAmount,
 		Currency:      orig.Currency,
 		PurchasedAt:   s.now(),
 		CreatedAt:     s.now(),

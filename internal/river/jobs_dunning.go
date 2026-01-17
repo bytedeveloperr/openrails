@@ -257,6 +257,7 @@ func (w *DunningWorker) processSubscription(
 		Processor:      models.ProcessorMobius,
 		TransactionID:  rebillResp.TransactionID,
 		Amount:         amount,
+		ListAmount:     amount,
 		Currency:       currency,
 		PurchasedAt:    now,
 		CreatedAt:      now,

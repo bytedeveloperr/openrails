@@ -16,6 +16,7 @@ const (
 	ProcessorStripe Processor = "stripe" // Stripe processor (subscriptions + one-time)
 	ProcessorPayPal Processor = "paypal" // PayPal processor (self-contained)
 	ProcessorAdmin  Processor = "admin"  // Admin-initiated payments (comps, manual payments via PayPal/cash/etc.)
+	ProcessorManual Processor = "manual" // Off-channel/manual payments recorded by admins (cash, bank transfer, etc.)
 
 	// ProcessorNMI is kept for backwards compatibility with legacy database records.
 	// New code should use ProcessorMobius for the processor field.

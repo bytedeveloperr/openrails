@@ -1,0 +1,78 @@
+//go:build integration
+
+package tests
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+)
+
+func TestAdminOffChannelPaymentCreatesPaymentAndEntitlements(t *testing.T) {
+	suite, adminToken := setupAdminTestSuite(t)
+	products := suite.SeedProducts()
+
+	// Use the one-time "lifetime" product so the entitlements granted are sensible as a one-off.
+	lifetimePriceID := products[2].Prices[0].ID
+	userID := uuid.New().String()
+
+	fixedNow := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	suite.SetMockClock(fixedNow)
+
+	body, err := json.Marshal(map[string]any{
+		"price_id":          lifetimePriceID.String(),
+		"transaction_id":    "cash-rcpt-" + uuid.NewString()[:8],
+		"amount":            int64(1500),
+		"currency":          "usd",
+		"purchased_at":      fixedNow.Format(time.RFC3339),
+		"discount_reason":   "manual_discount",
+		"discount_code":     "SUPPORT15",
+		"discount_metadata": map[string]any{"note": "paid cash at meetup"},
+	})
+	require.NoError(t, err)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/v1/admin/users/"+userID+"/payments/off-channel", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+adminToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	suite.Server.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+
+	var resp struct {
+		PaymentID string `json:"payment_id"`
+	}
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	paymentID := uuid.MustParse(resp.PaymentID)
+
+	p := new(models.Payment)
+	require.NoError(t, suite.BunDB.NewSelect().Model(p).Where("purch.id = ?", paymentID).Scan(req.Context()))
+
+	require.Equal(t, userID, p.UserID)
+	require.Equal(t, lifetimePriceID, p.PriceID)
+	require.Equal(t, models.ProcessorManual, p.Processor)
+	require.Equal(t, int64(1500), p.Amount)
+	require.Equal(t, int64(29999), p.ListAmount) // canonical list price from seed data
+	require.Equal(t, "usd", p.Currency)
+	require.Equal(t, fixedNow, p.PurchasedAt)
+	require.NotNil(t, p.DiscountReason)
+	require.Equal(t, "manual_discount", *p.DiscountReason)
+	require.NotNil(t, p.DiscountCode)
+	require.Equal(t, "SUPPORT15", *p.DiscountCode)
+
+	ents := make([]models.Entitlement, 0)
+	require.NoError(t, suite.BunDB.NewSelect().
+		Model(&ents).
+		Where("ent.source_type = ?", models.EntitlementSourceOneOff).
+		Where("ent.source_id = ?", paymentID).
+		Scan(req.Context()))
+	require.NotEmpty(t, ents)
+}

@@ -26,8 +26,13 @@ type Payment struct {
 	TransactionID string    `bun:"transaction_id,notnull" json:"transaction_id"`
 
 	// Payment details - amount in cents (smallest currency unit)
-	Amount   int64  `bun:"amount,notnull" json:"amount"`
-	Currency string `bun:"currency,notnull,default:'usd'" json:"currency"`
+	Amount     int64  `bun:"amount,notnull" json:"amount"`
+	ListAmount int64  `bun:"list_amount,notnull" json:"list_amount"`
+	Currency   string `bun:"currency,notnull,default:'usd'" json:"currency"`
+
+	DiscountCode     *string        `bun:"discount_code,nullzero" json:"discount_code,omitempty"`
+	DiscountReason   *string        `bun:"discount_reason,nullzero" json:"discount_reason,omitempty"`
+	DiscountMetadata map[string]any `bun:"discount_metadata,type:jsonb,nullzero" json:"discount_metadata,omitempty"`
 
 	PurchasedAt time.Time `bun:"purchased_at,notnull,default:current_timestamp" json:"purchased_at"`
 	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`

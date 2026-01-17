@@ -1363,6 +1363,14 @@ type RegisterPurchaseRequest struct {
 	Amount         int64      // Amount in smallest unit (cents for usd, lamports for SOL)
 	Currency       string     // "usd", "USDC", "SOL", etc.
 	SubscriptionID *uuid.UUID // Optional: link payment to subscription (for subscription renewals/purchases)
+
+	// Optional: when this purchase happened (defaults to now).
+	PurchasedAt *time.Time
+
+	// Optional discount metadata (useful for off-channel/manual purchases).
+	DiscountCode     *string
+	DiscountReason   *string
+	DiscountMetadata map[string]any
 }
 
 // RegisterPurchaseResponse contains the result of a registered purchase
@@ -1439,20 +1447,28 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 	}
 
 	now := s.now()
+	purchasedAt := now
+	if req.PurchasedAt != nil {
+		purchasedAt = (*req.PurchasedAt).UTC()
+	}
 
 	// Create payment record
 	paymentID := uuid.New()
 	payment := &models.Payment{
-		ID:             paymentID,
-		UserID:         req.UserID,
-		PriceID:        price.ID,
-		SubscriptionID: req.SubscriptionID, // Link to subscription if provided
-		Processor:      models.Processor(req.Processor),
-		TransactionID:  req.TransactionID,
-		Amount:         amount,
-		Currency:       currency,
-		PurchasedAt:    now,
-		CreatedAt:      now,
+		ID:               paymentID,
+		UserID:           req.UserID,
+		PriceID:          price.ID,
+		SubscriptionID:   req.SubscriptionID, // Link to subscription if provided
+		Processor:        models.Processor(req.Processor),
+		TransactionID:    req.TransactionID,
+		Amount:           amount,
+		ListAmount:       price.Amount,
+		Currency:         currency,
+		PurchasedAt:      purchasedAt,
+		CreatedAt:        now,
+		DiscountCode:     req.DiscountCode,
+		DiscountReason:   req.DiscountReason,
+		DiscountMetadata: req.DiscountMetadata,
 	}
 
 	if err := s.PaymentService.Create(ctx, payment); err != nil {
