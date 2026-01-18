@@ -261,3 +261,87 @@ func (c *RPCClient) GetSignaturesForAddress(ctx context.Context, address string,
 func (c *RPCClient) GetClient() *rpc.Client {
 	return c.client
 }
+
+// TokenAccountInfo represents an SPL token account balance for a specific mint.
+type TokenAccountInfo struct {
+	Mint    string
+	Balance uint64
+}
+
+// GetTokenBalanceForMint returns the SPL token balance for a specific mint owned by a wallet.
+// It derives the Associated Token Account (ATA) address and queries its balance.
+// Returns 0 if the account doesn't exist or has no balance.
+func (c *RPCClient) GetTokenBalanceForMint(ctx context.Context, owner solanago.PublicKey, mint solanago.PublicKey) (uint64, error) {
+	// Derive the Associated Token Account address
+	ata, _, err := solanago.FindAssociatedTokenAddress(owner, mint)
+	if err != nil {
+		return 0, fmt.Errorf("failed to derive ATA for mint %s: %w", mint.String(), err)
+	}
+
+	// Get the token account balance
+	resp, err := c.client.GetTokenAccountBalance(ctx, ata, rpc.CommitmentFinalized)
+	if err != nil {
+		// Account might not exist (user has never held this token)
+		if strings.Contains(err.Error(), "could not find account") ||
+			strings.Contains(err.Error(), "Invalid param") {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("failed to get token balance: %w", err)
+	}
+
+	if resp.Value == nil {
+		return 0, nil
+	}
+
+	// Parse the amount string to uint64
+	var balance uint64
+	fmt.Sscanf(resp.Value.Amount, "%d", &balance)
+	return balance, nil
+}
+
+// GetTokenBalances returns token balances for multiple mints owned by a wallet.
+// Mints that don't exist or have zero balance are included with Balance=0.
+// Fetches balances in parallel for better performance.
+func (c *RPCClient) GetTokenBalances(ctx context.Context, owner solanago.PublicKey, mints []string) ([]TokenAccountInfo, error) {
+	if len(mints) == 0 {
+		return nil, nil
+	}
+
+	type result struct {
+		mint    string
+		balance uint64
+		err     error
+	}
+
+	results := make(chan result, len(mints))
+
+	// Fetch balances in parallel
+	for _, mintStr := range mints {
+		go func(mintStr string) {
+			mint, err := solanago.PublicKeyFromBase58(mintStr)
+			if err != nil {
+				results <- result{mint: mintStr, err: err}
+				return
+			}
+
+			balance, err := c.GetTokenBalanceForMint(ctx, owner, mint)
+			results <- result{mint: mintStr, balance: balance, err: err}
+		}(mintStr)
+	}
+
+	// Collect results
+	var accounts []TokenAccountInfo
+	for i := 0; i < len(mints); i++ {
+		r := <-results
+		if r.err != nil {
+			log.WithError(r.err).WithField("mint", r.mint).Debug("Failed to get token balance")
+			continue
+		}
+		accounts = append(accounts, TokenAccountInfo{
+			Mint:    r.mint,
+			Balance: r.balance,
+		})
+	}
+
+	return accounts, nil
+}

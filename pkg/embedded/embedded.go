@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/uptrace/bun"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/server"
 	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/doujins-org/doujins-billing/pkg/cache"
+	"github.com/doujins-org/doujins-billing/pkg/routes"
 	"github.com/doujins-org/doujins-billing/pkg/service"
 )
 
@@ -135,6 +137,71 @@ func (e *Embedded) Service() (*service.Service, error) {
 		return nil, fmt.Errorf("embedded billing: app not initialized")
 	}
 	return service.New(e.app.Runtime)
+}
+
+// RouteOptions configures route registration behavior.
+type RouteOptions struct {
+	// AuthProvider is required for routes that need authentication.
+	// If not provided, uses the auth provider from Embedded initialization.
+	AuthProvider authprovider.Provider
+}
+
+// RegisterUserRoutes registers user-facing billing routes on the provided Gin router group.
+// These routes include products, prices, checkout, subscriptions, payments, etc.
+//
+// Example:
+//
+//	router := gin.Default()
+//	api := router.Group("/v1")
+//	billing.RegisterUserRoutes(api, embedded.RouteOptions{})
+func (e *Embedded) RegisterUserRoutes(group *gin.RouterGroup, opts RouteOptions) {
+	if e == nil || e.app == nil {
+		panic("embedded billing: not initialized")
+	}
+	auth := opts.AuthProvider
+	if auth == nil {
+		auth = e.app.AuthProvider
+	}
+	routes.RegisterUserRoutes(group, e.app.Runtime, routes.Options{
+		AuthProvider: auth,
+	})
+}
+
+// RegisterAdminRoutes registers admin billing routes on the provided Gin router group.
+// These routes include subscription management, payment management, user management, and metrics.
+// All routes require admin authorization.
+//
+// Example:
+//
+//	router := gin.Default()
+//	admin := router.Group("/v1/admin")
+//	billing.RegisterAdminRoutes(admin, embedded.RouteOptions{})
+func (e *Embedded) RegisterAdminRoutes(group *gin.RouterGroup, opts RouteOptions) {
+	if e == nil || e.app == nil {
+		panic("embedded billing: not initialized")
+	}
+	auth := opts.AuthProvider
+	if auth == nil {
+		auth = e.app.AuthProvider
+	}
+	routes.RegisterAdminRoutes(group, e.app.Runtime, routes.Options{
+		AuthProvider: auth,
+	})
+}
+
+// RegisterWebhookRoutes registers webhook routes on the provided Gin router group.
+// These routes handle incoming webhooks from payment processors (Stripe, CCBill, NMI, etc.).
+//
+// Example:
+//
+//	router := gin.Default()
+//	webhooks := router.Group("/v1/webhooks")
+//	billing.RegisterWebhookRoutes(webhooks)
+func (e *Embedded) RegisterWebhookRoutes(group *gin.RouterGroup) {
+	if e == nil || e.app == nil {
+		panic("embedded billing: not initialized")
+	}
+	routes.RegisterWebhookRoutes(group, e.app.Runtime)
 }
 
 func (e *Embedded) RunWorkers(ctx context.Context) error {

@@ -151,8 +151,8 @@ func (c *Checker) registerAllChecks() {
 		// PM-3: Prevented by FK constraint fk_subscriptions_payment_method_id
 		// =====================================================================
 		&CheckActiveSubscriptionFailedPaymentMethod{}, // PM-1
-		&CheckExpiredCardActiveSubscription{},           // PM-2
-		&CheckProcessorMismatch{},                       // PM-4
+		&CheckExpiredCardActiveSubscription{},         // PM-2
+		&CheckProcessorMismatch{},                     // PM-4
 
 		// =====================================================================
 		// Foreign key checks

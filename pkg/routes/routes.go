@@ -5,8 +5,6 @@
 package routes
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 
 	"github.com/doujins-org/doujins-billing/internal/app"
@@ -149,72 +147,6 @@ func RegisterWebhookRoutes(group *gin.RouterGroup, rt *app.Runtime) {
 	}
 
 	group.POST("/:provider", wrap(handlers.Webhook))
-}
-
-// RegisterHealthRoutes registers health check routes on the provided Gin engine.
-// These are typically mounted at the root level.
-//
-// Example usage for embedded hosts:
-//
-//	router := gin.Default()
-//	routes.RegisterHealthRoutes(router, runtime)
-func RegisterHealthRoutes(e *gin.Engine, rt *app.Runtime) {
-	e.GET("/", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"service":   "billing",
-			"status":    "ok",
-			"endpoints": []string{"/health/live", "/health/ready", "/v1"},
-		})
-	})
-
-	e.GET("/health/live", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})
-	})
-
-	e.GET("/health/ready", createReadyHandler(rt))
-
-	// Kubernetes-style health check endpoints (aliases)
-	e.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})
-	})
-	e.GET("/readyz", createReadyHandler(rt))
-}
-
-func createReadyHandler(rt *app.Runtime) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		ctx := c.Request.Context()
-		checks := gin.H{
-			"db":    "ok",
-			"redis": "ok",
-		}
-
-		// Check database (critical)
-		var one int
-		if rt != nil && rt.DB != nil {
-			if err := rt.DB.GetDB().NewSelect().ColumnExpr("1").Scan(ctx, &one); err != nil {
-				checks["db"] = "down"
-				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
-				return
-			}
-		} else {
-			checks["db"] = "missing"
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
-			return
-		}
-
-		// Check Redis (critical for billing operations)
-		if rt != nil && rt.RedisClient != nil {
-			if _, err := rt.RedisClient.Ping(ctx).Result(); err != nil {
-				checks["redis"] = "down"
-				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
-				return
-			}
-		} else {
-			checks["redis"] = "missing"
-		}
-
-		c.JSON(http.StatusOK, gin.H{"status": "ready", "checks": checks})
-	}
 }
 
 // RegisterServiceRoutes registers internal service-to-service API routes.

@@ -15,6 +15,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
+	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
 	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/google/uuid"
@@ -120,6 +121,7 @@ type CheckoutSessionService struct {
 	checkoutService          *CheckoutService
 	solanaPayService         *SolanaPayService
 	solanaTransactionService *SolanaTransactionService
+	fxProvider               fx.Provider
 	config                   *config.Config
 	Clock                    clockwork.Clock
 }
@@ -133,6 +135,7 @@ func NewCheckoutSessionService(
 	checkoutService *CheckoutService,
 	solanaPayService *SolanaPayService,
 	solanaTransactionService *SolanaTransactionService,
+	fxProvider fx.Provider,
 	cfg *config.Config,
 ) *CheckoutSessionService {
 	return &CheckoutSessionService{
@@ -145,6 +148,7 @@ func NewCheckoutSessionService(
 		checkoutService:          checkoutService,
 		solanaPayService:         solanaPayService,
 		solanaTransactionService: solanaTransactionService,
+		fxProvider:               fxProvider,
 		config:                   cfg,
 	}
 }
@@ -492,8 +496,18 @@ func (s *CheckoutSessionService) initializeSolanaSession(ctx context.Context, se
 		session.ProcessorState["flow"] = flow
 		session.ProcessorState["token_symbol"] = tokenSymbol
 		session.ProcessorState["token_mint"] = tokenMint
-		if tokenUnits, _, err := calculateTokenQuote(ctx, tokenCfg, session.Amount); err == nil {
-			session.ProcessorState["token_amount"] = tokenUnits
+		if quote, err := CalculateTokenQuote(ctx, tokenCfg, session.Amount, session.Currency, s.fxProvider); err == nil {
+			session.ProcessorState["token_amount"] = quote.Units
+			session.ProcessorState["token_price_usd"] = quote.TokenPriceUSD
+			session.ProcessorState["fx_rate"] = quote.FXRate
+			session.ProcessorState["fx_currency"] = quote.FXCurrency
+			session.ProcessorState["quoted_at"] = quote.QuotedAt.Format(time.RFC3339)
+			// Quote expires when the checkout session expires
+			if session.ExpiresAt != nil {
+				session.ProcessorState["quote_expires_at"] = session.ExpiresAt.Format(time.RFC3339)
+			} else {
+				session.ProcessorState["quote_expires_at"] = quote.QuotedAt.Add(defaultCheckoutSessionTTL).Format(time.RFC3339)
+			}
 		}
 	case "transaction_request":
 		if s.solanaTransactionService == nil {

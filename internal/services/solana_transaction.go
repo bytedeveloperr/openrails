@@ -8,6 +8,7 @@ import (
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
+	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
 	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -21,6 +22,7 @@ type SolanaTransactionService struct {
 	cfg          *config.Config
 	priceService *PriceService
 	paymentSvc   *PaymentService
+	fxProvider   fx.Provider
 	Clock        clockwork.Clock
 }
 
@@ -33,13 +35,14 @@ func (s *SolanaTransactionService) now() time.Time {
 }
 
 // NewSolanaTransactionService creates a new transaction service.
-func NewSolanaTransactionService(db *db.DB, rpc *solana.RPCClient, cfg *config.Config, price *PriceService, payment *PaymentService) *SolanaTransactionService {
+func NewSolanaTransactionService(db *db.DB, rpc *solana.RPCClient, cfg *config.Config, price *PriceService, payment *PaymentService, fxProvider fx.Provider) *SolanaTransactionService {
 	return &SolanaTransactionService{
 		db:           db,
 		rpc:          rpc,
 		cfg:          cfg,
 		priceService: price,
 		paymentSvc:   payment,
+		fxProvider:   fxProvider,
 	}
 }
 
@@ -78,10 +81,12 @@ func (s *SolanaTransactionService) BuildPaymentTransaction(ctx context.Context, 
 		return nil, fmt.Errorf("merchant wallet not configured")
 	}
 
-	tokenAmount, tokenAmountDecimal, err := calculateTokenQuote(ctx, tokenCfg, price.Amount)
+	quote, err := CalculateTokenQuote(ctx, tokenCfg, price.Amount, price.Currency, s.fxProvider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate token amount: %w", err)
 	}
+	tokenAmount := quote.Units
+	tokenAmountDecimal := quote.Decimal
 	if tokenAmount == 0 {
 		return nil, fmt.Errorf("calculated token amount is zero")
 	}

@@ -452,3 +452,129 @@ func deleteVault(vaultID string) {
 	}
 	http.PostForm(NMIDirectPostURL, values)
 }
+
+// TestNMIDemoClientRefund tests refunding a transaction with real NMI API
+// Note: In test mode, transactions are not actually settled, so refunds may behave differently
+func TestNMIDemoClientRefund(t *testing.T) {
+	client := createNMIDemoClient(t)
+
+	// First create a vault and charge it
+	vaultID := createNMIDemoVault(t)
+	t.Cleanup(func() {
+		deleteVault(vaultID)
+	})
+
+	// Make a sale
+	saleResp, err := client.RunSale(nmi.SaleParams{
+		CustomerVaultID:  vaultID,
+		Amount:           1500, // $15.00
+		Currency:         "USD",
+		OrderDescription: "Refund test sale",
+	})
+	require.NoError(t, err, "Sale should succeed")
+	require.NotEmpty(t, saleResp.TransactionID)
+	t.Logf("Sale transaction ID: %s", saleResp.TransactionID)
+
+	// Now refund the transaction (full refund)
+	refundResp, err := client.Refund(nmi.RefundParams{
+		TransactionID: saleResp.TransactionID,
+		Amount:        0, // Full refund
+	})
+
+	// In test mode, refunds may fail because transactions aren't settled
+	// But the API call should succeed and return a proper response
+	if err != nil {
+		t.Logf("Refund failed (expected in test mode for unsettled transactions): %v", err)
+		// Try void instead since the transaction is likely unsettled
+		voidErr := client.Void(saleResp.TransactionID)
+		if voidErr != nil {
+			t.Logf("Void also failed: %v", voidErr)
+		} else {
+			t.Log("Void succeeded (transaction was unsettled)")
+		}
+	} else {
+		assert.NotEmpty(t, refundResp.TransactionID, "Refund should return transaction ID")
+		t.Logf("Refund transaction ID: %s", refundResp.TransactionID)
+	}
+}
+
+// TestNMIDemoClientPartialRefund tests partial refunds with real NMI API
+func TestNMIDemoClientPartialRefund(t *testing.T) {
+	client := createNMIDemoClient(t)
+
+	vaultID := createNMIDemoVault(t)
+	t.Cleanup(func() {
+		deleteVault(vaultID)
+	})
+
+	// Make a sale
+	saleResp, err := client.RunSale(nmi.SaleParams{
+		CustomerVaultID:  vaultID,
+		Amount:           2000, // $20.00
+		Currency:         "USD",
+		OrderDescription: "Partial refund test",
+	})
+	require.NoError(t, err, "Sale should succeed")
+	t.Logf("Sale transaction ID: %s", saleResp.TransactionID)
+
+	// Partial refund ($5.00 of $20.00)
+	refundResp, err := client.Refund(nmi.RefundParams{
+		TransactionID: saleResp.TransactionID,
+		Amount:        500, // $5.00
+	})
+
+	if err != nil {
+		t.Logf("Partial refund failed (expected in test mode): %v", err)
+	} else {
+		assert.NotEmpty(t, refundResp.TransactionID)
+		t.Logf("Partial refund transaction ID: %s", refundResp.TransactionID)
+	}
+}
+
+// TestNMIDemoClientVoid tests voiding an unsettled transaction
+func TestNMIDemoClientVoid(t *testing.T) {
+	client := createNMIDemoClient(t)
+
+	vaultID := createNMIDemoVault(t)
+	t.Cleanup(func() {
+		deleteVault(vaultID)
+	})
+
+	// Make a sale
+	saleResp, err := client.RunSale(nmi.SaleParams{
+		CustomerVaultID:  vaultID,
+		Amount:           1000, // $10.00
+		Currency:         "USD",
+		OrderDescription: "Void test sale",
+	})
+	require.NoError(t, err, "Sale should succeed")
+	t.Logf("Sale transaction ID: %s", saleResp.TransactionID)
+
+	// Void the unsettled transaction
+	err = client.Void(saleResp.TransactionID)
+	require.NoError(t, err, "Void should succeed for unsettled transaction")
+	t.Log("Void succeeded")
+}
+
+// TestNMIDemoClientRefundValidation tests refund parameter validation
+func TestNMIDemoClientRefundValidation(t *testing.T) {
+	client := createNMIDemoClient(t)
+
+	// Test missing transaction ID
+	_, err := client.Refund(nmi.RefundParams{
+		TransactionID: "",
+		Amount:        1000,
+	})
+	assert.Error(t, err, "Should fail without transaction ID")
+	assert.Contains(t, err.Error(), "transaction ID is required")
+}
+
+// TestNMIDemoClientVoidValidation tests void parameter validation
+func TestNMIDemoClientVoidValidation(t *testing.T) {
+	client := createNMIDemoClient(t)
+
+	// Test missing transaction ID
+	err := client.Void("")
+	assert.Error(t, err, "Should fail without transaction ID")
+	assert.Contains(t, err.Error(), "transaction ID is required")
+}

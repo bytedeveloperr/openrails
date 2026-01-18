@@ -14,7 +14,9 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
+	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/jonboulle/clockwork"
 )
@@ -54,8 +56,11 @@ type Runtime struct {
 	CreditsService           *services.CreditsService
 	ProcessorCustomerService *services.ProcessorCustomerService
 
-	SolanaPayService *services.SolanaPayService
-	SolanaPayPoller  *services.SolanaPayPoller
+	SolanaPayService         *services.SolanaPayService
+	SolanaPayPoller          *services.SolanaPayPoller
+	SolanaTransactionService *services.SolanaTransactionService
+	SolanaRPC                *solana.RPCClient
+	FXProvider               fx.Provider
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 	WebhookDispatcher            *services.WebhookDispatcher

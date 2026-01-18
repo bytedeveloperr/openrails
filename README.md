@@ -37,100 +37,168 @@
 - Env vars: common overrides include `DB_URL`, `REDIS_ADDR`, `CLICKHOUSE_HTTP_ADDR`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `AUTH_ISSUER`, `AUTH_AUDIENCE`.
 - If not provided, the service uses the defaults above.
 
-#### Embedding (optional)
-You can embed the billing server inside another Go service:
+---
 
-```go
-emb, err := embedded.New(embedded.Options{Config: cfg})
-if err != nil {
-  return err
-}
-defer emb.Close(ctx)
+## Deployment Modes
 
-// Simplest: mount the full public HTTP surface (user + admin + webhooks):
-router.Handle("/billing/", emb.Handler())
+Doujins Billing can run in two modes: **standalone** (as its own HTTP server) or **embedded** (inside another Go application).
 
-// If you want to minimize HTTP surface area in embedded mode, mount only what you need:
-// - user/public billing APIs:   emb.UserHandler()
-// - admin billing APIs:         emb.AdminHandler()
-// - processor webhooks:         emb.WebhookHandler()
-//
-// (Exact mounting depends on your router/prefix-stripping behavior.)
+### Standalone Mode
 
-// For internal billing operations (holds/capture/release, entitlements, etc.),
-// use the in-process service API instead of mounting private HTTP routes:
-svc, err := emb.Service()
-if err != nil {
-  return err
-}
-_ = svc
+Run billing as an independent service with its own HTTP server:
+
+```bash
+# Build and run
+task build
+./bin/billing server
+
+# Or run directly
+task dev
 ```
 
-If you want background workers in the same process:
-```go
-go emb.RunWorkers(ctx)
-```
+The standalone server exposes:
+- **Port 2053** (public): User APIs, admin APIs, webhooks
+- **Port 8060** (private): Internal service-to-service APIs (credits, entitlements)
 
-**Alternative: Route Registration Functions**
+This is the default mode for production deployments where billing runs as a separate microservice.
 
-For more control, you can register routes directly on your own Gin router:
+### Embedded Mode
+
+Embed billing directly inside another Go application. This is useful when:
+- You want a single binary deployment
+- Your app needs direct Go API access to billing operations
+- You want to control which HTTP routes are exposed
 
 ```go
 import (
-  "github.com/doujins-org/doujins-billing/pkg/routes"
-  "github.com/doujins-org/doujins-billing/pkg/service"
+    "github.com/gin-gonic/gin"
+    "github.com/doujins-org/doujins-billing/config"
+    "github.com/doujins-org/doujins-billing/pkg/embedded"
 )
 
-// Register user routes (products, checkout, subscriptions, payments, etc.)
-api := router.Group("/v1")
-routes.RegisterUserRoutes(api, runtime, routes.Options{
-  AuthProvider: myAuthProvider,
-})
+func main() {
+    // Load billing config
+    cfg, _ := config.Load()
 
-// Register admin routes (requires admin role)
-admin := router.Group("/v1/admin")
-routes.RegisterAdminRoutes(admin, runtime, routes.Options{
-  AuthProvider: myAuthProvider,
-})
+    // Initialize billing
+    billing, err := embedded.New(embedded.Options{
+        Config:       cfg,
+        AuthProvider: myAuthProvider, // your JWT verifier
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer billing.Close(ctx)
 
-// Register webhook routes
-webhooks := router.Group("/v1/webhooks")
-routes.RegisterWebhookRoutes(webhooks, runtime)
+    // Start background workers (subscription renewals, dunning, etc.)
+    go billing.RunWorkers(ctx)
 
-// Register health check routes
-routes.RegisterHealthRoutes(router, runtime)
+    // Your app's router
+    router := gin.Default()
+
+    // Register only the routes you need...
+    // (see "Registering HTTP Routes" below)
+
+    router.Run(":8080")
+}
 ```
 
-**In-Process Go API**
+#### Registering HTTP Routes
 
-For programmatic access without HTTP, use `pkg/service.Service`:
+Pick and choose which route groups to expose:
 
 ```go
-import "github.com/doujins-org/doujins-billing/pkg/service"
+// 1. User routes - frontend billing UI
+//    Products, prices, checkout, subscriptions, payments, payment methods,
+//    notifications, credits
+billing.RegisterUserRoutes(router.Group("/v1"), embedded.RouteOptions{})
 
-svc, err := service.New(runtime)
+// 2. Admin routes - admin dashboard
+//    Subscription management, payment management, user management, metrics
+//    Requires admin role in JWT
+billing.RegisterAdminRoutes(router.Group("/v1/admin"), embedded.RouteOptions{})
+
+// 3. Webhook routes - payment processor callbacks
+//    Required if using Stripe, CCBill, or NMI webhooks
+billing.RegisterWebhookRoutes(router.Group("/v1/webhooks"))
+```
+
+The `RouteOptions{}` uses the `AuthProvider` from `embedded.New()` by default. Override per-group if needed:
+
+```go
+billing.RegisterUserRoutes(router.Group("/v1"), embedded.RouteOptions{
+    AuthProvider: differentAuthProvider,
+})
+```
+
+#### In-Process Go API
+
+For internal operations, use the Go API directly instead of HTTP:
+
+```go
+svc, err := billing.Service()
 if err != nil {
-  return err
+    return err
 }
 
-// User operations
-products, err := svc.GetProducts(ctx, service.GetProductsOptions{})
-session, err := svc.CreateCheckoutSession(ctx, userID, service.CreateCheckoutSessionRequest{...})
-status, err := svc.GetBillingStatus(ctx, userID)
-subscriptions, err := svc.GetSubscriptions(ctx, userID, service.GetSubscriptionsOptions{})
+// User operations (same as HTTP API)
+products, _ := svc.GetProducts(ctx, service.GetProductsOptions{})
+status, _ := svc.GetBillingStatus(ctx, userID)
+subscriptions, _ := svc.GetSubscriptions(ctx, userID, service.GetSubscriptionsOptions{})
 
 // Admin operations
-metrics, err := svc.AdminGetMetricsSummary(ctx, service.MetricsOptions{...})
-err = svc.AdminRefundPayment(ctx, paymentID, service.RefundPaymentRequest{...})
+metrics, _ := svc.AdminGetMetricsSummary(ctx, service.MetricsOptions{...})
+_ = svc.AdminRefundPayment(ctx, paymentID, service.RefundPaymentRequest{...})
 
-// Credits operations (already available)
-hold, err := svc.HoldCredits(ctx, service.HoldCreditsRequest{...})
-tx, err := svc.CaptureHold(ctx, service.CaptureHoldRequest{...})
-err = svc.ReleaseHold(ctx, holdID)
+// Credits operations (for usage-based billing)
+hold, _ := svc.HoldCredits(ctx, service.HoldCreditsRequest{
+    UserID:     userID,
+    CreditType: "api_credits",
+    Amount:     100,
+    Source:     "api_call",
+    SourceID:   requestID,
+    ExpiresAt:  time.Now().Add(5 * time.Minute),
+})
+tx, _ := svc.CaptureHold(ctx, service.CaptureHoldRequest{
+    HoldID: hold.ID,
+    Amount: 100,
+})
+_ = svc.ReleaseHold(ctx, holdID) // if operation failed
 
-// Webhook handling
-result, err := svc.HandleWebhook(ctx, service.HandleWebhookRequest{...})
+// Direct credit withdrawal (no hold)
+tx, _ := svc.WithdrawCredits(ctx, service.WithdrawCreditsRequest{
+    UserID:     userID,
+    CreditType: "api_credits",
+    Amount:     50,
+    Source:     "image_generation",
+})
+
+// Entitlements
+entitlements, _ := svc.ListActiveEntitlements(ctx, userID, time.Now())
+records, _ := svc.ListActiveEntitlementRecords(ctx, userID, time.Now())
+
+// Webhook handling (for custom webhook routing)
+result, _ := svc.HandleWebhook(ctx, service.HandleWebhookRequest{
+    Provider:  "stripe",
+    Body:      rawBody,
+    Headers:   map[string]string{"Stripe-Signature": sig},
+    ClientIP:  clientIP,
+})
 ```
+
+#### Comparison: Standalone vs Embedded
+
+| Aspect | Standalone | Embedded |
+|--------|-----------|----------|
+| Deployment | Separate container/binary | Single binary with host app |
+| HTTP routing | Fixed routes on ports 2053/8060 | You choose which routes to mount |
+| Health endpoints | Built-in `/health/*`, `/healthz`, `/readyz` | Host app provides its own |
+| Internal ops | HTTP calls to port 8060 | Direct Go API calls |
+| Workers | Built-in, always running | Call `billing.RunWorkers(ctx)` |
+| Config | Own config file/env vars | Passed via `embedded.Options` |
+| Auth | Own JWT verifier | Use host app's auth provider |
+
+---
 
 Developer tasks
 - Build: `task build` → outputs `bin/billing`

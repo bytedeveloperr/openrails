@@ -121,6 +121,18 @@ type SaleResponse struct {
 	ResponseText  string
 }
 
+// RefundParams contains parameters for refunding a settled transaction
+type RefundParams struct {
+	TransactionID string // Original transaction ID to refund
+	Amount        int64  // Amount in cents (0 for full refund)
+}
+
+// RefundResponse contains the response from a refund transaction
+type RefundResponse struct {
+	TransactionID string // The refund transaction ID
+	ResponseText  string
+}
+
 type ManualRebillParams struct {
 	VaultID        string
 	BillingID      string
@@ -643,6 +655,99 @@ func (c *NMIClient) RunSale(params SaleParams) (*SaleResponse, error) {
 		Authcode:      output.Get("authcode"),
 		ResponseText:  output.Get("responsetext"),
 	}, nil
+}
+
+// Refund issues a refund for a previously settled transaction.
+// If Amount is 0, the full original amount is refunded.
+// Note: Unsettled transactions should be voided instead (use Void method).
+func (c *NMIClient) Refund(params RefundParams) (*RefundResponse, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return nil, err
+	}
+
+	if params.TransactionID == "" {
+		return nil, errors.New("transaction ID is required")
+	}
+
+	values := url.Values{
+		"type":          {"refund"},
+		"security_key":  {c.SecurityKey},
+		"transactionid": {params.TransactionID},
+	}
+
+	// If amount is specified, convert cents to dollars for NMI API
+	if params.Amount > 0 {
+		amountStr := strconv.FormatFloat(float64(params.Amount)/100.0, 'f', 2, 64)
+		values.Set("amount", amountStr)
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return nil, err
+	}
+
+	output, err := url.ParseQuery(response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse refund response: %s", response)
+	}
+
+	if output.Get("response") != "1" {
+		responseCode := parseMobiusResponseCode(output)
+		return nil, &CustomerVaultError{
+			Message:        fmt.Sprintf("refund failed: %s", output.Get("responsetext")),
+			ResponseCode:   responseCode,
+			LocalizationID: mobiusLocalizationID(responseCode),
+			Detail:         mobiusResponseDetail(responseCode),
+			RawResponse:    response,
+		}
+	}
+
+	return &RefundResponse{
+		TransactionID: output.Get("transactionid"),
+		ResponseText:  output.Get("responsetext"),
+	}, nil
+}
+
+// Void cancels an unsettled transaction (same day, before batch closes).
+// For settled transactions, use Refund instead.
+func (c *NMIClient) Void(transactionID string) error {
+	if err := c.checkConfiguration(); err != nil {
+		return err
+	}
+
+	if transactionID == "" {
+		return errors.New("transaction ID is required")
+	}
+
+	values := url.Values{
+		"type":          {"void"},
+		"security_key":  {c.SecurityKey},
+		"transactionid": {transactionID},
+	}
+
+	if !c.IsProd {
+		values.Set("test_mode", "enabled")
+	}
+
+	response, err := c.sendDirectRequest(values)
+	if err != nil {
+		return err
+	}
+
+	output, err := url.ParseQuery(response)
+	if err != nil {
+		return fmt.Errorf("failed to parse void response: %s", response)
+	}
+
+	if output.Get("response") != "1" {
+		return fmt.Errorf("void failed: %s", output.Get("responsetext"))
+	}
+
+	return nil
 }
 
 func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSubscriptionResponse, error) {

@@ -19,6 +19,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
+	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/doujins-org/doujins-billing/internal/processors"
@@ -107,16 +108,19 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 		CCBillDataLink:   ccbillDataLinkClient,
 		NMIClients:       nmiClients,
 
-		SubscriptionService:  serviceInstances.SubscriptionService,
-		ProductService:       serviceInstances.ProductService,
-		PriceService:         serviceInstances.PriceService,
-		NotificationService:  serviceInstances.NotificationService,
-		PaymentMethodService: serviceInstances.PaymentMethodService,
-		PaymentService:       serviceInstances.PurchaseService,
-		EntitlementService:   serviceInstances.EntitlementService,
-		VaultService:         serviceInstances.VaultService,
-		SolanaPayService:     serviceInstances.SolanaPayService,
-		SolanaPayPoller:      serviceInstances.SolanaPayPoller,
+		SubscriptionService:      serviceInstances.SubscriptionService,
+		ProductService:           serviceInstances.ProductService,
+		PriceService:             serviceInstances.PriceService,
+		NotificationService:      serviceInstances.NotificationService,
+		PaymentMethodService:     serviceInstances.PaymentMethodService,
+		PaymentService:           serviceInstances.PurchaseService,
+		EntitlementService:       serviceInstances.EntitlementService,
+		VaultService:             serviceInstances.VaultService,
+		SolanaPayService:         serviceInstances.SolanaPayService,
+		SolanaPayPoller:          serviceInstances.SolanaPayPoller,
+		SolanaTransactionService: serviceInstances.SolanaTransactionService,
+		SolanaRPC:                serviceInstances.SolanaRPC,
+		FXProvider:               serviceInstances.FXProvider,
 
 		UserSubscriptionService:   serviceInstances.UserSubscriptionService,
 		PublicSubscriptionService: serviceInstances.PublicSubscriptionService,
@@ -342,15 +346,18 @@ func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
 type servicesInstances struct {
 	SubscriptionService *services.SubscriptionService
 
-	ProductService       *services.ProductService
-	PriceService         *services.PriceService
-	NotificationService  *services.NotificationService
-	PaymentMethodService *services.PaymentMethodService
-	PurchaseService      *services.PaymentService
-	EntitlementService   *services.EntitlementService
-	VaultService         *services.VaultService
-	SolanaPayService     *services.SolanaPayService
-	SolanaPayPoller      *services.SolanaPayPoller
+	ProductService           *services.ProductService
+	PriceService             *services.PriceService
+	NotificationService      *services.NotificationService
+	PaymentMethodService     *services.PaymentMethodService
+	PurchaseService          *services.PaymentService
+	EntitlementService       *services.EntitlementService
+	VaultService             *services.VaultService
+	SolanaPayService         *services.SolanaPayService
+	SolanaPayPoller          *services.SolanaPayPoller
+	SolanaTransactionService *services.SolanaTransactionService
+	SolanaRPC                *solana.RPCClient
+	FXProvider               fx.Provider
 
 	UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService
@@ -381,15 +388,20 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	creditsService.Clock = clock
 	processorCustomerService := services.NewProcessorCustomerService(database)
 	profileRepo := repo.NewProfileRepo(database)
+
+	// Create FX provider for Solana token quoting with non-USD prices
+	// Uses CC0 exchange-api with 5-minute cache TTL
+	fxProvider := fx.NewCachedProvider(fx.NewExchangeAPIProvider(), 5*time.Minute)
+
 	// Note: solanaPayService and SolanaPayPoller need checkoutService, which is created later
 	// We'll create solanaPayService with nil checkoutService and set it after checkoutService is created
-	solanaPayService := services.NewSolanaPayService(database, redisClient, cfg, priceService, productService, nil)
+	solanaPayService := services.NewSolanaPayService(database, redisClient, cfg, priceService, productService, nil, fxProvider)
 	solanaPayService.Clock = clock
 	var solanaRPC *solana.RPCClient
 	if cfg != nil && cfg.Solana != nil {
 		solanaRPC = solana.NewRPCClient(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
 	}
-	solanaTransactionService := services.NewSolanaTransactionService(database, solanaRPC, cfg, priceService, purchaseService)
+	solanaTransactionService := services.NewSolanaTransactionService(database, solanaRPC, cfg, priceService, purchaseService, fxProvider)
 	solanaTransactionService.Clock = clock
 
 	subscriptionLifecycleService := services.NewSubscriptionLifecycleService(
@@ -488,6 +500,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		checkoutService,
 		solanaPayService,
 		solanaTransactionService,
+		fxProvider,
 		cfg,
 	)
 	checkoutSessionService.Clock = clock
@@ -518,6 +531,9 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		VaultService:                 vaultService,
 		SolanaPayService:             solanaPayService,
 		SolanaPayPoller:              solanaPayPoller,
+		SolanaTransactionService:     solanaTransactionService,
+		SolanaRPC:                    solanaRPC,
+		FXProvider:                   fxProvider,
 		UserSubscriptionService:      userSubscriptionService,
 		PublicSubscriptionService:    publicSubscriptionService,
 		AdminSubscriptionService:     adminSubscriptionService,

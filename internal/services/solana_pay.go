@@ -10,6 +10,7 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
 	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -60,6 +61,7 @@ type SolanaPayService struct {
 	priceService    *PriceService
 	productService  *ProductService
 	checkoutService *CheckoutService
+	fxProvider      fx.Provider
 }
 
 // NewSolanaPayService creates a new SolanaPayService
@@ -70,6 +72,7 @@ func NewSolanaPayService(
 	priceService *PriceService,
 	productService *ProductService,
 	checkoutService *CheckoutService,
+	fxProvider fx.Provider,
 ) *SolanaPayService {
 	return &SolanaPayService{
 		db:              db,
@@ -78,6 +81,7 @@ func NewSolanaPayService(
 		priceService:    priceService,
 		productService:  productService,
 		checkoutService: checkoutService,
+		fxProvider:      fxProvider,
 	}
 }
 
@@ -143,11 +147,12 @@ func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, p
 		return nil, fmt.Errorf("invalid or unsupported token: %s", tokenSymbol)
 	}
 
-	// Calculate token amount from fiat price
-	tokenUnits, _, err := calculateTokenQuote(ctx, tokenCfg, price.Amount)
+	// Calculate token amount from fiat price with FX conversion if needed
+	quote, err := CalculateTokenQuote(ctx, tokenCfg, price.Amount, price.Currency, s.fxProvider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate token quote: %w", err)
 	}
+	tokenUnits := quote.Units
 
 	// Generate reference for Solana Pay
 	reference, err := solana.GenerateReference()

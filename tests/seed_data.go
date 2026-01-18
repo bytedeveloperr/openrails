@@ -77,7 +77,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					},
+				},
 				{
 					// Price 1.2: Quarterly USD recurring (discounted)
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222223"),
@@ -97,7 +97,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					},
+				},
 				{
 					// Price 1.3: Monthly EUR recurring
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222224"),
@@ -114,7 +114,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							models.ProcessorKeyCCBillFlexID:   "ccbill_monthly_eur_899",
 						},
 					},
-					},
+				},
 				{
 					// Price 1.4: Monthly JPY recurring
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222225"),
@@ -128,7 +128,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						},
 						// CCBill doesn't support JPY in this example
 					},
-					},
+				},
 				{
 					// Price 1.5: Yearly USD recurring (heavily discounted)
 					ID:               uuid.MustParse("22222222-2222-2222-2222-222222222226"),
@@ -148,7 +148,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					},
+				},
 			},
 		},
 		{
@@ -184,7 +184,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					},
+				},
 				{
 					// Price 2.2: Yearly USD recurring
 					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444445"),
@@ -204,7 +204,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					},
+				},
 				{
 					// Price 2.3: Monthly EUR recurring
 					ID:               uuid.MustParse("44444444-4444-4444-4444-444444444446"),
@@ -221,7 +221,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							models.ProcessorKeyCCBillFlexID:   "ccbill_pro_monthly_eur_1799",
 						},
 					},
-					},
+				},
 			},
 		},
 		{
@@ -256,7 +256,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					},
+				},
 				{
 					// Price 3.2: One-time EUR purchase
 					ID:               uuid.MustParse("66666666-6666-6666-6666-666666666667"),
@@ -273,7 +273,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							models.ProcessorKeyCCBillFlexID:   "ccbill_lifetime_eur_26999",
 						},
 					},
-					},
+				},
 				{
 					// Price 3.3: One-time JPY purchase
 					ID:               uuid.MustParse("66666666-6666-6666-6666-666666666668"),
@@ -287,7 +287,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 						},
 						// CCBill doesn't support JPY in this example
 					},
-					},
+				},
 			},
 		},
 		{
@@ -318,7 +318,7 @@ func (suite *TestContainerSuite) DefaultTestProducts() []TestProduct {
 							"enabled": "true",
 						},
 					},
-					},
+				},
 			},
 		},
 	}
@@ -396,7 +396,7 @@ func (suite *TestContainerSuite) TieredTestProducts() []TestProduct {
 							models.ProcessorKeyPlanID: "plan_premium_basic_1000",
 						},
 					},
-					},
+				},
 			},
 		},
 		{
@@ -425,7 +425,7 @@ func (suite *TestContainerSuite) TieredTestProducts() []TestProduct {
 							models.ProcessorKeyPlanID: "plan_premium_plus_2000",
 						},
 					},
-					},
+				},
 			},
 		},
 		{
@@ -455,7 +455,7 @@ func (suite *TestContainerSuite) TieredTestProducts() []TestProduct {
 							models.ProcessorKeyPlanID: "plan_premium_ultimate_3000",
 						},
 					},
-					},
+				},
 			},
 		},
 	}

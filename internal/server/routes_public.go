@@ -46,7 +46,11 @@ func (s *Server) registerUserRoutes(e *gin.Engine) {
 	me.GET("/credits", s.wrap(handlers.GetMyCredits))
 	me.GET("/credits/:type", s.wrap(handlers.GetMyCreditsType))
 	me.GET("/credits/:type/transactions", s.wrap(handlers.GetMyCreditTransactions))
-	me.POST("/portal", s.wrap(handlers.CreatePortalSession))
+
+	// Stripe-specific endpoints
+	stripe := api.Group("/stripe")
+	stripe.Use(s.authProvider.Required())
+	stripe.POST("/portal", s.wrap(handlers.CreatePortalSession))
 }
 
 func (s *Server) registerWebhookRoutes(e *gin.Engine) {

@@ -241,7 +241,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			})
+		})
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("DELETE", "/v1/me/payment-methods/"+pm.ID.String(), nil)
@@ -281,7 +281,7 @@ func TestDeletePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
 			Processor: models.ProcessorMobius,
-			})
+		})
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("DELETE", "/v1/me/payment-methods/"+pm.ID.String(), nil)
@@ -315,7 +315,7 @@ func TestActivatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			})
+		})
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", pm.ID.String()), nil)
@@ -348,7 +348,7 @@ func TestActivatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
 			Processor: models.ProcessorMobius,
-			})
+		})
 
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", pm.ID.String()), nil)
@@ -376,7 +376,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			})
+		})
 
 		body := map[string]string{
 			"payment_token": "new-token",
@@ -405,7 +405,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			})
+		})
 
 		body := map[string]string{
 			"first_name": "Updated",
@@ -445,7 +445,7 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
 			Processor: models.ProcessorMobius,
-			})
+		})
 
 		body := map[string]string{
 			"payment_token": "new-token",
