@@ -2103,6 +2103,88 @@
         "[x] Update tests to remove is_active related assertions"
       ],
       "completed_at": "2026-01-18"
+    },
+    {
+      "id": 135,
+      "name": "Implement actual refund API integration for NMI and Stripe",
+      "category": "feature",
+      "description": "The current POST /v1/admin/payments/:id/refund endpoint only RECORDS refunds in the database - it does not actually issue refunds through payment processors. This change makes the refund endpoint actually issue refunds through processor APIs (NMI/Mobius and Stripe), then record the result. CCBill returns an error directing admins to use the CCBill portal since CCBill doesn't have a public refund API.",
+      "tasks": [
+        "[x] Add Refund() method to internal/integrations/nmi/nmi.go",
+        "[x] Add unit tests for NMI Refund() method",
+        "[x] Add CreateRefund() method to Stripe service (new file or existing)",
+        "[x] Add unit tests for Stripe CreateRefund() method",
+        "[x] Update PaymentService.Refund() to call processor APIs based on payment.Processor",
+        "[x] Handle CCBill case: return clear error message directing to admin portal",
+        "[x] Update AdminRefundPayment handler to use new service method",
+        "[x] Update request/response types (remove refund_transaction_id from request, add to response)",
+        "[x] Add integration tests for refund flow (NMI, Stripe, CCBill error case)",
+        "[x] Update API documentation for POST /v1/admin/payments/:id/refund"
+      ],
+      "completed_at": "2026-01-18"
+    },
+    {
+      "id": 136,
+      "name": "embedded-river-client-sharing",
+      "category": "embedded-api",
+      "description": "Allow embedded hosts to share their River client with doujins-billing instead of billing creating its own. Exports billing's River workers and periodic jobs so the host can merge them with their own, creating a single unified River client.",
+      "tasks": [
+        "[x] Add AddWorkersTo(ctx, workers) method to Embedded (adds workers to provided registry)",
+        "[x] Add addBillingWorkersToRegistry() to Runtime (internal helper)",
+        "[x] Export QueueBilling constant via pkg/embedded/river.go",
+        "[x] Add GetPeriodicJobs(ctx) method to Embedded",
+        "[x] GetBillingPeriodicJobs() added to Runtime (calls buildRiverPeriodicJobs)",
+        "[x] Add SetRiverClient() method for late injection",
+        "[x] Add HasExternalRiverClient() method",
+        "[x] If RiverClient provided, skip internal client creation in InitRiver()",
+        "[x] SetExternalRiverClient() sets both RiverClient and RiverProducer",
+        "[x] RunWorkers() blocks on ctx.Done() if external client (host starts it)",
+        "[x] Close() skips stopping River if external client",
+        "[x] Document River integration in pkg/embedded/README.md",
+        "[x] Add example showing host app integration",
+        "[x] Unit tests in pkg/embedded/river_test.go (nil checks, error handling)",
+        "[x] Integration tests in tests/embedded_river_test.go",
+        "[x] Test AddBillingWorkersTo adds workers to registry",
+        "[x] Test GetBillingPeriodicJobs returns jobs",
+        "[x] Test workers process jobs successfully"
+      ],
+      "completed_at": "2026-01-18"
+    },
+    {
+      "id": 137,
+      "name": "dead-code-cleanup",
+      "category": "maintenance",
+      "description": "Remove unused code, orphaned functions, and vestigial struct fields identified by staticcheck and manual analysis.",
+      "tasks": [
+        "[x] Remove validateWebhookConfig from config/config.go:339",
+        "[x] Remove exchangeAPIResponse struct from fx/exchange_api.go:40-43",
+        "[x] Remove findAccountIndex from solana/transfer.go:505-527",
+        "[x] Remove insertTransaction from event_log_service.go:824-841",
+        "[x] Remove insertACU from event_log_service.go:843-865",
+        "[x] Remove insertChargeback from event_log_service.go:880-910",
+        "[x] Remove logSubscriptionEvent from lifecycle_service.go:1214-1270",
+        "[x] Remove nmiClientForProcessor from subscription.go:59-72",
+        "[x] Remove buildNMIIdempotencyKey from subscription.go:142-152",
+        "[x] Remove validateSubscription from types.go:999-1015",
+        "[x] Remove parseWebhookTimestamp from webhook_ccbill.go:62-90",
+        "[x] Remove calculateTokenQuoteLegacy from solana_token_quote.go:130-138",
+        "[x] Remove GetCCBillIPRanges from ipverify.go:63-65",
+        "[x] Remove ActivatePaymentMethodPathParams from requests.go:161-163",
+        "[x] Remove ActivatePaymentMethodRequest from requests.go:165-172",
+        "[x] Remove or skip TestActivatePaymentMethod in payment_methods_test.go:306",
+        "[x] Fix unused mockJupiterPrices in solana_token_quote_test.go:13",
+        "[x] Fix unused tokenCfg assignments in solana_token_quote_test.go",
+        "[x] Fix unused mockFX in solana_token_quote_test.go:120",
+        "[x] Define custom type for context key in middleware/logging.go:79",
+        "[x] Remove unnecessary nil check in checkout_session_service.go:687",
+        "[x] Update deprecated method calls in payment_method.go:123,128",
+        "[x] Remove unnecessary blank identifier in solana_pay.go:218",
+        "[x] Simplify if to strings.TrimPrefix in pkg/message/message.go:62",
+        "[x] Run go build ./... to verify no build errors",
+        "[x] Run staticcheck ./... to verify no new warnings",
+        "[x] Run go test ./... to verify tests pass"
+      ],
+      "completed_at": "2026-01-18"
     }
   ]
 }

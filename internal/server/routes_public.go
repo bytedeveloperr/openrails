@@ -25,6 +25,11 @@ func (s *Server) registerUserRoutes(e *gin.Engine) {
 	checkout.GET("/:id", s.wrap(handlers.GetCheckoutSession))
 	checkout.POST("/:id/confirm", s.wrap(handlers.ConfirmCheckoutSession))
 
+	// Solana Pay Transaction Request spec endpoints (public, no auth - called by wallets)
+	// These implement: https://docs.solanapay.com/spec#specification-transaction-request
+	api.GET("/checkout/:id/solana-pay", s.wrap(handlers.GetSolanaPay))
+	api.POST("/checkout/:id/solana-pay", s.wrap(handlers.PostSolanaPay))
+
 	me := api.Group("/me")
 	me.Use(s.authProvider.Required())
 	me.GET("/status", s.wrap(handlers.GetMyBillingStatus))

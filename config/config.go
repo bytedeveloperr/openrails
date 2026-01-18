@@ -243,6 +243,12 @@ type SolanaConfig struct {
 	TransactionTimeoutSeconds int     `koanf:"transaction_timeout_seconds,omitempty"`
 	ConfirmationBlocks        int     `koanf:"confirmation_blocks,omitempty"`
 	MaxTransactionFee         float64 `koanf:"max_transaction_fee,omitempty"`
+
+	// Solana Pay Transaction Request configuration
+	// PayLabel is displayed to users in their wallet when scanning a Solana Pay QR code
+	PayLabel string `koanf:"pay_label"`
+	// PayIcon is the URL to an icon displayed in wallets (must be absolute HTTPS URL to SVG, PNG, or WebP)
+	PayIcon string `koanf:"pay_icon"`
 }
 
 // TokenConfig defines configuration for a specific Solana token
@@ -648,6 +654,17 @@ func Load(configPath string) (*Config, error) {
 	}
 	if len(cfg.Solana.SupportedTokens) == 0 {
 		cfg.Solana.SupportedTokens = TokensForNetwork(cfg.Solana.Network)
+	}
+	if cfg.Solana.PayLabel == "" {
+		cfg.Solana.PayLabel = "Doujins"
+	}
+	if cfg.Solana.PayIcon == "" {
+		// Default icon: simple billing/payment icon (white dollar sign on purple circle)
+		// SVG: <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+		//        <circle cx="32" cy="32" r="30" fill="#9945FF"/>
+		//        <text x="32" y="44" font-family="Arial" font-size="36" font-weight="bold" fill="white" text-anchor="middle">$</text>
+		//      </svg>
+		cfg.Solana.PayIcon = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDY0IDY0Ij48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIzMCIgZmlsbD0iIzk5NDVGRiIvPjx0ZXh0IHg9IjMyIiB5PSI0NCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjM2IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPiQ8L3RleHQ+PC9zdmc+"
 	}
 
 	if cfg.NMI == nil {

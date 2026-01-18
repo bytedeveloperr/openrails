@@ -1130,12 +1130,12 @@ func checkoutSessionFromResponse(resp *services.CheckoutSessionResponse) *Checko
 		result.URL = &resp.NextAction.RedirectToURL.URL
 	}
 	result.ProcessorData = map[string]any{
-		"processor":        resp.Payment.Processor,
-		"reference":        resp.Payment.Reference,
-		"transaction_url":  resp.Payment.TransactionURL,
-		"transaction_data": resp.Payment.TransactionData,
-		"redirect_url":     resp.Payment.RedirectURL,
-		"transaction_id":   resp.Payment.TransactionID,
+		"processor":       resp.Payment.Processor,
+		"reference":       resp.Payment.Reference,
+		"transaction_url": resp.Payment.TransactionURL,
+		"solana_pay_url":  resp.Payment.SolanaPayURL,
+		"redirect_url":    resp.Payment.RedirectURL,
+		"transaction_id":  resp.Payment.TransactionID,
 	}
 	return result
 }

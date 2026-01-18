@@ -51,6 +51,12 @@ func (r *Runtime) addBillingWorkersToRegistry(ctx context.Context, workers *rive
 	}); err != nil {
 		return fmt.Errorf("add credit expiry worker: %w", err)
 	}
+	if err := river.AddWorkerSafely(workers, &riverjobs.HoldExpiryWorker{
+		DB:    r.DB,
+		Clock: clock,
+	}); err != nil {
+		return fmt.Errorf("add hold expiry worker: %w", err)
+	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.CancelSubscriptionWorker{
 		DB:                           r.DB,
 		Config:                       r.Config,
@@ -132,6 +138,18 @@ func (r *Runtime) buildRiverPeriodicJobs(ctx context.Context) ([]*river.Periodic
 		river.PeriodicInterval(time.Hour),
 		func() (river.JobArgs, *river.InsertOpts) {
 			return riverjobs.CreditExpiryArgs{}, &river.InsertOpts{
+				Queue: riverjobs.QueueBilling,
+			}
+		},
+		&river.PeriodicJobOpts{RunOnStart: false},
+	))
+
+	// Every 5 minutes: expire orphaned credit holds
+	// Handles cases where jobs crash without calling capture/release
+	jobs = append(jobs, river.NewPeriodicJob(
+		river.PeriodicInterval(5*time.Minute),
+		func() (river.JobArgs, *river.InsertOpts) {
+			return riverjobs.HoldExpiryArgs{}, &river.InsertOpts{
 				Queue: riverjobs.QueueBilling,
 			}
 		},

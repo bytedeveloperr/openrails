@@ -70,8 +70,8 @@ type Runtime struct {
 	CheckoutService        *services.CheckoutService
 	CheckoutSessionService *services.CheckoutSessionService
 
-	riverStarted         bool
-	externalRiverClient  bool // true if River client was provided externally
+	riverStarted        bool
+	externalRiverClient bool // true if River client was provided externally
 }
 
 // Close gracefully shuts down runtime resources.
