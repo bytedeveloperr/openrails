@@ -3,9 +3,9 @@ package handlers
 import (
 	"net/http"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	authpolicy "github.com/doujins-org/doujins-billing/internal/auth/policy"
 	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/doujins-org/ginapi/response"
 )
 
@@ -28,8 +28,8 @@ func GetProducts(r *Request) {
 	includeInactive := false
 	if req.Active != nil && !*req.Active {
 		// Only admins can view inactive products
-		if cl, ok := authgin.ClaimsFromGin(r.GinCtx); ok {
-			if isAdmin, err := authpolicy.IsAdmin(r.Request.Context(), r.State.DB.GetDB(), cl.UserID); err == nil && isAdmin {
+		if uc, ok := authprovider.UserContextFromGin(r.GinCtx); ok {
+			if isAdmin, err := authpolicy.IsAdmin(r.Request.Context(), r.State.DB.GetDB(), uc.UserID); err == nil && isAdmin {
 				includeInactive = true
 			}
 		}

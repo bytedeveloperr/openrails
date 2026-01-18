@@ -7,10 +7,11 @@ import (
 	"net/http"
 	"time"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 )
 
 // RequestIDKey is the key for request ID in gin.Context
@@ -143,10 +144,10 @@ func BillingAuditLog() gin.HandlerFunc {
 			}
 
 			// Add user information if available
-			if cl, ok := authgin.ClaimsFromGin(c); ok && cl.UserID != "" {
-				fields["user_id"] = cl.UserID
-				if cl.Email != "" {
-					fields["user_email"] = cl.Email
+			if uc, ok := authprovider.UserContextFromGin(c); ok && uc.UserID != "" {
+				fields["user_id"] = uc.UserID
+				if uc.Email != "" {
+					fields["user_email"] = uc.Email
 				}
 			}
 

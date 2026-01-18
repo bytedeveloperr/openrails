@@ -3,7 +3,6 @@ package auth
 import (
 	"strings"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/doujins-org/ginapi/response"
@@ -22,10 +21,6 @@ func NewProvider(cfg *config.AuthConfig) (authprovider.Provider, error) {
 		return nil, err
 	}
 	return &authKitProvider{verifier: v}, nil
-}
-
-func (p *authKitProvider) Claims(c *gin.Context) (authgin.Claims, bool) {
-	return authgin.ClaimsFromGin(c)
 }
 
 func (p *authKitProvider) Required() gin.HandlerFunc {
@@ -52,9 +47,9 @@ func (p *authKitProvider) Required() gin.HandlerFunc {
 			return
 		}
 
-		cl := claimsFromMap(raw)
-		c.Set("authkit.claims", cl)
-		c.Request = c.Request.WithContext(authgin.SetClaims(c.Request.Context(), cl))
+		uc := userContextFromMap(raw)
+		c.Set("billing.user_context", uc)
+		c.Request = c.Request.WithContext(authprovider.SetUserContext(c.Request.Context(), uc))
 		c.Next()
 	}
 }
@@ -79,9 +74,9 @@ func (p *authKitProvider) Optional() gin.HandlerFunc {
 			return
 		}
 
-		cl := claimsFromMap(raw)
-		c.Set("authkit.claims", cl)
-		c.Request = c.Request.WithContext(authgin.SetClaims(c.Request.Context(), cl))
+		uc := userContextFromMap(raw)
+		c.Set("billing.user_context", uc)
+		c.Request = c.Request.WithContext(authprovider.SetUserContext(c.Request.Context(), uc))
 		c.Next()
 	}
 }
@@ -98,41 +93,41 @@ func bearerToken(header string) string {
 	return strings.TrimSpace(header[len(prefix):])
 }
 
-func claimsFromMap(raw jwt.MapClaims) authgin.Claims {
-	var cl authgin.Claims
+func userContextFromMap(raw jwt.MapClaims) authprovider.UserContext {
+	var uc authprovider.UserContext
 	if raw == nil {
-		return cl
+		return uc
 	}
 
 	if v, _ := raw["sub"].(string); v != "" {
-		cl.UserID = v
+		uc.UserID = v
 	}
 	if v, _ := raw["email"].(string); v != "" {
-		cl.Email = v
+		uc.Email = v
 	}
 	if v, ok := raw["email_verified"].(bool); ok {
-		cl.EmailVerified = v
+		uc.EmailVerified = v
 	}
 	if v, _ := raw["username"].(string); v != "" {
-		cl.Username = v
+		uc.Username = v
 	}
-	if v, _ := raw["preferred_username"].(string); v != "" && cl.Username == "" {
-		cl.Username = v
+	if v, _ := raw["preferred_username"].(string); v != "" && uc.Username == "" {
+		uc.Username = v
 	}
 	if v, _ := raw["discord_username"].(string); v != "" {
-		cl.DiscordUsername = v
+		uc.DiscordUsername = v
 	}
 
 	// Session ID: accept both sid (authkit) and session_id (legacy)
 	if v, _ := raw["sid"].(string); v != "" {
-		cl.SessionID = v
+		uc.SessionID = v
 	} else if v, _ := raw["session_id"].(string); v != "" {
-		cl.SessionID = v
+		uc.SessionID = v
 	}
 
-	cl.Roles = toStringSlice(raw["roles"])
-	cl.Entitlements = toStringSlice(raw["entitlements"])
-	return cl
+	uc.Roles = toStringSlice(raw["roles"])
+	uc.Entitlements = toStringSlice(raw["entitlements"])
+	return uc
 }
 
 func toStringSlice(v any) []string {

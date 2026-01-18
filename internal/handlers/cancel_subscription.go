@@ -5,10 +5,10 @@ import (
 	"errors"
 	"net/http"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/riverqueue/river"
 )
 
@@ -20,8 +20,8 @@ func CancelSubscription(r *Request) {
 		return
 	}
 
-	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
-	if !ok || cl.UserID == "" {
+	uc, ok := authprovider.UserContextFromGin(r.GinCtx)
+	if !ok || uc.UserID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
@@ -56,7 +56,7 @@ func CancelSubscription(r *Request) {
 	}
 
 	// Verify ownership
-	if sub.UserID != cl.UserID {
+	if sub.UserID != uc.UserID {
 		r.ErrorJSON(http.StatusNotFound, "subscription not found")
 		return
 	}
@@ -76,7 +76,7 @@ func CancelSubscription(r *Request) {
 	}
 
 	_, err = r.State.RiverProducer.Insert(r.Request.Context(), riverjobs.CancelSubscriptionArgs{
-		UserID:         cl.UserID,
+		UserID:         uc.UserID,
 		SubscriptionID: subscriptionID,
 		Feedback:       req.Feedback,
 	}, &river.InsertOpts{Queue: riverjobs.QueueBilling})

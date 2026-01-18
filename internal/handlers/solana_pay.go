@@ -55,17 +55,17 @@ func GetSolanaPay(r *Request) {
 		return
 	}
 
-	// Return label and icon from config
+	// Return label and icon from store config
 	label := "Payment"
 	icon := ""
-	if r.State.Config != nil && r.State.Config.Solana != nil {
-		if r.State.Config.Solana.PayLabel != "" {
-			label = r.State.Config.Solana.PayLabel
+	if r.State.Config != nil && r.State.Config.Store != nil {
+		if r.State.Config.Store.Name != "" {
+			label = r.State.Config.Store.Name
 		}
-		icon = r.State.Config.Solana.PayIcon
+		icon = r.State.Config.Store.LogoURL
 	}
 
-	// Include product name in label if available
+	// Include product name in label if available (overrides store name)
 	if session.ProductName != "" {
 		label = session.ProductName
 	}

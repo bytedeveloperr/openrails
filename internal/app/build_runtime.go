@@ -81,7 +81,7 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 
 	var emailService *services.EmailService
 	if cfg.SendGrid != nil {
-		if es, err := services.NewEmailService(cfg.SendGrid); err != nil {
+		if es, err := services.NewEmailService(cfg.SendGrid, cfg.Store); err != nil {
 			log.WithError(err).Warn("EmailService init failed; email disabled")
 		} else {
 			emailService = es

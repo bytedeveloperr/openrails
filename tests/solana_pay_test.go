@@ -19,9 +19,11 @@ import (
 // which uses the Solana Pay Transaction Request spec endpoints
 func TestSolanaPayTransactionRequestFlow(t *testing.T) {
 	suite, token, _ := setupTestSuiteWithSolana(t)
-	// Add PayLabel and PayIcon for testing
-	suite.Config.Solana.PayLabel = "Test Store"
-	suite.Config.Solana.PayIcon = "https://example.com/icon.png"
+	// Add store branding for testing
+	suite.Config.Store = &config.StoreConfig{
+		Name:    "Test Store",
+		LogoURL: config.DefaultLogoURL,
+	}
 	// Set a proper host for solana_pay_url generation
 	suite.Config.Host = "https://api.test.com"
 
@@ -77,8 +79,10 @@ func TestSolanaPayTransactionRequestFlow(t *testing.T) {
 // TestSolanaPayGetEndpoint tests GET /v1/checkout/:id/solana-pay
 func TestSolanaPayGetEndpoint(t *testing.T) {
 	suite, token, _ := setupTestSuiteWithSolana(t)
-	suite.Config.Solana.PayLabel = "Test Store"
-	suite.Config.Solana.PayIcon = "https://example.com/icon.png"
+	suite.Config.Store = &config.StoreConfig{
+		Name:    "Test Store",
+		LogoURL: config.DefaultLogoURL,
+	}
 	suite.Config.Host = "https://api.test.com"
 
 	products := suite.SeedProducts()
@@ -126,7 +130,7 @@ func TestSolanaPayGetEndpoint(t *testing.T) {
 		// Should return icon from config
 		icon, ok := resp["icon"].(string)
 		require.True(t, ok)
-		assert.Equal(t, "https://example.com/icon.png", icon)
+		assert.Equal(t, config.DefaultLogoURL, icon)
 	})
 
 	t.Run("returns 404 for invalid session ID", func(t *testing.T) {
@@ -149,8 +153,10 @@ func TestSolanaPayGetEndpoint(t *testing.T) {
 // TestSolanaPayPostEndpoint tests POST /v1/checkout/:id/solana-pay
 func TestSolanaPayPostEndpoint(t *testing.T) {
 	suite, token, _ := setupTestSuiteWithSolana(t)
-	suite.Config.Solana.PayLabel = "Test Store"
-	suite.Config.Solana.PayIcon = "https://example.com/icon.png"
+	suite.Config.Store = &config.StoreConfig{
+		Name:    "Test Store",
+		LogoURL: config.DefaultLogoURL,
+	}
 	suite.Config.Host = "https://api.test.com"
 
 	products := suite.SeedProducts()
@@ -283,11 +289,13 @@ func TestSolanaPayTransferRequestNotAffected(t *testing.T) {
 	assert.False(t, hasSolanaPayURL || payment["solana_pay_url"] == "", "transfer_request should not have solana_pay_url")
 }
 
-// setupTestSuiteWithSolanaPayConfig extends setupTestSuiteWithSolana with PayLabel and PayIcon
+// setupTestSuiteWithSolanaPayConfig extends setupTestSuiteWithSolana with Store config
 func setupTestSuiteWithSolanaPayConfig(t *testing.T) (*TestContainerSuite, string, string) {
 	suite, token, userID := setupTestSuiteWithSolana(t)
-	suite.Config.Solana.PayLabel = "Test Store"
-	suite.Config.Solana.PayIcon = "https://example.com/icon.png"
+	suite.Config.Store = &config.StoreConfig{
+		Name:    "Test Store",
+		LogoURL: config.DefaultLogoURL,
+	}
 	suite.Config.Host = "https://api.test.com"
 	return suite, token, userID
 }

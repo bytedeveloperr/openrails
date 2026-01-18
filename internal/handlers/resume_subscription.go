@@ -5,18 +5,18 @@ import (
 	"errors"
 	"net/http"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
 	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/riverqueue/river"
 )
 
 // ResumeSubscription resumes a cancelled Stripe subscription (cancel_at_period_end=false).
 // POST /v1/me/subscriptions/:id/resume
 func ResumeSubscription(r *Request) {
-	cl, ok := authgin.ClaimsFromGin(r.GinCtx)
-	if !ok || cl.UserID == "" {
+	uc, ok := authprovider.UserContextFromGin(r.GinCtx)
+	if !ok || uc.UserID == "" {
 		r.ErrorJSON(http.StatusUnauthorized, "User authentication required")
 		return
 	}
@@ -59,7 +59,7 @@ func ResumeSubscription(r *Request) {
 	}
 
 	// Verify ownership
-	if sub.UserID != cl.UserID {
+	if sub.UserID != uc.UserID {
 		r.ErrorJSON(http.StatusNotFound, "subscription not found")
 		return
 	}
@@ -75,7 +75,7 @@ func ResumeSubscription(r *Request) {
 	}
 
 	if _, err := r.State.RiverProducer.Insert(r.Request.Context(), riverjobs.ResumeSubscriptionArgs{
-		UserID:         cl.UserID,
+		UserID:         uc.UserID,
 		SubscriptionID: subscriptionID,
 	}, &river.InsertOpts{Queue: riverjobs.QueueBilling}); err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, "failed to enqueue resume")

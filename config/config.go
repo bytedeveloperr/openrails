@@ -43,12 +43,43 @@ const EnvDev string = "dev"
 
 const ConfigContextKey string = "config"
 
+// DefaultLogoURL is a simple billing/payment icon (white dollar sign on purple circle)
+// SVG: <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+//
+//	<circle cx="32" cy="32" r="30" fill="#9945FF"/>
+//	<text x="32" y="44" font-family="Arial" font-size="36" font-weight="bold" fill="white" text-anchor="middle">$</text>
+//	</svg>
+const DefaultLogoURL = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDY0IDY0Ij48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIzMCIgZmlsbD0iIzk5NDVGRiIvPjx0ZXh0IHg9IjMyIiB5PSI0NCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjM2IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPiQ8L3RleHQ+PC9zdmc+"
+
+// StoreConfig holds merchant/store branding configuration.
+// Used across the system for consistent branding (Solana Pay, emails, etc.)
+type StoreConfig struct {
+	// Name is the merchant/store name displayed to customers (e.g., in Solana Pay QR codes, emails)
+	Name string `koanf:"name"`
+	// LogoURL is the URL to the store logo/icon (used in Solana Pay QR codes, etc.)
+	// Must be an absolute HTTPS URL to an SVG, PNG, or WebP image
+	LogoURL string `koanf:"logo_url"`
+	// FromEmail is the sender email address for all outgoing emails (receipts, notifications, etc.)
+	// Example: "noreply@mystore.com" or "billing@mystore.com"
+	FromEmail string `koanf:"from_email"`
+}
+
 type Config struct {
 	Env         string            `koanf:"env,omitempty"`
-	Port        FlexiblePort      `koanf:"port,omitempty"`
-	PrivatePort FlexiblePort      `koanf:"private_port,omitempty"` // Private/service API port (default 8060)
-	Host        string            `koanf:"host,omitempty"`
-	APIKey      string            `koanf:"api_key,omitempty"` // Shared secret for service-to-service auth (X-API-KEY header)
+	Port        FlexiblePort      `koanf:"port,omitempty"`         // Standalone only: public HTTP port (default 2053)
+	PrivatePort FlexiblePort      `koanf:"private_port,omitempty"` // Standalone only: internal/service API port (default 8060)
+	Host        string            `koanf:"host,omitempty"`         // Standalone only: address to bind to (default 0.0.0.0)
+	APIKey      string            `koanf:"api_key,omitempty"`      // Shared secret for service-to-service auth (X-API-KEY header)
+
+	// APIURL is the base URL where billing's /v1/* routes are mounted.
+	// Used for generating URLs (e.g., Solana Pay transaction_request URLs).
+	//
+	// Standalone mode: "https://api.mysite.com" (routes at /v1/*)
+	// Embedded mode:   "https://api.mysite.com/billing" (routes at /billing/v1/*)
+	//
+	// Formula: generated_url = APIURL + "/v1/checkout/:id/solana-pay"
+	APIURL string `koanf:"api_url,omitempty"`
+	Store       *StoreConfig      `koanf:"store,omitempty"`
 	NMI         *NMIConfig        `koanf:"nmi,omitempty"`
 	CCBill      *CCBillConfig     `koanf:"ccbill,omitempty"`
 	Webhooks    *WebhookConfig    `koanf:"webhooks,omitempty"`
@@ -243,12 +274,6 @@ type SolanaConfig struct {
 	TransactionTimeoutSeconds int     `koanf:"transaction_timeout_seconds,omitempty"`
 	ConfirmationBlocks        int     `koanf:"confirmation_blocks,omitempty"`
 	MaxTransactionFee         float64 `koanf:"max_transaction_fee,omitempty"`
-
-	// Solana Pay Transaction Request configuration
-	// PayLabel is displayed to users in their wallet when scanning a Solana Pay QR code
-	PayLabel string `koanf:"pay_label"`
-	// PayIcon is the URL to an icon displayed in wallets (must be absolute HTTPS URL to SVG, PNG, or WebP)
-	PayIcon string `koanf:"pay_icon"`
 }
 
 // TokenConfig defines configuration for a specific Solana token
@@ -265,11 +290,10 @@ type TokenConfig struct {
 // RateLimitsConfig is a map of endpoint identifier -> rate limit config
 type RateLimitsConfig map[string]*RateLimit
 
-// SendGridConfig holds SendGrid email configuration
+// SendGridConfig holds SendGrid email configuration.
+// Sender info (from_email, from_name) comes from StoreConfig.
 type SendGridConfig struct {
-	APIKey    string `koanf:"api_key"`
-	FromEmail string `koanf:"from_email"`
-	FromName  string `koanf:"from_name"`
+	APIKey string `koanf:"api_key"`
 }
 
 type ClickHouseConfig struct {
@@ -286,10 +310,14 @@ type LoggerConfig struct {
 	Level string `koanf:"level"` // debug | info | error
 }
 
-// RateLimit defines a rate limit policy
+// RateLimit defines a rate limit policy.
+// All rate limits use a fixed 1-minute window.
 type RateLimit struct {
-	Limit  int           `koanf:"limit"`
-	Window time.Duration `koanf:"window"`
+	// RequestsPerMinute is the maximum number of requests allowed per minute.
+	RequestsPerMinute int `koanf:"requests_per_minute"`
+	// Burst is the maximum burst size (optional, defaults to RequestsPerMinute).
+	// Reserved for future use with token bucket algorithms.
+	Burst int `koanf:"burst"`
 }
 
 // WebhookConfig is kept for backwards compatibility but webhook retry is no longer used.
@@ -530,24 +558,24 @@ func GetDefaultBillingConfig() *Config {
 		},
 		RateLimits: &RateLimitsConfig{
 			"subscribe": &RateLimit{
-				Limit:  10, // Very restrictive for payment endpoints
-				Window: time.Minute,
+				RequestsPerMinute: 10, // Very restrictive for payment endpoints
+				Burst:             3,
 			},
 			"checkout": &RateLimit{
-				Limit:  5, // Heavy rate limiting for checkout - prevents abuse
-				Window: time.Minute,
+				RequestsPerMinute: 5, // Heavy rate limiting for checkout - prevents abuse
+				Burst:             2,
 			},
 			"webhook": &RateLimit{
-				Limit:  100, // Higher for webhooks
-				Window: time.Minute,
+				RequestsPerMinute: 100, // Higher for webhooks
+				Burst:             20,
 			},
 			"payment": &RateLimit{
-				Limit:  20,
-				Window: time.Minute,
+				RequestsPerMinute: 20,
+				Burst:             5,
 			},
 			"default": &RateLimit{
-				Limit:  60,
-				Window: time.Minute,
+				RequestsPerMinute: 60,
+				Burst:             10,
 			},
 		},
 		Solana: &SolanaConfig{},
@@ -617,6 +645,11 @@ func Load(configPath string) (*Config, error) {
 			return "env"
 		}
 
+		// Special case: API_URL -> api_url (top-level, not nested api.url)
+		if s == "api_url" {
+			return "api_url"
+		}
+
 		// Special case: NMI_PROVIDERS_<PROVIDER>_<KEY> -> nmi.providers.<provider>.<key>
 		// Example: NMI_PROVIDERS_MOBIUS_SECURITY_KEY -> nmi.providers.mobius.security_key
 		if strings.HasPrefix(s, "nmi_providers_") {
@@ -646,6 +679,17 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("unmarshaling config: %w", err)
 	}
 
+	// Store defaults (used across the system for branding)
+	if cfg.Store == nil {
+		cfg.Store = &StoreConfig{}
+	}
+	if cfg.Store.Name == "" {
+		cfg.Store.Name = "My Store"
+	}
+	if cfg.Store.LogoURL == "" {
+		cfg.Store.LogoURL = DefaultLogoURL
+	}
+
 	if cfg.Solana == nil {
 		cfg.Solana = &SolanaConfig{}
 	}
@@ -655,16 +699,11 @@ func Load(configPath string) (*Config, error) {
 	if len(cfg.Solana.SupportedTokens) == 0 {
 		cfg.Solana.SupportedTokens = TokensForNetwork(cfg.Solana.Network)
 	}
-	if cfg.Solana.PayLabel == "" {
-		cfg.Solana.PayLabel = "Doujins"
-	}
-	if cfg.Solana.PayIcon == "" {
-		// Default icon: simple billing/payment icon (white dollar sign on purple circle)
-		// SVG: <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
-		//        <circle cx="32" cy="32" r="30" fill="#9945FF"/>
-		//        <text x="32" y="44" font-family="Arial" font-size="36" font-weight="bold" fill="white" text-anchor="middle">$</text>
-		//      </svg>
-		cfg.Solana.PayIcon = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDY0IDY0Ij48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIzMCIgZmlsbD0iIzk5NDVGRiIvPjx0ZXh0IHg9IjMyIiB5PSI0NCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjM2IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPiQ8L3RleHQ+PC9zdmc+"
+
+	// Warn if Solana is configured but api_url is missing (needed for Solana Pay URLs)
+	if cfg.Solana.RecipientWallet != "" && strings.TrimSpace(cfg.APIURL) == "" {
+		log.Warn("Solana is configured but api_url is not set; Solana Pay transaction_request URLs will not be generated. " +
+			"Set API_URL to your public API endpoint (e.g., https://api.mysite.com or https://api.mysite.com/billing for embedded mode)")
 	}
 
 	if cfg.NMI == nil {

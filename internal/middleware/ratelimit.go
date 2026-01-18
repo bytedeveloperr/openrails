@@ -202,8 +202,8 @@ func effectiveLimit(limit *config.RateLimit) int {
 	if limit == nil {
 		return 0
 	}
-	if limit.Limit <= 0 {
-		return 60
+	if limit.RequestsPerMinute <= 0 {
+		return 60 // Default to 60 requests per minute
 	}
-	return limit.Limit
+	return limit.RequestsPerMinute
 }

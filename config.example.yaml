@@ -1,35 +1,107 @@
 # Billing Service Configuration Example
 # Copy this to config.yaml and fill in your actual values
+# All settings can also be set via environment variables (see .env.example)
+
+# =============================================================================
+# CORE SETTINGS
+# =============================================================================
 
 # Environment: prod, dev, development, production
 env: "development"
 
-# Server configuration
-# host: "0.0.0.0"  # Host to bind to (default: 0.0.0.0)
-# port: 2053       # Public HTTP/HTTPS port (default: 2053)
+# =============================================================================
+# STANDALONE MODE ONLY
+# =============================================================================
+# These settings only apply when running doujins-billing as a standalone service.
+# In embedded mode, the host application handles binding and routing.
 
-# CORS origins for frontend access
+host: "0.0.0.0"        # Address to bind to (default: 0.0.0.0)
+port: 2053             # Public HTTP/HTTPS port (default: 2053)
+private_port: 8060     # Internal/service API port (default: 8060)
+
+# =============================================================================
+# BOTH MODES (standalone + embedded)
+# =============================================================================
+# These settings apply in both standalone and embedded modes.
+
+# API URL: Base URL where billing's /v1/* routes are mounted.
+# REQUIRED for Solana Pay transaction_request URLs and webhook generation.
+#
+# Standalone mode: Routes are at /v1/*, so just the origin:
+#   api_url: "https://api.mysite.com"
+#   → Generated URL: https://api.mysite.com/v1/checkout/:id/solana-pay
+#
+# Embedded mode: Routes are at /{mount_prefix}/v1/*, include the mount prefix:
+#   api_url: "https://api.mysite.com/billing"
+#   → Generated URL: https://api.mysite.com/billing/v1/checkout/:id/solana-pay
+#
+api_url: "https://api.example.com"
+
+# Billing API key for private admin routes (header: X-API-KEY)
+# Default is "change-me-in-dev"; override via env BILLING_API_KEY for non-dev
+api_key: "change-me-in-dev"
+
+# CORS origins for frontend access (REQUIRED for browser requests)
+# These are the frontend domains allowed to call billing APIs.
+#
+# If not set and api_url is set: derives origin from api_url
+# If dev mode with nothing set: localhost:3000, localhost:5173, localhost:8080
+# If prod with nothing set: blocks all cross-origin requests
 cors_origins:
   - "http://localhost:3000"
   - "https://your-frontend-domain.com"
 
-# Database configuration (non-secrets only)
-# Provide DB_URL via environment (.env) instead of here
+# =============================================================================
+# STORE/MERCHANT BRANDING
+# =============================================================================
+# Used across the system for consistent branding (Solana Pay, emails, receipts)
+
+store:
+  name: "My Store"                              # Merchant name (default: "My Store")
+  logo_url: "https://your-domain.com/logo.png"  # Logo URL (default: embedded $ icon)
+  from_email: "noreply@your-domain.com"         # Sender email for all outgoing emails (required if sendgrid configured)
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+
+logger:
+  level: "info"  # debug, info, warn, error, fatal, panic (default: info)
+
+# =============================================================================
+# DATABASE (PostgreSQL)
+# =============================================================================
+# Provide DB_URL via environment (.env) instead of secrets here
+
 db:
-  dialect: "postgres"
+  # Option 1: Full connection string (set via DB_URL env var)
+  # url: "postgres://user:pass@host:5432/dbname?sslmode=disable"
 
-# Redis configuration for caching and sessions (non-secrets only)
-# Provide REDIS_URL via environment (.env) instead of password here
+  # Option 2: Atomic parameters (preferred for Kubernetes/Vault)
+  host: "localhost"
+  port: "5432"
+  database: "doujins_db"
+  username: "admin"
+  # password: set via DB_PASSWORD env var
+  sslmode: "disable"
+
+# =============================================================================
+# REDIS (for caching, sessions, rate limiting)
+# =============================================================================
+
 redis:
-  # Matches docker-compose Garnet (service name: garnet)
-  host: "garnet:6379"
-  # db: 0
+  addr: "garnet:6379"   # Redis/Garnet address (default: garnet:6379)
+  # password: ""        # Set via REDIS_PASSWORD env var if needed
+  db: 0                 # Redis database number (default: 0)
 
-# Auth/JWT configuration for authentication (Verifier Only)
-# Billing acts as a JWT verifier, not an issuer. It verifies tokens from doujins/hentai0.
+# =============================================================================
+# AUTHENTICATION (JWT Verifier)
+# =============================================================================
+# Billing is a JWT verifier (not issuer). It verifies tokens from doujins/hentai0.
+
 auth:
   # Issuers - array of token issuer URLs
-  # Billing will fetch public keys from each {issuer}/.well-known/jwks.json per OIDC spec
+  # Billing fetches public keys from each {issuer}/.well-known/jwks.json per OIDC spec
   issuers:
     - "http://localhost:2052"  # doujins
     - "http://localhost:4000"  # hentai0
@@ -38,80 +110,76 @@ auth:
   #   - "https://doujins.com"
   #   - "https://hentai0.com"
 
-  # Expected audience - the expected "aud" claim in incoming JWTs (must be "billing-app")
+  # Expected audience - the expected "aud" claim in incoming JWTs
   expected_audience: "billing-app"
 
-# Billing API key for private admin routes (header: X-API-KEY)
-# Default is "change-me-in-dev"; override via env BILLING_API_KEY for non-dev.
-billing_api_key: "change-me-in-dev"
+# =============================================================================
+# PAYMENT PROCESSORS
+# =============================================================================
 
-# CCBill payment processor configuration
+# -----------------------------------------------------------------------------
+# CCBill
+# -----------------------------------------------------------------------------
 ccbill:
-  # Required CCBill identifiers
   client_acc_num: "your-ccbill-account-number"
   client_sub_acc: "your-ccbill-subaccount"
-  # salt: set via env CCBILL_SALT
+  # salt: set via CCBILL_SALT env var
 
-  # Form configuration (must match CCBill portal)
-  subscription_type_id: "0001"
+  subscription_type_id: "0001"  # Must match CCBill portal config
+  test_mode: true               # true = sandbox, false = production
 
-  # Toggle sandbox vs production FlexForm hosts
-  test_mode: true
+  # DataLink credentials (enables reconciliation worker)
+  # datalink_username: set via CCBILL_DATALINK_USERNAME env var
+  # datalink_password: set via CCBILL_DATALINK_PASSWORD env var
 
-  # DataLink credentials (enable reconcile worker when provided)
-  # datalink_username: set via env CCBILL_DATALINK_USERNAME
-  # datalink_password: set via env CCBILL_DATALINK_PASSWORD
-
-# NMI payment processor configuration
+# -----------------------------------------------------------------------------
+# NMI (Network Merchants Inc) / Mobius
+# -----------------------------------------------------------------------------
 nmi:
-  test_mode: true
-  # direct_post_url: "https://secure.networkmerchants.com/api/transact.php" # optional global override
-  # query_url: "https://secure.nmi.com/api/query.php"                       # optional global override
+  test_mode: true  # true = test mode, false = live charges
+
+  # Global settings (can be overridden per-provider)
+  # direct_post_url: "https://secure.networkmerchants.com/api/transact.php"
+  # query_url: "https://secure.nmi.com/api/query.php"
 
   providers:
     mobius:
-      # Supply secrets via env or override here
-      security_key: ""
-      tokenization_key: ""
-      webhook_secret: ""
+      # Secrets - set via env vars: NMI_PROVIDERS_MOBIUS_SECURITY_KEY, etc.
+      # security_key: ""
+      # tokenization_key: ""
+      # webhook_secret: ""
+
+      # Provider-specific URLs (optional)
       # direct_post_url: "https://secure.mobiusgateway.com/api/transact.php"
       # query_url: "https://secure.mobiusgateway.com/api/query.php"
 
-# Stripe payment processor configuration
+# -----------------------------------------------------------------------------
+# Stripe
+# -----------------------------------------------------------------------------
 stripe:
-  # secret_key: "sk_test_..."
-  # webhook_secret: "whsec_..."
+  # secret_key: set via STRIPE_SECRET_KEY env var
+  # webhook_secret: set via STRIPE_WEBHOOK_SECRET env var
+  success_url: "https://your-domain.com/checkout/success"
+  cancel_url: "https://your-domain.com/checkout/cancel"
 
-# Webhook processing configuration
-webhooks:
-  retry:
-    max_attempts: 5
-    initial_backoff: 1m
-    max_backoff: 1h
-    batch_size: 100
-
-# Solana blockchain configuration
+# -----------------------------------------------------------------------------
+# Solana
+# -----------------------------------------------------------------------------
 solana:
   rpc_endpoint: "https://api.mainnet-beta.solana.com"
-  network: "mainnet" # mainnet, devnet, testnet
+  network: "mainnet"  # mainnet, devnet, testnet
   recipient_wallet: "your-solana-wallet-address"
-  destination_wallet: "your-solana-wallet-address" # alias for recipient_wallet
 
   # Transaction settings
-  transaction_timeout_seconds: 300 # 5 minutes
+  transaction_timeout_seconds: 300  # 5 minutes
   confirmation_blocks: 1
-  max_transaction_fee: 0.01 # SOL
+  max_transaction_fee: 0.01  # SOL
 
-  # Solana Pay Transaction Request settings
-  # These are displayed to users in their wallet when scanning a Solana Pay QR code
-  # pay_label: "Doujins"  # Merchant name (default: "Doujins")
-  # pay_icon: "https://your-domain.com/icon.png"  # Optional: URL to icon (default: embedded $ icon)
-  
-  # Supported tokens
-  # Note: Token prices are fetched dynamically from Jupiter at runtime
+  # Supported tokens (defaults provided for each network)
+  # Token prices are fetched dynamically from Jupiter at runtime
   supported_tokens:
     SOL:
-      mint: "" # Native SOL doesn't have a mint address
+      mint: ""  # Native SOL has no mint address
       symbol: "SOL"
       name: "Solana"
       decimals: 9
@@ -131,38 +199,49 @@ solana:
       decimals: 6
       enabled: true
 
-# ClickHouse analytics database
+# =============================================================================
+# ANALYTICS (ClickHouse)
+# =============================================================================
+
 clickhouse:
-  # Matches docker-compose ClickHouse (service name: clickhouse)
   http_addr: "http://clickhouse:8123"
   client_addr: "clickhouse:9000"
   database: "analytics"
-  # Provide CLICKHOUSE_USER and CLICKHOUSE_PASSWORD via env
+  cluster: "doujins"  # ClickHouse cluster name
+  # user: set via CLICKHOUSE_USER env var
+  # password: set via CLICKHOUSE_PASSWORD env var
 
-# SendGrid email service configuration
+# =============================================================================
+# EMAIL (SendGrid)
+# =============================================================================
+# Sender info (from_email, from_name) comes from store config above.
+
 sendgrid:
-  from_email: "noreply@your-domain.com"
-  from_name: "Doujins Billing"
-  # Provide SENDGRID_API_KEY via env
+  # api_key: set via SENDGRID_API_KEY env var
+  # Sender email uses store.from_email, sender name uses store.name
 
-# Rate limiting configuration
+# =============================================================================
+# RATE LIMITING
+# =============================================================================
+# All rate limits use a fixed 1-minute window.
+
 rate_limits:
-  # Subscription endpoints (very restrictive)
-  subscribe_limit:
-    requests_per_minute: 10
-    burst_size: 3
-  
-  # Webhook endpoints (higher limit)
-  webhook_limit:
-    requests_per_minute: 100
-    burst_size: 20
-  
-  # Payment method operations
-  payment_limit:
-    requests_per_minute: 20
-    burst_size: 5
-  
-  # Default for other endpoints
-  default_limit:
-    requests_per_minute: 60
-    burst_size: 10
+  subscribe:
+    requests_per_minute: 10  # Very restrictive for payment endpoints
+    burst: 3                 # Max burst size (optional)
+
+  checkout:
+    requests_per_minute: 5   # Heavy rate limiting for checkout
+    burst: 2
+
+  webhook:
+    requests_per_minute: 100 # Higher for processor webhooks
+    burst: 20
+
+  payment:
+    requests_per_minute: 20  # Payment method operations
+    burst: 5
+
+  default:
+    requests_per_minute: 60  # Default for other endpoints
+    burst: 10

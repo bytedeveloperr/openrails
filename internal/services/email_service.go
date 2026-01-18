@@ -52,16 +52,23 @@ func (d OneOffPurchaseEmailData) AmountDollars() float64 {
 }
 
 // NewEmailService wires the SendGrid SDK into the billing domain service.
-func NewEmailService(cfg *config.SendGridConfig) (*EmailService, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("email configuration not provided")
+// Sender info (from_email, from_name) comes from StoreConfig.
+func NewEmailService(sendgridCfg *config.SendGridConfig, storeCfg *config.StoreConfig) (*EmailService, error) {
+	if sendgridCfg == nil {
+		return nil, fmt.Errorf("sendgrid configuration not provided")
+	}
+	if storeCfg == nil {
+		return nil, fmt.Errorf("store configuration not provided")
 	}
 
-	apiKey := strings.TrimSpace(cfg.APIKey)
-	fromEmail := strings.TrimSpace(cfg.FromEmail)
-	fromName := strings.TrimSpace(cfg.FromName)
-	if apiKey == "" || fromEmail == "" {
-		return nil, fmt.Errorf("sendgrid configuration incomplete")
+	apiKey := strings.TrimSpace(sendgridCfg.APIKey)
+	fromEmail := strings.TrimSpace(storeCfg.FromEmail)
+	fromName := strings.TrimSpace(storeCfg.Name)
+	if apiKey == "" {
+		return nil, fmt.Errorf("sendgrid api_key is required")
+	}
+	if fromEmail == "" {
+		return nil, fmt.Errorf("store.from_email is required when sendgrid is configured")
 	}
 
 	client := sendgrid.NewSendClient(apiKey)

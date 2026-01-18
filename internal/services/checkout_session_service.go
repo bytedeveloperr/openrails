@@ -711,10 +711,10 @@ func (s *CheckoutSessionService) sessionToResponse(session *models.CheckoutSessi
 		}
 		// Build solana_pay_url for transaction_request flow
 		if flow, ok := session.ProcessorState["flow"].(string); ok && flow == "transaction_request" {
-			// Construct the Solana Pay URL: solana:https://host/v1/checkout/:id/solana-pay
-			host := s.getAPIHost()
-			if host != "" {
-				resp.Payment.SolanaPayURL = fmt.Sprintf("solana:%s/v1/checkout/%s/solana-pay", host, api.FormatCheckoutSessionID(session.ID))
+			// Construct the Solana Pay URL: solana:{api_url}/v1/checkout/:id/solana-pay
+			baseURL := s.getAPIBaseURL()
+			if baseURL != "" {
+				resp.Payment.SolanaPayURL = fmt.Sprintf("solana:%s/v1/checkout/%s/solana-pay", baseURL, api.FormatCheckoutSessionID(session.ID))
 			}
 		}
 		if val, ok := session.ProcessorState["redirect_url"].(string); ok && strings.TrimSpace(val) != "" {
@@ -807,22 +807,23 @@ func (s *CheckoutSessionService) buildNextAction(resp *CheckoutSessionResponse) 
 	return nil
 }
 
-// getAPIHost returns the API host URL for building Solana Pay URLs.
-// Uses config.Host with https:// prefix.
-func (s *CheckoutSessionService) getAPIHost() string {
+// getAPIBaseURL returns the API base URL for building Solana Pay URLs.
+// Uses config.APIURL which should be set to the full base URL where billing routes are mounted.
+//
+// Standalone: "https://api.mysite.com" → routes at /v1/*
+// Embedded:   "https://api.mysite.com/billing" → routes at /billing/v1/*
+//
+// Generated URLs follow the pattern: APIURL + "/v1/checkout/:id/solana-pay"
+func (s *CheckoutSessionService) getAPIBaseURL() string {
 	if s.config == nil {
 		return ""
 	}
-	host := strings.TrimSpace(s.config.Host)
-	if host == "" || host == "0.0.0.0" {
-		// Can't build a proper URL without a real hostname
+	apiURL := strings.TrimSpace(s.config.APIURL)
+	if apiURL == "" {
 		return ""
 	}
-	// If host doesn't start with http, assume https
-	if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
-		return "https://" + host
-	}
-	return host
+	// Ensure it doesn't end with a slash (we add /v1/... later)
+	return strings.TrimSuffix(apiURL, "/")
 }
 
 func (s *CheckoutSessionService) confirmSolanaSession(ctx context.Context, session *models.CheckoutSession, req *CheckoutSessionConfirmRequest, user *UserIdentity) (*CheckoutSessionResponse, error) {
