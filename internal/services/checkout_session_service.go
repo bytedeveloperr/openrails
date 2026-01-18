@@ -684,7 +684,7 @@ func (s *CheckoutSessionService) sessionToResponse(session *models.CheckoutSessi
 		},
 		ExpiresAt: session.ExpiresAt,
 	}
-	if session.Metadata != nil && len(session.Metadata) > 0 {
+	if len(session.Metadata) > 0 {
 		resp.Metadata = session.Metadata
 	}
 

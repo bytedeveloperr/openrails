@@ -127,16 +127,6 @@ func CalculateTokenQuote(ctx context.Context, tokenCfg config.SolanaToken, amoun
 	}, nil
 }
 
-// calculateTokenQuoteLegacy is a backward-compatible wrapper that assumes USD.
-// Deprecated: Use CalculateTokenQuote with explicit currency and FX provider.
-func calculateTokenQuoteLegacy(ctx context.Context, tokenCfg config.SolanaToken, amountCents int64) (uint64, float64, error) {
-	quote, err := CalculateTokenQuote(ctx, tokenCfg, amountCents, "usd", nil)
-	if err != nil {
-		return 0, 0, err
-	}
-	return quote.Units, quote.Decimal, nil
-}
-
 // stablecoinSymbols lists tokens that should be treated as USD-pegged stablecoins.
 var stablecoinSymbols = map[string]bool{
 	"USDC":  true,

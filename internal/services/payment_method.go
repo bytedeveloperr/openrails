@@ -118,14 +118,14 @@ func (s *PaymentMethodService) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-// GetAllNMI returns all NMI payment methods
+// GetAllNMI returns all NMI-backed payment methods
 func (s *PaymentMethodService) GetAllNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
-	return s.repo.GetAllNMI(ctx)
+	return s.repo.GetAllNMIBacked(ctx)
 }
 
-// GetNMIByUserID returns NMI payment methods for a specific user
+// GetNMIByUserID returns NMI-backed payment methods for a specific user
 func (s *PaymentMethodService) GetNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	return s.repo.GetNMIByUserID(ctx, userID)
+	return s.repo.GetNMIBackedByUserID(ctx, userID)
 }
 
 // GetACUPendingMethods is deprecated since payment methods only support NMI

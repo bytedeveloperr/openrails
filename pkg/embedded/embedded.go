@@ -7,8 +7,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"github.com/uptrace/bun"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/app"
@@ -22,7 +22,7 @@ import (
 type Options struct {
 	Config       *config.Config
 	DB           *sql.DB
-	BunDB        *bun.DB
+	PGXPool      *pgxpool.Pool
 	Redis        *redis.Client
 	AuthProvider authprovider.Provider
 	Cache        cache.Cache
@@ -40,7 +40,7 @@ func New(opts Options) (*Embedded, error) {
 
 	application, err := app.BootstrapWithOptions(opts.Config, &app.BootstrapOptions{
 		DB:           opts.DB,
-		BunDB:        opts.BunDB,
+		PGXPool:      opts.PGXPool,
 		Redis:        opts.Redis,
 		AuthProvider: opts.AuthProvider,
 		Cache:        opts.Cache,

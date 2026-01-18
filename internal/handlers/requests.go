@@ -158,19 +158,6 @@ func (r *DeletePaymentMethodRequest) Path() any {
 	return &r.DeletePaymentMethodPathParams
 }
 
-type ActivatePaymentMethodPathParams struct {
-	ID string `uri:"id" binding:"required"`
-}
-
-type ActivatePaymentMethodRequest struct {
-	BaseRequest
-	ActivatePaymentMethodPathParams
-}
-
-func (r *ActivatePaymentMethodRequest) Path() any {
-	return &r.ActivatePaymentMethodPathParams
-}
-
 type CreatePaymentMethodRequest struct {
 	PaymentToken string `json:"payment_token" binding:"required"`
 	FirstName    string `json:"first_name" binding:"required"`

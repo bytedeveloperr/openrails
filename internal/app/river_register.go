@@ -14,14 +14,23 @@ import (
 // buildRiverWorkers constructs the worker registry for River.
 func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error) {
 	workers := river.NewWorkers()
+	if err := r.addBillingWorkersToRegistry(ctx, workers); err != nil {
+		return nil, err
+	}
+	return workers, nil
+}
+
+// addBillingWorkersToRegistry adds billing workers to an existing worker registry.
+// This is used both internally (buildRiverWorkers) and externally (AddBillingWorkersTo).
+func (r *Runtime) addBillingWorkersToRegistry(ctx context.Context, workers *river.Workers) error {
 	if err := river.AddWorkerSafely(workers, &riverjobs.DunningWorker{DB: r.DB, NMIClients: r.NMIClients, EventLogService: r.EventLogService, IdempotencyService: r.IdempotencyService}); err != nil {
-		return nil, fmt.Errorf("add dunning worker: %w", err)
+		return fmt.Errorf("add dunning worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.IdempotencyCleanupWorker{DB: r.DB}); err != nil {
-		return nil, fmt.Errorf("add idempotency cleanup worker: %w", err)
+		return fmt.Errorf("add idempotency cleanup worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.CCBillReconcileWorker{DB: r.DB, DataLink: r.CCBillDataLink}); err != nil {
-		return nil, fmt.Errorf("add ccbill reconcile worker: %w", err)
+		return fmt.Errorf("add ccbill reconcile worker: %w", err)
 	}
 	// Webhook processing is now synchronous-only - no background workers needed.
 	// Payment processors (CCBill, NMI) retry failed webhooks from their end.
@@ -34,13 +43,13 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 		Clock:  clock,
 		Config: riverjobs.DefaultCleanupConfig(),
 	}); err != nil {
-		return nil, fmt.Errorf("add cleanup expired data worker: %w", err)
+		return fmt.Errorf("add cleanup expired data worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.CreditExpiryWorker{
 		DB:    r.DB,
 		Clock: clock,
 	}); err != nil {
-		return nil, fmt.Errorf("add credit expiry worker: %w", err)
+		return fmt.Errorf("add credit expiry worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.CancelSubscriptionWorker{
 		DB:                           r.DB,
@@ -49,7 +58,7 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 		SubscriptionService:          r.SubscriptionService,
 		SubscriptionLifecycleService: r.SubscriptionLifecycleService,
 	}); err != nil {
-		return nil, fmt.Errorf("add cancel subscription worker: %w", err)
+		return fmt.Errorf("add cancel subscription worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.ResumeSubscriptionWorker{
 		DB:                  r.DB,
@@ -57,14 +66,14 @@ func (r *Runtime) buildRiverWorkers(ctx context.Context) (*river.Workers, error)
 		EntitlementService:  r.EntitlementService,
 		SubscriptionService: r.SubscriptionService,
 	}); err != nil {
-		return nil, fmt.Errorf("add resume subscription worker: %w", err)
+		return fmt.Errorf("add resume subscription worker: %w", err)
 	}
 	if err := river.AddWorkerSafely(workers, &riverjobs.WebhookProcessWorker{
 		Dispatcher: r.WebhookDispatcher,
 	}); err != nil {
-		return nil, fmt.Errorf("add webhook process worker: %w", err)
+		return fmt.Errorf("add webhook process worker: %w", err)
 	}
-	return workers, nil
+	return nil
 }
 
 // buildRiverPeriodicJobs defines recurring schedules for workers using River periodic jobs.

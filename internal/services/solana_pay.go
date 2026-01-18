@@ -215,7 +215,7 @@ func (s *SolanaPayService) buildTransferRequestURL(recipient string, amount uint
 	url := fmt.Sprintf("solana:%s", recipient)
 
 	// Get token config for decimals
-	tokenCfg, _ := s.cfg.Solana.SupportedTokens[tokenSymbol]
+	tokenCfg := s.cfg.Solana.SupportedTokens[tokenSymbol]
 
 	// Format amount with proper decimals
 	formattedAmount := formatTokenAmount(amount, tokenCfg.Decimals)

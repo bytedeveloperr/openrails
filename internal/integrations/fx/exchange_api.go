@@ -35,13 +35,6 @@ func NewExchangeAPIProvider() *ExchangeAPIProvider {
 	}
 }
 
-// exchangeAPIResponse represents the JSON response from the exchange-api.
-// Format: { "date": "2024-01-15", "<currency>": { "usd": 1.08, ... } }
-type exchangeAPIResponse struct {
-	Date  string             `json:"date"`
-	Rates map[string]float64 `json:"-"` // Populated manually from the currency key
-}
-
 // QuoteToUSD fetches the conversion rate from the given currency to USD.
 func (p *ExchangeAPIProvider) QuoteToUSD(ctx context.Context, currency string) (*Quote, error) {
 	currency = strings.ToLower(strings.TrimSpace(currency))

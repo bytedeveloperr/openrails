@@ -56,38 +56,6 @@ func normalizeCurrency(currencyCode Stringish) string {
 	return "usd"
 }
 
-// parseWebhookTimestamp attempts to parse a timestamp from the webhook payload.
-// It tries multiple formats since processors may use different timestamp formats.
-// Returns the parsed time and true on success, or zero time and false on failure.
-func parseWebhookTimestamp(timestamp string) (time.Time, bool) {
-	timestamp = strings.TrimSpace(timestamp)
-	if timestamp == "" {
-		return time.Time{}, false
-	}
-
-	// Try common timestamp formats in order of likelihood
-	formats := []string{
-		time.RFC3339,          // 2006-01-02T15:04:05Z07:00 (standard)
-		time.RFC3339Nano,      // 2006-01-02T15:04:05.999999999Z07:00
-		"2006-01-02T15:04:05", // Without timezone (assume UTC)
-		"2006-01-02 15:04:05", // Space-separated without timezone
-		time.DateTime,         // 2006-01-02 15:04:05
-	}
-
-	for _, format := range formats {
-		if t, err := time.Parse(format, timestamp); err == nil {
-			// If parsed without timezone, assume UTC
-			if t.Location() == nil || t.Location().String() == "" {
-				t = t.UTC()
-			}
-			return t, true
-		}
-	}
-
-	log.WithField("timestamp", timestamp).Warn("CCBill webhook timestamp could not be parsed")
-	return time.Time{}, false
-}
-
 func (s *CCBillWebhookService) ensureFlexFormMatches(price *models.Price, flexID, formName string) error {
 	expectedFormName, expectedFlexID, ok := price.GetCCBillFlexForm()
 	if !ok {

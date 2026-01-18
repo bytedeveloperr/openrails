@@ -113,7 +113,6 @@ func TestListPaymentMethods(t *testing.T) {
 	pm2 := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
-		IsActive:  true, // Note: Database has default:true, so false values become true
 		LastFour:  "1234",
 		CardType:  "Mastercard",
 	})
@@ -300,63 +299,6 @@ func TestDeletePaymentMethod(t *testing.T) {
 		suite.Server.Handler().ServeHTTP(w, req)
 
 		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 Bad Request")
-	})
-}
-
-// TestActivatePaymentMethod tests activating payment methods
-func TestActivatePaymentMethod(t *testing.T) {
-	suite, token, userID := setupTestSuiteWithAuth(t)
-
-	// Note: Newly created payment methods
-	// are always active. The activate endpoint will return success either way.
-
-	t.Run("returns success for payment method", func(t *testing.T) {
-		// Create a payment method (will be active due to default:true)
-		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
-			UserID:    userID,
-			Processor: models.ProcessorMobius,
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", pm.ID.String()), nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
-
-		var response map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &response)
-		require.NoError(t, err)
-
-		assert.True(t, response["success"].(bool), "Success should be true")
-	})
-
-	t.Run("returns 404 for non-existent payment method", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", uuid.New().String()), nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 Not Found")
-	})
-
-	t.Run("returns 403 for payment method owned by another user", func(t *testing.T) {
-		// Create a payment method owned by a different user
-		otherUserID := uuid.New().String()
-		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
-			UserID:    otherUserID,
-			Processor: models.ProcessorMobius,
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", pm.ID.String()), nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusForbidden, w.Code, "Should return 403 Forbidden")
 	})
 }
 

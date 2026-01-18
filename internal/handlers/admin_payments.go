@@ -1,8 +1,13 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"strings"
 
+	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/doujins-org/doujins-billing/pkg/query"
@@ -15,12 +20,15 @@ type PaymentPath struct {
 
 // RefundRequest is the request body for refunding a payment
 type RefundRequest struct {
-	Amount              int64  `json:"amount" binding:"required,gt=0"` // Amount in cents to refund
-	RefundTransactionID string `json:"refund_transaction_id" binding:"required"`
+	Amount int64  `json:"amount" binding:"required,gt=0"` // Amount in cents to refund
+	Reason string `json:"reason,omitempty"`               // Optional: duplicate, fraudulent, requested_by_customer
 }
 
-// AdminRefundPayment issues a refund for a payment
+// AdminRefundPayment issues a refund for a payment through the processor and records it
 // POST /v1/admin/payments/:id/refund
+//
+// For NMI/Mobius and Stripe: Issues the refund through the processor API
+// For CCBill: Returns an error - refunds must be done through CCBill's admin portal
 func AdminRefundPayment(r *Request) {
 	var path PaymentPath
 	if err := r.Inner().ShouldBindUri(&path); err != nil {
@@ -44,9 +52,73 @@ func AdminRefundPayment(r *Request) {
 		return
 	}
 
-	refund, err := r.State.PaymentService.Refund(r.Request.Context(), paymentID, req.RefundTransactionID, req.Amount)
+	ctx := r.Request.Context()
+
+	// Get the original payment
+	payment, err := r.State.PaymentService.GetByID(ctx, paymentID)
 	if err != nil {
-		r.ErrorJSON(http.StatusBadRequest, err.Error())
+		r.ErrorJSON(http.StatusNotFound, "payment not found")
+		return
+	}
+
+	// Issue refund through the appropriate processor
+	var refundTransactionID string
+
+	switch {
+	case payment.Processor == models.ProcessorCCBill:
+		// CCBill doesn't have an API for issuing refunds
+		r.ErrorJSON(http.StatusBadRequest,
+			"CCBill refunds must be processed through CCBill's admin portal. "+
+				"After issuing the refund in CCBill, it will be recorded automatically via webhook.")
+		return
+
+	case payment.Processor == models.ProcessorStripe:
+		// Issue refund through Stripe
+		stripeService := &services.StripeRefundService{Config: r.State.Config}
+		result, err := stripeService.CreateRefund(ctx, services.RefundParams{
+			ChargeID: payment.TransactionID,
+			Amount:   req.Amount,
+			Reason:   req.Reason,
+		})
+		if err != nil {
+			r.ErrorJSON(http.StatusBadGateway, fmt.Sprintf("stripe refund failed: %s", err.Error()))
+			return
+		}
+		refundTransactionID = result.ID
+
+	case processors.IsNMIBackedProcessor(payment.Processor):
+		// Issue refund through NMI (Mobius, etc.)
+		providerName := strings.ToLower(string(payment.Processor))
+		nmiClient, ok := r.State.NMIClients[providerName]
+		if !ok {
+			r.ErrorJSON(http.StatusInternalServerError,
+				fmt.Sprintf("NMI client not configured for processor: %s", payment.Processor))
+			return
+		}
+
+		result, err := nmiClient.Refund(nmi.RefundParams{
+			TransactionID: payment.TransactionID,
+			Amount:        req.Amount,
+		})
+		if err != nil {
+			r.ErrorJSON(http.StatusBadGateway, fmt.Sprintf("refund failed: %s", err.Error()))
+			return
+		}
+		refundTransactionID = result.TransactionID
+
+	default:
+		r.ErrorJSON(http.StatusBadRequest,
+			fmt.Sprintf("refunds not supported for processor: %s", payment.Processor))
+		return
+	}
+
+	// Record the refund in the database
+	refund, err := r.State.PaymentService.Refund(ctx, paymentID, refundTransactionID, req.Amount)
+	if err != nil {
+		// The refund was issued but we failed to record it - this is bad
+		// Log the error with the refund transaction ID for manual recovery
+		r.ErrorJSON(http.StatusInternalServerError,
+			fmt.Sprintf("refund issued (ID: %s) but failed to record: %s", refundTransactionID, err.Error()))
 		return
 	}
 

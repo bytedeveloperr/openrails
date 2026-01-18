@@ -284,8 +284,27 @@ List of payments with filtering by processor, status, date range, etc. Response:
 Full payment detail including refund history.
 
 ### POST /v1/admin/payments/{id}/refund
-Body `{ "amount": 1234, "refund_transaction_id": "..." }`. Initiates a refund via the underlying processor.
-Returns the refund payment object.
+Initiates a refund via the underlying processor's API and records it in the database.
+
+**Request Body:**
+```json
+{
+  "amount": 1234,
+  "reason": "requested_by_customer"
+}
+```
+
+- `amount` (required): Amount in cents to refund. Must be greater than zero.
+- `reason` (optional): Refund reason. For Stripe, must be one of: `duplicate`, `fraudulent`, `requested_by_customer`.
+
+**Processor Behavior:**
+| Processor | Behavior |
+|-----------|----------|
+| Stripe | Issues refund via Stripe API. Supports partial refunds. |
+| Mobius/NMI | Issues refund via NMI Direct Post API. Supports partial refunds. |
+| CCBill | Returns HTTP 400 with message directing to CCBill admin portal. CCBill does not expose a refund API. |
+
+**Response:** Returns the created refund payment object on success.
 
 ### GET /v1/admin/users/{user_id}
 Returns the user's billing profile: `{ user_id, subscription, entitlements, payments }`.

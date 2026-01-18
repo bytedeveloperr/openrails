@@ -58,8 +58,3 @@ func IsValidCCBillIP(clientIP string) bool {
 
 	return false
 }
-
-// GetCCBillIPRanges returns the configured CCBill IP ranges for informational purposes
-func GetCCBillIPRanges() []string {
-	return ccbillIPRanges
-}

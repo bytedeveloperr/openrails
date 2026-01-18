@@ -59,8 +59,6 @@ func Error(message string) Json {
 func ValidationError(err error) Json {
 	msg := err.Error()
 	// Remove internal prefixes to make the message more user-friendly
-	if strings.HasPrefix(msg, "validation failed: ") {
-		msg = strings.TrimPrefix(msg, "validation failed: ")
-	}
+	msg = strings.TrimPrefix(msg, "validation failed: ")
 	return Message(msg)
 }

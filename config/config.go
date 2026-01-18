@@ -334,12 +334,6 @@ func Validate(cfg *Config) error {
 	return nil
 }
 
-// validateWebhookConfig is deprecated - webhook retry config is no longer used.
-// Keeping as no-op for backwards compatibility.
-func validateWebhookConfig(cfg *Config) error {
-	return nil
-}
-
 func validateStripe(cfg *StripeConfig) error {
 	if cfg == nil {
 		return nil

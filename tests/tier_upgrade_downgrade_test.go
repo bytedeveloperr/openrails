@@ -479,8 +479,7 @@ func TestChangeTierEndpoint(t *testing.T) {
 		assert.NotEmpty(t, resp["subscription_id"], "Should include subscription_id")
 
 		// Verify NMI calls were made (sale for proration + new subscription)
-		calls := mock.GetCalls()
-		assert.GreaterOrEqual(t, len(calls), 1, "Should have made NMI API calls")
+		assert.GreaterOrEqual(t, int(mock.RequestCount), 1, "Should have made NMI API calls")
 
 		// Verify old subscription was cancelled
 		refreshedSub := suite.GetSubscription(sub.ID)

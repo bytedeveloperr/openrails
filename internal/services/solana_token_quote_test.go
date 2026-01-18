@@ -8,21 +8,17 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
 )
 
-// mockJupiterPrices is set by tests to override Jupiter price fetching
-// This is a simple approach - in production you'd use dependency injection
-var mockJupiterPrices map[string]float64
-
 func TestCalculateTokenQuote_USDPrice(t *testing.T) {
+	// Skip this test if it requires real Jupiter API
+	// In a real implementation, we'd inject a mock Jupiter client
+	t.Skip("Requires mock Jupiter client - integration test only")
+
 	tokenCfg := config.SolanaToken{
 		Symbol:   "USDC",
 		Mint:     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		Decimals: 6,
 		Enabled:  true,
 	}
-
-	// Skip this test if it requires real Jupiter API
-	// In a real implementation, we'd inject a mock Jupiter client
-	t.Skip("Requires mock Jupiter client - integration test only")
 
 	quote, err := CalculateTokenQuote(context.Background(), tokenCfg, 1000, "usd", nil)
 	if err != nil {
@@ -75,15 +71,15 @@ func TestCalculateTokenQuote_ZeroAmount(t *testing.T) {
 }
 
 func TestCalculateTokenQuote_EmptyCurrencyDefaultsToUSD(t *testing.T) {
+	// Skip - requires Jupiter API
+	t.Skip("Requires mock Jupiter client - integration test only")
+
 	tokenCfg := config.SolanaToken{
 		Symbol:   "USDC",
 		Mint:     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		Decimals: 6,
 		Enabled:  true,
 	}
-
-	// Skip - requires Jupiter API
-	t.Skip("Requires mock Jupiter client - integration test only")
 
 	quote, err := CalculateTokenQuote(context.Background(), tokenCfg, 1000, "", nil)
 	if err != nil {
@@ -110,6 +106,9 @@ func TestCalculateTokenQuote_MissingMint(t *testing.T) {
 }
 
 func TestCalculateTokenQuote_WithMockFXProvider(t *testing.T) {
+	// Skip - requires Jupiter API for token prices
+	t.Skip("Requires mock Jupiter client - integration test only")
+
 	tokenCfg := config.SolanaToken{
 		Symbol:   "USDC",
 		Mint:     "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -121,9 +120,6 @@ func TestCalculateTokenQuote_WithMockFXProvider(t *testing.T) {
 		"eur": 1.08, // 1 EUR = 1.08 USD
 		"gbp": 1.27, // 1 GBP = 1.27 USD
 	})
-
-	// Skip - requires Jupiter API for token prices
-	t.Skip("Requires mock Jupiter client - integration test only")
 
 	// Test EUR conversion
 	quote, err := CalculateTokenQuote(context.Background(), tokenCfg, 1000, "eur", mockFX)

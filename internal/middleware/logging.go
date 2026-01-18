@@ -16,6 +16,12 @@ import (
 // RequestIDKey is the key for request ID in gin.Context
 const RequestIDKey = "request_id"
 
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+// ContextKeyRequestID is the context key for request ID
+const ContextKeyRequestID contextKey = "request_id"
+
 // Logger middleware with enhanced logging for billing service
 func Logger() gin.HandlerFunc {
 	return gin.LoggerWithFormatter(func(param gin.LogFormatterParams) string {
@@ -76,7 +82,7 @@ func RequestID() gin.HandlerFunc {
 
 		// Add to request context for downstream services
 		ctx := c.Request.Context()
-		ctx = context.WithValue(ctx, "request_id", requestID)
+		ctx = context.WithValue(ctx, ContextKeyRequestID, requestID)
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
