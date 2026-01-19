@@ -15,6 +15,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
+	"github.com/doujins-org/doujins-billing/internal/integrations/jupiter"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/doujins-org/doujins-billing/internal/services"
@@ -60,6 +61,7 @@ type Runtime struct {
 	SolanaPayPoller          *services.SolanaPayPoller
 	SolanaTransactionService *services.SolanaTransactionService
 	SolanaRPC                *solana.RPCClient
+	SolanaTokenRegistry      *jupiter.TokenRegistry
 	FXProvider               fx.Provider
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService

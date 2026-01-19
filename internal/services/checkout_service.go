@@ -496,14 +496,16 @@ func (s *CheckoutService) processSubscription(
 	coverage *CoverageInfo,
 	processor string,
 ) (*CheckoutResponse, error) {
-	switch processor {
-	case "ccbill":
+	// Route to processor-specific handler based on config type detection
+	// This allows adding new NMI providers via config without code changes
+	switch {
+	case processor == "ccbill":
 		return s.processCCBillSubscription(ctx, req, user, price)
-	case "mobius", "nmi":
+	case processors.IsNMIBacked(processor):
 		return s.processNMISubscription(ctx, req, user, price, product, coverage)
-	case "stripe":
+	case processor == "stripe":
 		return s.processStripeSubscription(ctx, req, user, price, coverage)
-	case "solana":
+	case processor == "solana":
 		return nil, errors.New("solana does not support recurring subscriptions; use a one-time price instead")
 	default:
 		return nil, fmt.Errorf("unsupported processor: %s", processor)
@@ -520,14 +522,16 @@ func (s *CheckoutService) processOneTimePurchase(
 	coverage *CoverageInfo,
 	processor string,
 ) (*CheckoutResponse, error) {
-	switch processor {
-	case "mobius", "nmi":
+	// Route to processor-specific handler based on config type detection
+	// This allows adding new NMI providers via config without code changes
+	switch {
+	case processors.IsNMIBacked(processor):
 		return s.processNMISale(ctx, req, user, price, product, coverage)
-	case "solana":
+	case processor == "solana":
 		return s.processSolanaPurchase(ctx, req, user, price, product, coverage)
-	case "ccbill":
+	case processor == "ccbill":
 		return nil, errors.New("ccbill does not support one-time purchases; use a subscription price instead")
-	case "stripe":
+	case processor == "stripe":
 		return s.processStripePayment(ctx, req, user, price)
 	default:
 		return nil, fmt.Errorf("unsupported processor for one-time purchases: %s", processor)
@@ -564,7 +568,7 @@ func (s *CheckoutService) processCCBillSubscription(
 	}
 
 	// Generate FlexForm URL
-	ccbillClient := ccbill.NewClient(s.Config.CCBill, s.Config.Env == "prod")
+	ccbillClient := ccbill.NewClient(s.Config.CCBill, s.Config.IsTestMode())
 	flexFormParams := &ccbill.GenerateFlexFormURLParams{
 		Username:      user.Username,
 		Email:         *user.Email,
@@ -635,7 +639,7 @@ func (s *CheckoutService) processCCBillUpgrade(
 	}
 
 	// Generate upgrade FlexForm URL
-	ccbillClient := ccbill.NewClient(s.Config.CCBill, s.Config.Env == "prod")
+	ccbillClient := ccbill.NewClient(s.Config.CCBill, s.Config.IsTestMode())
 	upgradeParams := &ccbill.GenerateUpgradeFlexFormURLParams{
 		Username:               user.Username,
 		Email:                  *user.Email,
@@ -2041,17 +2045,18 @@ func (s *CheckoutService) TierChange(ctx context.Context, req *TierChangeRequest
 		action = "downgrade"
 	}
 
-	// 6. Route to processor-specific handler
+	// 6. Route to processor-specific handler based on config type detection
+	// This allows adding new NMI providers via config without code changes
 	processor := string(existingSub.Processor)
 
-	switch processor {
-	case "stripe":
+	switch {
+	case processor == "stripe":
 		return s.processTierChangeStripe(ctx, req, user, newPrice, newProduct, existingSub, currentProduct, action)
-	case "mobius", "nmi":
+	case processors.IsNMIBacked(processor):
 		return s.processTierChangeMobius(ctx, req, user, newPrice, newProduct, existingSub, currentProduct, action)
-	case "ccbill":
+	case processor == "ccbill":
 		return s.processTierChangeCCBill(ctx, req, user, newPrice, newProduct, existingSub, currentProduct, action)
-	case "solana":
+	case processor == "solana":
 		return nil, &TierChangeError{
 			HTTPStatus: http.StatusBadRequest,
 			Message:    "Solana subscriptions do not support tier changes",

@@ -29,7 +29,7 @@ type SupportedTokensQuery struct {
 	Wallet string `form:"wallet"`
 }
 
-// GetSupportedTokens lists Solana tokens from configuration and enriches them with live prices.
+// GetSupportedTokens lists Solana tokens from the token registry and enriches them with live prices.
 // Optional query params:
 //   - price_id: Calculate quotes for each token based on a price
 //   - checkout_session_id: Use the price from a checkout session
@@ -47,9 +47,34 @@ func GetSupportedTokens(r *Request) {
 		return
 	}
 
-	tokenMap := cfg.Solana.SupportedTokens
-	if len(tokenMap) == 0 {
-		tokenMap = config.TokensForNetwork(cfg.Solana.Network)
+	// Get tokens from registry (preferred) or fall back to legacy config
+	var tokenMap map[string]config.SolanaToken
+	isDevnet := strings.ToLower(cfg.Solana.Network) == "devnet"
+
+	if r.State.SolanaTokenRegistry != nil && r.State.SolanaTokenRegistry.Count() > 0 {
+		// Use token registry (new approach)
+		registryTokens := r.State.SolanaTokenRegistry.All()
+		tokenMap = make(map[string]config.SolanaToken, len(registryTokens))
+		for symbol, rt := range registryTokens {
+			mint := rt.MainnetMint
+			if isDevnet && rt.DevnetMint != "" {
+				mint = rt.DevnetMint
+			}
+			tokenMap[symbol] = config.SolanaToken{
+				Symbol:      rt.Symbol,
+				Name:        rt.Name,
+				Decimals:    rt.Decimals,
+				Mint:        mint,
+				MainnetMint: rt.MainnetMint,
+				Enabled:     true,
+			}
+		}
+	} else {
+		// Fall back to legacy config
+		tokenMap = cfg.Solana.SupportedTokens
+		if len(tokenMap) == 0 {
+			tokenMap = config.TokensForNetwork(cfg.Solana.Network)
+		}
 	}
 
 	mainnetMintSet := make(map[string]struct{})

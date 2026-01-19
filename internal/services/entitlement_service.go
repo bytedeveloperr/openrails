@@ -97,7 +97,7 @@ func (s *EntitlementService) ListActiveEntitlements(ctx context.Context, userID 
 
 // AppendIndefinite appends an indefinite window right after the latest window's end,
 // unless the user currently has an active indefinite window (end_at IS NULL). In that case, it is an error.
-func (s *EntitlementService) AppendIndefinite(ctx context.Context, userID, entitlement string, sourceType models.EntitlementSourceType, sourceID uuid.UUID) (*models.Entitlement, error) {
+func (s *EntitlementService) AppendIndefinite(ctx context.Context, userID, entitlement string, sourceType models.EntitlementSourceType, sourceID *uuid.UUID) (*models.Entitlement, error) {
 	now := s.now()
 
 	exists, err := s.repo.HasActiveIndefinite(ctx, userID, entitlement, now)
@@ -117,7 +117,7 @@ func (s *EntitlementService) AppendIndefinite(ctx context.Context, userID, entit
 		start = *last.EndAt
 	}
 
-	return s.GrantWindow(ctx, userID, entitlement, start, nil, sourceType, &sourceID)
+	return s.GrantWindow(ctx, userID, entitlement, start, nil, sourceType, sourceID)
 }
 
 // GrantWindow creates a new entitlement window for a user

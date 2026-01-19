@@ -17,6 +17,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
 	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -381,8 +382,10 @@ func (s *CheckoutSessionService) resolveMode(mode string, processor string, pric
 }
 
 func (s *CheckoutSessionService) validatePayment(ctx context.Context, processor string, payment *CheckoutSessionPaymentRequest, user *UserIdentity) error {
-	switch processor {
-	case "mobius":
+	// Route to processor-specific validation based on config type detection
+	// This allows adding new NMI providers via config without code changes
+	switch {
+	case processors.IsNMIBacked(processor):
 		hasToken := strings.TrimSpace(payment.PaymentToken) != ""
 		hasMethod := strings.TrimSpace(payment.PaymentMethodID) != ""
 		if hasToken == hasMethod {
@@ -400,7 +403,7 @@ func (s *CheckoutSessionService) validatePayment(ctx context.Context, processor 
 				return fmt.Errorf("%w: payment method not authorized", ErrCheckoutSessionValidation)
 			}
 		}
-	case "stripe":
+	case processor == "stripe":
 		hasToken := strings.TrimSpace(payment.PaymentToken) != ""
 		hasMethod := strings.TrimSpace(payment.PaymentMethodID) != ""
 		if hasToken && hasMethod {
@@ -421,11 +424,11 @@ func (s *CheckoutSessionService) validatePayment(ctx context.Context, processor 
 		if err := requireBillingFields(payment); err != nil {
 			return err
 		}
-	case "solana":
+	case processor == "solana":
 		if strings.TrimSpace(payment.TokenSymbol) == "" {
 			return fmt.Errorf("%w: token_symbol is required", ErrCheckoutSessionValidation)
 		}
-	case "ccbill":
+	case processor == "ccbill":
 		if err := requireBillingFields(payment); err != nil {
 			return err
 		}
@@ -443,12 +446,15 @@ func (s *CheckoutSessionService) initializeSession(ctx context.Context, session 
 		return fmt.Errorf("%w: payment is required", ErrCheckoutSessionValidation)
 	}
 
-	switch strings.ToLower(string(session.Processor)) {
-	case "solana":
+	processor := strings.ToLower(string(session.Processor))
+	// Route to processor-specific initialization based on config type detection
+	// This allows adding new NMI providers via config without code changes
+	switch {
+	case processor == "solana":
 		return s.initializeSolanaSession(ctx, session, payment)
-	case "mobius":
+	case processors.IsNMIBacked(processor):
 		return s.initializeCheckoutSession(ctx, session, payment, user)
-	case "ccbill", "stripe":
+	case processor == "ccbill" || processor == "stripe":
 		return s.initializeCheckoutSession(ctx, session, payment, user)
 	default:
 		return nil

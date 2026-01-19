@@ -737,13 +737,13 @@
       "category": "refactor",
       "description": "Consolidate user-scoped endpoints under /v1/me/ and standardize RESTful patterns",
       "steps": [
-        "[DONE] Move `GET /v1/subscriptions/active` + `GET /v1/subscriptions/history` → `GET /v1/me/subscriptions` with query params (?status=active, ?status=all)",
-        "[DONE] Move `GET /v1/subscriptions/purchases` → `GET /v1/me/payments`",
-        "[DONE] Move `POST /v1/subscriptions/cancel` → `POST /v1/me/subscriptions/cancel`",
-        "[DONE] Move `GET /v1/payment-methods` → `GET /v1/me/payment-methods` (also POST, PUT, DELETE)",
-        "[DONE] Move `GET /v1/wallet/solana/*` → `GET /v1/me/wallets/*` (all wallet endpoints)",
-        "[DONE] Move `GET /v1/notifications/*` → `GET /v1/me/notifications/*` (all notification endpoints)",
-        "[DONE] Refactor Solana payment endpoints: `POST /v1/solana/generate` → `POST /v1/payment-intents`, `POST /v1/solana/submit` → `POST /v1/payment-intents/:id/confirm`, `GET /v1/solana/check` → `GET /v1/payment-intents/:id`, `POST /v1/solana/qr` → `POST /v1/payment-intents/qr`",
+        "[DONE] Move `GET /v1/subscriptions/active` + `GET /v1/subscriptions/history` \u2192 `GET /v1/me/subscriptions` with query params (?status=active, ?status=all)",
+        "[DONE] Move `GET /v1/subscriptions/purchases` \u2192 `GET /v1/me/payments`",
+        "[DONE] Move `POST /v1/subscriptions/cancel` \u2192 `POST /v1/me/subscriptions/cancel`",
+        "[DONE] Move `GET /v1/payment-methods` \u2192 `GET /v1/me/payment-methods` (also POST, PUT, DELETE)",
+        "[DONE] Move `GET /v1/wallet/solana/*` \u2192 `GET /v1/me/wallets/*` (all wallet endpoints)",
+        "[DONE] Move `GET /v1/notifications/*` \u2192 `GET /v1/me/notifications/*` (all notification endpoints)",
+        "[DONE] Refactor Solana payment endpoints: `POST /v1/solana/generate` \u2192 `POST /v1/payment-intents`, `POST /v1/solana/submit` \u2192 `POST /v1/payment-intents/:id/confirm`, `GET /v1/solana/check` \u2192 `GET /v1/payment-intents/:id`, `POST /v1/solana/qr` \u2192 `POST /v1/payment-intents/qr`",
         "[DONE] Keep legacy routes for backwards compatibility",
         "[DONE] Update all corresponding tests."
       ]
@@ -888,7 +888,7 @@
       "description": "Update webhook routing to accept processor names only, not 'nmi'",
       "steps": [
         "[DONE] Update routes_public.go: route is /webhooks/:processor",
-        "[DONE] Update webhook dispatcher: if IsNMIBacked(processor) → processNMI",
+        "[DONE] Update webhook dispatcher: if IsNMIBacked(processor) \u2192 processNMI",
         "[DONE] Remove 'nmi' as valid webhook route - only accept mobius, ccbill, solana",
         "[DONE] Update webhook_nmi.go to use s.Processor instead of hardcoded 'nmi'",
         "Test: POST /webhooks/mobius should work, POST /webhooks/nmi should 404"
@@ -1545,7 +1545,7 @@
         "solana_transactions table retained to link payments to on-chain transactions"
       ],
       "new_flow": [
-        "1. POST /v1/solana/pay {price_id, token} → returns solana: URL + reference key",
+        "1. POST /v1/solana/pay {price_id, token} \u2192 returns solana: URL + reference key",
         "2. User scans QR/clicks URL, wallet creates and signs transaction",
         "3. Frontend polls GET /v1/solana/pay/:reference",
         "4. Backend verifies transaction on-chain, creates payment + entitlements",
@@ -1556,7 +1556,7 @@
         "polling": "Server-side poller checks every 500ms for confirmed transactions",
         "official_sdk_comparison": "Official @solana/pay SDK examples poll forever with no timeout - our TTL is better practice"
       },
-      "completed_notes": "All 9 Solana tests pass. Flow is now much simpler - no wallet linking, no verification challenges, no payment intents. Just create payment URL → poll status → done."
+      "completed_notes": "All 9 Solana tests pass. Flow is now much simpler - no wallet linking, no verification challenges, no payment intents. Just create payment URL \u2192 poll status \u2192 done."
     },
     {
       "id": 98,
@@ -1600,7 +1600,7 @@
       "id": 100,
       "name": "First-class embedded API (no HTTP) with parity to standalone mode",
       "category": "feature",
-      "description": "Make `doujins-billing` equally usable as (1) a standalone HTTP service and (2) an embedded library inside a host app. The embedded Go API (`pkg/service`) should have full parity with the HTTP API.\n\n## Goals\n\n- Embedded hosts can call billing via exported Go interfaces (no JSON/HTTP routing).\n- `pkg/service.Service` exposes ALL operations available via HTTP (user, admin, webhook handling).\n- HTTP routes are optional bundles that hosts can choose to mount or skip.\n- Keep `internal/*` private; exported packages must not require importing internal packages from host apps.\n\n## HTTP Surface to Match\n\nEmbedded Go API needs parity for:\n1. **User endpoints** (`/v1/products`, `/v1/prices`, `/v1/checkout/*`, `/v1/me/*`)\n2. **Admin endpoints** (`/v1/admin/*`)\n3. **Webhook handling** (`/v1/webhooks/:provider`)\n\nNOT needed in embedded mode:\n- Health endpoints (`/health/*`, `/healthz`, `/readyz`) - host app provides its own\n- Service/private HTTP API - use `Service()` directly instead\n- Solana-specific endpoints if not using Solana\n- Stripe portal if not using Stripe\n\n## Architecture\n\n```\n┌─────────────────────────────────────────────────────────────┐\n│                     pkg/service.Service                      │\n│  (Go API - all operations: user, admin, webhooks)           │\n│  PRIMARY INTERFACE FOR EMBEDDED HOSTS                       │\n└─────────────────────────────────────────────────────────────┘\n                              ▲\n                              │ (optional HTTP adapters)\n          ┌───────────────────┼───────────────────┐\n          │                   │                   │\n   ┌──────┴──────┐    ┌───────┴───────┐   ┌───────┴───────┐\n   │RegisterUser │    │RegisterAdmin  │   │RegisterWebhook│\n   │  Routes()   │    │  Routes()     │   │   Routes()    │\n   └─────────────┘    └───────────────┘   └───────────────┘\n```\n\n## pkg/service API Surface (to implement)\n\n### User Operations\n- `GetProducts(ctx, opts)` → GET /v1/products\n- `GetPrices(ctx, opts)` → GET /v1/prices\n- `CreateCheckoutSession(ctx, userID, params)` → POST /v1/checkout\n- `GetCheckoutSession(ctx, userID, sessionID)` → GET /v1/checkout/:id\n- `ConfirmCheckoutSession(ctx, userID, sessionID, params)` → POST /v1/checkout/:id/confirm\n- `GetUserBillingStatus(ctx, userID)` → GET /v1/me/status\n- `GetUserSubscriptions(ctx, userID, opts)` → GET /v1/me/subscriptions\n- `CancelSubscription(ctx, userID, params)` → POST /v1/me/subscriptions/cancel\n- `ResumeSubscription(ctx, userID, params)` → POST /v1/me/subscriptions/resume\n- `ChangeSubscriptionTier(ctx, userID, params)` → POST /v1/me/subscriptions/change-tier\n- `UpdateSubscriptionPaymentMethod(ctx, userID, params)` → PUT /v1/me/subscriptions/payment-method\n- `GetUserPayments(ctx, userID, opts)` → GET /v1/me/payments\n- `ListPaymentMethods(ctx, userID, opts)` → GET /v1/me/payment-methods\n- `CreatePaymentMethod(ctx, userID, params)` → POST /v1/me/payment-methods\n- `UpdatePaymentMethod(ctx, userID, methodID, params)` → PUT /v1/me/payment-methods/:id\n- `DeletePaymentMethod(ctx, userID, methodID)` → DELETE /v1/me/payment-methods/:id\n- `GetUserNotifications(ctx, userID, opts)` → GET /v1/me/notifications\n- `GetUnreadNotificationCount(ctx, userID)` → GET /v1/me/notifications/unread-count\n- `MarkNotificationRead(ctx, userID, notificationID)` → POST /v1/me/notifications/:id/read\n- `GetUserCredits(ctx, userID)` → GET /v1/me/credits\n- `GetUserCreditsByType(ctx, userID, creditType)` → GET /v1/me/credits/:type\n- `GetUserCreditTransactions(ctx, userID, creditType, opts)` → GET /v1/me/credits/:type/transactions\n- (existing) `HoldCredits`, `CaptureHold`, `ReleaseHold`, `WithdrawCredits`\n- (existing) `ListActiveEntitlements`, `ListActiveEntitlementRecords`\n\n### Processor-Specific Operations\nProvider-specific routes live under `/v1/{provider}/*` to make it clear they only work for that processor:\n\n- `GetSupportedTokens(ctx)` → GET /v1/solana/tokens (Solana only)\n- `CreateStripePortalSession(ctx, userID, params)` → POST /v1/stripe/portal (Stripe only)\n\nNote: `/v1/me/*` routes are processor-agnostic and work regardless of which payment processor the user is on.\n\n### Admin Operations\n- `AdminGetSubscriptions(ctx, opts)` → GET /v1/admin/subscriptions\n- `AdminGetSubscription(ctx, subscriptionID)` → GET /v1/admin/subscriptions/:id\n- `AdminCancelSubscription(ctx, subscriptionID, params)` → POST /v1/admin/subscriptions/:id/cancel\n- `AdminGetPayments(ctx, opts)` → GET /v1/admin/payments\n- `AdminGetPayment(ctx, paymentID)` → GET /v1/admin/payments/:id\n- `AdminRefundPayment(ctx, paymentID, params)` → POST /v1/admin/payments/:id/refund\n- `AdminGetUserPayments(ctx, userID, opts)` → GET /v1/admin/users/:user_id/payments\n- `AdminCreateOffChannelPayment(ctx, userID, params)` → POST /v1/admin/users/:user_id/payments/off-channel\n- `AdminGetUserBillingProfile(ctx, userID)` → GET /v1/admin/users/:user_id\n- `AdminGetUserEntitlements(ctx, userID)` → GET /v1/admin/users/:user_id/entitlements\n- `AdminGrantEntitlement(ctx, userID, params)` → POST /v1/admin/users/:user_id/entitlements\n- `AdminRevokeEntitlement(ctx, userID, entitlementID, params)` → DELETE /v1/admin/users/:user_id/entitlements/:id\n- `AdminGetMetricsSummary(ctx)` → GET /v1/admin/metrics/summary\n- `AdminGetMetricsRevenue(ctx, opts)` → GET /v1/admin/metrics/revenue\n- `AdminGetMetricsSubscriptions(ctx, opts)` → GET /v1/admin/metrics/subscriptions\n- `AdminGetMetricsProcessors(ctx)` → GET /v1/admin/metrics/processors\n- `AdminGetMetricsChurn(ctx, opts)` → GET /v1/admin/metrics/churn\n\n### Webhook Operations\n- `HandleWebhook(ctx, provider, payload, headers)` → POST /v1/webhooks/:provider\n  - Returns structured result (accepted, rejected, error)\n  - Useful for testing/replaying webhooks without HTTP\n\n## pkg/embedded Changes\n\n### Primary Interface (Go API)\n`Service()` returns `*service.Service` - the complete Go API for all billing operations.\nThis is the main interface for embedded hosts. All operations available without HTTP.\n\n### Optional HTTP Route Bundles\nInstead of returning pre-built handlers, provide route registration functions:\n\n```go\n// RegisterWebhookRoutes adds processor webhook endpoints\n// Required if using Stripe/CCBill/etc webhooks (processors POST here)\nfunc (e *Embedded) RegisterWebhookRoutes(group *gin.RouterGroup)\n\n// RegisterUserRoutes adds user-facing billing endpoints\n// Optional - only needed if frontend calls billing directly\nfunc (e *Embedded) RegisterUserRoutes(group *gin.RouterGroup)\n\n// RegisterAdminRoutes adds admin billing endpoints\n// Optional - only needed for admin dashboard/tooling\nfunc (e *Embedded) RegisterAdminRoutes(group *gin.RouterGroup)\n```\n\nExample usage:\n```go\nbilling, _ := embedded.New(opts)\n\n// Mount only what you need\nr := gin.New()\nbilling.RegisterWebhookRoutes(r.Group(\"/billing/webhooks\"))\nbilling.RegisterAdminRoutes(r.Group(\"/billing/admin\"))\n// Skip user routes - host proxies via Service() instead\n```\n\n### Lifecycle\n- `RunWorkers(ctx)` → background job processing (River jobs)\n- `Close(ctx)` → cleanup resources\n\n### Remove\n- `Handler()` → too coarse, exposes everything including health endpoints\n- `UserHandler()`, `AdminHandler()`, `WebhookHandler()` → replace with Register* functions\n- `PrivateHandler()`, `ServiceHandler()` → use `Service()` directly\n\n## Implementation Strategy\n\n1. **Phase 1: Define types** - Create exported request/response structs in `pkg/service/types.go`\n2. **Phase 2: Implement user operations** - Add methods to `Service` for all user endpoints\n3. **Phase 3: Implement admin operations** - Add methods for all admin endpoints\n4. **Phase 4: Implement webhook handling** - Add `HandleWebhook` method\n5. **Phase 5: Refactor HTTP handlers** - Make handlers thin adapters over `Service` methods\n6. **Phase 6: Change embedded API** - Replace Handler methods with Register* functions\n7. **Phase 7: Clean up** - Remove deprecated code, update docs\n",
+      "description": "Make `doujins-billing` equally usable as (1) a standalone HTTP service and (2) an embedded library inside a host app. The embedded Go API (`pkg/service`) should have full parity with the HTTP API.\n\n## Goals\n\n- Embedded hosts can call billing via exported Go interfaces (no JSON/HTTP routing).\n- `pkg/service.Service` exposes ALL operations available via HTTP (user, admin, webhook handling).\n- HTTP routes are optional bundles that hosts can choose to mount or skip.\n- Keep `internal/*` private; exported packages must not require importing internal packages from host apps.\n\n## HTTP Surface to Match\n\nEmbedded Go API needs parity for:\n1. **User endpoints** (`/v1/products`, `/v1/prices`, `/v1/checkout/*`, `/v1/me/*`)\n2. **Admin endpoints** (`/v1/admin/*`)\n3. **Webhook handling** (`/v1/webhooks/:provider`)\n\nNOT needed in embedded mode:\n- Health endpoints (`/health/*`, `/healthz`, `/readyz`) - host app provides its own\n- Service/private HTTP API - use `Service()` directly instead\n- Solana-specific endpoints if not using Solana\n- Stripe portal if not using Stripe\n\n## Architecture\n\n```\n\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502                     pkg/service.Service                      \u2502\n\u2502  (Go API - all operations: user, admin, webhooks)           \u2502\n\u2502  PRIMARY INTERFACE FOR EMBEDDED HOSTS                       \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n                              \u25b2\n                              \u2502 (optional HTTP adapters)\n          \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u253c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n          \u2502                   \u2502                   \u2502\n   \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2510    \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510   \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n   \u2502RegisterUser \u2502    \u2502RegisterAdmin  \u2502   \u2502RegisterWebhook\u2502\n   \u2502  Routes()   \u2502    \u2502  Routes()     \u2502   \u2502   Routes()    \u2502\n   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518    \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518   \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n```\n\n## pkg/service API Surface (to implement)\n\n### User Operations\n- `GetProducts(ctx, opts)` \u2192 GET /v1/products\n- `GetPrices(ctx, opts)` \u2192 GET /v1/prices\n- `CreateCheckoutSession(ctx, userID, params)` \u2192 POST /v1/checkout\n- `GetCheckoutSession(ctx, userID, sessionID)` \u2192 GET /v1/checkout/:id\n- `ConfirmCheckoutSession(ctx, userID, sessionID, params)` \u2192 POST /v1/checkout/:id/confirm\n- `GetUserBillingStatus(ctx, userID)` \u2192 GET /v1/me/status\n- `GetUserSubscriptions(ctx, userID, opts)` \u2192 GET /v1/me/subscriptions\n- `CancelSubscription(ctx, userID, params)` \u2192 POST /v1/me/subscriptions/cancel\n- `ResumeSubscription(ctx, userID, params)` \u2192 POST /v1/me/subscriptions/resume\n- `ChangeSubscriptionTier(ctx, userID, params)` \u2192 POST /v1/me/subscriptions/change-tier\n- `UpdateSubscriptionPaymentMethod(ctx, userID, params)` \u2192 PUT /v1/me/subscriptions/payment-method\n- `GetUserPayments(ctx, userID, opts)` \u2192 GET /v1/me/payments\n- `ListPaymentMethods(ctx, userID, opts)` \u2192 GET /v1/me/payment-methods\n- `CreatePaymentMethod(ctx, userID, params)` \u2192 POST /v1/me/payment-methods\n- `UpdatePaymentMethod(ctx, userID, methodID, params)` \u2192 PUT /v1/me/payment-methods/:id\n- `DeletePaymentMethod(ctx, userID, methodID)` \u2192 DELETE /v1/me/payment-methods/:id\n- `GetUserNotifications(ctx, userID, opts)` \u2192 GET /v1/me/notifications\n- `GetUnreadNotificationCount(ctx, userID)` \u2192 GET /v1/me/notifications/unread-count\n- `MarkNotificationRead(ctx, userID, notificationID)` \u2192 POST /v1/me/notifications/:id/read\n- `GetUserCredits(ctx, userID)` \u2192 GET /v1/me/credits\n- `GetUserCreditsByType(ctx, userID, creditType)` \u2192 GET /v1/me/credits/:type\n- `GetUserCreditTransactions(ctx, userID, creditType, opts)` \u2192 GET /v1/me/credits/:type/transactions\n- (existing) `HoldCredits`, `CaptureHold`, `ReleaseHold`, `WithdrawCredits`\n- (existing) `ListActiveEntitlements`, `ListActiveEntitlementRecords`\n\n### Processor-Specific Operations\nProvider-specific routes live under `/v1/{provider}/*` to make it clear they only work for that processor:\n\n- `GetSupportedTokens(ctx)` \u2192 GET /v1/solana/tokens (Solana only)\n- `CreateStripePortalSession(ctx, userID, params)` \u2192 POST /v1/stripe/portal (Stripe only)\n\nNote: `/v1/me/*` routes are processor-agnostic and work regardless of which payment processor the user is on.\n\n### Admin Operations\n- `AdminGetSubscriptions(ctx, opts)` \u2192 GET /v1/admin/subscriptions\n- `AdminGetSubscription(ctx, subscriptionID)` \u2192 GET /v1/admin/subscriptions/:id\n- `AdminCancelSubscription(ctx, subscriptionID, params)` \u2192 POST /v1/admin/subscriptions/:id/cancel\n- `AdminGetPayments(ctx, opts)` \u2192 GET /v1/admin/payments\n- `AdminGetPayment(ctx, paymentID)` \u2192 GET /v1/admin/payments/:id\n- `AdminRefundPayment(ctx, paymentID, params)` \u2192 POST /v1/admin/payments/:id/refund\n- `AdminGetUserPayments(ctx, userID, opts)` \u2192 GET /v1/admin/users/:user_id/payments\n- `AdminCreateOffChannelPayment(ctx, userID, params)` \u2192 POST /v1/admin/users/:user_id/payments/off-channel\n- `AdminGetUserBillingProfile(ctx, userID)` \u2192 GET /v1/admin/users/:user_id\n- `AdminGetUserEntitlements(ctx, userID)` \u2192 GET /v1/admin/users/:user_id/entitlements\n- `AdminGrantEntitlement(ctx, userID, params)` \u2192 POST /v1/admin/users/:user_id/entitlements\n- `AdminRevokeEntitlement(ctx, userID, entitlementID, params)` \u2192 DELETE /v1/admin/users/:user_id/entitlements/:id\n- `AdminGetMetricsSummary(ctx)` \u2192 GET /v1/admin/metrics/summary\n- `AdminGetMetricsRevenue(ctx, opts)` \u2192 GET /v1/admin/metrics/revenue\n- `AdminGetMetricsSubscriptions(ctx, opts)` \u2192 GET /v1/admin/metrics/subscriptions\n- `AdminGetMetricsProcessors(ctx)` \u2192 GET /v1/admin/metrics/processors\n- `AdminGetMetricsChurn(ctx, opts)` \u2192 GET /v1/admin/metrics/churn\n\n### Webhook Operations\n- `HandleWebhook(ctx, provider, payload, headers)` \u2192 POST /v1/webhooks/:provider\n  - Returns structured result (accepted, rejected, error)\n  - Useful for testing/replaying webhooks without HTTP\n\n## pkg/embedded Changes\n\n### Primary Interface (Go API)\n`Service()` returns `*service.Service` - the complete Go API for all billing operations.\nThis is the main interface for embedded hosts. All operations available without HTTP.\n\n### Optional HTTP Route Bundles\nInstead of returning pre-built handlers, provide route registration functions:\n\n```go\n// RegisterWebhookRoutes adds processor webhook endpoints\n// Required if using Stripe/CCBill/etc webhooks (processors POST here)\nfunc (e *Embedded) RegisterWebhookRoutes(group *gin.RouterGroup)\n\n// RegisterUserRoutes adds user-facing billing endpoints\n// Optional - only needed if frontend calls billing directly\nfunc (e *Embedded) RegisterUserRoutes(group *gin.RouterGroup)\n\n// RegisterAdminRoutes adds admin billing endpoints\n// Optional - only needed for admin dashboard/tooling\nfunc (e *Embedded) RegisterAdminRoutes(group *gin.RouterGroup)\n```\n\nExample usage:\n```go\nbilling, _ := embedded.New(opts)\n\n// Mount only what you need\nr := gin.New()\nbilling.RegisterWebhookRoutes(r.Group(\"/billing/webhooks\"))\nbilling.RegisterAdminRoutes(r.Group(\"/billing/admin\"))\n// Skip user routes - host proxies via Service() instead\n```\n\n### Lifecycle\n- `RunWorkers(ctx)` \u2192 background job processing (River jobs)\n- `Close(ctx)` \u2192 cleanup resources\n\n### Remove\n- `Handler()` \u2192 too coarse, exposes everything including health endpoints\n- `UserHandler()`, `AdminHandler()`, `WebhookHandler()` \u2192 replace with Register* functions\n- `PrivateHandler()`, `ServiceHandler()` \u2192 use `Service()` directly\n\n## Implementation Strategy\n\n1. **Phase 1: Define types** - Create exported request/response structs in `pkg/service/types.go`\n2. **Phase 2: Implement user operations** - Add methods to `Service` for all user endpoints\n3. **Phase 3: Implement admin operations** - Add methods for all admin endpoints\n4. **Phase 4: Implement webhook handling** - Add `HandleWebhook` method\n5. **Phase 5: Refactor HTTP handlers** - Make handlers thin adapters over `Service` methods\n6. **Phase 6: Change embedded API** - Replace Handler methods with Register* functions\n7. **Phase 7: Clean up** - Remove deprecated code, update docs\n",
       "tasks": [
         "COMPLETED:",
         "[x] Define exported API package (`pkg/service`) with stable types",
@@ -1653,7 +1653,7 @@
       "id": 101,
       "name": "Minimize embedded HTTP surface area",
       "category": "feature",
-      "description": "When `doujins-billing` is embedded inside a host app, the host should only need to mount the minimum HTTP endpoints required for:\n\n1) Admins (admin dashboard / support tooling)\n2) End-users (billing portal/checkout/public billing APIs)\n3) Billing processors (e.g. Stripe) calling webhook endpoints\n\nEmbedded mode should NOT require mounting internal/private/service endpoints for core operations like holds/capture/release/entitlements/credits, since those should be done via the exported Go API (`pkg/service`).\n\n## Goal\n\n- Make it easy (and ideally the default) for embedded hosts to mount only the minimal handler surface, while keeping standalone HTTP mode intact.\n\n## Design sketch\n\n- Split the current HTTP handler surface into explicit handler groups:\n  - `UserHandler()` (end-user/public billing APIs)\n  - `AdminHandler()` (admin-only APIs)\n  - `WebhookHandler()` (processor callbacks)\n- In embedded mode, expose these explicitly via `pkg/embedded` and discourage/avoid mounting any generic “private”/service handler.\n- Keep the standalone binary exposing the full expected HTTP surface (unchanged behavior).\n\n## Notes\n\n- If the current `Handler()` already corresponds to the minimal surface, this issue becomes mostly documentation + tests; otherwise it requires route refactoring.\n",
+      "description": "When `doujins-billing` is embedded inside a host app, the host should only need to mount the minimum HTTP endpoints required for:\n\n1) Admins (admin dashboard / support tooling)\n2) End-users (billing portal/checkout/public billing APIs)\n3) Billing processors (e.g. Stripe) calling webhook endpoints\n\nEmbedded mode should NOT require mounting internal/private/service endpoints for core operations like holds/capture/release/entitlements/credits, since those should be done via the exported Go API (`pkg/service`).\n\n## Goal\n\n- Make it easy (and ideally the default) for embedded hosts to mount only the minimal handler surface, while keeping standalone HTTP mode intact.\n\n## Design sketch\n\n- Split the current HTTP handler surface into explicit handler groups:\n  - `UserHandler()` (end-user/public billing APIs)\n  - `AdminHandler()` (admin-only APIs)\n  - `WebhookHandler()` (processor callbacks)\n- In embedded mode, expose these explicitly via `pkg/embedded` and discourage/avoid mounting any generic \u201cprivate\u201d/service handler.\n- Keep the standalone binary exposing the full expected HTTP surface (unchanged behavior).\n\n## Notes\n\n- If the current `Handler()` already corresponds to the minimal surface, this issue becomes mostly documentation + tests; otherwise it requires route refactoring.\n",
       "tasks": [
         "[x] Inventory all currently mounted HTTP routes and classify each as: user / admin / webhook / internal",
         "[x] Refactor server/router wiring so user/admin/webhook routes can be mounted independently (no behavior change in standalone mode)",
@@ -1708,15 +1708,15 @@
         "[x] - REMOVE old endpoints: POST /v1/subscriptions/:processor (mobius, ccbill, solana) - replaced by unified checkout",
         "[x] - Request: { price_id, payment_method_id } OR { price_id, payment_token }",
         "[x] - Look up Price and check BillingCycleDays:",
-        "[x] - If BillingCycleDays != nil → subscription flow (see deduplication below)",
-        "[x] - If BillingCycleDays == nil → one-time purchase flow",
+        "[x] - If BillingCycleDays != nil \u2192 subscription flow (see deduplication below)",
+        "[x] - If BillingCycleDays == nil \u2192 one-time purchase flow",
         "[x] Deduplication Logic (CRITICAL - check BOTH subscriptions AND entitlements):",
         "[x] - Get user's active entitlements for the Product (from any source: subscription, one-off, admin)",
         "[x] - Get user's active subscriptions for the Product",
         "[x] - Determine 'coverage_end_date' = latest of (subscription.current_period_ends_at, entitlement.end_at)",
-        "[x] - If coverage has NO end date (indefinite) → Block: 'You already have active access'",
-        "[x] - If coverage has an end date → Allow purchase with delayed start = coverage_end_date",
-        "[x] - If no active coverage → Allow immediate purchase",
+        "[x] - If coverage has NO end date (indefinite) \u2192 Block: 'You already have active access'",
+        "[x] - If coverage has an end date \u2192 Allow purchase with delayed start = coverage_end_date",
+        "[x] - If no active coverage \u2192 Allow immediate purchase",
         "[x] - NOTE: No 'expiring soon' threshold - user can buy anytime if coverage has an end date.",
         "[x] Processor-Specific Handling for Delayed Start:",
         "[x] - CCBill: BLOCK if user has existing coverage - CCBill API cannot schedule future start dates",
@@ -1735,10 +1735,10 @@
         "[x] Entitlement Duration for One-Time:",
         "[x] - Product.EntitlementsSpec has { entitlement_name: duration_days }",
         "[x] Cross-Processor Scenarios:",
-        "[x] - User has NMI sub expiring → buys Solana one-off → Solana entitlement starts when NMI ends",
-        "[x] - User has Solana entitlement expiring → creates NMI sub → NMI sub starts when Solana ends",
-        "[x] - User has CCBill sub expiring → buys NMI sub → NMI starts when CCBill ends",
-        "[x] - User has any coverage → tries CCBill → BLOCKED (CCBill limitation)",
+        "[x] - User has NMI sub expiring \u2192 buys Solana one-off \u2192 Solana entitlement starts when NMI ends",
+        "[x] - User has Solana entitlement expiring \u2192 creates NMI sub \u2192 NMI sub starts when Solana ends",
+        "[x] - User has CCBill sub expiring \u2192 buys NMI sub \u2192 NMI starts when CCBill ends",
+        "[x] - User has any coverage \u2192 tries CCBill \u2192 BLOCKED (CCBill limitation)",
         "[x] Write tests for checkout scenarios (tests/checkout_test.go)",
         "[x] Denormalized ProductID onto Subscription model for efficient product-based lookups:",
         "[x] - Added ProductID column to Subscription model and migration 006_add_subscription_product_id",
@@ -1773,7 +1773,7 @@
       "id": 109,
       "name": "Remove admin subscription extension; use entitlements/admin-grants instead",
       "category": "feature",
-      "description": "Fix the abstraction around subscriptions vs entitlements.\n\n## Problem\n\nToday, billing exposes an admin endpoint to \"extend\" a subscription by mutating `subscriptions.current_period_ends_at` in Postgres (`PUT /v1/admin/subscriptions/:id/extend`). This is the wrong abstraction.\n\n- Subscription records should reflect the source-of-truth processor (Stripe/NMI/CCBill/etc). We should not manually extend them.\n- What users actually need is an entitlement window (e.g. premium access).\n- Admins should grant additional entitlement time by creating a separate admin-grant record + entitlement window that appends after the user’s current/latest entitlement end (no gaps).\n\n## Requirement (new)\n\n- Every entitlement must have a source:\n  - `subscription` (source_id = subscription UUID)\n  - `one_off` (source_id = payment UUID)\n  - `admin` (source_id = admin_grant UUID)\n\nSo \"admin entitlements\" must not be created with a nil source_id.\n\n## Goals\n\n- Remove subscription mutation as an admin tool.\n- Ensure entitlement stacking works cleanly (subscription-backed entitlements + admin grants append without gaps).\n- Ensure admin-granted entitlements always have a source (admin_grant).\n\n## Plan\n\n- Remove the admin HTTP endpoint:\n  - Delete route `PUT /v1/admin/subscriptions/:id/extend`.\n  - Delete handler `handlers.ExtendSubscription`.\n  - Delete service methods `AdminSubscriptionService.ExtendSubscription*`.\n- Make admin entitlement grant create a source record:\n  - When an admin grants/extends access, create an `admin_grants` record and then create entitlements with `source_type=admin` and `source_id=<admin_grants.id>`.\n  - Ensure the entitlement window starts immediately after the user's latest entitlement end (no overlap/gaps).\n- Add tests:\n  - Attempting to call the removed endpoint should 404.\n  - Given an active subscription entitlement ending at T, granting N days yields [T, T+N] (or immediately after the latest end if there are existing grants).\n  - Entitlements created by admin flow always have a non-null `source_id`.\n- Update docs/admin UI expectations:\n  - Remove any reference to subscription extension.\n  - Document the correct support workflow: “grant extra entitlement days”.\n",
+      "description": "Fix the abstraction around subscriptions vs entitlements.\n\n## Problem\n\nToday, billing exposes an admin endpoint to \"extend\" a subscription by mutating `subscriptions.current_period_ends_at` in Postgres (`PUT /v1/admin/subscriptions/:id/extend`). This is the wrong abstraction.\n\n- Subscription records should reflect the source-of-truth processor (Stripe/NMI/CCBill/etc). We should not manually extend them.\n- What users actually need is an entitlement window (e.g. premium access).\n- Admins should grant additional entitlement time by creating a separate admin-grant record + entitlement window that appends after the user\u2019s current/latest entitlement end (no gaps).\n\n## Requirement (new)\n\n- Every entitlement must have a source:\n  - `subscription` (source_id = subscription UUID)\n  - `one_off` (source_id = payment UUID)\n  - `admin` (source_id = admin_grant UUID)\n\nSo \"admin entitlements\" must not be created with a nil source_id.\n\n## Goals\n\n- Remove subscription mutation as an admin tool.\n- Ensure entitlement stacking works cleanly (subscription-backed entitlements + admin grants append without gaps).\n- Ensure admin-granted entitlements always have a source (admin_grant).\n\n## Plan\n\n- Remove the admin HTTP endpoint:\n  - Delete route `PUT /v1/admin/subscriptions/:id/extend`.\n  - Delete handler `handlers.ExtendSubscription`.\n  - Delete service methods `AdminSubscriptionService.ExtendSubscription*`.\n- Make admin entitlement grant create a source record:\n  - When an admin grants/extends access, create an `admin_grants` record and then create entitlements with `source_type=admin` and `source_id=<admin_grants.id>`.\n  - Ensure the entitlement window starts immediately after the user's latest entitlement end (no overlap/gaps).\n- Add tests:\n  - Attempting to call the removed endpoint should 404.\n  - Given an active subscription entitlement ending at T, granting N days yields [T, T+N] (or immediately after the latest end if there are existing grants).\n  - Entitlements created by admin flow always have a non-null `source_id`.\n- Update docs/admin UI expectations:\n  - Remove any reference to subscription extension.\n  - Document the correct support workflow: \u201cgrant extra entitlement days\u201d.\n",
       "tasks": [
         "[x] Remove `PUT /v1/admin/subscriptions/:id/extend` route + handler + service methods",
         "[x] Remove Mobius-specific admin endpoints (`GET /v1/admin/users/:user_id/mobius` and `/v1/admin/users/:user_id/mobius/metrics`) in favor of generic admin subscription/payment/entitlement tooling",
@@ -1788,7 +1788,7 @@
       "id": 110,
       "name": "Remove admin-grant routes; replace with off-channel checkout/payments",
       "category": "feature",
-      "description": "Remove the admin-grant HTTP routes (`POST /v1/admin/users/:user_id/grants`, `GET /v1/admin/users/:user_id/grants`, `GET /v1/admin/grants/:id`). We should not model \"granting products\" to users at fake prices.\n\n## Desired model\n\n- Subscriptions are source-of-truth from the payment processor; admins should not edit them.\n- Entitlements represent access windows.\n- Every entitlement must have a source:\n  - `subscription` (source_id = subscription UUID)\n  - `one_off` (source_id = payment UUID)\n  - `admin` (source_id = admin_grant UUID)\n\n## Admin actions (two distinct systems)\n\n- Admin entitlement grants (comps/support overrides):\n  - Creates an `admin_grants` record.\n  - Grants entitlements with `source_type=admin` and `source_id=<admin_grants.id>`.\n- Admin off-channel purchases (cash/manual sales recorded by an admin):\n  - Creates a real `payments` record (`processor=manual`).\n  - Grants entitlements with `source_type=one_off` and `source_id=<payments.id>`.\n  - This is NOT an admin-grant; it is a purchase recorded manually.\n\n## Discount / custom price support\n\n- A `price` is the canonical offer.\n- A `payment` is what the user actually paid (can differ from the canonical price due to discounts, comps, off-channel pricing, or price changes over time).\n- Store both: canonical `price_id`, paid amount, and list amount-at-purchase + optional discount metadata.\n\n## Plan\n\n- Remove the grant surface:\n  - Remove admin routes in `internal/server/routes_admin.go` for `/users/:user_id/grants` and `/grants/:id`.\n  - Delete `internal/handlers/admin_grants.go`.\n  - Remove `internal/services/admin_grant_service.go` and any runtime wiring.\n\n- Keep `billing.admin_grants` as an internal source table:\n  - Stop exposing product/price grants over HTTP.\n  - Use `admin_grants` only as the required source-of-truth row for admin-issued entitlements (comps/support overrides).\n\n- Add off-channel payment flow (admin-only):\n  - Add a new admin endpoint (name TBD) that records an off-channel payment against a user with a real amount/currency/transaction ref and a `price_id`.\n  - This endpoint should create a `payments` record with `processor=manual`/`cash` (new enum value if needed), and then grant entitlements derived from the price’s product spec.\n  - Entitlement granting must append after the latest end to avoid overlap/gaps.\n\n- Tests:\n  - Admin-grant routes return 404.\n  - Off-channel payment endpoint creates a payment record + appended entitlement window.\n  - Admin entitlement grants create `admin_grants` and produce entitlements with non-null `source_id`.\n\n- Docs:\n  - Document support workflows: use admin entitlement grant/append for comps; use off-channel payment endpoint for manual payments.\n",
+      "description": "Remove the admin-grant HTTP routes (`POST /v1/admin/users/:user_id/grants`, `GET /v1/admin/users/:user_id/grants`, `GET /v1/admin/grants/:id`). We should not model \"granting products\" to users at fake prices.\n\n## Desired model\n\n- Subscriptions are source-of-truth from the payment processor; admins should not edit them.\n- Entitlements represent access windows.\n- Every entitlement must have a source:\n  - `subscription` (source_id = subscription UUID)\n  - `one_off` (source_id = payment UUID)\n  - `admin` (source_id = admin_grant UUID)\n\n## Admin actions (two distinct systems)\n\n- Admin entitlement grants (comps/support overrides):\n  - Creates an `admin_grants` record.\n  - Grants entitlements with `source_type=admin` and `source_id=<admin_grants.id>`.\n- Admin off-channel purchases (cash/manual sales recorded by an admin):\n  - Creates a real `payments` record (`processor=manual`).\n  - Grants entitlements with `source_type=one_off` and `source_id=<payments.id>`.\n  - This is NOT an admin-grant; it is a purchase recorded manually.\n\n## Discount / custom price support\n\n- A `price` is the canonical offer.\n- A `payment` is what the user actually paid (can differ from the canonical price due to discounts, comps, off-channel pricing, or price changes over time).\n- Store both: canonical `price_id`, paid amount, and list amount-at-purchase + optional discount metadata.\n\n## Plan\n\n- Remove the grant surface:\n  - Remove admin routes in `internal/server/routes_admin.go` for `/users/:user_id/grants` and `/grants/:id`.\n  - Delete `internal/handlers/admin_grants.go`.\n  - Remove `internal/services/admin_grant_service.go` and any runtime wiring.\n\n- Keep `billing.admin_grants` as an internal source table:\n  - Stop exposing product/price grants over HTTP.\n  - Use `admin_grants` only as the required source-of-truth row for admin-issued entitlements (comps/support overrides).\n\n- Add off-channel payment flow (admin-only):\n  - Add a new admin endpoint (name TBD) that records an off-channel payment against a user with a real amount/currency/transaction ref and a `price_id`.\n  - This endpoint should create a `payments` record with `processor=manual`/`cash` (new enum value if needed), and then grant entitlements derived from the price\u2019s product spec.\n  - Entitlement granting must append after the latest end to avoid overlap/gaps.\n\n- Tests:\n  - Admin-grant routes return 404.\n  - Off-channel payment endpoint creates a payment record + appended entitlement window.\n  - Admin entitlement grants create `admin_grants` and produce entitlements with non-null `source_id`.\n\n- Docs:\n  - Document support workflows: use admin entitlement grant/append for comps; use off-channel payment endpoint for manual payments.\n",
       "tasks": [
         "[x] Remove admin-grant routes + handlers + service wiring",
         "[x] Add processor-agnostic off-channel payment endpoint (admin-only) that creates a real Payment record",
@@ -2070,7 +2070,7 @@
       "id": 133,
       "name": "RESTful subscription routes with :id in path",
       "category": "feature",
-      "description": "Make user subscription routes RESTful by including subscription ID in the path, matching the payment-methods pattern and admin subscription routes.\n\n## Current State\n\nUser subscription routes operate on an implicit \"active subscription\":\n- PUT /v1/me/subscriptions/payment-method (subscription_id in body)\n- POST /v1/me/subscriptions/cancel\n- POST /v1/me/subscriptions/resume\n- POST /v1/me/subscriptions/change-tier\n\nThis is inconsistent with:\n- Payment-methods: PUT /v1/me/payment-methods/:id\n- Admin routes: POST /v1/admin/subscriptions/:id/cancel\n- REST conventions\n\n## Goal\n\nRefactor to explicit subscription ID in path:\n- GET /v1/me/subscriptions (list - unchanged)\n- GET /v1/me/subscriptions/:id (get single - new)\n- PUT /v1/me/subscriptions/:id/payment-method\n- POST /v1/me/subscriptions/:id/cancel\n- POST /v1/me/subscriptions/:id/resume\n- POST /v1/me/subscriptions/:id/change-tier\n\n## Compatibility\n\nBreaking change - remove old routes entirely (no deprecation period).\n\n## Implementation Notes\n\n- Handlers parse :id from path instead of calling GetActiveSubscription()\n- Verify sub.UserID == JWT userID for authorization\n- Same pattern works for active, cancelled, or any subscription state\n- Frontend flow: GET list → pick subscription → use ID for operations",
+      "description": "Make user subscription routes RESTful by including subscription ID in the path, matching the payment-methods pattern and admin subscription routes.\n\n## Current State\n\nUser subscription routes operate on an implicit \"active subscription\":\n- PUT /v1/me/subscriptions/payment-method (subscription_id in body)\n- POST /v1/me/subscriptions/cancel\n- POST /v1/me/subscriptions/resume\n- POST /v1/me/subscriptions/change-tier\n\nThis is inconsistent with:\n- Payment-methods: PUT /v1/me/payment-methods/:id\n- Admin routes: POST /v1/admin/subscriptions/:id/cancel\n- REST conventions\n\n## Goal\n\nRefactor to explicit subscription ID in path:\n- GET /v1/me/subscriptions (list - unchanged)\n- GET /v1/me/subscriptions/:id (get single - new)\n- PUT /v1/me/subscriptions/:id/payment-method\n- POST /v1/me/subscriptions/:id/cancel\n- POST /v1/me/subscriptions/:id/resume\n- POST /v1/me/subscriptions/:id/change-tier\n\n## Compatibility\n\nBreaking change - remove old routes entirely (no deprecation period).\n\n## Implementation Notes\n\n- Handlers parse :id from path instead of calling GetActiveSubscription()\n- Verify sub.UserID == JWT userID for authorization\n- Same pattern works for active, cancelled, or any subscription state\n- Frontend flow: GET list \u2192 pick subscription \u2192 use ID for operations",
       "tasks": [
         "[x] Add route: GET /v1/me/subscriptions/:id (get single subscription)",
         "[x] Refactor: PUT /v1/me/subscriptions/:id/payment-method (move subscription_id from body to path)",
@@ -2185,6 +2185,165 @@
         "[x] Run go test ./... to verify tests pass"
       ],
       "completed_at": "2026-01-18"
+    },
+    {
+      "id": 112,
+      "name": "solana-pay-transaction-request",
+      "category": "feature",
+      "description": "Implement Solana Pay Transaction Request spec (server-built transactions via HTTPS endpoint)",
+      "steps": [
+        "CONTEXT:",
+        "CURRENT: Transfer Request supported. Transaction Request exists but wallet address required at session creation.",
+        "TARGET: Consolidate to Solana Pay spec - wallet address provided when requesting transaction, not at session creation.",
+        "NOTE: Transaction building logic already exists in SolanaTransactionService.BuildPaymentTransaction()",
+        "BREAKING CHANGE: Remove wallet param from checkout, remove transaction_data from response. No deprecation period.",
+        "Created unified StoreConfig with Name and LogoURL (used across Solana Pay, emails, webhooks)",
+        "- config.Store.Name defaults to 'My Store'",
+        "- config.Store.LogoURL defaults to embedded SVG (purple circle with white $)",
+        "- Env: STORE_NAME, STORE_LOGO_URL",
+        "Create GET /v1/checkout/:id/solana-pay handler returning { label, icon } per spec"
+      ]
+    },
+    {
+      "id": 138,
+      "name": "global-test-mode",
+      "category": "critical",
+      "description": "Add global test_mode switch to control all payment providers from one place",
+      "steps": [
+        "Add Config.TestMode bool field at root level",
+        "Add BILLING_TEST_MODE environment variable support (defaults to true for safety)",
+        "Create config.IsTestMode() method: returns TestMode (simple, no env coupling)",
+        "Log clearly at startup:",
+        "- TEST MODE: '\u26a0\ufe0f TEST MODE ENABLED - No real charges will be processed'",
+        "- PROD MODE: '\ud83d\udd34 PRODUCTION MODE - Real charges enabled'",
+        "- UNUSUAL: env=dev + test_mode=false \u2192 WARN: 'Real payment processing enabled in dev environment'",
+        "Remove IsProd field from NMIClient struct entirely",
+        "Remove all 16 instances of 'if !c.IsProd { values.Set(test_mode, enabled) }' - this param doesn't create real test records",
+        "Remove nmi.test_mode and nmi.providers.*.test_mode from config structs"
+      ]
+    },
+    {
+      "id": 139,
+      "name": "ergonomic-rate-limit-config",
+      "category": "config-ergonomics",
+      "description": "Rate limit window config should use human-readable durations, not nanoseconds",
+      "steps": [
+        "Change RateLimit struct from {Limit, Window} to {RequestsPerMinute, Burst}",
+        "RequestsPerMinute: int - max requests per minute (required)",
+        "Burst: int - max burst size (reserved for future token bucket)",
+        "Remove Window field entirely (was never used anyway!)",
+        "Update GetDefaultBillingConfig() rate limits",
+        "Updated effectiveLimit() to use RequestsPerMinute",
+        "Update config.example.yaml with new format"
+      ]
+    },
+    {
+      "id": 140,
+      "name": "config-standalone-vs-embedded",
+      "category": "config-ergonomics",
+      "description": "Clarify which configs apply to standalone vs embedded mode, add api_url for URL generation",
+      "steps": [
+        "Add config.APIURL string field with documentation comments",
+        "Add env var: API_URL (with special case in envCallback)",
+        "Update getAPIHost() to use APIURL instead of Host",
+        "Renamed getAPIHost() to getAPIBaseURL() for clarity",
+        "Added startup warning if Solana configured but APIURL not set",
+        "Added comments in Config struct marking standalone-only fields:",
+        "- Host (standalone only - server binding)",
+        "- Port (standalone only - public HTTP port)",
+        "- PrivatePort (standalone only - internal/service API port)",
+        "Added section in config.example.yaml explaining standalone vs embedded"
+      ]
+    },
+    {
+      "id": 141,
+      "name": "decouple-auth-from-authkit",
+      "category": "architecture",
+      "description": "Define billing's own Claims struct to decouple auth provider interface from authkit",
+      "steps": [
+        "Created Claims struct in pkg/authprovider/claims.go with all fields:",
+        "- UserID, Email, EmailVerified, Username, DiscordUsername, SessionID, Roles, Entitlements",
+        "Added helper methods: HasRole(role), HasEntitlement(ent)",
+        "Added context helpers: SetClaims(ctx), FromContext(ctx), ClaimsFromGin(c)",
+        "Added utility functions: GetClaims(), UserID(), Email(), Roles(), Entitlements()",
+        "Added ErrUnauthenticated error",
+        "Changed Provider.Claims() to return authprovider.Claims",
+        "Removed authgin import from pkg/authprovider/provider.go",
+        "Added detailed documentation and example in Provider interface comments",
+        "Updated claimsFromMap() to return authprovider.Claims"
+      ]
+    },
+    {
+      "id": 142,
+      "name": "simplify-auth-provider-interface",
+      "category": "cleanup",
+      "description": "Remove redundant Claims() method and rename Claims to UserContext",
+      "steps": [
+        "Renamed Claims struct to UserContext in pkg/authprovider/user_context.go",
+        "Renamed file: claims.go -> user_context.go",
+        "Renamed ClaimsFromGin() -> UserContextFromGin()",
+        "Renamed SetClaims() -> SetUserContext()",
+        "FromContext() kept as-is (returns UserContext now)",
+        "Renamed GetClaims() -> GetUserContext()",
+        "Updated context key: 'billing.claims' -> 'billing.user_context'",
+        "Removed Claims() method from pkg/authprovider/provider.go",
+        "Updated interface documentation with new contract:",
+        "- Required() must set c.Set('billing.user_context', authprovider.UserContext{...})"
+      ]
+    },
+    {
+      "id": 143,
+      "name": "flatten-processor-config",
+      "category": "config-simplification",
+      "description": "Refactor payment processor config to flat structure, remove confusing NMI global defaults",
+      "steps": [
+        "Create ProcessorConfig struct with Type field and processor-specific settings",
+        "Define reserved processor names that imply their type (ccbill, stripe, solana)",
+        "Add validation: non-reserved names require 'type' field",
+        "Add validation: reserved names cannot have conflicting 'type' field",
+        "Remove top-level NMIConfig.SecurityKey (useless - each provider has own account)",
+        "Remove top-level NMIConfig.TokenizationKey",
+        "Remove top-level NMIConfig.WebhookSecret",
+        "Remove top-level NMIConfig.DirectPostURL",
+        "Remove top-level NMIConfig.QueryURL",
+        "Remove NMIConfig.Providers map nesting"
+      ]
+    },
+    {
+      "id": 144,
+      "name": "consolidate-email-config",
+      "category": "config-simplification",
+      "description": "Move email sender fields to StoreConfig, simplify SendGrid to just api_key",
+      "steps": [
+        "Added FromEmail field to StoreConfig in config/config.go",
+        "STORE_FROM_EMAIL env var supported via koanf",
+        "Removed FromEmail field from SendGridConfig",
+        "Removed FromName field from SendGridConfig (uses Store.Name)",
+        "SendGridConfig now only has APIKey",
+        "Updated NewEmailService() to accept (sendgridCfg, storeCfg)",
+        "Uses store.Name as from_name",
+        "Uses store.FromEmail as from_email",
+        "Updated build_runtime.go to pass both configs",
+        "Updated config.example.yaml - added store.from_email, simplified sendgrid section"
+      ]
+    },
+    {
+      "id": 145,
+      "name": "solana-config-simplification",
+      "category": "feature",
+      "description": "Simplify Solana configuration with RPC fallback chain, Jupiter token resolution, and enabled_tokens list",
+      "steps": [
+        "Implement RPC fallback chain with automatic failover:",
+        "Priority order (mainnet):",
+        "1. Helius (if helius_api_key configured) - https://mainnet.helius-rpc.com/?api-key=KEY",
+        "2. Ankr public (no key needed) - https://rpc.ankr.com/solana",
+        "3. Solana public (no key needed) - https://api.mainnet-beta.solana.com",
+        "Devnet equivalents:",
+        "1. Helius devnet - https://devnet.helius-rpc.com/?api-key=KEY",
+        "2. Ankr devnet - https://rpc.ankr.com/solana_devnet",
+        "3. Solana devnet - https://api.devnet.solana.com",
+        "Create RPCClientWithFallback that wraps multiple RPC clients:"
+      ]
     }
   ]
 }

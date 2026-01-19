@@ -407,7 +407,7 @@ func createNMIDemoClient(t *testing.T) *nmi.NMIClient {
 		TestMode:      true,
 	}
 
-	client, err := nmi.NewClient("mobius", settings, false)
+	client, err := nmi.NewClient("mobius", settings, true) // true = test mode (sandbox endpoints)
 	require.NoError(t, err)
 
 	return client

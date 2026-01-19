@@ -16,21 +16,25 @@ var NMIBackedProcessors = map[string]bool{
 
 // InitNMIBackedProcessors initializes the NMI-backed processors set from configuration.
 // Call this at application startup after loading config.
+// Works with both the new Processors map and legacy NMI config.
 func InitNMIBackedProcessors(cfg *config.Config) {
-	if cfg == nil || cfg.NMI == nil || len(cfg.NMI.Providers) == 0 {
+	if cfg == nil {
 		return
 	}
 
 	// Clear and rebuild from config
 	NMIBackedProcessors = make(map[string]bool)
-	for providerName := range cfg.NMI.Providers {
-		key := strings.TrimSpace(strings.ToLower(providerName))
+
+	// Use the new unified config helper that checks both Processors map and legacy NMI config
+	nmiProcessors := cfg.GetNMIProcessors()
+	for name := range nmiProcessors {
+		key := strings.TrimSpace(strings.ToLower(name))
 		if key != "" {
 			NMIBackedProcessors[key] = true
 		}
 	}
 
-	// Ensure mobius is always included as a default
+	// Ensure mobius is always included as a default if nothing configured
 	if len(NMIBackedProcessors) == 0 {
 		NMIBackedProcessors["mobius"] = true
 	}

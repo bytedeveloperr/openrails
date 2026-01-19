@@ -34,8 +34,7 @@ func Webhook(r *Request) {
 		provider = "mobius"
 	}
 
-	// NOTE: Webhook authentication can be bypassed for testing by setting test_mode: true
-	// in the respective processor config (nmi.test_mode or ccbill.test_mode)
+	// NOTE: Webhook authentication is bypassed in test mode (config.IsTestMode() == true)
 	// This is useful for integration tests and development environments
 	if r.State == nil || r.State.RiverProducer == nil {
 		r.ErrorJSON(http.StatusInternalServerError, "job queue unavailable")
@@ -49,11 +48,10 @@ func Webhook(r *Request) {
 		"client_ip": clientIP,
 	}).Debug("Received webhook")
 
-	ccbillTestMode := false
-	if r.State != nil && r.State.CCBillRESTClient != nil {
-		if cfg := r.State.CCBillRESTClient.Config(); cfg != nil {
-			ccbillTestMode = cfg.TestMode
-		}
+	// Use global test_mode for all webhook auth bypass decisions
+	isTestMode := true
+	if r.State != nil && r.State.Config != nil {
+		isTestMode = r.State.Config.IsTestMode()
 	}
 
 	// Route based on provider - NMI-backed processors go to handleNMIWebhook
@@ -66,8 +64,8 @@ func Webhook(r *Request) {
 
 	switch provider {
 	case services.ProcessorCCBill:
-		// Check if CCBill is in test mode - bypass authentication for testing
-		if !ccbillTestMode {
+		// Check if in test mode - bypass authentication for testing
+		if !isTestMode {
 			// Verify CCBill webhook comes from authorized IP ranges
 			if !ipverify.IsValidCCBillIP(clientIP) {
 				log.WithFields(log.Fields{
@@ -311,15 +309,14 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 		return false
 	}
 
-	isDev := true
+	isTestMode := true
 	if r.State != nil && r.State.Config != nil {
-		env := strings.TrimSpace(strings.ToLower(r.State.Config.Env))
-		isDev = env == "" || env == "dev" || env == "development"
+		isTestMode = r.State.Config.IsTestMode()
 	}
 
 	signature := ""
 	signatureValidated := false
-	if !client.Config().TestMode {
+	if !isTestMode {
 		if client.GetWebhookSecret() != "" {
 			signature = r.Request.Header.Get("X-Signature")
 			if signature == "" {
@@ -340,12 +337,10 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 			}
 			signatureValidated = true
 		} else {
-			if !isDev {
-				log.Error("NMI webhook secret not configured")
-				r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
-				return false
-			}
-			log.Warn("NMI webhook secret not configured - skipping signature verification")
+			// No webhook secret configured but not in test mode - this is an error
+			log.Error("NMI webhook secret not configured")
+			r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
+			return false
 		}
 	} else {
 		log.Debug("NMI webhook authentication bypassed - test mode enabled")

@@ -19,8 +19,13 @@ import (
 )
 
 const (
+	// Production endpoints (default, can be overridden in config)
 	DefaultDirectPostURL = "https://secure.networkmerchants.com/api/transact.php"
 	DefaultQueryAPIURL   = "https://secure.nmi.com/api/query.php"
+
+	// Sandbox endpoints (hardcoded, used when test_mode=true)
+	SandboxDirectPostURL = "https://sandbox.nmi.com/api/transact.php"
+	SandboxQueryAPIURL   = "https://sandbox.nmi.com/api/query.php"
 )
 
 type NMIClient struct {
@@ -30,7 +35,7 @@ type NMIClient struct {
 	WebhookSecret string
 	DirectPostURL string
 	QueryURL      string
-	IsProd        bool
+	TestMode      bool // true = sandbox endpoints, false = production endpoints
 }
 
 type CreateCustomerVaultData struct {
@@ -286,7 +291,10 @@ func resolveEndpoint(defaultURL string, cfgValue string, envKeys ...string) stri
 	return defaultURL
 }
 
-func NewClient(provider string, cfg *config.NMIProviderSettings, isProd bool) (*NMIClient, error) {
+// NewClient creates a new NMI client for a specific provider.
+// testMode: when true, uses sandbox.nmi.com endpoints; when false, uses production endpoints.
+// Note: The testMode param should come from config.IsTestMode().
+func NewClient(provider string, cfg *config.NMIProviderSettings, testMode bool) (*NMIClient, error) {
 	if cfg == nil {
 		return nil, errors.New("nmi provider configuration is required")
 	}
@@ -307,30 +315,47 @@ func NewClient(provider string, cfg *config.NMIProviderSettings, isProd bool) (*
 		securityKey = strings.TrimSpace(cfg.SecurityKey)
 	}
 
-	if isProd && securityKey == "" {
+	// In production mode (testMode=false), security key is required
+	if !testMode && securityKey == "" {
 		return nil, fmt.Errorf("nmi provider '%s' security key is required in production mode", provider)
 	}
 
-	if !isProd && securityKey == "" {
+	// In test mode, warn if no security key (client will be non-functional)
+	if testMode && securityKey == "" {
 		log.WithField("provider", provider).Warn("NMI security_key not configured - NMI API calls will be disabled")
 	}
 
-	directPostURL := resolveEndpoint(
-		firstNonEmpty(cfg.DirectPostURL, DefaultDirectPostURL),
-		cfg.DirectPostURL,
-		fmt.Sprintf("NMI_%s_DIRECT_POST_URL", strings.ToUpper(provider)),
-	)
-	if strings.EqualFold(provider, "mobius") {
-		directPostURL = resolveEndpoint(directPostURL, cfg.DirectPostURL, "MOBIUS_DIRECT_POST_URL")
-	}
+	// Endpoint selection:
+	// - Test mode: Always use sandbox.nmi.com (hardcoded, ignores config URLs)
+	// - Production mode: Use config URLs if provided, otherwise use defaults
+	var directPostURL, queryURL string
+	if testMode {
+		directPostURL = SandboxDirectPostURL
+		queryURL = SandboxQueryAPIURL
+		log.WithFields(log.Fields{
+			"provider":    provider,
+			"direct_post": directPostURL,
+			"query":       queryURL,
+		}).Info("NMI using sandbox endpoints (test_mode=true)")
+	} else {
+		// Production: use config values or defaults
+		directPostURL = resolveEndpoint(
+			firstNonEmpty(cfg.DirectPostURL, DefaultDirectPostURL),
+			cfg.DirectPostURL,
+			fmt.Sprintf("NMI_%s_DIRECT_POST_URL", strings.ToUpper(provider)),
+		)
+		if strings.EqualFold(provider, "mobius") {
+			directPostURL = resolveEndpoint(directPostURL, cfg.DirectPostURL, "MOBIUS_DIRECT_POST_URL")
+		}
 
-	queryURL := resolveEndpoint(
-		firstNonEmpty(cfg.QueryURL, DefaultQueryAPIURL),
-		cfg.QueryURL,
-		fmt.Sprintf("NMI_%s_QUERY_URL", strings.ToUpper(provider)),
-	)
-	if strings.EqualFold(provider, "mobius") {
-		queryURL = resolveEndpoint(queryURL, cfg.QueryURL, "MOBIUS_QUERY_URL")
+		queryURL = resolveEndpoint(
+			firstNonEmpty(cfg.QueryURL, DefaultQueryAPIURL),
+			cfg.QueryURL,
+			fmt.Sprintf("NMI_%s_QUERY_URL", strings.ToUpper(provider)),
+		)
+		if strings.EqualFold(provider, "mobius") {
+			queryURL = resolveEndpoint(queryURL, cfg.QueryURL, "MOBIUS_QUERY_URL")
+		}
 	}
 
 	return &NMIClient{
@@ -340,7 +365,7 @@ func NewClient(provider string, cfg *config.NMIProviderSettings, isProd bool) (*
 		WebhookSecret: webhookSecret,
 		DirectPostURL: directPostURL,
 		QueryURL:      queryURL,
-		IsProd:        isProd,
+		TestMode:      testMode,
 	}, nil
 }
 
@@ -465,10 +490,6 @@ func (c *NMIClient) CreateCustomerVault(data CreateCustomerVaultData) (*CreateCu
 		values.Set("email", data.Email)
 	}
 
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
 	response, err := c.sendDirectRequest(values)
 	if err != nil {
 		return nil, err
@@ -544,10 +565,6 @@ func (c *NMIClient) UpdateCustomerVault(data UpdateCustomerVaultData) error {
 		values.Set("address2", data.Address2)
 	}
 
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
 	response, err := c.sendDirectRequest(values)
 	if err != nil {
 		return err
@@ -573,10 +590,6 @@ func (c *NMIClient) DeleteCustomerVault(data DeleteCustomerVaultData) error {
 		"customer_vault":    {"delete_customer"},
 		"security_key":      {c.SecurityKey},
 		"customer_vault_id": {data.CustomerVaultID},
-	}
-
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
 	}
 
 	response, err := c.sendDirectRequest(values)
@@ -632,10 +645,6 @@ func (c *NMIClient) RunSale(params SaleParams) (*SaleResponse, error) {
 		values.Set("orderid", params.OrderID)
 	}
 
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
 	response, err := c.sendDirectRequest(values)
 	if err != nil {
 		return nil, err
@@ -681,10 +690,6 @@ func (c *NMIClient) Refund(params RefundParams) (*RefundResponse, error) {
 		values.Set("amount", amountStr)
 	}
 
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
 	response, err := c.sendDirectRequest(values)
 	if err != nil {
 		return nil, err
@@ -727,10 +732,6 @@ func (c *NMIClient) Void(transactionID string) error {
 		"type":          {"void"},
 		"security_key":  {c.SecurityKey},
 		"transactionid": {transactionID},
-	}
-
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
 	}
 
 	response, err := c.sendDirectRequest(values)
@@ -808,10 +809,6 @@ func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSub
 		values.Set("start_date", trimmed)
 	}
 
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
 	response, err := c.sendDirectRequest(values)
 	if err != nil {
 		return nil, err
@@ -851,10 +848,6 @@ func (c *NMIClient) UpdateRecurringSubscription(subscriptionID, planAmount strin
 		"plan_payments":   {fmt.Sprintf("%d", planPayments)},
 	}
 
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
 	response, err := c.sendDirectRequest(values)
 	if err != nil {
 		return "", err
@@ -889,10 +882,6 @@ func (c *NMIClient) UpdateSubscriptionPaymentSource(subscriptionID, customerVaul
 		"customer_vault_id": {customerVaultID},
 	}
 
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
 	response, err := c.sendDirectRequest(values)
 	if err != nil {
 		return err
@@ -923,10 +912,6 @@ func (c *NMIClient) DeleteRecurringSubscription(subscriptionID string) error {
 		"recurring":       {"delete_subscription"},
 		"security_key":    {c.SecurityKey},
 		"subscription_id": {subscriptionID},
-	}
-
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
 	}
 
 	response, err := c.sendDirectRequest(values)
@@ -965,10 +950,6 @@ func (c *NMIClient) AttemptManualRebill(params ManualRebillParams) (*ManualRebil
 		"subscription_id":   {params.SubscriptionID},
 		"recurring":         {"rebill_subscription"},
 		"order_description": {"Manual Rebill - Doujins Subscription"},
-	}
-
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
 	}
 
 	response, err := c.sendDirectRequest(values)
@@ -1021,10 +1002,6 @@ func (c *NMIClient) GetTransactionDetails(transactionID string) (string, error) 
 		"transaction_id": {transactionID},
 	}
 
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
 	response, err := c.sendQueryRequest(values)
 	if err != nil {
 		return "", err
@@ -1045,10 +1022,6 @@ func (c *NMIClient) GetCustomerVaultData(customerVaultID string) (string, error)
 
 	if customerVaultID != "" {
 		values.Set("customer_vault_id", customerVaultID)
-	}
-
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
 	}
 
 	response, err := c.sendQueryRequest(values)
@@ -1073,10 +1046,6 @@ func (c *NMIClient) GetSubscriptionData(subscriptionID string) (string, error) {
 		values.Set("subscription_id", subscriptionID)
 	}
 
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
 	response, err := c.sendQueryRequest(values)
 	if err != nil {
 		return "", err
@@ -1095,10 +1064,6 @@ func (c *NMIClient) GetRecurringPlanData() (string, error) {
 		"security_key":   {c.SecurityKey},
 	}
 
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
-	}
-
 	response, err := c.sendQueryRequest(values)
 	if err != nil {
 		return "", err
@@ -1115,10 +1080,6 @@ func (c *NMIClient) SearchTransactions(filter QueryFilter) (string, error) {
 	values := url.Values{
 		"Servicert_type": {"transaction"},
 		"security_key":   {c.SecurityKey},
-	}
-
-	if !c.IsProd {
-		values.Set("test_mode", "enabled")
 	}
 
 	if filter.StartDate != "" {

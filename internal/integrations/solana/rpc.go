@@ -11,94 +11,80 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// RPCClient handles interactions with the Solana blockchain
+// RPCClient handles interactions with the Solana blockchain.
+// It supports automatic failover between multiple RPC endpoints.
 type RPCClient struct {
-	client   *rpc.Client
-	endpoint string
+	fallback *RPCFallbackClient
 	network  string // "mainnet", "devnet", "testnet"
 }
 
-// NewRPCClient creates a new Solana RPC client
+// RPCClientConfig holds configuration for creating an RPC client.
+type RPCClientConfig struct {
+	// Endpoint is a custom RPC endpoint. If set, bypasses the fallback chain.
+	Endpoint string
+
+	// HeliusAPIKey enables Helius as the primary RPC provider.
+	HeliusAPIKey string
+
+	// Network determines which endpoints to use (mainnet, devnet, testnet).
+	Network string
+}
+
+// NewRPCClient creates a new Solana RPC client with the legacy single-endpoint behavior.
+// For fallback support, use NewRPCClientWithConfig instead.
 func NewRPCClient(endpoint, network string) *RPCClient {
-	if endpoint == "" {
-		switch network {
-		case "mainnet":
-			endpoint = "https://api.mainnet-beta.solana.com"
-		case "devnet":
-			endpoint = "https://api.devnet.solana.com"
-		case "testnet":
-			endpoint = "https://api.testnet.solana.com"
-		default:
-			endpoint = "https://api.devnet.solana.com"
-			network = "devnet"
-		}
+	return NewRPCClientWithConfig(RPCClientConfig{
+		Endpoint: endpoint,
+		Network:  network,
+	})
+}
+
+// NewRPCClientWithConfig creates a new Solana RPC client with fallback support.
+func NewRPCClientWithConfig(cfg RPCClientConfig) *RPCClient {
+	network := strings.ToLower(cfg.Network)
+	if network == "" {
+		network = "mainnet"
 	}
 
-	client := rpc.New(endpoint)
-	log.WithFields(log.Fields{
-		"endpoint": endpoint,
-		"network":  network,
-	}).Info("Initialized Solana RPC client")
+	fallback := NewRPCFallbackClient(RPCFallbackConfig{
+		CustomEndpoint: cfg.Endpoint,
+		HeliusAPIKey:   cfg.HeliusAPIKey,
+		Network:        network,
+	})
 
 	return &RPCClient{
-		client:   client,
-		endpoint: endpoint,
+		fallback: fallback,
 		network:  network,
 	}
 }
 
 // GetBalance returns the SOL balance for an address.
 func (c *RPCClient) GetBalance(ctx context.Context, address solanago.PublicKey) (uint64, error) {
-	balance, err := c.client.GetBalance(ctx, address, rpc.CommitmentFinalized)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get balance for %s: %w", address.String(), err)
-	}
-	return balance.Value, nil
+	return c.fallback.GetBalance(ctx, address)
 }
 
 // GetTokenBalance returns the SPL token balance for an address and mint
 func (c *RPCClient) GetTokenBalance(ctx context.Context, tokenAccount solanago.PublicKey) (*rpc.UiTokenAmount, error) {
-	resp, err := c.client.GetTokenAccountBalance(ctx, tokenAccount, rpc.CommitmentFinalized)
+	resp, err := c.fallback.GetTokenAccountBalance(ctx, tokenAccount)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get token balance for %s: %w", tokenAccount.String(), err)
+		return nil, err
 	}
 	return resp.Value, nil
 }
 
 // SimulateTransaction simulates a transaction to check if it would succeed
 func (c *RPCClient) SimulateTransaction(ctx context.Context, tx *solanago.Transaction) (*rpc.SimulateTransactionResponse, error) {
-	resp, err := c.client.SimulateTransaction(ctx, tx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to simulate transaction: %w", err)
-	}
-	return resp, nil
+	return c.fallback.SimulateTransaction(ctx, tx)
 }
 
 // SendTransaction submits a transaction to the blockchain
 func (c *RPCClient) SendTransaction(ctx context.Context, tx *solanago.Transaction) (solanago.Signature, error) {
-	sig, err := c.client.SendTransaction(ctx, tx)
-	if err != nil {
-		return solanago.Signature{}, fmt.Errorf("failed to send transaction: %w", err)
-	}
-
-	log.WithFields(log.Fields{
-		"signature": sig.String(),
-		"network":   c.network,
-	}).Info("Transaction sent to Solana")
-
-	return sig, nil
+	return c.fallback.SendTransaction(ctx, tx)
 }
 
 // GetTransaction retrieves transaction details by signature
 func (c *RPCClient) GetTransaction(ctx context.Context, signature solanago.Signature) (*rpc.GetTransactionResult, error) {
-	resp, err := c.client.GetTransaction(ctx, signature, &rpc.GetTransactionOpts{
-		Commitment: rpc.CommitmentConfirmed,
-		Encoding:   solanago.EncodingBase64,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get transaction %s: %w", signature.String(), err)
-	}
-	return resp, nil
+	return c.fallback.GetTransaction(ctx, signature)
 }
 
 func (c *RPCClient) GetTransactionWithRetry(ctx context.Context, signature solanago.Signature, attempts int, delay time.Duration) (*rpc.GetTransactionResult, error) {
@@ -142,7 +128,7 @@ func (c *RPCClient) ConfirmTransaction(ctx context.Context, signature solanago.S
 		case <-ctx.Done():
 			return fmt.Errorf("transaction confirmation timeout for %s", signature.String())
 		case <-ticker.C:
-			status, err := c.client.GetSignatureStatuses(ctx, true, signature)
+			status, err := c.fallback.GetSignatureStatuses(ctx, true, signature)
 			if err != nil {
 				log.WithError(err).Warn("Failed to get signature status")
 				continue
@@ -183,20 +169,12 @@ func (c *RPCClient) ConfirmTransaction(ctx context.Context, signature solanago.S
 
 // GetLatestBlockhash gets the latest blockhash for transaction creation
 func (c *RPCClient) GetLatestBlockhash(ctx context.Context) (solanago.Hash, error) {
-	resp, err := c.client.GetLatestBlockhash(ctx, rpc.CommitmentFinalized)
-	if err != nil {
-		return solanago.Hash{}, fmt.Errorf("failed to get latest blockhash: %w", err)
-	}
-	return resp.Value.Blockhash, nil
+	return c.fallback.GetLatestBlockhash(ctx)
 }
 
 // GetMinimumBalanceForRentExemption returns the minimum balance needed for rent exemption
 func (c *RPCClient) GetMinimumBalanceForRentExemption(ctx context.Context, dataSize uint64) (uint64, error) {
-	balance, err := c.client.GetMinimumBalanceForRentExemption(ctx, dataSize, rpc.CommitmentFinalized)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get minimum balance for rent exemption: %w", err)
-	}
-	return balance, nil
+	return c.fallback.GetMinimumBalanceForRentExemption(ctx, dataSize)
 }
 
 // IsValidAddress checks if a public key string is valid
@@ -217,7 +195,7 @@ func (c *RPCClient) GetNetwork() string {
 
 // GetEndpoint returns the current RPC endpoint
 func (c *RPCClient) GetEndpoint() string {
-	return c.endpoint
+	return c.fallback.GetEndpoint()
 }
 
 // SignatureInfo is a pared-down view of a signature lookup.
@@ -241,7 +219,7 @@ func (c *RPCClient) GetSignaturesForAddress(ctx context.Context, address string,
 		opts.Limit = &limitVal
 	}
 
-	resp, err := c.client.GetSignaturesForAddressWithOpts(ctx, pubkey, opts)
+	resp, err := c.fallback.GetSignaturesForAddressWithOpts(ctx, pubkey, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get signatures for address %s: %w", pubkey.String(), err)
 	}
@@ -257,9 +235,10 @@ func (c *RPCClient) GetSignaturesForAddress(ctx context.Context, address string,
 	return results, nil
 }
 
-// GetClient returns the underlying RPC client for direct access when needed
+// GetClient returns the underlying RPC client for direct access when needed.
+// Prefer using the RPCClient methods directly when possible for fallback support.
 func (c *RPCClient) GetClient() *rpc.Client {
-	return c.client
+	return c.fallback.GetClient()
 }
 
 // TokenAccountInfo represents an SPL token account balance for a specific mint.
@@ -279,7 +258,7 @@ func (c *RPCClient) GetTokenBalanceForMint(ctx context.Context, owner solanago.P
 	}
 
 	// Get the token account balance
-	resp, err := c.client.GetTokenAccountBalance(ctx, ata, rpc.CommitmentFinalized)
+	resp, err := c.fallback.GetTokenAccountBalance(ctx, ata)
 	if err != nil {
 		// Account might not exist (user has never held this token)
 		if strings.Contains(err.Error(), "could not find account") ||

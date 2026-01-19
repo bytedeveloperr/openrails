@@ -74,11 +74,12 @@ func (s *Service) handleNMIWebhook(ctx context.Context, provider string, req Han
 		}, nil
 	}
 
-	isDev := s.isDevEnvironment()
+	// Use global test_mode for webhook auth bypass decision
+	isTestMode := s.rt.Config.IsTestMode()
 
 	signature := ""
 	signatureValidated := false
-	if !client.Config().TestMode {
+	if !isTestMode {
 		if client.GetWebhookSecret() != "" {
 			// Try multiple signature header names
 			signature = req.Headers["X-Signature"]
@@ -104,7 +105,7 @@ func (s *Service) handleNMIWebhook(ctx context.Context, provider string, req Han
 			}
 			signatureValidated = true
 		} else {
-			if !isDev {
+			if !isTestMode {
 				log.Error("NMI webhook secret not configured")
 				return &WebhookResult{
 					Accepted: false,
@@ -164,14 +165,10 @@ func (s *Service) handleNMIWebhook(ctx context.Context, provider string, req Han
 }
 
 func (s *Service) handleCCBillWebhook(ctx context.Context, req HandleWebhookRequest) (*WebhookResult, error) {
-	ccbillTestMode := false
-	if s.rt != nil && s.rt.CCBillRESTClient != nil {
-		if cfg := s.rt.CCBillRESTClient.Config(); cfg != nil {
-			ccbillTestMode = cfg.TestMode
-		}
-	}
+	// Use global test_mode for webhook auth bypass decision
+	isTestMode := s.rt.Config.IsTestMode()
 
-	if !ccbillTestMode {
+	if !isTestMode {
 		// Verify CCBill webhook comes from authorized IP ranges
 		if !ipverify.IsValidCCBillIP(req.ClientIP) {
 			log.WithFields(log.Fields{
@@ -228,7 +225,8 @@ func (s *Service) handleCCBillWebhook(ctx context.Context, req HandleWebhookRequ
 }
 
 func (s *Service) handleStripeWebhook(ctx context.Context, req HandleWebhookRequest) (*WebhookResult, error) {
-	isDev := s.isDevEnvironment()
+	// Use global test_mode for webhook auth bypass decision
+	isTestMode := s.rt.Config.IsTestMode()
 
 	secret := ""
 	if s.rt.Config != nil && s.rt.Config.Stripe != nil {
@@ -253,7 +251,7 @@ func (s *Service) handleStripeWebhook(ctx context.Context, req HandleWebhookRequ
 		truth := true
 		signatureValidPtr = &truth
 	} else {
-		if !isDev {
+		if !isTestMode {
 			return &WebhookResult{
 				Accepted: false,
 				Error:    "webhook signature required",
@@ -310,14 +308,6 @@ func (s *Service) enqueueWebhookJob(ctx context.Context, args riverjobs.WebhookP
 
 	_, err := s.rt.RiverProducer.Insert(ctx, args, opts)
 	return err
-}
-
-func (s *Service) isDevEnvironment() bool {
-	if s.rt == nil || s.rt.Config == nil {
-		return true
-	}
-	env := strings.TrimSpace(strings.ToLower(s.rt.Config.Env))
-	return env == "" || env == "dev" || env == "development"
 }
 
 // Helper functions (duplicated from handlers to avoid import cycles)

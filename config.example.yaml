@@ -7,7 +7,19 @@
 # =============================================================================
 
 # Environment: prod, dev, development, production
+# Controls logging verbosity and debug features (NOT payment mode)
 env: "development"
+
+# Test Mode: Controls whether payment processors use sandbox/test environments
+# - true (default): NMI uses sandbox.nmi.com, CCBill uses sandbox-api, Solana uses devnet
+# - false: All processors use production endpoints
+#
+# This is separate from 'env' - you can run env=prod with test_mode=true for
+# staging environments, or env=dev with test_mode=false for local prod testing.
+#
+# Stripe note: Stripe uses API key prefix (sk_test_* vs sk_live_*) to determine mode.
+# If your key doesn't match test_mode, Stripe will be disabled with a warning.
+test_mode: true
 
 # =============================================================================
 # STANDALONE MODE ONLY
@@ -116,88 +128,136 @@ auth:
 # =============================================================================
 # PAYMENT PROCESSORS
 # =============================================================================
+# All processors are configured under a single "processors" map.
+# Reserved names (ccbill, stripe, solana) don't need explicit "type" field.
+# Non-reserved names (e.g., "mobius", "acme") require "type: nmi".
+#
+# Environment variables: PROCESSORS_<NAME>_<FIELD>
+# Example: PROCESSORS_MOBIUS_SECURITY_KEY, PROCESSORS_CCBILL_CLIENT_ACC_NUM
 
-# -----------------------------------------------------------------------------
-# CCBill
-# -----------------------------------------------------------------------------
-ccbill:
-  client_acc_num: "your-ccbill-account-number"
-  client_sub_acc: "your-ccbill-subaccount"
-  # salt: set via CCBILL_SALT env var
+processors:
+  # ---------------------------------------------------------------------------
+  # NMI-backed processors (type: nmi)
+  # ---------------------------------------------------------------------------
+  # Add any NMI/Mobius gateway providers here.
+  # Non-reserved names require "type: nmi".
+  mobius:
+    type: nmi
+    # Secrets - set via env: PROCESSORS_MOBIUS_SECURITY_KEY, etc.
+    # security_key: ""
+    # tokenization_key: ""
+    # webhook_secret: ""
 
-  subscription_type_id: "0001"  # Must match CCBill portal config
-  test_mode: true               # true = sandbox, false = production
+    # Provider-specific URLs (optional - defaults to standard NMI)
+    # direct_post_url: "https://secure.mobiusgateway.com/api/transact.php"
+    # query_url: "https://secure.mobiusgateway.com/api/query.php"
 
-  # DataLink credentials (enables reconciliation worker)
-  # datalink_username: set via CCBILL_DATALINK_USERNAME env var
-  # datalink_password: set via CCBILL_DATALINK_PASSWORD env var
+  # Example: Another NMI provider (just add config, no code changes needed)
+  # acme:
+  #   type: nmi
+  #   security_key: ""  # or via PROCESSORS_ACME_SECURITY_KEY
 
-# -----------------------------------------------------------------------------
-# NMI (Network Merchants Inc) / Mobius
-# -----------------------------------------------------------------------------
-nmi:
-  test_mode: true  # true = test mode, false = live charges
+  # ---------------------------------------------------------------------------
+  # CCBill (reserved name - type implied)
+  # ---------------------------------------------------------------------------
+  ccbill:
+    client_acc_num: "your-ccbill-account-number"
+    client_sub_acc: "your-ccbill-subaccount"
+    subscription_type_id: "0001"  # Must match CCBill portal config
+    # salt: set via PROCESSORS_CCBILL_SALT env var
 
-  # Global settings (can be overridden per-provider)
-  # direct_post_url: "https://secure.networkmerchants.com/api/transact.php"
-  # query_url: "https://secure.nmi.com/api/query.php"
+    # DataLink credentials (enables reconciliation worker)
+    # datalink_username: set via PROCESSORS_CCBILL_DATALINK_USERNAME env var
+    # datalink_password: set via PROCESSORS_CCBILL_DATALINK_PASSWORD env var
 
-  providers:
-    mobius:
-      # Secrets - set via env vars: NMI_PROVIDERS_MOBIUS_SECURITY_KEY, etc.
-      # security_key: ""
-      # tokenization_key: ""
-      # webhook_secret: ""
+  # ---------------------------------------------------------------------------
+  # Stripe (reserved name - type implied)
+  # ---------------------------------------------------------------------------
+  stripe:
+    # secret_key: set via PROCESSORS_STRIPE_SECRET_KEY env var
+    # webhook_secret: set via PROCESSORS_STRIPE_WEBHOOK_SECRET env var
+    success_url: "https://your-domain.com/checkout/success"
+    cancel_url: "https://your-domain.com/checkout/cancel"
 
-      # Provider-specific URLs (optional)
-      # direct_post_url: "https://secure.mobiusgateway.com/api/transact.php"
-      # query_url: "https://secure.mobiusgateway.com/api/query.php"
+  # ---------------------------------------------------------------------------
+  # Solana (reserved name - type implied)
+  # ---------------------------------------------------------------------------
+  solana:
+    recipient_wallet: "your-solana-wallet-address"
+    # network is auto-derived from test_mode: devnet if test_mode=true, mainnet otherwise
+    # Explicit network setting overrides auto-derivation (rarely needed)
 
-# -----------------------------------------------------------------------------
-# Stripe
-# -----------------------------------------------------------------------------
-stripe:
-  # secret_key: set via STRIPE_SECRET_KEY env var
-  # webhook_secret: set via STRIPE_WEBHOOK_SECRET env var
-  success_url: "https://your-domain.com/checkout/success"
-  cancel_url: "https://your-domain.com/checkout/cancel"
+    # -------------------------------------------------------------------------
+    # RPC Configuration (choose one approach)
+    # -------------------------------------------------------------------------
+    #
+    # OPTION 1: Automatic RPC fallback chain (RECOMMENDED)
+    # Leave rpc_endpoint empty. Uses: Helius → Ankr → Solana public
+    # Add helius_api_key for Helius as primary (100k req/day free tier)
+    #
+    # helius_api_key: ""  # Get free API key at https://helius.dev
+    #
+    # OPTION 2: Custom RPC endpoint (bypasses fallback chain)
+    # rpc_endpoint: "https://your-rpc-provider.com"
 
-# -----------------------------------------------------------------------------
-# Solana
-# -----------------------------------------------------------------------------
-solana:
-  rpc_endpoint: "https://api.mainnet-beta.solana.com"
-  network: "mainnet"  # mainnet, devnet, testnet
-  recipient_wallet: "your-solana-wallet-address"
+    # Transaction settings
+    transaction_timeout_seconds: 300  # 5 minutes
+    confirmation_blocks: 1
+    max_transaction_fee: 0.01  # SOL
 
-  # Transaction settings
-  transaction_timeout_seconds: 300  # 5 minutes
-  confirmation_blocks: 1
-  max_transaction_fee: 0.01  # SOL
+    # -------------------------------------------------------------------------
+    # Token Configuration (choose one approach)
+    # -------------------------------------------------------------------------
+    #
+    # OPTION 1: Simple enabled_tokens list (RECOMMENDED)
+    # Just list token symbols - metadata fetched from Jupiter at startup
+    # Only verified tokens from Jupiter strict list are supported
+    #
+    enabled_tokens: ["SOL", "USDC", "PYUSD"]
+    #
+    # Add any Jupiter-verified token:
+    # enabled_tokens: ["SOL", "USDC", "PYUSD", "BONK", "JUP", "USDT"]
+    #
+    # OPTION 2: Legacy supported_tokens map (for custom/unverified tokens)
+    # Use this if you need non-Jupiter tokens or custom configuration
+    #
+    # supported_tokens:
+    #   SOL:
+    #     mint: ""  # Native SOL has no mint address
+    #     symbol: "SOL"
+    #     name: "Solana"
+    #     decimals: 9
+    #     enabled: true
+    #   USDC:
+    #     mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    #     symbol: "USDC"
+    #     name: "USD Coin"
+    #     decimals: 6
+    #     enabled: true
 
-  # Supported tokens (defaults provided for each network)
-  # Token prices are fetched dynamically from Jupiter at runtime
-  supported_tokens:
-    SOL:
-      mint: ""  # Native SOL has no mint address
-      symbol: "SOL"
-      name: "Solana"
-      decimals: 9
-      enabled: true
-
-    USDC:
-      mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-      symbol: "USDC"
-      name: "USD Coin"
-      decimals: 6
-      enabled: true
-
-    PYUSD:
-      mint: "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"
-      symbol: "PYUSD"
-      name: "PayPal USD"
-      decimals: 6
-      enabled: true
+# =============================================================================
+# LEGACY PROCESSOR CONFIG (DEPRECATED)
+# =============================================================================
+# The configs below are deprecated. Migrate to the "processors" map above.
+# They will continue to work but will log deprecation warnings.
+#
+# # DEPRECATED - use processors.ccbill instead
+# ccbill:
+#   client_acc_num: "..."
+#
+# # DEPRECATED - use processors.mobius (or other NMI names) instead
+# nmi:
+#   providers:
+#     mobius:
+#       security_key: "..."
+#
+# # DEPRECATED - use processors.stripe instead
+# stripe:
+#   secret_key: "..."
+#
+# # DEPRECATED - use processors.solana instead
+# solana:
+#   recipient_wallet: "..."
 
 # =============================================================================
 # ANALYTICS (ClickHouse)

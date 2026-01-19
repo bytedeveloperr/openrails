@@ -144,7 +144,7 @@ func GrantAdminEntitlement(r *Request) {
 	if req.Days != nil {
 		ent, err = svc.AppendEntitlementDays(r.Request.Context(), path.UserID, req.Entitlement, *req.Days, models.EntitlementSourceAdmin, &adminGrant.ID)
 	} else {
-		ent, err = svc.AppendIndefinite(r.Request.Context(), path.UserID, req.Entitlement, models.EntitlementSourceAdmin, adminGrant.ID)
+		ent, err = svc.AppendIndefinite(r.Request.Context(), path.UserID, req.Entitlement, models.EntitlementSourceAdmin, &adminGrant.ID)
 	}
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())

@@ -2,7 +2,7 @@
 
 #### Scope
 - Provides a billing-related API server for the frontend to use (signups, cancellations, etc.), and an admin-API server for the backend to use (admin cancellations).
-- Handles webhooks from supported payment processors (mobius, ccbill, solana), and updates corresponding subscriptions / entitlements.
+- Handles webhooks from supported payment processors (Stripe, NMI/Mobius, CCBill, Solana), and updates corresponding subscriptions / entitlements.
 - Runs periodic jobs to update subscriptions / entitlements.
 
 #### Interactions with other services (Intended Contract)
@@ -36,6 +36,31 @@
 - Config file: place `config.yaml` in repo root or `./config/config.yaml`.
 - Env vars: common overrides include `DB_URL`, `REDIS_ADDR`, `CLICKHOUSE_HTTP_ADDR`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `AUTH_ISSUER`, `AUTH_AUDIENCE`.
 - If not provided, the service uses the defaults above.
+
+#### Test Mode (Payment Sandboxes)
+
+The `test_mode` setting controls whether payment processors use sandbox/test environments:
+
+```yaml
+test_mode: true   # Default - use sandbox endpoints (safe for testing)
+test_mode: false  # Production mode - use real payment endpoints
+```
+
+**What test_mode controls:**
+- **NMI/Mobius**: Uses `sandbox.nmi.com` instead of `secure.networkmerchants.com`
+- **CCBill**: Uses `sandbox-api.ccbill.com` instead of `api.ccbill.com`
+- **Solana**: Uses devnet instead of mainnet
+- **Stripe**: Validates key prefix matches mode (`sk_test_*` vs `sk_live_*`)
+- **Webhooks**: Bypasses IP validation and signature verification for easier testing
+
+**Key behaviors:**
+- Defaults to `true` for safety (no accidental charges)
+- Stripe is disabled with a warning if key prefix doesn't match test_mode
+- Orthogonal to `env` - you can run `env=prod` with `test_mode=true` for staging
+
+**Environment variable:** `TEST_MODE=true` or `TEST_MODE=false`
+
+See `config.example.yaml` and `.env.example` for detailed documentation.
 
 ---
 
@@ -350,7 +375,7 @@ Error types: `invalid_request_error`, `authentication_error`, `authorization_err
 **Query params:**
 - `page`, `page_size` - Pagination
 - `start_date`, `end_date` - Date range (format: `2006-01-02`)
-- `processor` - Filter: `ccbill`, `mobius`, `solana`, `system`
+- `processor` - Filter: `stripe`, `ccbill`, `mobius`, `solana`, `admin`, `manual`
 - `min_amount`, `max_amount` - Amount range
 - `include_stats` - Include summary stats (default: `false`)
 - `include_events` - Include payment events (default: `true`)
@@ -476,7 +501,7 @@ Error types: `invalid_request_error`, `authentication_error`, `authorization_err
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/v1/webhooks/:provider` | Receive webhook from processor (ccbill, mobius, solana) |
+| POST | `/v1/webhooks/:provider` | Receive webhook from processor (stripe, ccbill, mobius, solana) |
 
 ---
 

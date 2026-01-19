@@ -398,7 +398,7 @@ func (s *Service) AdminGrantEntitlement(ctx context.Context, adminUserID string,
 			return nil, fmt.Errorf("end_at must be in the future")
 		}
 	} else {
-		ent, err = s.rt.EntitlementService.AppendIndefinite(ctx, req.UserID, req.Entitlement, models.EntitlementSourceAdmin, adminGrant.ID)
+		ent, err = s.rt.EntitlementService.AppendIndefinite(ctx, req.UserID, req.Entitlement, models.EntitlementSourceAdmin, &adminGrant.ID)
 	}
 
 	if err != nil {

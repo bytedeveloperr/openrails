@@ -20,6 +20,7 @@ import (
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
+	"github.com/doujins-org/doujins-billing/internal/integrations/jupiter"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/doujins-org/doujins-billing/internal/processors"
@@ -79,6 +80,57 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 
 	serviceInstances := createServices(database, cfg, ccbillRESTClient, nmiClients, redisClient, clock)
 
+	// Initialize Solana token registry (must be done here since createServices doesn't return errors)
+	var solanaTokenRegistry *jupiter.TokenRegistry
+	if cfg != nil && cfg.Solana != nil {
+		solanaTokenRegistry = jupiter.NewTokenRegistry()
+		if len(cfg.Solana.EnabledTokens) > 0 {
+			// Use new enabled_tokens approach with Jupiter lookup
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := solanaTokenRegistry.LoadFromJupiter(ctx, cfg.Solana.EnabledTokens); err != nil {
+				cancel()
+				return nil, fmt.Errorf("failed to initialize Solana token registry: %w", err)
+			}
+			cancel()
+		} else if len(cfg.Solana.SupportedTokens) > 0 {
+			// Use legacy supported_tokens config (backwards compatibility)
+			legacyTokens := make(map[string]struct {
+				Symbol      string
+				Name        string
+				Mint        string
+				MainnetMint string
+				Decimals    int
+				Enabled     bool
+			})
+			for symbol, t := range cfg.Solana.SupportedTokens {
+				legacyTokens[symbol] = struct {
+					Symbol      string
+					Name        string
+					Mint        string
+					MainnetMint string
+					Decimals    int
+					Enabled     bool
+				}{
+					Symbol:      t.Symbol,
+					Name:        t.Name,
+					Mint:        t.Mint,
+					MainnetMint: t.MainnetMint,
+					Decimals:    t.Decimals,
+					Enabled:     t.Enabled,
+				}
+			}
+			solanaTokenRegistry.LoadFromConfig(legacyTokens)
+		} else {
+			// No tokens configured - use default enabled_tokens with Jupiter lookup
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := solanaTokenRegistry.LoadFromJupiter(ctx, nil); err != nil {
+				cancel()
+				log.WithError(err).Warn("Failed to load default tokens from Jupiter - Solana payments may be limited")
+			}
+			cancel()
+		}
+	}
+
 	var emailService *services.EmailService
 	if cfg.SendGrid != nil {
 		if es, err := services.NewEmailService(cfg.SendGrid, cfg.Store); err != nil {
@@ -120,6 +172,7 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 		SolanaPayPoller:          serviceInstances.SolanaPayPoller,
 		SolanaTransactionService: serviceInstances.SolanaTransactionService,
 		SolanaRPC:                serviceInstances.SolanaRPC,
+		SolanaTokenRegistry:      solanaTokenRegistry,
 		FXProvider:               serviceInstances.FXProvider,
 
 		UserSubscriptionService:   serviceInstances.UserSubscriptionService,
@@ -243,16 +296,18 @@ func validateDatabase(cfg *config.Config, database *db.DB) error {
 
 func createNMIClients(cfg *config.Config) (map[string]*nmi.NMIClient, error) {
 	clients := make(map[string]*nmi.NMIClient)
-	if cfg == nil || cfg.NMI == nil {
+	if cfg == nil {
 		return clients, nil
 	}
 
-	for name := range cfg.NMI.Providers {
-		settings, err := cfg.NMI.ProviderSettings(name)
-		if err != nil {
-			return nil, err
-		}
-		providerKey := strings.TrimSpace(strings.ToLower(settings.Name))
+	// Use the new unified config helper that checks both Processors map and legacy NMI config
+	nmiProcessors := cfg.GetNMIProcessors()
+	if len(nmiProcessors) == 0 {
+		return clients, nil
+	}
+
+	for name, procConfig := range nmiProcessors {
+		providerKey := strings.TrimSpace(strings.ToLower(name))
 		if providerKey == "" {
 			providerKey = "mobius"
 		}
@@ -261,16 +316,20 @@ func createNMIClients(cfg *config.Config) (map[string]*nmi.NMIClient, error) {
 			return nil, fmt.Errorf("duplicate nmi provider '%s' detected in configuration", providerKey)
 		}
 
-		client, err := nmi.NewClient(providerKey, settings, cfg.Env == config.EnvProd)
-		if err != nil {
-			return nil, err
+		// Convert ProcessorConfig to NMIProviderSettings
+		settings := procConfig.ToNMIProviderSettings(providerKey)
+
+		// Validate required fields
+		if settings.SecurityKey == "" {
+			return nil, fmt.Errorf("nmi provider '%s' security key is required", providerKey)
+		}
+		if settings.WebhookSecret == "" {
+			log.Warnf("nmi provider '%s' webhook secret is not configured; signature validation will be disabled", providerKey)
 		}
 
-		// Log test mode status for this provider
-		if settings.TestMode {
-			log.Warnf("⚠️  NMI provider '%s' TEST MODE is ENABLED - no real charges will be processed", providerKey)
-		} else {
-			log.Warnf("🔴 NMI provider '%s' TEST MODE is DISABLED - REAL CHARGES WILL BE PROCESSED!", providerKey)
+		client, err := nmi.NewClient(providerKey, settings, cfg.IsTestMode())
+		if err != nil {
+			return nil, err
 		}
 
 		clients[providerKey] = client
@@ -310,13 +369,7 @@ func createCCBillClient(cfg *config.Config) *ccbill.CCBillClient {
 		return nil
 	}
 
-	if cfg.CCBill.TestMode {
-		log.Warn("⚠️  CCBill TEST MODE is ENABLED - no real charges will be processed")
-	} else {
-		log.Warn("🔴 CCBill TEST MODE is DISABLED - REAL CHARGES WILL BE PROCESSED!")
-	}
-
-	return ccbill.NewClient(cfg.CCBill, cfg.Env == config.EnvProd)
+	return ccbill.NewClient(cfg.CCBill, cfg.IsTestMode())
 }
 
 func createCCBillRESTClient(cfg *config.Config) *ccbill.RESTClient {
@@ -399,7 +452,16 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	solanaPayService.Clock = clock
 	var solanaRPC *solana.RPCClient
 	if cfg != nil && cfg.Solana != nil {
-		solanaRPC = solana.NewRPCClient(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
+		// Derive network from test_mode: devnet when true, mainnet when false
+		solanaNetwork := "mainnet"
+		if cfg.IsTestMode() {
+			solanaNetwork = "devnet"
+		}
+		solanaRPC = solana.NewRPCClientWithConfig(solana.RPCClientConfig{
+			Endpoint:     cfg.Solana.RPCEndpoint,
+			HeliusAPIKey: cfg.Solana.HeliusAPIKey,
+			Network:      solanaNetwork,
+		})
 	}
 	solanaTransactionService := services.NewSolanaTransactionService(database, solanaRPC, cfg, priceService, purchaseService, fxProvider)
 	solanaTransactionService.Clock = clock

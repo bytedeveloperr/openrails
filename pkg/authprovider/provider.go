@@ -8,8 +8,9 @@ import (
 // Billing is a verifier-only service; it does not mount AuthKit routes or mint tokens.
 //
 // The middleware must set the user context in the Gin context using:
-//   c.Set("billing.user_context", authprovider.UserContext{...})
-//   c.Request = c.Request.WithContext(authprovider.SetUserContext(ctx, uc))
+//
+//	c.Set("billing.user_context", authprovider.UserContext{...})
+//	c.Request = c.Request.WithContext(authprovider.SetUserContext(ctx, uc))
 //
 // Handlers then retrieve user context via authprovider.UserContextFromGin(c).
 //

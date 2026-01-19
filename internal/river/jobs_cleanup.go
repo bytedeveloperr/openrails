@@ -17,7 +17,7 @@ const KindCleanupExpiredData = "billing.cleanup_expired_data"
 // CleanupConfig defines retention periods for various data types
 type CleanupConfig struct {
 	// WalletChallengeRetention is how long to keep expired wallet challenges
-	// Default: 24 hours (challenges expire after 5 minutes, keep 24h for debugging)
+	// Default: 0 (challenges expire after 15 minutes, delete immediately after expiry)
 	WalletChallengeRetention time.Duration
 
 	// SolanaTransactionRetention is how long to keep expired/failed Solana transactions
@@ -36,7 +36,7 @@ type CleanupConfig struct {
 // DefaultCleanupConfig returns sensible default retention periods
 func DefaultCleanupConfig() CleanupConfig {
 	return CleanupConfig{
-		WalletChallengeRetention:    24 * time.Hour,
+		WalletChallengeRetention:    0, // Delete immediately after expiry
 		SolanaTransactionRetention:  30 * 24 * time.Hour,
 		NotificationSeenRetention:   90 * 24 * time.Hour,
 		NotificationUnseenRetention: 180 * 24 * time.Hour,
@@ -76,7 +76,7 @@ func (w CleanupExpiredDataWorker) Work(ctx context.Context, job *river.Job[Clean
 	}
 
 	config := w.Config
-	if config.WalletChallengeRetention == 0 {
+	if config == (CleanupConfig{}) {
 		config = DefaultCleanupConfig()
 	}
 

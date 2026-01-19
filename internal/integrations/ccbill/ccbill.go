@@ -48,13 +48,17 @@ const (
 	defaultCurrencyCode = "840" // USD
 )
 
-func NewClient(cfg *config.CCBillConfig, isProd bool) *CCBillClient {
+// NewClient creates a new CCBill client.
+// testMode: when true, uses sandbox-api.ccbill.com; when false, uses api.ccbill.com.
+// Note: The testMode param should come from config.IsTestMode().
+func NewClient(cfg *config.CCBillConfig, testMode bool) *CCBillClient {
 	if cfg == nil {
 		return nil
 	}
-	baseURL := sandboxFlexFormBase
-	if !cfg.TestMode && isProd {
-		baseURL = prodFlexFormBase
+
+	baseURL := prodFlexFormBase
+	if testMode {
+		baseURL = sandboxFlexFormBase
 	}
 
 	return &CCBillClient{
