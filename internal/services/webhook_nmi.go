@@ -539,19 +539,9 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 			"processor_account": s.Processor,
 		}
 		txn := transactionRef
-		shouldLog := true
-		if exists, err := s.EventLogService.SubscriptionEventExists(ctx, subscription.ID, PaymentEventSubscriptionCreated); err != nil {
-			log.WithContext(ctx).WithError(err).Warn("failed to check existing subscription event; logging anyway")
-		} else if exists {
-			shouldLog = false
-			log.WithContext(ctx).WithFields(log.Fields{
-				"subscription_id": subscription.ID,
-				"event_type":      PaymentEventSubscriptionCreated,
-			}).Debug("Subscription creation event already logged; skipping duplicate")
-		}
-		if shouldLog {
-			s.logSubscriptionEvent(ctx, subscription, PaymentEventSubscriptionCreated, &txn, metadata, &statusActive, nil)
-		}
+
+		s.logSubscriptionEvent(ctx, subscription, PaymentEventSubscriptionCreated, &txn, metadata, &statusActive, nil)
+
 	}
 
 	return nil
@@ -864,22 +854,8 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		}
 		statusActive := models.StatusActive
 		metadata["status_after"] = string(statusActive)
-		shouldLog := true
-		if subEventType == PaymentEventSubscriptionCreated {
-			if exists, err := s.EventLogService.SubscriptionEventExists(ctx, subscription.ID, subEventType); err != nil {
-				log.WithContext(ctx).WithError(err).Warn("failed to check existing subscription event; logging anyway")
-			} else if exists {
-				shouldLog = false
-				log.WithContext(ctx).WithFields(log.Fields{
-					"subscription_id": subscription.ID,
-					"event_type":      subEventType,
-					"transaction_id":  txnID,
-				}).Debug("Subscription creation event already logged; skipping duplicate")
-			}
-		}
-		if shouldLog {
-			s.logSubscriptionEvent(ctx, subscription, subEventType, txnPtr, metadata, &statusActive, nil)
-		}
+
+		s.logSubscriptionEvent(ctx, subscription, subEventType, txnPtr, metadata, &statusActive, nil)
 
 		var amountPtr *float64
 		if amountErr == nil {
