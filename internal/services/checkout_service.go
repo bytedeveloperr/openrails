@@ -107,7 +107,6 @@ type CheckoutService struct {
 	NMIClients           map[string]*nmi.NMIClient
 	Clock                clockwork.Clock
 	Config               *config.Config
-	EventLogService      *EventLogService
 }
 
 // now returns the current time from the service's clock, or time.Now() if no clock is set.
@@ -130,7 +129,6 @@ func NewCheckoutService(
 	idempotencyService *IdempotencyService,
 	nmiClients map[string]*nmi.NMIClient,
 	cfg *config.Config,
-	eventLogService *EventLogService,
 ) *CheckoutService {
 	return &CheckoutService{
 		SubscriptionService:  subscriptionService,
@@ -143,7 +141,6 @@ func NewCheckoutService(
 		IdempotencyService:   idempotencyService,
 		NMIClients:           nmiClients,
 		Config:               cfg,
-		EventLogService:      eventLogService,
 	}
 }
 
@@ -1491,142 +1488,12 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 		"eligibility":    eligibility.Status,
 	}).Info("registered purchase") // one-time
 
-	s.logPurchaseMetrics(ctx, req, price, product, eligibility.Status, amount, currency)
-
 	return &RegisterPurchaseResponse{
 		PaymentID:    paymentID,
 		Entitlements: grantedEntitlements,
 		DelayedStart: delayedStart,
 		Eligibility:  eligibility.Status,
 	}, nil
-}
-
-// logPurchaseMetrics emits payment and subscription ClickHouse events for RegisterPurchase.
-func (s *CheckoutService) logPurchaseMetrics(ctx context.Context, req *RegisterPurchaseRequest, price *models.Price, product *models.Product, eligibility EligibilityStatus, amount int64, currency string) {
-	if s.EventLogService == nil {
-		return
-	}
-
-	normalizedCurrency := strings.ToLower(strings.TrimSpace(currency))
-	if normalizedCurrency == "" {
-		normalizedCurrency = "usd"
-	}
-
-	metadata := map[string]interface{}{
-		"price_id":       price.ID.String(),
-		"product_id":     product.ID.String(),
-		"transaction_id": req.TransactionID,
-		"eligibility":    string(eligibility),
-		"processor":      req.Processor,
-		"source":         "checkout",
-	}
-
-	var amountFloat *float64
-	if amount > 0 {
-		f := float64(amount) / 100.0
-		amountFloat = &f
-	}
-
-	var txnPtr *string
-	if trimmed := strings.TrimSpace(req.TransactionID); trimmed != "" {
-		txnPtr = &trimmed
-	}
-
-	var subIDPtr *uuid.UUID
-	if req.SubscriptionID != nil {
-		subIDPtr = req.SubscriptionID
-	}
-
-	paymentData := PaymentEventData{
-		EventID:                uuid.New(),
-		SubscriptionID:         subIDPtr,
-		UserID:                 req.UserID,
-		EventType:              PaymentEventChargeSuccess,
-		Processor:              strings.ToLower(strings.TrimSpace(req.Processor)),
-		ProcessorTransactionID: txnPtr,
-		Amount:                 amountFloat,
-		Currency:               normalizedCurrency,
-		BillingInfo:            "{}",
-		WebhookSource:          "checkout",
-		Metadata:               CreateMetadataJSON(metadata),
-		Timestamp:              s.now().UTC(),
-	}
-	if err := s.EventLogService.LogPaymentEvent(ctx, paymentData); err != nil {
-		log.WithContext(ctx).WithError(err).WithFields(log.Fields{
-			"user_id":         req.UserID,
-			"price_id":        price.ID,
-			"subscription_id": subIDPtr,
-		}).Warn("failed to log purchase payment event to ClickHouse")
-	}
-
-	if subIDPtr != nil {
-		s.logSubscriptionMetrics(ctx, *subIDPtr, price, product, txnPtr, normalizedCurrency, metadata)
-	}
-}
-
-// logSubscriptionMetrics records a subscription_created event for purchases tied to a subscription.
-func (s *CheckoutService) logSubscriptionMetrics(ctx context.Context, subscriptionID uuid.UUID, price *models.Price, product *models.Product, processorTxn *string, currency string, metadata map[string]interface{}) {
-	if s.EventLogService == nil {
-		return
-	}
-
-	subscription, err := s.SubscriptionService.GetByID(ctx, subscriptionID)
-	if err != nil {
-		log.WithContext(ctx).WithError(err).WithFields(log.Fields{
-			"subscription_id": subscriptionID,
-		}).Warn("failed to load subscription for ClickHouse metrics")
-		return
-	}
-
-	eventType := PaymentEventSubscriptionCreated
-	var procSubID *string
-	if trimmed := strings.TrimSpace(subscription.ProcessorSubscriptionID); trimmed != "" {
-		procSubID = &trimmed
-	}
-	var cancelType string
-	if subscription.CancelType != nil {
-		cancelType = string(*subscription.CancelType)
-	}
-	var billingDays uint32
-	if price.BillingCycleDays != nil {
-		billingDays = uint32(*price.BillingCycleDays)
-	}
-
-	if exists, err := s.EventLogService.SubscriptionEventExists(ctx, subscriptionID, eventType); err != nil {
-		log.WithContext(ctx).WithError(err).Warn("failed to check existing subscription metrics; logging anyway")
-	} else if exists {
-		log.WithContext(ctx).WithFields(log.Fields{
-			"subscription_id": subscriptionID,
-			"event_type":      eventType,
-		}).Debug("Subscription metrics already logged for purchase; skipping duplicate")
-		return
-	}
-
-	event := SubscriptionEventData{
-		EventID:                 uuid.New(),
-		SubscriptionID:          subscription.ID,
-		UserID:                  subscription.UserID,
-		EventType:               eventType,
-		Status:                  string(subscription.Status),
-		CancelType:              cancelType,
-		PriceAmount:             float64(price.Amount) / 100.0,
-		PriceCurrency:           currency,
-		BillingCycleDays:        billingDays,
-		ProductID:               &product.ID,
-		PriceID:                 &price.ID,
-		Processor:               strings.ToLower(strings.TrimSpace(string(subscription.Processor))),
-		ProcessorSubscriptionID: procSubID,
-		ProcessorTransactionID:  processorTxn,
-		Metadata:                CreateMetadataJSON(metadata),
-		Timestamp:               s.now().UTC(),
-	}
-
-	if err := s.EventLogService.LogSubscriptionEvent(ctx, event); err != nil {
-		log.WithContext(ctx).WithError(err).WithFields(log.Fields{
-			"subscription_id": subscriptionID,
-			"event_type":      eventType,
-		}).Warn("failed to log subscription metrics for purchase")
-	}
 }
 
 // processUpgrade handles tier upgrades with proration
