@@ -239,7 +239,7 @@ type summaryAggRow struct {
 	ActiveSum               int64     `ch:"active_sum"`
 	PastDueSum              int64     `ch:"past_due_sum"`
 	PendingSum              int64     `ch:"pending_sum"`
-	DayCount                uint64    `ch:"day_count"`
+	DayCount                int64     `ch:"day_count"`
 	MRR                     int64     `ch:"mrr_cents"`
 	ActiveEnd               int64     `ch:"active_end"`
 	PastDueEnd              int64     `ch:"past_due_end"`
@@ -340,7 +340,7 @@ func (s *AdminMetricsService) GetSummary(ctx context.Context, rng MetricsDateRan
 
 		avgActive := int64(0)
 		if r.DayCount > 0 {
-			avgActive = r.ActiveSum / int64(r.DayCount)
+			avgActive = r.ActiveSum / r.DayCount
 		}
 		arpu := int64(0)
 		if avgActive > 0 {

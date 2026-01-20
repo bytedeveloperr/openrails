@@ -33,7 +33,6 @@ type AdminSubscriptionService struct {
 	NotificationService *NotificationService
 	PaymentService      *PaymentService
 	NMIClients          map[string]*nmi.NMIClient
-	EventLogService     *EventLogService
 	Clock               clockwork.Clock
 	// No user directory enrichment; IdP subject is stored on subscription
 }
@@ -257,75 +256,7 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 		}).Error("Failed to create notification during admin subscription operation")
 	}
 
-	s.logCancellationEvent(ctx, subscription, reason)
-
 	return nil
-}
-
-// logCancellationEvent sends a ClickHouse subscription_cancelled event for admin-initiated cancels.
-func (s *AdminSubscriptionService) logCancellationEvent(ctx context.Context, subscription *models.Subscription, reason string) {
-	if s.EventLogService == nil || subscription == nil {
-		return
-	}
-
-	var procSubID *string
-	if subscription.ProcessorSubscriptionID != "" {
-		procSubID = &subscription.ProcessorSubscriptionID
-	}
-
-	cancelType := ""
-	if subscription.CancelType != nil {
-		cancelType = string(*subscription.CancelType)
-	}
-
-	metadata := map[string]any{
-		"source": "admin",
-	}
-	if cancelType != "" {
-		metadata["cancel_type"] = cancelType
-	}
-	if reason != "" {
-		metadata["reason"] = redactPII(reason)
-	}
-
-	var priceAmount float64
-	priceCurrency := "usd"
-	var billingDays uint32
-	var productID *uuid.UUID
-	var priceID *uuid.UUID
-	if subscription.Price != nil {
-		priceAmount = float64(subscription.Price.Amount) / 100.0
-		priceCurrency = subscription.Price.Currency
-		if subscription.Price.BillingCycleDays != nil {
-			billingDays = uint32(*subscription.Price.BillingCycleDays)
-		}
-		productID = &subscription.Price.ProductID
-		priceID = &subscription.Price.ID
-	}
-
-	data := SubscriptionEventData{
-		SubscriptionID:          subscription.ID,
-		UserID:                  subscription.UserID,
-		EventType:               PaymentEventSubscriptionCancelled,
-		Status:                  string(subscription.Status),
-		CancelType:              cancelType,
-		PriceAmount:             priceAmount,
-		PriceCurrency:           priceCurrency,
-		BillingCycleDays:        billingDays,
-		ProductID:               productID,
-		PriceID:                 priceID,
-		Processor:               string(subscription.Processor),
-		ProcessorSubscriptionID: procSubID,
-		Metadata:                CreateMetadataJSON(metadata),
-		Timestamp:               s.now().UTC(),
-	}
-
-	if err := s.EventLogService.LogSubscriptionEvent(ctx, data); err != nil {
-		log.WithContext(ctx).WithError(err).WithFields(log.Fields{
-			"subscription_id": subscription.ID,
-			"user_id":         subscription.UserID,
-		}).Warn("Failed to log admin subscription cancellation to ClickHouse")
-	}
 }
 
 // ExtendSubscription extends a subscription period by days (admin)

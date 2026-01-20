@@ -286,7 +286,7 @@ func (r *SubscriptionRepo) GetSubscribers(ctx context.Context, params query.Quer
 	}
 
 	subs := []*models.Subscription{}
-	dataQuery := r.selectWithDetails(&subs)
+	dataQuery := r.db.GetDB().NewSelect().Model(&subs)
 	dataQuery = applySubscriptionFilters(dataQuery, params.Filters)
 
 	if params.Limit > 0 {

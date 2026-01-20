@@ -157,9 +157,6 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 	if runtime.CheckoutService != nil {
 		runtime.CheckoutService.EventLogService = runtime.EventLogService
 	}
-	if runtime.AdminSubscriptionService != nil {
-		runtime.AdminSubscriptionService.EventLogService = runtime.EventLogService
-	}
 
 	return runtime, nil
 }
