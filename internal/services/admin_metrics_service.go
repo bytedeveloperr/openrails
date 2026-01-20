@@ -239,7 +239,7 @@ type summaryAggRow struct {
 	ActiveSum               int64     `ch:"active_sum"`
 	PastDueSum              int64     `ch:"past_due_sum"`
 	PendingSum              int64     `ch:"pending_sum"`
-	DayCount                int64     `ch:"day_count"`
+	DayCount                uint64    `ch:"day_count"`
 	MRR                     int64     `ch:"mrr_cents"`
 	ActiveEnd               int64     `ch:"active_end"`
 	PastDueEnd              int64     `ch:"past_due_end"`
@@ -340,7 +340,7 @@ func (s *AdminMetricsService) GetSummary(ctx context.Context, rng MetricsDateRan
 
 		avgActive := int64(0)
 		if r.DayCount > 0 {
-			avgActive = r.ActiveSum / r.DayCount
+			avgActive = r.ActiveSum / int64(r.DayCount)
 		}
 		arpu := int64(0)
 		if avgActive > 0 {
@@ -512,6 +512,9 @@ func (s *AdminMetricsService) GetSubscriptionSeries(ctx context.Context, rng Met
 	for _, resp := range responses {
 		out = append(out, *resp)
 	}
+	if len(out) == 0 {
+		return []SubscriptionSeriesResponse{}, nil
+	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Currency < out[j].Currency
 	})
@@ -566,6 +569,9 @@ func (s *AdminMetricsService) GetProcessorMetrics(ctx context.Context, rng Metri
 			return resp.Processors[i].Processor < resp.Processors[j].Processor
 		})
 		out = append(out, *resp)
+	}
+	if len(out) == 0 {
+		return []ProcessorMetricsResponse{}, nil
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].Currency < out[j].Currency

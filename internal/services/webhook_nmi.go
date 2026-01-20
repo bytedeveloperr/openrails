@@ -539,7 +539,9 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 			"processor_account": s.Processor,
 		}
 		txn := transactionRef
+
 		s.logSubscriptionEvent(ctx, subscription, PaymentEventSubscriptionCreated, &txn, metadata, &statusActive, nil)
+
 	}
 
 	return nil
@@ -852,6 +854,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		}
 		statusActive := models.StatusActive
 		metadata["status_after"] = string(statusActive)
+
 		s.logSubscriptionEvent(ctx, subscription, subEventType, txnPtr, metadata, &statusActive, nil)
 
 		var amountPtr *float64

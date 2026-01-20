@@ -211,6 +211,10 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 	runtime.WebhookDispatcher.EventLogService = runtime.EventLogService
 	runtime.SubscriptionLifecycleService.EventLogService = runtime.EventLogService
 
+	if runtime.AdminSubscriptionService != nil {
+		runtime.AdminSubscriptionService.EventLogService = runtime.EventLogService
+	}
+
 	return runtime, nil
 }
 
@@ -556,6 +560,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	)
 	checkoutService.Clock = clock
 	webhookDispatcher.CheckoutService = checkoutService
+	subscriptionLifecycleService.EventLogService = nil // reset until ClickHouse init
 
 	checkoutSessionService := services.NewCheckoutSessionService(
 		database,
