@@ -43,8 +43,11 @@ type RefundResult struct {
 
 // CreateRefund creates a refund for a Stripe charge or payment intent
 func (s *StripeRefundService) CreateRefund(ctx context.Context, params RefundParams) (*RefundResult, error) {
+	if s == nil || s.Config == nil {
+		return nil, errors.New("stripe configuration is not available")
+	}
 	stripeProc := s.Config.GetStripeProcessor()
-	if s == nil || s.Config == nil || stripeProc == nil {
+	if stripeProc == nil {
 		return nil, errors.New("stripe configuration is not available")
 	}
 	secretKey := strings.TrimSpace(stripeProc.SecretKey)
@@ -117,8 +120,11 @@ func (s *StripeRefundService) CreateRefund(ctx context.Context, params RefundPar
 
 // GetRefund retrieves a refund by ID
 func (s *StripeRefundService) GetRefund(ctx context.Context, refundID string) (*RefundResult, error) {
+	if s == nil || s.Config == nil {
+		return nil, errors.New("stripe configuration is not available")
+	}
 	stripeProc := s.Config.GetStripeProcessor()
-	if s == nil || s.Config == nil || stripeProc == nil {
+	if stripeProc == nil {
 		return nil, errors.New("stripe configuration is not available")
 	}
 	secretKey := strings.TrimSpace(stripeProc.SecretKey)
