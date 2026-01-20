@@ -15,7 +15,9 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/db/repo"
+	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
 	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
+	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -28,12 +30,14 @@ const (
 )
 
 var (
-	ErrCheckoutSessionValidation = errors.New("checkout session validation failed")
-	ErrCheckoutSessionNotFound   = errors.New("checkout session not found")
-	ErrCheckoutSessionForbidden  = errors.New("checkout session access denied")
-	ErrCheckoutSessionExpired    = errors.New("checkout session expired")
-	ErrCheckoutSessionPending    = errors.New("checkout session request already pending")
-	ErrCheckoutSessionConflict   = errors.New("checkout session conflict")
+	ErrCheckoutSessionValidation       = errors.New("checkout session validation failed")
+	ErrCheckoutSessionNotFound         = errors.New("checkout session not found")
+	ErrCheckoutSessionForbidden        = errors.New("checkout session access denied")
+	ErrCheckoutSessionExpired          = errors.New("checkout session expired")
+	ErrCheckoutSessionPending          = errors.New("checkout session request already pending")
+	ErrCheckoutSessionConflict         = errors.New("checkout session conflict")
+	ErrCheckoutSessionNotSolana        = errors.New("checkout session is not a solana session")
+	ErrCheckoutSessionAlreadyCompleted = errors.New("checkout session already completed")
 )
 
 type CheckoutSessionPaymentRequest struct {
@@ -87,12 +91,12 @@ type CheckoutSessionNextAction struct {
 }
 
 type CheckoutSessionPaymentResponse struct {
-	Processor       string `json:"processor"`
-	Reference       string `json:"reference,omitempty"`
-	TransactionURL  string `json:"transaction_url,omitempty"`
-	TransactionData string `json:"transaction_data,omitempty"`
-	RedirectURL     string `json:"redirect_url,omitempty"`
-	TransactionID   string `json:"transaction_id,omitempty"`
+	Processor      string `json:"processor"`
+	Reference      string `json:"reference,omitempty"`
+	TransactionURL string `json:"transaction_url,omitempty"` // For transfer_request flow (solana: URL)
+	SolanaPayURL   string `json:"solana_pay_url,omitempty"`  // For transaction_request flow (solana:https:// URL)
+	RedirectURL    string `json:"redirect_url,omitempty"`
+	TransactionID  string `json:"transaction_id,omitempty"`
 }
 
 type CheckoutSessionResponse struct {
@@ -120,6 +124,7 @@ type CheckoutSessionService struct {
 	checkoutService          *CheckoutService
 	solanaPayService         *SolanaPayService
 	solanaTransactionService *SolanaTransactionService
+	fxProvider               fx.Provider
 	config                   *config.Config
 	Clock                    clockwork.Clock
 }
@@ -133,6 +138,7 @@ func NewCheckoutSessionService(
 	checkoutService *CheckoutService,
 	solanaPayService *SolanaPayService,
 	solanaTransactionService *SolanaTransactionService,
+	fxProvider fx.Provider,
 	cfg *config.Config,
 ) *CheckoutSessionService {
 	return &CheckoutSessionService{
@@ -145,6 +151,7 @@ func NewCheckoutSessionService(
 		checkoutService:          checkoutService,
 		solanaPayService:         solanaPayService,
 		solanaTransactionService: solanaTransactionService,
+		fxProvider:               fxProvider,
 		config:                   cfg,
 	}
 }
@@ -375,8 +382,10 @@ func (s *CheckoutSessionService) resolveMode(mode string, processor string, pric
 }
 
 func (s *CheckoutSessionService) validatePayment(ctx context.Context, processor string, payment *CheckoutSessionPaymentRequest, user *UserIdentity) error {
-	switch processor {
-	case "mobius":
+	// Route to processor-specific validation based on config type detection
+	// This allows adding new NMI providers via config without code changes
+	switch {
+	case processors.IsNMIBacked(processor):
 		hasToken := strings.TrimSpace(payment.PaymentToken) != ""
 		hasMethod := strings.TrimSpace(payment.PaymentMethodID) != ""
 		if hasToken == hasMethod {
@@ -394,7 +403,7 @@ func (s *CheckoutSessionService) validatePayment(ctx context.Context, processor 
 				return fmt.Errorf("%w: payment method not authorized", ErrCheckoutSessionValidation)
 			}
 		}
-	case "stripe":
+	case processor == "stripe":
 		hasToken := strings.TrimSpace(payment.PaymentToken) != ""
 		hasMethod := strings.TrimSpace(payment.PaymentMethodID) != ""
 		if hasToken && hasMethod {
@@ -415,11 +424,11 @@ func (s *CheckoutSessionService) validatePayment(ctx context.Context, processor 
 		if err := requireBillingFields(payment); err != nil {
 			return err
 		}
-	case "solana":
+	case processor == "solana":
 		if strings.TrimSpace(payment.TokenSymbol) == "" {
 			return fmt.Errorf("%w: token_symbol is required", ErrCheckoutSessionValidation)
 		}
-	case "ccbill":
+	case processor == "ccbill":
 		if err := requireBillingFields(payment); err != nil {
 			return err
 		}
@@ -437,12 +446,15 @@ func (s *CheckoutSessionService) initializeSession(ctx context.Context, session 
 		return fmt.Errorf("%w: payment is required", ErrCheckoutSessionValidation)
 	}
 
-	switch strings.ToLower(string(session.Processor)) {
-	case "solana":
+	processor := strings.ToLower(string(session.Processor))
+	// Route to processor-specific initialization based on config type detection
+	// This allows adding new NMI providers via config without code changes
+	switch {
+	case processor == "solana":
 		return s.initializeSolanaSession(ctx, session, payment)
-	case "mobius":
+	case processors.IsNMIBacked(processor):
 		return s.initializeCheckoutSession(ctx, session, payment, user)
-	case "ccbill", "stripe":
+	case processor == "ccbill" || processor == "stripe":
 		return s.initializeCheckoutSession(ctx, session, payment, user)
 	default:
 		return nil
@@ -450,7 +462,8 @@ func (s *CheckoutSessionService) initializeSession(ctx context.Context, session 
 }
 
 func (s *CheckoutSessionService) initializeSolanaSession(ctx context.Context, session *models.CheckoutSession, payment *CheckoutSessionPaymentRequest) error {
-	if s.config == nil || s.config.Solana == nil {
+	solanaProc := s.config.GetSolanaProcessor()
+	if s.config == nil || solanaProc == nil {
 		return fmt.Errorf("%w: solana not configured", ErrCheckoutSessionValidation)
 	}
 
@@ -464,12 +477,12 @@ func (s *CheckoutSessionService) initializeSolanaSession(ctx context.Context, se
 		flow = "transfer_request"
 	}
 
-	tokenCfg, ok := s.config.Solana.SupportedTokens[tokenSymbol]
+	tokenCfg, ok := solanaProc.SupportedTokens[tokenSymbol]
 	if !ok || !tokenCfg.Enabled {
 		return fmt.Errorf("%w: unsupported token", ErrCheckoutSessionValidation)
 	}
 	tokenMint := tokenCfg.Mint
-	if strings.EqualFold(s.config.Solana.Network, "mainnet") && tokenCfg.MainnetMint != "" {
+	if strings.EqualFold(solanaProc.Network, "mainnet") && tokenCfg.MainnetMint != "" {
 		tokenMint = tokenCfg.MainnetMint
 	}
 
@@ -492,37 +505,46 @@ func (s *CheckoutSessionService) initializeSolanaSession(ctx context.Context, se
 		session.ProcessorState["flow"] = flow
 		session.ProcessorState["token_symbol"] = tokenSymbol
 		session.ProcessorState["token_mint"] = tokenMint
-		if tokenUnits, _, err := calculateTokenQuote(ctx, tokenCfg, session.Amount); err == nil {
-			session.ProcessorState["token_amount"] = tokenUnits
+		if quote, err := CalculateTokenQuote(ctx, tokenCfg, session.Amount, session.Currency, s.fxProvider); err == nil {
+			session.ProcessorState["token_amount"] = quote.Units
+			session.ProcessorState["token_price_usd"] = quote.TokenPriceUSD
+			session.ProcessorState["fx_rate"] = quote.FXRate
+			session.ProcessorState["fx_currency"] = quote.FXCurrency
+			session.ProcessorState["quoted_at"] = quote.QuotedAt.Format(time.RFC3339)
+			// Quote expires when the checkout session expires
+			if session.ExpiresAt != nil {
+				session.ProcessorState["quote_expires_at"] = session.ExpiresAt.Format(time.RFC3339)
+			} else {
+				session.ProcessorState["quote_expires_at"] = quote.QuotedAt.Add(defaultCheckoutSessionTTL).Format(time.RFC3339)
+			}
 		}
 	case "transaction_request":
+		// Transaction Request flow per Solana Pay spec:
+		// - Wallet address is NOT required at session creation
+		// - Transaction is built later when wallet calls POST /v1/checkout/:id/solana-pay
+		// - Session just stores flow and token info, returns solana_pay_url for wallet
 		if s.solanaTransactionService == nil {
 			return fmt.Errorf("%w: solana transaction service unavailable", ErrCheckoutSessionValidation)
 		}
-		if strings.TrimSpace(payment.Wallet) == "" {
-			return fmt.Errorf("%w: wallet is required for transaction_request", ErrCheckoutSessionValidation)
-		}
-		reference, err := solana.GenerateReference()
-		if err != nil {
-			return fmt.Errorf("failed to generate reference: %w", err)
-		}
-		session.Reference = &reference
-		txResp, err := s.solanaTransactionService.BuildPaymentTransaction(ctx, session.UserID, session.PriceID, tokenSymbol, payment.Wallet, session.Reference)
-		if err != nil {
-			return err
-		}
 		session.Status = models.CheckoutSessionStatusRequiresAction
-		session.ExpiresAt = &txResp.ExpiresAt
+		expiresAt := s.now().Add(defaultCheckoutSessionTTL)
+		session.ExpiresAt = &expiresAt
 		if session.ProcessorState == nil {
 			session.ProcessorState = map[string]any{}
 		}
-		session.ProcessorState["transaction_data"] = txResp.TransactionBase64
 		session.ProcessorState["flow"] = flow
 		session.ProcessorState["token_symbol"] = tokenSymbol
 		session.ProcessorState["token_mint"] = tokenMint
-		session.ProcessorState["token_amount"] = txResp.TokenAmount
-		session.ProcessorState["recipient"] = strings.TrimSpace(s.config.Solana.RecipientWallet)
-		session.ProcessorState["payer"] = strings.TrimSpace(payment.Wallet)
+		session.ProcessorState["recipient"] = strings.TrimSpace(solanaProc.RecipientWallet)
+		// Calculate quote for display purposes
+		if quote, err := CalculateTokenQuote(ctx, tokenCfg, session.Amount, session.Currency, s.fxProvider); err == nil {
+			session.ProcessorState["token_amount"] = quote.Units
+			session.ProcessorState["token_price_usd"] = quote.TokenPriceUSD
+			session.ProcessorState["fx_rate"] = quote.FXRate
+			session.ProcessorState["fx_currency"] = quote.FXCurrency
+			session.ProcessorState["quoted_at"] = quote.QuotedAt.Format(time.RFC3339)
+			session.ProcessorState["quote_expires_at"] = expiresAt.Format(time.RFC3339)
+		}
 	default:
 		return fmt.Errorf("%w: unsupported solana flow", ErrCheckoutSessionValidation)
 	}
@@ -670,7 +692,7 @@ func (s *CheckoutSessionService) sessionToResponse(session *models.CheckoutSessi
 		},
 		ExpiresAt: session.ExpiresAt,
 	}
-	if session.Metadata != nil && len(session.Metadata) > 0 {
+	if len(session.Metadata) > 0 {
 		resp.Metadata = session.Metadata
 	}
 
@@ -694,8 +716,13 @@ func (s *CheckoutSessionService) sessionToResponse(session *models.CheckoutSessi
 		if val, ok := session.ProcessorState["transaction_url"].(string); ok && strings.TrimSpace(val) != "" {
 			resp.Payment.TransactionURL = val
 		}
-		if val, ok := session.ProcessorState["transaction_data"].(string); ok && strings.TrimSpace(val) != "" {
-			resp.Payment.TransactionData = val
+		// Build solana_pay_url for transaction_request flow
+		if flow, ok := session.ProcessorState["flow"].(string); ok && flow == "transaction_request" {
+			// Construct the Solana Pay URL: solana:{api_url}/v1/checkout/:id/solana-pay
+			baseURL := s.getAPIBaseURL()
+			if baseURL != "" {
+				resp.Payment.SolanaPayURL = fmt.Sprintf("solana:%s/v1/checkout/%s/solana-pay", baseURL, api.FormatCheckoutSessionID(session.ID))
+			}
 		}
 		if val, ok := session.ProcessorState["redirect_url"].(string); ok && strings.TrimSpace(val) != "" {
 			resp.Payment.RedirectURL = val
@@ -779,12 +806,31 @@ func (s *CheckoutSessionService) buildNextAction(resp *CheckoutSessionResponse) 
 			Type: "solana_qr",
 		}
 	}
-	if resp.Payment.TransactionData != "" {
+	if resp.Payment.SolanaPayURL != "" {
 		return &CheckoutSessionNextAction{
-			Type: "solana_transaction",
+			Type: "solana_pay",
 		}
 	}
 	return nil
+}
+
+// getAPIBaseURL returns the API base URL for building Solana Pay URLs.
+// Uses config.APIURL which should be set to the full base URL where billing routes are mounted.
+//
+// Standalone: "https://api.mysite.com" → routes at /v1/*
+// Embedded:   "https://api.mysite.com/billing" → routes at /billing/v1/*
+//
+// Generated URLs follow the pattern: APIURL + "/v1/checkout/:id/solana-pay"
+func (s *CheckoutSessionService) getAPIBaseURL() string {
+	if s.config == nil {
+		return ""
+	}
+	apiURL := strings.TrimSpace(s.config.APIURL)
+	if apiURL == "" {
+		return ""
+	}
+	// Ensure it doesn't end with a slash (we add /v1/... later)
+	return strings.TrimSuffix(apiURL, "/")
 }
 
 func (s *CheckoutSessionService) confirmSolanaSession(ctx context.Context, session *models.CheckoutSession, req *CheckoutSessionConfirmRequest, user *UserIdentity) (*CheckoutSessionResponse, error) {
@@ -797,27 +843,30 @@ func (s *CheckoutSessionService) confirmSolanaSession(ctx context.Context, sessi
 	if s.checkoutService == nil {
 		return nil, fmt.Errorf("%w: checkout service unavailable", ErrCheckoutSessionValidation)
 	}
-	if s.config == nil || s.config.Solana == nil {
+	solanaProc := s.config.GetSolanaProcessor()
+	if s.config == nil || solanaProc == nil {
 		return nil, fmt.Errorf("%w: solana not configured", ErrCheckoutSessionValidation)
 	}
 
-	tokenSymbol := getStringField(session.ProcessorFields, "token_symbol")
+	// Get token symbol from ProcessorState (where initializeSolanaSession stores it)
+	tokenSymbol := getStringField(session.ProcessorState, "token_symbol")
 	if tokenSymbol == "" {
 		return nil, fmt.Errorf("%w: token_symbol missing", ErrCheckoutSessionValidation)
 	}
 
-	tokenCfg, ok := s.config.Solana.SupportedTokens[tokenSymbol]
+	tokenCfg, ok := solanaProc.SupportedTokens[tokenSymbol]
 	if !ok || !tokenCfg.Enabled {
 		return nil, fmt.Errorf("%w: unsupported token", ErrCheckoutSessionValidation)
 	}
 	tokenMint := tokenCfg.Mint
-	if strings.EqualFold(s.config.Solana.Network, "mainnet") && tokenCfg.MainnetMint != "" {
+	if strings.EqualFold(solanaProc.Network, "mainnet") && tokenCfg.MainnetMint != "" {
 		tokenMint = tokenCfg.MainnetMint
 	}
 
 	expectedAmount := getUint64Field(session.ProcessorState, "token_amount")
-	expectedRecipient := strings.TrimSpace(s.config.Solana.RecipientWallet)
-	expectedPayer := strings.TrimSpace(getStringField(session.ProcessorFields, "wallet"))
+	expectedRecipient := strings.TrimSpace(solanaProc.RecipientWallet)
+	// Get payer from ProcessorState (set by BuildSolanaPayTransaction)
+	expectedPayer := strings.TrimSpace(getStringField(session.ProcessorState, "payer"))
 	if reqWallet := strings.TrimSpace(req.Payment.Wallet); reqWallet != "" {
 		if expectedPayer != "" && expectedPayer != reqWallet {
 			return nil, fmt.Errorf("%w: wallet does not match session", ErrCheckoutSessionValidation)
@@ -1050,4 +1099,165 @@ func stringPtr(value string) *string {
 	}
 	val := strings.TrimSpace(value)
 	return &val
+}
+
+// SolanaPaySessionInfo contains session info for Solana Pay GET endpoint
+type SolanaPaySessionInfo struct {
+	ProductName string
+}
+
+// SolanaPayTransactionResponse is the response from BuildSolanaPayTransaction
+type SolanaPayTransactionResponse struct {
+	TransactionBase64 string
+	Message           string
+}
+
+// GetSessionForSolanaPay retrieves and validates a checkout session for Solana Pay spec endpoints.
+// Returns session info needed for GET endpoint or an error if the session is invalid.
+func (s *CheckoutSessionService) GetSessionForSolanaPay(ctx context.Context, sessionID uuid.UUID) (*SolanaPaySessionInfo, error) {
+	if s.repo == nil {
+		return nil, ErrCheckoutSessionNotFound
+	}
+
+	session, err := s.repo.GetByID(ctx, sessionID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrCheckoutSessionNotFound
+		}
+		return nil, err
+	}
+	if session == nil {
+		return nil, ErrCheckoutSessionNotFound
+	}
+
+	// Validate it's a Solana session
+	if session.Processor != models.ProcessorSolana {
+		return nil, ErrCheckoutSessionNotSolana
+	}
+
+	// Check if expired
+	if session.ExpiresAt != nil && s.now().After(*session.ExpiresAt) {
+		return nil, ErrCheckoutSessionExpired
+	}
+
+	// Check if already completed
+	if session.Status == models.CheckoutSessionStatusSucceeded ||
+		session.Status == models.CheckoutSessionStatusCanceled {
+		return nil, ErrCheckoutSessionAlreadyCompleted
+	}
+
+	// Get product name for label (via price)
+	var productName string
+	if s.priceService != nil {
+		price, err := s.priceService.GetByID(ctx, session.PriceID)
+		if err == nil && price != nil && s.productService != nil {
+			product, err := s.productService.GetByID(ctx, price.ProductID)
+			if err == nil && product != nil {
+				productName = product.DisplayName
+			}
+		}
+	}
+
+	return &SolanaPaySessionInfo{
+		ProductName: productName,
+	}, nil
+}
+
+// BuildSolanaPayTransaction builds a Solana transaction for the given checkout session and wallet account.
+// This implements the POST endpoint of the Solana Pay Transaction Request spec.
+func (s *CheckoutSessionService) BuildSolanaPayTransaction(ctx context.Context, sessionID uuid.UUID, account string) (*SolanaPayTransactionResponse, error) {
+	if s.repo == nil {
+		return nil, ErrCheckoutSessionNotFound
+	}
+	if s.solanaTransactionService == nil {
+		return nil, fmt.Errorf("%w: solana transaction service unavailable", ErrCheckoutSessionValidation)
+	}
+	solanaProc := s.config.GetSolanaProcessor()
+	if solanaProc == nil {
+		return nil, fmt.Errorf("%w: solana not configured", ErrCheckoutSessionValidation)
+	}
+
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return nil, fmt.Errorf("%w: account is required", ErrCheckoutSessionValidation)
+	}
+
+	session, err := s.repo.GetByID(ctx, sessionID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrCheckoutSessionNotFound
+		}
+		return nil, err
+	}
+	if session == nil {
+		return nil, ErrCheckoutSessionNotFound
+	}
+
+	// Validate it's a Solana session
+	if session.Processor != models.ProcessorSolana {
+		return nil, ErrCheckoutSessionNotSolana
+	}
+
+	// Check if expired
+	if session.ExpiresAt != nil && s.now().After(*session.ExpiresAt) {
+		return nil, ErrCheckoutSessionExpired
+	}
+
+	// Check if already completed
+	if session.Status == models.CheckoutSessionStatusSucceeded ||
+		session.Status == models.CheckoutSessionStatusCanceled {
+		return nil, ErrCheckoutSessionAlreadyCompleted
+	}
+
+	// Get token symbol from processor state
+	tokenSymbol := getStringField(session.ProcessorState, "token_symbol")
+	if tokenSymbol == "" {
+		return nil, fmt.Errorf("%w: token_symbol missing from session", ErrCheckoutSessionValidation)
+	}
+
+	// Generate reference if not already set
+	if session.Reference == nil || *session.Reference == "" {
+		reference, err := solana.GenerateReference()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate reference: %w", err)
+		}
+		session.Reference = &reference
+	}
+
+	// Build the transaction
+	txResp, err := s.solanaTransactionService.BuildPaymentTransaction(
+		ctx,
+		session.UserID,
+		session.PriceID,
+		tokenSymbol,
+		account,
+		session.Reference,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update session with payer wallet and transaction info
+	if session.ProcessorState == nil {
+		session.ProcessorState = map[string]any{}
+	}
+	session.ProcessorState["payer"] = account
+	session.ProcessorState["token_amount"] = txResp.TokenAmount
+	session.ProcessorState["recipient"] = solanaProc.RecipientWallet
+	session.ExpiresAt = &txResp.ExpiresAt
+
+	if err := s.repo.Update(ctx, session); err != nil {
+		return nil, fmt.Errorf("failed to update session: %w", err)
+	}
+
+	// Build message for wallet
+	message := txResp.Instructions
+	if message == "" {
+		message = "Sign to complete your payment"
+	}
+
+	return &SolanaPayTransactionResponse{
+		TransactionBase64: txResp.TransactionBase64,
+		Message:           message,
+	}, nil
 }

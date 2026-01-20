@@ -13,7 +13,7 @@ type portalResponse struct {
 }
 
 // CreatePortalSession creates a Stripe customer portal session.
-// POST /v1/me/portal
+// POST /v1/stripe/portal
 func CreatePortalSession(r *Request) {
 	user := r.GetUser()
 	if user == nil || user.ID == "" {

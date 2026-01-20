@@ -1,35 +1,119 @@
 # Billing Service Configuration Example
 # Copy this to config.yaml and fill in your actual values
+# All settings can also be set via environment variables (see .env.example)
+
+# =============================================================================
+# CORE SETTINGS
+# =============================================================================
 
 # Environment: prod, dev, development, production
+# Controls logging verbosity and debug features (NOT payment mode)
 env: "development"
 
-# Server configuration
-# host: "0.0.0.0"  # Host to bind to (default: 0.0.0.0)
-# port: 2053       # Public HTTP/HTTPS port (default: 2053)
+# Test Mode: Controls whether payment processors use sandbox/test environments
+# - true (default): NMI uses sandbox.nmi.com, CCBill uses sandbox-api, Solana uses devnet
+# - false: All processors use production endpoints
+#
+# This is separate from 'env' - you can run env=prod with test_mode=true for
+# staging environments, or env=dev with test_mode=false for local prod testing.
+#
+# Stripe note: Stripe uses API key prefix (sk_test_* vs sk_live_*) to determine mode.
+# If your key doesn't match test_mode, Stripe will be disabled with a warning.
+test_mode: true
 
-# CORS origins for frontend access
+# =============================================================================
+# STANDALONE MODE ONLY
+# =============================================================================
+# These settings only apply when running doujins-billing as a standalone service.
+# In embedded mode, the host application handles binding and routing.
+
+host: "0.0.0.0"        # Address to bind to (default: 0.0.0.0)
+port: 2053             # Public HTTP/HTTPS port (default: 2053)
+private_port: 8060     # Internal/service API port (default: 8060)
+
+# =============================================================================
+# BOTH MODES (standalone + embedded)
+# =============================================================================
+# These settings apply in both standalone and embedded modes.
+
+# API URL: Base URL where billing's /v1/* routes are mounted.
+# REQUIRED for Solana Pay transaction_request URLs and webhook generation.
+#
+# Standalone mode: Routes are at /v1/*, so just the origin:
+#   api_url: "https://api.mysite.com"
+#   → Generated URL: https://api.mysite.com/v1/checkout/:id/solana-pay
+#
+# Embedded mode: Routes are at /{mount_prefix}/v1/*, include the mount prefix:
+#   api_url: "https://api.mysite.com/billing"
+#   → Generated URL: https://api.mysite.com/billing/v1/checkout/:id/solana-pay
+#
+api_url: "https://api.example.com"
+
+# Billing API key for private admin routes (header: X-API-KEY)
+# Default is "change-me-in-dev"; override via env BILLING_API_KEY for non-dev
+api_key: "change-me-in-dev"
+
+# CORS origins for frontend access (REQUIRED for browser requests)
+# These are the frontend domains allowed to call billing APIs.
+#
+# If not set and api_url is set: derives origin from api_url
+# If dev mode with nothing set: localhost:3000, localhost:5173, localhost:8080
+# If prod with nothing set: blocks all cross-origin requests
 cors_origins:
   - "http://localhost:3000"
   - "https://your-frontend-domain.com"
 
-# Database configuration (non-secrets only)
-# Provide DB_URL via environment (.env) instead of here
+# =============================================================================
+# STORE/MERCHANT BRANDING
+# =============================================================================
+# Used across the system for consistent branding (Solana Pay, emails, receipts)
+
+store:
+  name: "My Store"                              # Merchant name (default: "My Store")
+  logo_url: "https://your-domain.com/logo.png"  # Logo URL (default: embedded $ icon)
+  from_email: "noreply@your-domain.com"         # Sender email for all outgoing emails (required if sendgrid configured)
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+
+logger:
+  level: "info"  # debug, info, warn, error, fatal, panic (default: info)
+
+# =============================================================================
+# DATABASE (PostgreSQL)
+# =============================================================================
+# Provide DB_URL via environment (.env) instead of secrets here
+
 db:
-  dialect: "postgres"
+  # Option 1: Full connection string (set via DB_URL env var)
+  # url: "postgres://user:pass@host:5432/dbname?sslmode=disable"
 
-# Redis configuration for caching and sessions (non-secrets only)
-# Provide REDIS_URL via environment (.env) instead of password here
+  # Option 2: Atomic parameters (preferred for Kubernetes/Vault)
+  host: "localhost"
+  port: "5432"
+  database: "doujins_db"
+  username: "admin"
+  # password: set via DB_PASSWORD env var
+  sslmode: "disable"
+
+# =============================================================================
+# REDIS (for caching, sessions, rate limiting)
+# =============================================================================
+
 redis:
-  # Matches docker-compose Garnet (service name: garnet)
-  host: "garnet:6379"
-  # db: 0
+  addr: "garnet:6379"   # Redis/Garnet address (default: garnet:6379)
+  # password: ""        # Set via REDIS_PASSWORD env var if needed
+  db: 0                 # Redis database number (default: 0)
 
-# Auth/JWT configuration for authentication (Verifier Only)
-# Billing acts as a JWT verifier, not an issuer. It verifies tokens from doujins/hentai0.
+# =============================================================================
+# AUTHENTICATION (JWT Verifier)
+# =============================================================================
+# Billing is a JWT verifier (not issuer). It verifies tokens from doujins/hentai0.
+
 auth:
   # Issuers - array of token issuer URLs
-  # Billing will fetch public keys from each {issuer}/.well-known/jwks.json per OIDC spec
+  # Billing fetches public keys from each {issuer}/.well-known/jwks.json per OIDC spec
   issuers:
     - "http://localhost:2052"  # doujins
     - "http://localhost:4000"  # hentai0
@@ -38,126 +122,212 @@ auth:
   #   - "https://doujins.com"
   #   - "https://hentai0.com"
 
-  # Expected audience - the expected "aud" claim in incoming JWTs (must be "billing-app")
+  # Expected audience - the expected "aud" claim in incoming JWTs
   expected_audience: "billing-app"
 
-# Billing API key for private admin routes (header: X-API-KEY)
-# Default is "change-me-in-dev"; override via env BILLING_API_KEY for non-dev.
-billing_api_key: "change-me-in-dev"
+# =============================================================================
+# PAYMENT PROCESSORS
+# =============================================================================
+# All processors are configured under a single "processors" map.
+# Reserved names (ccbill, stripe, solana) don't need explicit "type" field.
+# Non-reserved names (e.g., "mobius", "acme") require "type: nmi".
+#
+# Environment variables: PROCESSORS_<NAME>_<FIELD>
+# Example: PROCESSORS_MOBIUS_SECURITY_KEY, PROCESSORS_CCBILL_CLIENT_ACC_NUM
 
-# CCBill payment processor configuration
-ccbill:
-  # Required CCBill identifiers
-  client_acc_num: "your-ccbill-account-number"
-  client_sub_acc: "your-ccbill-subaccount"
-  # salt: set via env CCBILL_SALT
+processors:
+  # ---------------------------------------------------------------------------
+  # NMI-backed processors (type: nmi)
+  # ---------------------------------------------------------------------------
+  # Add any NMI/Mobius gateway providers here.
+  # Non-reserved names require "type: nmi".
+  mobius:
+    type: nmi
+    # Secrets - set via env: PROCESSORS_MOBIUS_SECURITY_KEY, etc.
+    # security_key: ""
+    # tokenization_key: ""
+    # webhook_secret: ""
 
-  # Form configuration (must match CCBill portal)
-  subscription_type_id: "0001"
+    # Provider-specific URLs (optional - defaults to standard NMI)
+    # direct_post_url: "https://secure.mobiusgateway.com/api/transact.php"
+    # query_url: "https://secure.mobiusgateway.com/api/query.php"
 
-  # Toggle sandbox vs production FlexForm hosts
-  test_mode: true
+  # Example: Another NMI provider (just add config, no code changes needed)
+  # acme:
+  #   type: nmi
+  #   security_key: ""  # or via PROCESSORS_ACME_SECURITY_KEY
 
-  # DataLink credentials (enable reconcile worker when provided)
-  # datalink_username: set via env CCBILL_DATALINK_USERNAME
-  # datalink_password: set via env CCBILL_DATALINK_PASSWORD
+  # ---------------------------------------------------------------------------
+  # CCBill (reserved name - type implied)
+  # ---------------------------------------------------------------------------
+  ccbill:
+    client_acc_num: "your-ccbill-account-number"
+    client_sub_acc: "your-ccbill-subaccount"
+    subscription_type_id: "0001"  # Must match CCBill portal config
+    # salt: set via PROCESSORS_CCBILL_SALT env var
 
-# NMI payment processor configuration
-nmi:
-  test_mode: true
-  # direct_post_url: "https://secure.networkmerchants.com/api/transact.php" # optional global override
-  # query_url: "https://secure.nmi.com/api/query.php"                       # optional global override
+    # DataLink credentials (enables reconciliation worker)
+    # datalink_username: set via PROCESSORS_CCBILL_DATALINK_USERNAME env var
+    # datalink_password: set via PROCESSORS_CCBILL_DATALINK_PASSWORD env var
 
-  providers:
-    mobius:
-      # Supply secrets via env or override here
-      security_key: ""
-      tokenization_key: ""
-      webhook_secret: ""
-      # direct_post_url: "https://secure.mobiusgateway.com/api/transact.php"
-      # query_url: "https://secure.mobiusgateway.com/api/query.php"
+  # ---------------------------------------------------------------------------
+  # Stripe (reserved name - type implied)
+  # ---------------------------------------------------------------------------
+  stripe:
+    # secret_key: set via PROCESSORS_STRIPE_SECRET_KEY env var
+    # webhook_secret: set via PROCESSORS_STRIPE_WEBHOOK_SECRET env var
+    success_url: "https://your-domain.com/checkout/success"
+    cancel_url: "https://your-domain.com/checkout/cancel"
 
-# Stripe payment processor configuration
-stripe:
-  # secret_key: "sk_test_..."
-  # webhook_secret: "whsec_..."
+  # ---------------------------------------------------------------------------
+  # Solana (reserved name - type implied)
+  # ---------------------------------------------------------------------------
+  solana:
+    recipient_wallet: "your-solana-wallet-address"
+    # network is auto-derived from test_mode: devnet if test_mode=true, mainnet otherwise
+    # Explicit network setting overrides auto-derivation (rarely needed)
 
-# Webhook processing configuration
-webhooks:
-  retry:
-    max_attempts: 5
-    initial_backoff: 1m
-    max_backoff: 1h
-    batch_size: 100
+    # -------------------------------------------------------------------------
+    # RPC Configuration (choose one approach)
+    # -------------------------------------------------------------------------
+    #
+    # OPTION 1: Automatic RPC fallback chain (RECOMMENDED)
+    # Leave rpc_endpoint empty. Uses: Helius → Ankr → Solana public
+    # Add helius_api_key for Helius as primary (100k req/day free tier)
+    #
+    # helius_api_key: ""  # Get free API key at https://helius.dev
+    #
+    # OPTION 2: Custom RPC endpoint (bypasses fallback chain)
+    # rpc_endpoint: "https://your-rpc-provider.com"
 
-# Solana blockchain configuration
-solana:
-  rpc_endpoint: "https://api.mainnet-beta.solana.com"
-  network: "mainnet" # mainnet, devnet, testnet
-  recipient_wallet: "your-solana-wallet-address"
-  destination_wallet: "your-solana-wallet-address" # alias for recipient_wallet
-  
-  # Transaction settings
-  transaction_timeout_seconds: 300 # 5 minutes
-  confirmation_blocks: 1
-  max_transaction_fee: 0.01 # SOL
-  
-  # Supported tokens
-  # Note: Token prices are fetched dynamically from Jupiter at runtime
-  supported_tokens:
-    SOL:
-      mint: "" # Native SOL doesn't have a mint address
-      symbol: "SOL"
-      name: "Solana"
-      decimals: 9
-      enabled: true
+    # -------------------------------------------------------------------------
+    # Token Configuration (choose one approach)
+    # -------------------------------------------------------------------------
+    #
+    # OPTION 1: Simple enabled_tokens list (RECOMMENDED)
+    # Just list token symbols - metadata fetched from Jupiter at startup
+    # Only verified tokens from Jupiter strict list are supported
+    #
+    enabled_tokens: ["SOL", "USDC", "PYUSD"]
+    #
+    # Add any Jupiter-verified token:
+    # enabled_tokens: ["SOL", "USDC", "PYUSD", "BONK", "JUP", "USDT"]
+    #
+    # OPTION 2: Legacy supported_tokens map (for custom/unverified tokens)
+    # Use this if you need non-Jupiter tokens or custom configuration
+    #
+    # supported_tokens:
+    #   SOL:
+    #     mint: ""  # Native SOL has no mint address
+    #     symbol: "SOL"
+    #     name: "Solana"
+    #     decimals: 9
+    #     enabled: true
+    #   USDC:
+    #     mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    #     symbol: "USDC"
+    #     name: "USD Coin"
+    #     decimals: 6
+    #     enabled: true
 
-    USDC:
-      mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-      symbol: "USDC"
-      name: "USD Coin"
-      decimals: 6
-      enabled: true
+# =============================================================================
+# ANALYTICS (ClickHouse)
+# =============================================================================
 
-    PYUSD:
-      mint: "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo"
-      symbol: "PYUSD"
-      name: "PayPal USD"
-      decimals: 6
-      enabled: true
-
-# ClickHouse analytics database
 clickhouse:
-  # Matches docker-compose ClickHouse (service name: clickhouse)
   http_addr: "http://clickhouse:8123"
   client_addr: "clickhouse:9000"
   database: "analytics"
-  # Provide CLICKHOUSE_USER and CLICKHOUSE_PASSWORD via env
+  cluster: "doujins"  # ClickHouse cluster name
+  # user: set via CLICKHOUSE_USER env var
+  # password: set via CLICKHOUSE_PASSWORD env var
 
-# SendGrid email service configuration
+# =============================================================================
+# EMAIL (SendGrid)
+# =============================================================================
+# Sender info (from_email, from_name) comes from store config above.
+
 sendgrid:
-  from_email: "noreply@your-domain.com"
-  from_name: "Doujins Billing"
-  # Provide SENDGRID_API_KEY via env
+  # api_key: set via SENDGRID_API_KEY env var
+  # Sender email uses store.from_email, sender name uses store.name
 
-# Rate limiting configuration
+# =============================================================================
+# RATE LIMITING
+# =============================================================================
+# All rate limits use a fixed 1-minute window.
+
 rate_limits:
-  # Subscription endpoints (very restrictive)
-  subscribe_limit:
-    requests_per_minute: 10
-    burst_size: 3
-  
-  # Webhook endpoints (higher limit)
-  webhook_limit:
-    requests_per_minute: 100
-    burst_size: 20
-  
-  # Payment method operations
-  payment_limit:
-    requests_per_minute: 20
-    burst_size: 5
-  
-  # Default for other endpoints
-  default_limit:
-    requests_per_minute: 60
-    burst_size: 10
+  subscribe:
+    requests_per_minute: 10  # Very restrictive for payment endpoints
+    burst: 3                 # Max burst size (optional)
+
+  checkout:
+    requests_per_minute: 5   # Heavy rate limiting for checkout
+    burst: 2
+
+  webhook:
+    requests_per_minute: 100 # Higher for processor webhooks
+    burst: 20
+
+  payment:
+    requests_per_minute: 20  # Payment method operations
+    burst: 5
+
+  default:
+    requests_per_minute: 60  # Default for other endpoints
+    burst: 10
+
+# =============================================================================
+# FEATURE FLAGS (Safety Controls)
+# =============================================================================
+# These flags control potentially destructive background operations.
+# Use them to quickly disable operations when bugs are suspected,
+# without requiring a code deployment.
+#
+# Environment variables:
+#   FEATURE_FLAGS_DUNNING_MODE=on|dry_run_only|off
+#   FEATURE_FLAGS_DISABLE_ENTITLEMENT_EXPIRATION=true|false
+
+feature_flags:
+  # -------------------------------------------------------------------------
+  # Dunning Mode - Controls retry charging for failed subscription rebills
+  # -------------------------------------------------------------------------
+  # Values:
+  #   "on" (default):     Normal dunning - retry charges, grace period, recovery workflow
+  #   "dry_run_only":     Workflow runs but no charges attempted
+  #                       - Subscriptions stay in past_due state
+  #                       - Retry counts preserved (not incremented)
+  #                       - Use when debugging charge logic bugs
+  #   "off":              No dunning - immediate cancellation on rebill failure
+  #                       - No grace period, no retry attempts
+  #                       - Use when dunning itself is broken or business decision
+  #
+  # Example: If charge logic has a bug causing incorrect amounts:
+  #   1. Set dunning_mode: dry_run_only
+  #   2. Fix the bug, deploy
+  #   3. Set dunning_mode: on
+  #   4. All accumulated past_due subscriptions will be retried
+  #
+  dunning_mode: "on"
+
+  # -------------------------------------------------------------------------
+  # Disable Entitlement Expiration - Stops credits/entitlements from expiring
+  # -------------------------------------------------------------------------
+  # When true:
+  #   - CreditExpiryWorker skips - expired credit batches are preserved
+  #   - HoldExpiryWorker skips - expired holds stay active
+  #   - FailMembership skips entitlement revocation (but still cancels subscription)
+  #   - Users keep premium access even after subscription ends
+  #
+  # When false (default):
+  #   - Normal expiration behavior
+  #
+  # Use case: Bug in expiration logic causing premature credit/entitlement loss
+  #
+  # Example: If credits are expiring too early due to timezone bug:
+  #   1. Set disable_entitlement_expiration: true
+  #   2. Fix the bug, deploy
+  #   3. Set disable_entitlement_expiration: false
+  #   4. All accumulated expirations will process at once
+  #
+  disable_entitlement_expiration: false

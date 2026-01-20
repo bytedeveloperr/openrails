@@ -3,7 +3,7 @@ package policy
 import (
 	"context"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
+	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/doujins-org/ginapi/response"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -29,13 +29,13 @@ func IsAdmin(ctx context.Context, db bun.IDB, userID string) (bool, error) {
 // This policy is app-specific; it should not live in authkit.
 func AdminRequired(db bun.IDB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		cl, ok := authgin.ClaimsFromGin(c)
-		if !ok || cl.UserID == "" {
+		uc, ok := authprovider.UserContextFromGin(c)
+		if !ok || uc.UserID == "" {
 			response.UnauthorizedWithMessage(c, "authentication required")
 			c.Abort()
 			return
 		}
-		isAdmin, err := IsAdmin(c.Request.Context(), db, cl.UserID)
+		isAdmin, err := IsAdmin(c.Request.Context(), db, uc.UserID)
 		if err != nil {
 			log.WithError(err).Error("failed to check admin role")
 			response.InternalError(c, "failed to check admin role")
@@ -43,7 +43,7 @@ func AdminRequired(db bun.IDB) gin.HandlerFunc {
 			return
 		}
 		if !isAdmin {
-			log.WithField("user_id", cl.UserID).Warn("admin access denied")
+			log.WithField("user_id", uc.UserID).Warn("admin access denied")
 			response.ForbiddenWithMessage(c, "admin privileges required")
 			c.Abort()
 			return

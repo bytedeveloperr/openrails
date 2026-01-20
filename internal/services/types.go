@@ -993,25 +993,3 @@ func (e CCBillVoidEvent) GetSubscriptionID() string        { return e.Subscripti
 func (e CCBillVoidEvent) GetClientAccnum() string          { return e.ClientAccnum }
 func (e CCBillVoidEvent) GetClientSubacc() string          { return e.ClientSubacc }
 func (e CCBillVoidEvent) GetTimestamp() string             { return e.Timestamp }
-
-// Legacy grantRole helpers removed; entitlement logic lives in lifecycle/webhook services.
-
-func validateSubscription(sub *models.Subscription, newStatus models.SubscriptionStatus, amount float64, at time.Time) error {
-	if sub.CurrentPeriodEndsAt != nil && sub.CurrentPeriodEndsAt.Before(at) {
-		if newStatus == models.StatusActive {
-			return fmt.Errorf("cannot activate expired subscription without proper renewal")
-		}
-	}
-
-	if newStatus == models.StatusActive && amount <= 0 {
-		return fmt.Errorf("cannot activate subscription with invalid amount: %.2f", amount)
-	}
-
-	if newStatus == models.StatusPastDue {
-		if sub.RetryAttempts != nil && *sub.RetryAttempts >= MaxDunningFailures {
-			return fmt.Errorf("subscription has exceeded maximum dunning attempts, should be cancelled")
-		}
-	}
-
-	return nil
-}

@@ -158,19 +158,6 @@ func (r *DeletePaymentMethodRequest) Path() any {
 	return &r.DeletePaymentMethodPathParams
 }
 
-type ActivatePaymentMethodPathParams struct {
-	ID string `uri:"id" binding:"required"`
-}
-
-type ActivatePaymentMethodRequest struct {
-	BaseRequest
-	ActivatePaymentMethodPathParams
-}
-
-func (r *ActivatePaymentMethodRequest) Path() any {
-	return &r.ActivatePaymentMethodPathParams
-}
-
 type CreatePaymentMethodRequest struct {
 	PaymentToken string `json:"payment_token" binding:"required"`
 	FirstName    string `json:"first_name" binding:"required"`
@@ -285,19 +272,5 @@ func (r *CheckoutSessionConfirmRequest) Body() any {
 	return &r.CheckoutSessionConfirmBodyParams
 }
 
-// -------------------------------- UpdateSubscriptionPaymentMethod Request --------------------------------
-// PUT /v1/me/subscriptions/payment-method - Update which payment method a subscription uses
-
-type UpdateSubscriptionPaymentMethodBodyParams struct {
-	SubscriptionID  string `json:"subscription_id" binding:"required"`
-	PaymentMethodID string `json:"payment_method_id" binding:"required"`
-}
-
-type UpdateSubscriptionPaymentMethodRequest struct {
-	BaseRequest
-	UpdateSubscriptionPaymentMethodBodyParams
-}
-
-func (r *UpdateSubscriptionPaymentMethodRequest) Body() any {
-	return &r.UpdateSubscriptionPaymentMethodBodyParams
-}
+// Note: UpdateSubscriptionPaymentMethod uses a local struct in the handler
+// with subscription ID from path param and payment_method_id in body.

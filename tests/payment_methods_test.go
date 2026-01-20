@@ -106,7 +106,6 @@ func TestListPaymentMethods(t *testing.T) {
 	pm1 := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
-		IsActive:  true,
 		LastFour:  "4242",
 		CardType:  "Visa",
 	})
@@ -114,7 +113,6 @@ func TestListPaymentMethods(t *testing.T) {
 	pm2 := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 		UserID:    userID,
 		Processor: models.ProcessorMobius,
-		IsActive:  true, // Note: Database has default:true, so false values become true
 		LastFour:  "1234",
 		CardType:  "Mastercard",
 	})
@@ -212,7 +210,6 @@ func TestCreatePaymentMethod(t *testing.T) {
 
 		assert.NotEmpty(t, response["id"], "Should return payment method ID")
 		assert.Equal(t, "mobius", response["processor"], "Processor should be mobius")
-		assert.True(t, response["is_active"].(bool), "Should be active by default")
 	})
 
 	t.Run("returns error without payment_token", func(t *testing.T) {
@@ -243,7 +240,6 @@ func TestDeletePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
 		})
 
 		w := httptest.NewRecorder()
@@ -284,7 +280,6 @@ func TestDeletePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
 		})
 
 		w := httptest.NewRecorder()
@@ -307,65 +302,6 @@ func TestDeletePaymentMethod(t *testing.T) {
 	})
 }
 
-// TestActivatePaymentMethod tests activating payment methods
-func TestActivatePaymentMethod(t *testing.T) {
-	suite, token, userID := setupTestSuiteWithAuth(t)
-
-	// Note: Due to database default:true on is_active, newly created payment methods
-	// are always active. The activate endpoint will return success either way.
-
-	t.Run("returns success for payment method", func(t *testing.T) {
-		// Create a payment method (will be active due to default:true)
-		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
-			UserID:    userID,
-			Processor: models.ProcessorMobius,
-			IsActive:  true,
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", pm.ID.String()), nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK")
-
-		var response map[string]interface{}
-		err := json.Unmarshal(w.Body.Bytes(), &response)
-		require.NoError(t, err)
-
-		assert.True(t, response["success"].(bool), "Success should be true")
-	})
-
-	t.Run("returns 404 for non-existent payment method", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", uuid.New().String()), nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 Not Found")
-	})
-
-	t.Run("returns 403 for payment method owned by another user", func(t *testing.T) {
-		// Create a payment method owned by a different user
-		otherUserID := uuid.New().String()
-		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
-			UserID:    otherUserID,
-			Processor: models.ProcessorMobius,
-			IsActive:  true,
-		})
-
-		w := httptest.NewRecorder()
-		req, _ := http.NewRequest("PUT", fmt.Sprintf("/v1/me/payment-methods/%s/activate", pm.ID.String()), nil)
-		req.Header.Set("Authorization", "Bearer "+token)
-
-		suite.Server.Handler().ServeHTTP(w, req)
-
-		assert.Equal(t, http.StatusForbidden, w.Code, "Should return 403 Forbidden")
-	})
-}
-
 // TestUpdatePaymentMethod tests updating payment methods
 func TestUpdatePaymentMethod(t *testing.T) {
 	suite, mock := SetupSuiteWithMockNMI(t)
@@ -382,7 +318,6 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
 		})
 
 		body := map[string]string{
@@ -412,7 +347,6 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    userID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
 		})
 
 		body := map[string]string{
@@ -453,7 +387,6 @@ func TestUpdatePaymentMethod(t *testing.T) {
 		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
 			UserID:    otherUserID,
 			Processor: models.ProcessorMobius,
-			IsActive:  true,
 		})
 
 		body := map[string]string{

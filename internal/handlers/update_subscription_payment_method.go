@@ -14,14 +14,19 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// UpdateSubscriptionPaymentMethodBody is the request body for PUT /v1/me/subscriptions/:id/payment-method
+type UpdateSubscriptionPaymentMethodBody struct {
+	PaymentMethodID string `json:"payment_method_id" binding:"required"`
+}
+
 // UpdateSubscriptionPaymentMethod changes which stored payment method a subscription uses.
-// PUT /v1/me/subscriptions/payment-method
-// Request: { subscription_id: 'uuid', payment_method_id: 'uuid' }
+// PUT /v1/me/subscriptions/:id/payment-method
+// Request: { payment_method_id: 'uuid' }
 //
 // Validations:
 //   - User must own the subscription (from JWT)
 //   - User must own the target payment method
-//   - Payment method must be active and NMI-backed
+//   - Payment method must be NMI-backed
 //   - Subscription must be NMI-backed (not CCBill/Solana)
 //   - Subscription must be active or past_due (not cancelled)
 func UpdateSubscriptionPaymentMethod(r *Request) {
@@ -31,15 +36,22 @@ func UpdateSubscriptionPaymentMethod(r *Request) {
 		return
 	}
 
-	// Bind and validate request body
-	req := new(UpdateSubscriptionPaymentMethodRequest)
-	if !r.BindJSON(req.Body()) {
+	// Parse subscription ID from path
+	subscriptionIDStr := r.GinCtx.Param("id")
+	if subscriptionIDStr == "" {
+		r.ErrorJSON(http.StatusBadRequest, "subscription ID required")
 		return
 	}
 
-	subscriptionID, err := api.ParseSubscriptionID(req.SubscriptionID)
+	subscriptionID, err := api.ParseSubscriptionID(subscriptionIDStr)
 	if err != nil {
-		r.ErrorJSON(http.StatusBadRequest, "Invalid subscription_id format")
+		r.ErrorJSON(http.StatusBadRequest, "Invalid subscription ID format")
+		return
+	}
+
+	// Bind and validate request body
+	var req UpdateSubscriptionPaymentMethodBody
+	if !r.BindJSON(&req) {
 		return
 	}
 
@@ -101,13 +113,7 @@ func UpdateSubscriptionPaymentMethod(r *Request) {
 		}
 	}
 
-	// 5. Validate payment method is active
-	if !paymentMethod.IsActive {
-		r.ErrorJSON(http.StatusBadRequest, "Payment method is inactive")
-		return
-	}
-
-	// 6. Validate payment method is NMI-backed
+	// 5. Validate payment method is NMI-backed
 	if !processors.IsNMIBackedProcessor(paymentMethod.Processor) {
 		r.ErrorJSON(http.StatusBadRequest, "Only NMI-backed payment methods can be used")
 		return

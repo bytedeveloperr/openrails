@@ -19,6 +19,8 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
+	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
+	"github.com/doujins-org/doujins-billing/internal/integrations/jupiter"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
 	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/doujins-org/doujins-billing/internal/processors"
@@ -78,9 +80,60 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 
 	serviceInstances := createServices(database, cfg, ccbillRESTClient, nmiClients, redisClient, clock)
 
+	// Initialize Solana token registry (must be done here since createServices doesn't return errors)
+	var solanaTokenRegistry *jupiter.TokenRegistry
+	if solanaProc := cfg.GetSolanaProcessor(); solanaProc != nil {
+		solanaTokenRegistry = jupiter.NewTokenRegistry()
+		if len(solanaProc.EnabledTokens) > 0 {
+			// Use new enabled_tokens approach with Jupiter lookup
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := solanaTokenRegistry.LoadFromJupiter(ctx, solanaProc.EnabledTokens); err != nil {
+				cancel()
+				return nil, fmt.Errorf("failed to initialize Solana token registry: %w", err)
+			}
+			cancel()
+		} else if len(solanaProc.SupportedTokens) > 0 {
+			// Use supported_tokens config (backwards compatibility)
+			legacyTokens := make(map[string]struct {
+				Symbol      string
+				Name        string
+				Mint        string
+				MainnetMint string
+				Decimals    int
+				Enabled     bool
+			})
+			for symbol, t := range solanaProc.SupportedTokens {
+				legacyTokens[symbol] = struct {
+					Symbol      string
+					Name        string
+					Mint        string
+					MainnetMint string
+					Decimals    int
+					Enabled     bool
+				}{
+					Symbol:      t.Symbol,
+					Name:        t.Name,
+					Mint:        t.Mint,
+					MainnetMint: t.MainnetMint,
+					Decimals:    t.Decimals,
+					Enabled:     t.Enabled,
+				}
+			}
+			solanaTokenRegistry.LoadFromConfig(legacyTokens)
+		} else {
+			// No tokens configured - use default enabled_tokens with Jupiter lookup
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := solanaTokenRegistry.LoadFromJupiter(ctx, nil); err != nil {
+				cancel()
+				log.WithError(err).Warn("Failed to load default tokens from Jupiter - Solana payments may be limited")
+			}
+			cancel()
+		}
+	}
+
 	var emailService *services.EmailService
 	if cfg.SendGrid != nil {
-		if es, err := services.NewEmailService(cfg.SendGrid); err != nil {
+		if es, err := services.NewEmailService(cfg.SendGrid, cfg.Store); err != nil {
 			log.WithError(err).Warn("EmailService init failed; email disabled")
 		} else {
 			emailService = es
@@ -107,16 +160,20 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 		CCBillDataLink:   ccbillDataLinkClient,
 		NMIClients:       nmiClients,
 
-		SubscriptionService:  serviceInstances.SubscriptionService,
-		ProductService:       serviceInstances.ProductService,
-		PriceService:         serviceInstances.PriceService,
-		NotificationService:  serviceInstances.NotificationService,
-		PaymentMethodService: serviceInstances.PaymentMethodService,
-		PaymentService:       serviceInstances.PurchaseService,
-		EntitlementService:   serviceInstances.EntitlementService,
-		VaultService:         serviceInstances.VaultService,
-		SolanaPayService:     serviceInstances.SolanaPayService,
-		SolanaPayPoller:      serviceInstances.SolanaPayPoller,
+		SubscriptionService:      serviceInstances.SubscriptionService,
+		ProductService:           serviceInstances.ProductService,
+		PriceService:             serviceInstances.PriceService,
+		NotificationService:      serviceInstances.NotificationService,
+		PaymentMethodService:     serviceInstances.PaymentMethodService,
+		PaymentService:           serviceInstances.PurchaseService,
+		EntitlementService:       serviceInstances.EntitlementService,
+		VaultService:             serviceInstances.VaultService,
+		SolanaPayService:         serviceInstances.SolanaPayService,
+		SolanaPayPoller:          serviceInstances.SolanaPayPoller,
+		SolanaTransactionService: serviceInstances.SolanaTransactionService,
+		SolanaRPC:                serviceInstances.SolanaRPC,
+		SolanaTokenRegistry:      solanaTokenRegistry,
+		FXProvider:               serviceInstances.FXProvider,
 
 		UserSubscriptionService:   serviceInstances.UserSubscriptionService,
 		PublicSubscriptionService: serviceInstances.PublicSubscriptionService,
@@ -130,7 +187,6 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 
 		CheckoutService:          serviceInstances.CheckoutService,
 		CheckoutSessionService:   serviceInstances.CheckoutSessionService,
-		AdminGrantService:        serviceInstances.AdminGrantService,
 		CreditsService:           serviceInstances.CreditsService,
 		ProcessorCustomerService: serviceInstances.ProcessorCustomerService,
 	}
@@ -244,16 +300,18 @@ func validateDatabase(cfg *config.Config, database *db.DB) error {
 
 func createNMIClients(cfg *config.Config) (map[string]*nmi.NMIClient, error) {
 	clients := make(map[string]*nmi.NMIClient)
-	if cfg == nil || cfg.NMI == nil {
+	if cfg == nil {
 		return clients, nil
 	}
 
-	for name := range cfg.NMI.Providers {
-		settings, err := cfg.NMI.ProviderSettings(name)
-		if err != nil {
-			return nil, err
-		}
-		providerKey := strings.TrimSpace(strings.ToLower(settings.Name))
+	// Use the new unified config helper that checks both Processors map and legacy NMI config
+	nmiProcessors := cfg.GetNMIProcessors()
+	if len(nmiProcessors) == 0 {
+		return clients, nil
+	}
+
+	for name, procConfig := range nmiProcessors {
+		providerKey := strings.TrimSpace(strings.ToLower(name))
 		if providerKey == "" {
 			providerKey = "mobius"
 		}
@@ -262,16 +320,20 @@ func createNMIClients(cfg *config.Config) (map[string]*nmi.NMIClient, error) {
 			return nil, fmt.Errorf("duplicate nmi provider '%s' detected in configuration", providerKey)
 		}
 
-		client, err := nmi.NewClient(providerKey, settings, cfg.Env == config.EnvProd)
-		if err != nil {
-			return nil, err
+		// Convert ProcessorConfig to NMIProviderSettings
+		settings := procConfig.ToNMIProviderSettings(providerKey)
+
+		// Validate required fields
+		if settings.SecurityKey == "" {
+			return nil, fmt.Errorf("nmi provider '%s' security key is required", providerKey)
+		}
+		if settings.WebhookSecret == "" {
+			log.Warnf("nmi provider '%s' webhook secret is not configured; signature validation will be disabled", providerKey)
 		}
 
-		// Log test mode status for this provider
-		if settings.TestMode {
-			log.Warnf("⚠️  NMI provider '%s' TEST MODE is ENABLED - no real charges will be processed", providerKey)
-		} else {
-			log.Warnf("🔴 NMI provider '%s' TEST MODE is DISABLED - REAL CHARGES WILL BE PROCESSED!", providerKey)
+		client, err := nmi.NewClient(providerKey, settings, cfg.IsTestMode())
+		if err != nil {
+			return nil, err
 		}
 
 		clients[providerKey] = client
@@ -306,37 +368,34 @@ func createRedisClient(cfg *config.Config) (*redis.Client, error) {
 }
 
 func createCCBillClient(cfg *config.Config) *ccbill.CCBillClient {
-	if cfg.CCBill == nil {
+	ccbillProc := cfg.GetCCBillProcessor()
+	if ccbillProc == nil {
 		log.Info("CCBill config missing; CCBill integration disabled")
 		return nil
 	}
 
-	if cfg.CCBill.TestMode {
-		log.Warn("⚠️  CCBill TEST MODE is ENABLED - no real charges will be processed")
-	} else {
-		log.Warn("🔴 CCBill TEST MODE is DISABLED - REAL CHARGES WILL BE PROCESSED!")
-	}
-
-	return ccbill.NewClient(cfg.CCBill, cfg.Env == config.EnvProd)
+	return ccbill.NewClient(ccbillProc.ToCCBillConfig(), cfg.IsTestMode())
 }
 
 func createCCBillRESTClient(cfg *config.Config) *ccbill.RESTClient {
-	if cfg.CCBill == nil {
+	ccbillProc := cfg.GetCCBillProcessor()
+	if ccbillProc == nil {
 		return nil
 	}
-	return ccbill.NewRESTClient(cfg.CCBill)
+	return ccbill.NewRESTClient(ccbillProc.ToCCBillConfig())
 }
 
 func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
-	if cfg.CCBill == nil {
+	ccbillProc := cfg.GetCCBillProcessor()
+	if ccbillProc == nil {
 		return nil
 	}
-	if cfg.CCBill.DataLinkUsername == "" || cfg.CCBill.DataLinkPassword == "" || cfg.CCBill.ClientAccNum == "" {
+	if ccbillProc.DataLinkUsername == "" || ccbillProc.DataLinkPassword == "" || ccbillProc.ClientAccNum == "" {
 		log.Info("CCBill DataLink credentials missing; DataLink worker disabled")
 		return nil
 	}
 
-	client := ccbill.NewDataLinkClient(cfg.CCBill)
+	client := ccbill.NewDataLinkClient(ccbillProc.ToCCBillConfig())
 	if err := client.ValidateConfig(); err != nil {
 		log.WithError(err).Warn("Invalid CCBill DataLink configuration; worker disabled")
 		return nil
@@ -347,15 +406,18 @@ func createCCBillDataLinkClient(cfg *config.Config) *ccbill.DataLinkClient {
 type servicesInstances struct {
 	SubscriptionService *services.SubscriptionService
 
-	ProductService       *services.ProductService
-	PriceService         *services.PriceService
-	NotificationService  *services.NotificationService
-	PaymentMethodService *services.PaymentMethodService
-	PurchaseService      *services.PaymentService
-	EntitlementService   *services.EntitlementService
-	VaultService         *services.VaultService
-	SolanaPayService     *services.SolanaPayService
-	SolanaPayPoller      *services.SolanaPayPoller
+	ProductService           *services.ProductService
+	PriceService             *services.PriceService
+	NotificationService      *services.NotificationService
+	PaymentMethodService     *services.PaymentMethodService
+	PurchaseService          *services.PaymentService
+	EntitlementService       *services.EntitlementService
+	VaultService             *services.VaultService
+	SolanaPayService         *services.SolanaPayService
+	SolanaPayPoller          *services.SolanaPayPoller
+	SolanaTransactionService *services.SolanaTransactionService
+	SolanaRPC                *solana.RPCClient
+	FXProvider               fx.Provider
 
 	UserSubscriptionService   *services.UserSubscriptionService
 	PublicSubscriptionService *services.PublicSubscriptionService
@@ -368,7 +430,6 @@ type servicesInstances struct {
 
 	CheckoutService          *services.CheckoutService
 	CheckoutSessionService   *services.CheckoutSessionService
-	AdminGrantService        *services.AdminGrantService
 	CreditsService           *services.CreditsService
 	ProcessorCustomerService *services.ProcessorCustomerService
 }
@@ -387,15 +448,29 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	creditsService.Clock = clock
 	processorCustomerService := services.NewProcessorCustomerService(database)
 	profileRepo := repo.NewProfileRepo(database)
+
+	// Create FX provider for Solana token quoting with non-USD prices
+	// Uses CC0 exchange-api with 5-minute cache TTL
+	fxProvider := fx.NewCachedProvider(fx.NewExchangeAPIProvider(), 5*time.Minute)
+
 	// Note: solanaPayService and SolanaPayPoller need checkoutService, which is created later
 	// We'll create solanaPayService with nil checkoutService and set it after checkoutService is created
-	solanaPayService := services.NewSolanaPayService(database, redisClient, cfg, priceService, productService, nil)
+	solanaPayService := services.NewSolanaPayService(database, redisClient, cfg, priceService, productService, nil, fxProvider)
 	solanaPayService.Clock = clock
 	var solanaRPC *solana.RPCClient
-	if cfg != nil && cfg.Solana != nil {
-		solanaRPC = solana.NewRPCClient(cfg.Solana.RPCEndpoint, cfg.Solana.Network)
+	if solanaProc := cfg.GetSolanaProcessor(); solanaProc != nil {
+		// Derive network from test_mode: devnet when true, mainnet when false
+		solanaNetwork := "mainnet"
+		if cfg.IsTestMode() {
+			solanaNetwork = "devnet"
+		}
+		solanaRPC = solana.NewRPCClientWithConfig(solana.RPCClientConfig{
+			Endpoint:     solanaProc.RPCEndpoint,
+			HeliusAPIKey: solanaProc.HeliusAPIKey,
+			Network:      solanaNetwork,
+		})
 	}
-	solanaTransactionService := services.NewSolanaTransactionService(database, solanaRPC, cfg, priceService, purchaseService)
+	solanaTransactionService := services.NewSolanaTransactionService(database, solanaRPC, cfg, priceService, purchaseService, fxProvider)
 	solanaTransactionService.Clock = clock
 
 	subscriptionLifecycleService := services.NewSubscriptionLifecycleService(
@@ -408,6 +483,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		nil,             // EventLogService - set later in buildRuntime after ClickHouse init
 	)
 	subscriptionLifecycleService.Clock = clock
+	subscriptionLifecycleService.SetConfig(cfg) // For feature flag access (dunning_mode, etc.)
 
 	subscriptionService := services.NewSubscriptionService(
 		database,
@@ -495,6 +571,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		checkoutService,
 		solanaPayService,
 		solanaTransactionService,
+		fxProvider,
 		cfg,
 	)
 	checkoutSessionService.Clock = clock
@@ -514,16 +591,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		checkoutSessionService,
 	)
 
-	// Create AdminGrantService for admin product grants
-	adminGrantService := services.NewAdminGrantService(
-		database,
-		priceService,
-		productService,
-		purchaseService,
-		entitlementService,
-	)
-	adminGrantService.Clock = clock
-
 	return &servicesInstances{
 		SubscriptionService:          subscriptionService,
 		ProductService:               productService,
@@ -535,6 +602,9 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		VaultService:                 vaultService,
 		SolanaPayService:             solanaPayService,
 		SolanaPayPoller:              solanaPayPoller,
+		SolanaTransactionService:     solanaTransactionService,
+		SolanaRPC:                    solanaRPC,
+		FXProvider:                   fxProvider,
 		UserSubscriptionService:      userSubscriptionService,
 		PublicSubscriptionService:    publicSubscriptionService,
 		AdminSubscriptionService:     adminSubscriptionService,
@@ -544,7 +614,6 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		WebhookDispatcher:            webhookDispatcher,
 		CheckoutService:              checkoutService,
 		CheckoutSessionService:       checkoutSessionService,
-		AdminGrantService:            adminGrantService,
 		CreditsService:               creditsService,
 		ProcessorCustomerService:     processorCustomerService,
 	}

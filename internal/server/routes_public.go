@@ -8,25 +8,12 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/handlers"
 )
 
-func (s *Server) registerPublicRoutes() {
-	// Root: simple JSON banner for API servers
-	s.publicHandler.GET("/", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"service":   "billing",
-			"status":    "ok",
-			"endpoints": []string{"/health/live", "/health/ready", "/v1"},
-		})
-	})
-
-	api := s.publicHandler.Group("/v1")
+func (s *Server) registerUserRoutes(e *gin.Engine) {
+	api := e.Group("/v1")
 
 	// Products and Prices - public catalog endpoints
 	api.GET("/products", s.authProvider.Optional(), s.wrap(handlers.GetProducts))
 	api.GET("/prices", s.authProvider.Optional(), s.wrap(handlers.GetPrices))
-
-	// Webhooks - single provider path (mobius/ccbill/solana)
-	webhooks := api.Group("/webhooks")
-	webhooks.POST("/:provider", s.wrap(handlers.Webhook))
 
 	// Solana tokens endpoint (public, no auth required)
 	api.GET("/solana/tokens", s.wrap(handlers.GetSupportedTokens))
@@ -38,40 +25,79 @@ func (s *Server) registerPublicRoutes() {
 	checkout.GET("/:id", s.wrap(handlers.GetCheckoutSession))
 	checkout.POST("/:id/confirm", s.wrap(handlers.ConfirmCheckoutSession))
 
+	// Solana Pay Transaction Request spec endpoints (public, no auth - called by wallets)
+	// These implement: https://docs.solanapay.com/spec#specification-transaction-request
+	api.GET("/checkout/:id/solana-pay", s.wrap(handlers.GetSolanaPay))
+	api.POST("/checkout/:id/solana-pay", s.wrap(handlers.PostSolanaPay))
+
 	me := api.Group("/me")
 	me.Use(s.authProvider.Required())
 	me.GET("/status", s.wrap(handlers.GetMyBillingStatus))
-	// New user-scoped endpoints
+	// Subscription endpoints - RESTful with :id in path
 	me.GET("/subscriptions", s.wrap(handlers.GetMySubscriptions))
-	me.PUT("/subscriptions/payment-method", s.wrap(handlers.UpdateSubscriptionPaymentMethod))
-	me.POST("/subscriptions/cancel", s.wrap(handlers.CancelSubscription))
-	me.POST("/subscriptions/resume", s.wrap(handlers.ResumeSubscription))
-	me.POST("/subscriptions/change", s.wrap(handlers.ChangeSubscription))
+	me.GET("/subscriptions/:id", s.wrap(handlers.GetSubscription))
+	me.PUT("/subscriptions/:id/payment-method", s.wrap(handlers.UpdateSubscriptionPaymentMethod))
+	me.POST("/subscriptions/:id/cancel", s.wrap(handlers.CancelSubscription))
+	me.POST("/subscriptions/:id/resume", s.wrap(handlers.ResumeSubscription))
+	me.POST("/subscriptions/:id/change-tier", s.wrap(handlers.ChangeTier))
 	me.GET("/payments", s.wrap(handlers.GetUserPayments))
 	me.GET("/payment-methods", s.wrap(handlers.ListPaymentMethods))
 	me.POST("/payment-methods", s.wrap(handlers.CreatePaymentMethod))
 	me.PUT("/payment-methods/:id", s.wrap(handlers.UpdatePaymentMethod))
 	me.DELETE("/payment-methods/:id", s.wrap(handlers.DeletePaymentMethod))
-	me.PUT("/payment-methods/:id/activate", s.wrap(handlers.ActivatePaymentMethod))
 	me.GET("/notifications", s.wrap(handlers.GetNotifications))
 	me.GET("/notifications/unread-count", s.wrap(handlers.GetUnreadNotificationCount))
 	me.POST("/notifications/:id/read", s.wrap(handlers.MarkNotificationRead))
 	me.GET("/credits", s.wrap(handlers.GetMyCredits))
 	me.GET("/credits/:type", s.wrap(handlers.GetMyCreditsType))
 	me.GET("/credits/:type/transactions", s.wrap(handlers.GetMyCreditTransactions))
-	me.POST("/portal", s.wrap(handlers.CreatePortalSession))
 
-	s.publicHandler.GET("/health/live", func(c *gin.Context) {
+	// Stripe-specific endpoints
+	stripe := api.Group("/stripe")
+	stripe.Use(s.authProvider.Required())
+	stripe.POST("/portal", s.wrap(handlers.CreatePortalSession))
+}
+
+func (s *Server) registerWebhookRoutes(e *gin.Engine) {
+	api := e.Group("/v1")
+	webhooks := api.Group("/webhooks")
+	webhooks.POST("/:provider", s.wrap(handlers.Webhook))
+}
+
+// registerStandaloneMetaRoutes registers banner/health endpoints that are appropriate for the
+// standalone billing service, but should not be forced onto embedded hosts.
+func (s *Server) registerStandaloneMetaRoutes(e *gin.Engine) {
+	// Root: simple JSON banner for API servers
+	e.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"service":   "billing",
+			"status":    "ok",
+			"endpoints": []string{"/health/live", "/health/ready", "/v1"},
+		})
+	})
+
+	e.GET("/health/live", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})
 	})
 
-	s.publicHandler.GET("/health/ready", s.readyHandler)
+	e.GET("/health/ready", s.readyHandler)
 
 	// Kubernetes-style health check endpoints (aliases)
-	s.publicHandler.GET("/healthz", func(c *gin.Context) {
+	e.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "billing"})
 	})
-	s.publicHandler.GET("/readyz", s.readyHandler)
+	e.GET("/readyz", s.readyHandler)
+}
+
+func (s *Server) registerPublicRoutes() {
+	// Standalone public handler: full surface area for convenience.
+	s.registerStandaloneMetaRoutes(s.publicHandler)
+	s.registerUserRoutes(s.publicHandler)
+	s.registerWebhookRoutes(s.publicHandler)
+
+	// Embedded split handlers: allow hosts to mount only what they need.
+	s.registerUserRoutes(s.userHandler)
+	s.registerWebhookRoutes(s.webhookHandler)
 }
 
 func (s *Server) readyHandler(c *gin.Context) {

@@ -91,7 +91,12 @@ Returns 200 with `{ status: "accepted" }` on success, 401/403 for auth failures,
 ## Checkout Sessions (Authenticated)
 
 ### POST /v1/checkout
-Creates a checkout session for subscriptions and one-off purchases.
+Creates a checkout session for **new** subscriptions and one-off purchases.
+
+> **Note:** Tier upgrades/downgrades are **not** supported via this endpoint. If the user already has
+> an active subscription in the same tier group, the response will be `{ "status": "blocked" }` with a
+> message directing the client to use `POST /v1/me/subscriptions/change-tier` instead.
+
 - Auth: bearer token
 - Optional header: `X-Idempotency-Key` to dedupe create requests
 - Body:
@@ -128,25 +133,62 @@ subscription object, the next renewal timestamp, and all entitlement records.
 Response includes `has_active_subscription`, `subscription`, `next_renewal_at`, and `entitlements`.
 
 ### GET /v1/me/subscriptions
-History of the caller’s subscriptions. Query params: `status` (`pending`, `active`, `past_due`, `cancelled`, or `all`),
+History of the caller's subscriptions. Query params: `status` (`pending`, `active`, `past_due`, `cancelled`, or `all`),
 `limit`, `offset`. Response: `ListResponse<UserSubscription>` (with `product`, `price`, `access`).
 
-### PUT /v1/me/subscriptions/payment-method
-Request body `{ "subscription_id": "sub_uuid", "payment_method_id": "pm_uuid" }`. Updates the card vault entry
+### GET /v1/me/subscriptions/{id}
+Retrieves a single subscription by ID with enriched product, price, and access data.
+Returns `UserSubscriptionResponse`. Returns 404 if subscription is not found or doesn't belong to the user.
+
+### PUT /v1/me/subscriptions/{id}/payment-method
+Request body `{ "payment_method_id": "pm_uuid" }`. Updates the card vault entry
 used for an NMI-backed subscription (CCBill/Solana subscriptions cannot be reassigned). Returns:
 `{ success, message, subscription_id, payment_method_id }`.
 
-### POST /v1/me/subscriptions/cancel
-Body `{ "feedback": "optional text" }`. Cancels the user’s active subscription and returns
+### POST /v1/me/subscriptions/{id}/cancel
+Body `{ "feedback": "optional text" }`. Cancels the specified subscription and returns
 `202 { "status": "queued" }`. For CCBill subscriptions, returns
 `422 { error, support_url, code }` because cancellation must be performed via the CCBill portal.
 
-### POST /v1/me/subscriptions/resume
+### POST /v1/me/subscriptions/{id}/resume
 Queues a resume for a cancelled Stripe subscription. Returns `202 { "status": "queued" }`.
+Returns 400 if the subscription is not cancelled or not a Stripe subscription.
 
-### POST /v1/me/subscriptions/change
-Stripe-only plan change. Body `{ "price_id": "price_..." }`. Response:
-`{ status, action, message, subscription_id }` where `action` is `upgrade` or `downgrade`.
+### POST /v1/me/subscriptions/{id}/change-tier
+Unified tier change endpoint for upgrades and downgrades across all processors.
+
+**Request:**
+- Body: `{ "price_id": "price_..." }`
+- Optional header: `X-Idempotency-Key` for retry safety
+
+**Response:** `TierChangeResponse`
+```json
+{
+  "object": "tier_change",
+  "status": "succeeded|requires_action|blocked",
+  "mode": "tier_change",
+  "action": "upgrade|downgrade",
+  "price_id": "price_...",
+  "payment": { "processor": "stripe|mobius|ccbill" },
+  "subscription_id": "sub_...",
+  "next_action": { "type": "redirect_to_url", "redirect_to_url": { "url": "..." } },
+  "message": "...",
+  "delayed_start": "2024-02-15T00:00:00Z"
+}
+```
+
+**Processor behavior:**
+| Processor | Upgrade | Downgrade |
+|-----------|---------|-----------|
+| Stripe | `succeeded` (immediate with proration) | `succeeded` (immediate, no proration) |
+| Mobius/NMI | `succeeded` (immediate proration charge) | `succeeded` + `delayed_start` (scheduled) |
+| CCBill | `requires_action` + redirect to FlexForm | `blocked` + message |
+| Solana | HTTP 400 (not supported) | HTTP 400 (not supported) |
+
+**Notes:**
+- Target price must be in the same tier group as current subscription
+- For CCBill upgrades, client must redirect to `next_action.redirect_to_url.url`
+- For scheduled downgrades, the change takes effect at `delayed_start`
 
 ### GET /v1/me/payments
 Lists one-off payments. Query params: `type` (processor filter), `limit`, `offset`.
@@ -229,12 +271,10 @@ plus `limit`/`offset`. Response: list of admin subscription records (raw subscri
 ### GET /v1/admin/subscriptions/{id}
 Detailed subscription record including linked payments.
 
-### PUT /v1/admin/subscriptions/{id}/extend
-Body `{ "subscription_id": "sub_uuid", "duration": "72h30m" }` (Go duration string).
-Extends the current billing period.
-
 ### POST /v1/admin/subscriptions/{id}/cancel
 Immediate cancellation of the referenced subscription. Body `{ "reason": "optional" }`.
+Currently only supports NMI-backed processors (Mobius). Subscription must be active.
+Cancels with payment processor, updates local record, and immediately revokes entitlements.
 
 ### GET /v1/admin/payments
 List of payments with filtering by processor, status, date range, etc. Response: list envelope of Stripe-style
@@ -244,11 +284,49 @@ List of payments with filtering by processor, status, date range, etc. Response:
 Full payment detail including refund history.
 
 ### POST /v1/admin/payments/{id}/refund
-Body `{ "amount": 1234, "refund_transaction_id": "..." }`. Initiates a refund via the underlying processor.
-Returns the refund payment object.
+Initiates a refund via the underlying processor's API and records it in the database.
+
+**Request Body:**
+```json
+{
+  "amount": 1234,
+  "reason": "requested_by_customer"
+}
+```
+
+- `amount` (required): Amount in cents to refund. Must be greater than zero.
+- `reason` (optional): Refund reason. For Stripe, must be one of: `duplicate`, `fraudulent`, `requested_by_customer`.
+
+**Processor Behavior:**
+| Processor | Behavior |
+|-----------|----------|
+| Stripe | Issues refund via Stripe API. Supports partial refunds. |
+| Mobius/NMI | Issues refund via NMI Direct Post API. Supports partial refunds. |
+| CCBill | Returns HTTP 400 with message directing to CCBill admin portal. CCBill does not expose a refund API. |
+
+**Response:** Returns the created refund payment object on success.
 
 ### GET /v1/admin/users/{user_id}
-Returns the user’s billing profile: `{ user_id, subscription, entitlements, payments }`.
+Returns the user's billing profile: `{ user_id, subscription, entitlements, payments }`.
+
+### GET /v1/admin/users/{user_id}/payments
+Lists all payments for the user. Query params: `limit`, `offset`.
+
+### POST /v1/admin/users/{user_id}/payments/off-channel
+Records an off-channel/manual purchase (cash, bank transfer, etc.) and grants entitlements/credits.
+Body:
+```json
+{
+  "price_id": "price_...",
+  "transaction_id": "unique-reference",
+  "amount": 1000,
+  "currency": "usd",
+  "purchased_at": "2024-01-15T00:00:00Z",
+  "discount_code": "PROMO10",
+  "discount_reason": "Staff discount"
+}
+```
+Returns `{ payment_id, entitlements, delayed_start, eligibility }`. Idempotent on `transaction_id`.
 
 ### GET /v1/admin/users/{user_id}/entitlements
 Lists all entitlements. Optional `at` query param (RFC3339) for point-in-time lookup.

@@ -147,7 +147,7 @@ that duration defines the entitlement window for the one-off purchase.
 2) Response includes `payment.redirect_url` and `next_action=redirect_to_url`.
 3) Webhook finalizes payment and updates the session to `succeeded`.
 
-### Stripe (if enabled)
+### Stripe
 1) Create session with billing fields + `payment_method_id` or `payment_token` as needed.
 2) Response may include `redirect_url` for hosted checkout.
 3) Webhook finalizes payment and updates the session.

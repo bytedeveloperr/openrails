@@ -3,7 +3,11 @@
 package tests
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -342,5 +346,348 @@ func TestEntitlementChangesOnTierChange(t *testing.T) {
 		ents = suite.GetEntitlementsByUserID(userID2)
 		assert.Len(t, ents, 1, "Should have 1 entitlement after downgrade")
 		assert.Equal(t, "premium", ents[0].Entitlement)
+	})
+}
+
+// TestChangeTierEndpoint tests the POST /v1/me/subscriptions/:id/change-tier endpoint
+func TestChangeTierEndpoint(t *testing.T) {
+	suite, mock := SetupSuiteWithMockNMI(t)
+
+	// Seed tiered products
+	tieredProducts := suite.SeedTieredProducts()
+	premiumPriceID := tieredProducts[0].Prices[0].ID     // $10/month, rank 1
+	premiumPlusPriceID := tieredProducts[1].Prices[0].ID // $20/month, rank 2
+
+	t.Run("requires authentication", func(t *testing.T) {
+		dummySubID := "sub_" + uuid.New().String()
+		body := map[string]string{
+			"price_id": premiumPlusPriceID.String(),
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/me/subscriptions/"+dummySubID+"/change-tier", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code, "Should return 401 without auth")
+	})
+
+	t.Run("returns 404 when subscription not found", func(t *testing.T) {
+		userID := "no-sub-user-" + uuid.New().String()[:8]
+		email := userID + "@test.example.com"
+		token := getTestIssuer().CreateToken(userID, email)
+
+		nonExistentSubID := "sub_" + uuid.New().String()
+		body := map[string]string{
+			"price_id": premiumPlusPriceID.String(),
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/me/subscriptions/"+nonExistentSubID+"/change-tier", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 when subscription not found")
+	})
+
+	t.Run("returns 409 when already on same plan", func(t *testing.T) {
+		userID := "same-plan-user-" + uuid.New().String()[:8]
+		email := userID + "@test.example.com"
+		token := getTestIssuer().CreateToken(userID, email)
+
+		// Create subscription on Premium
+		sub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+			UserID:    userID,
+			PriceID:   premiumPriceID,
+			Status:    models.StatusActive,
+			Processor: models.ProcessorMobius,
+		})
+		defer suite.CleanupSubscriptionsForUser(userID)
+
+		// Try to change to same price
+		body := map[string]string{
+			"price_id": premiumPriceID.String(),
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/me/subscriptions/sub_"+sub.ID.String()+"/change-tier", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusConflict, w.Code, "Should return 409 when already on same plan")
+	})
+
+	t.Run("Mobius upgrade succeeds with proration", func(t *testing.T) {
+		userID := "upgrade-user-" + uuid.New().String()[:8]
+		email := userID + "@test.example.com"
+		token := getTestIssuer().CreateToken(userID, email)
+
+		now := suite.GetClock().Now()
+		periodEnd := now.Add(15 * 24 * time.Hour) // 15 days remaining
+
+		// Create Premium subscription with payment method
+		pm := suite.CreateTestPaymentMethodWithOptions(PaymentMethodOptions{
+			UserID:    userID,
+			Processor: models.ProcessorMobius,
+			VaultID:   "vault-" + uuid.New().String()[:8],
+		})
+
+		sub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+			UserID:              userID,
+			PriceID:             premiumPriceID,
+			Status:              models.StatusActive,
+			Processor:           models.ProcessorMobius,
+			ProcessorSubID:      "nmi-sub-" + uuid.New().String()[:8],
+			PaymentMethodID:     &pm.ID,
+			CurrentPeriodEndsAt: &periodEnd,
+		})
+		defer suite.CleanupSubscriptionsForUser(userID)
+
+		mock.Reset()
+
+		// Request upgrade to Premium+
+		body := map[string]string{
+			"price_id": premiumPlusPriceID.String(),
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/me/subscriptions/sub_"+sub.ID.String()+"/change-tier", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got body: %s", w.Body.String())
+
+		var resp map[string]any
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		assert.Equal(t, "tier_change", resp["object"], "Object should be tier_change")
+		assert.Equal(t, "succeeded", resp["status"], "Status should be succeeded")
+		assert.Equal(t, "tier_change", resp["mode"], "Mode should be tier_change")
+		assert.Equal(t, "upgrade", resp["action"], "Action should be upgrade")
+		assert.NotEmpty(t, resp["subscription_id"], "Should include subscription_id")
+
+		// Verify NMI calls were made (sale for proration + new subscription)
+		assert.GreaterOrEqual(t, int(mock.RequestCount), 1, "Should have made NMI API calls")
+
+		// Verify old subscription was cancelled
+		refreshedSub := suite.GetSubscription(sub.ID)
+		assert.Equal(t, models.StatusCancelled, refreshedSub.Status, "Old subscription should be cancelled")
+	})
+
+	t.Run("Mobius downgrade is scheduled", func(t *testing.T) {
+		userID := "downgrade-user-" + uuid.New().String()[:8]
+		email := userID + "@test.example.com"
+		token := getTestIssuer().CreateToken(userID, email)
+
+		now := suite.GetClock().Now()
+		periodEnd := now.Add(15 * 24 * time.Hour)
+
+		// Create Premium+ subscription
+		sub := suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+			UserID:              userID,
+			PriceID:             premiumPlusPriceID,
+			Status:              models.StatusActive,
+			Processor:           models.ProcessorMobius,
+			ProcessorSubID:      "nmi-sub-" + uuid.New().String()[:8],
+			CurrentPeriodEndsAt: &periodEnd,
+		})
+		defer suite.CleanupSubscriptionsForUser(userID)
+
+		// Request downgrade to Premium
+		body := map[string]string{
+			"price_id": premiumPriceID.String(),
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/me/subscriptions/sub_"+sub.ID.String()+"/change-tier", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got body: %s", w.Body.String())
+
+		var resp map[string]any
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		assert.Equal(t, "tier_change", resp["object"], "Object should be tier_change")
+		assert.Equal(t, "succeeded", resp["status"], "Status should be succeeded")
+		assert.Equal(t, "downgrade", resp["action"], "Action should be downgrade")
+		assert.NotEmpty(t, resp["delayed_start"], "Should include delayed_start for scheduled downgrade")
+		assert.Contains(t, resp["message"].(string), "scheduled", "Message should mention scheduled")
+
+		// Verify subscription has scheduled price change
+		refreshedSub := suite.GetSubscription(sub.ID)
+		assert.NotNil(t, refreshedSub.ScheduledPriceID, "Should have scheduled price ID")
+		assert.Equal(t, premiumPriceID.String(), refreshedSub.ScheduledPriceID.String(), "Scheduled price should be Premium")
+	})
+}
+
+// TestCheckoutBlocksTierChanges tests that /v1/checkout returns an error for tier changes
+func TestCheckoutBlocksTierChanges(t *testing.T) {
+	suite, mock := SetupSuiteWithMockNMI(t)
+
+	// Seed tiered products
+	tieredProducts := suite.SeedTieredProducts()
+	premiumPriceID := tieredProducts[0].Prices[0].ID     // rank 1
+	premiumPlusPriceID := tieredProducts[1].Prices[0].ID // rank 2
+
+	t.Run("checkout blocks upgrade attempts", func(t *testing.T) {
+		userID := "checkout-upgrade-" + uuid.New().String()[:8]
+		email := userID + "@test.example.com"
+		token := getTestIssuer().CreateToken(userID, email)
+
+		// Create Premium subscription
+		suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+			UserID:    userID,
+			PriceID:   premiumPriceID,
+			Status:    models.StatusActive,
+			Processor: models.ProcessorMobius,
+		})
+		defer suite.CleanupSubscriptionsForUser(userID)
+
+		mock.Reset()
+
+		// Try to checkout Premium+ (should be blocked)
+		body := map[string]any{
+			"price_id": premiumPlusPriceID.String(),
+			"payment": map[string]any{
+				"processor":     "mobius",
+				"payment_token": "tok_test_123",
+				"email":         email,
+				"first_name":    "Test",
+				"last_name":     "User",
+				"address1":      "123 Test St",
+				"city":          "Test City",
+				"state":         "CA",
+				"zip":           "90210",
+				"country":       "US",
+			},
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/checkout", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should return 200 with blocked status")
+
+		var resp map[string]any
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		assert.Equal(t, "blocked", resp["status"], "Status should be blocked")
+		assert.Contains(t, resp["message"].(string), "change-tier", "Message should direct to change-tier endpoint")
+	})
+
+	t.Run("checkout blocks downgrade attempts", func(t *testing.T) {
+		userID := "checkout-downgrade-" + uuid.New().String()[:8]
+		email := userID + "@test.example.com"
+		token := getTestIssuer().CreateToken(userID, email)
+
+		// Create Premium+ subscription
+		suite.CreateTestSubscriptionWithOptions(SubscriptionOptions{
+			UserID:    userID,
+			PriceID:   premiumPlusPriceID,
+			Status:    models.StatusActive,
+			Processor: models.ProcessorMobius,
+		})
+		defer suite.CleanupSubscriptionsForUser(userID)
+
+		mock.Reset()
+
+		// Try to checkout Premium (should be blocked)
+		body := map[string]any{
+			"price_id": premiumPriceID.String(),
+			"payment": map[string]any{
+				"processor":     "mobius",
+				"payment_token": "tok_test_123",
+				"email":         email,
+				"first_name":    "Test",
+				"last_name":     "User",
+				"address1":      "123 Test St",
+				"city":          "Test City",
+				"state":         "CA",
+				"zip":           "90210",
+				"country":       "US",
+			},
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/checkout", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should return 200 with blocked status")
+
+		var resp map[string]any
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		assert.Equal(t, "blocked", resp["status"], "Status should be blocked")
+		assert.Contains(t, resp["message"].(string), "change-tier", "Message should direct to change-tier endpoint")
+	})
+
+	t.Run("checkout still works for new subscriptions", func(t *testing.T) {
+		userID := "checkout-new-" + uuid.New().String()[:8]
+		email := userID + "@test.example.com"
+		token := getTestIssuer().CreateToken(userID, email)
+
+		mock.Reset()
+
+		// Checkout Premium (new subscription, should work)
+		body := map[string]any{
+			"price_id": premiumPriceID.String(),
+			"payment": map[string]any{
+				"processor":     "mobius",
+				"payment_token": "tok_test_123",
+				"email":         email,
+				"first_name":    "Test",
+				"last_name":     "User",
+				"address1":      "123 Test St",
+				"city":          "Test City",
+				"state":         "CA",
+				"zip":           "90210",
+				"country":       "US",
+			},
+		}
+		jsonBody, _ := json.Marshal(body)
+
+		w := httptest.NewRecorder()
+		req, _ := http.NewRequest("POST", "/v1/checkout", bytes.NewReader(jsonBody))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+token)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+		defer suite.CleanupSubscriptionsForUser(userID)
+
+		require.Equal(t, http.StatusOK, w.Code, "Should return 200 OK, got body: %s", w.Body.String())
+
+		var resp map[string]any
+		err := json.Unmarshal(w.Body.Bytes(), &resp)
+		require.NoError(t, err)
+
+		assert.Equal(t, "succeeded", resp["status"], "Status should be succeeded for new subscription")
+		assert.NotEmpty(t, resp["subscription_id"], "Should include subscription_id")
 	})
 }

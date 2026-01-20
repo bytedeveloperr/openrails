@@ -176,11 +176,31 @@ type SupportedTokensResponse struct {
 }
 
 type TokenInfo struct {
-	Symbol   string  `json:"symbol"`
-	Name     string  `json:"name"`
-	Mint     string  `json:"mint"`
-	Decimals int     `json:"decimals"`
-	Price    float64 `json:"price"`
+	Symbol   string        `json:"symbol"`
+	Name     string        `json:"name"`
+	Mint     string        `json:"mint"`
+	Decimals int           `json:"decimals"`
+	Price    float64       `json:"price"`
+	Quote    *TokenQuote   `json:"quote,omitempty"`
+	Balance  *TokenBalance `json:"balance,omitempty"`
+}
+
+// TokenQuote represents the amount of a token required to pay for a specific price.
+type TokenQuote struct {
+	Amount        string  `json:"amount"`          // Human-readable token amount (e.g., "9.99")
+	Units         uint64  `json:"units"`           // Token amount in smallest units
+	TokenPriceUSD float64 `json:"token_price_usd"` // Token price in USD at quote time
+	FXRate        float64 `json:"fx_rate"`         // FX rate used (1.0 for USD prices)
+	FXCurrency    string  `json:"fx_currency"`     // Source currency (e.g., "eur", "usd")
+	QuotedAt      string  `json:"quoted_at"`       // When the quote was generated (RFC3339)
+	ExpiresAt     string  `json:"expires_at"`      // When the quote expires (RFC3339)
+}
+
+// TokenBalance represents the user's on-chain balance for a token.
+type TokenBalance struct {
+	Amount     string `json:"amount"`     // Human-readable balance (e.g., "125.50")
+	Units      uint64 `json:"units"`      // Balance in smallest units
+	Sufficient bool   `json:"sufficient"` // True if balance >= quote.units (when quote is present)
 }
 
 type PublicPriceResponse struct {
@@ -238,7 +258,6 @@ type PriceInfo struct {
 type PaymentMethodInfo struct {
 	ID        string `json:"id"`
 	Processor string `json:"processor"`
-	IsActive  bool   `json:"is_active"`
 }
 
 // PaymentItem represents a canonical payment record from Postgres
@@ -305,8 +324,7 @@ type PaymentMethodResponse struct {
 	Card           *PaymentMethodCardDetails    `json:"card,omitempty"`
 	Metadata       map[string]string            `json:"metadata,omitempty"`
 	Livemode       bool                         `json:"livemode"`
-	IsActive       bool                         `json:"is_active"` // legacy field; mirrors livemode/active
-	Created        int64                        `json:"created"`   // Unix epoch seconds
+	Created        int64                        `json:"created"` // Unix epoch seconds
 	FailureReason  *string                      `json:"failure_reason,omitempty"`
 	Subscriptions  []SubscriptionSummary        `json:"subscriptions,omitempty"`
 }
@@ -367,7 +385,6 @@ func PaymentMethodToAPI(pm *models.PaymentMethod) PaymentMethodResponse {
 		Type:          "card",
 		Processor:     string(pm.Processor),
 		Card:          card,
-		IsActive:      pm.IsActive,
 		Created:       api.ToUnix(pm.CreatedAt),
 		Metadata:      map[string]string{},
 		FailureReason: pm.FailureReason,

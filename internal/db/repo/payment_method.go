@@ -88,25 +88,9 @@ func (r *PaymentMethodRepo) GetByUserID(ctx context.Context, userID string) ([]*
 	return methods, nil
 }
 
-func (r *PaymentMethodRepo) GetActiveByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	methods := []*models.PaymentMethod{}
-	err := r.db.GetDB().NewSelect().Model(&methods).
-		Where("pm.user_id = ?", userID).
-		Where("pm.is_active = ?", true).
-		OrderExpr("pm.created_at DESC").
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return methods, nil
-}
-
-func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, includeInactive bool, limit, offset int) ([]*models.PaymentMethod, int64, error) {
+func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, limit, offset int) ([]*models.PaymentMethod, int64, error) {
 	countQuery := r.db.GetDB().NewSelect().Model((*models.PaymentMethod)(nil)).
 		Where("pm.user_id = ?", userID)
-	if !includeInactive {
-		countQuery.Where("pm.is_active = ?", true)
-	}
 
 	total, err := countQuery.Count(ctx)
 	if err != nil {
@@ -120,9 +104,6 @@ func (r *PaymentMethodRepo) ListByUserID(ctx context.Context, userID string, inc
 		Relation("Subscriptions.Product").
 		OrderExpr("pm.created_at DESC")
 
-	if !includeInactive {
-		dataQuery.Where("pm.is_active = ?", true)
-	}
 	if limit > 0 {
 		dataQuery.Limit(limit)
 	}
@@ -209,67 +190,12 @@ func (r *PaymentMethodRepo) Update(ctx context.Context, method *models.PaymentMe
 	return nil
 }
 
-func (r *PaymentMethodRepo) DeactivateByUserID(ctx context.Context, userID string) error {
-	res, err := r.db.GetDB().NewUpdate().
-		Model((*models.PaymentMethod)(nil)).
-		Set("is_active = ?", false).
-		Where("pm.user_id = ?", userID).
-		Exec(ctx)
-	if err != nil {
-		return err
-	}
-
-	_, err = res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (r *PaymentMethodRepo) ActivateByID(ctx context.Context, id uuid.UUID) error {
-	res, err := r.db.GetDB().NewUpdate().
-		Model((*models.PaymentMethod)(nil)).
-		Set("is_active = ?", true).
-		Where("pm.id = ?", id).
-		Exec(ctx)
-	if err != nil {
-		return err
-	}
-
-	rows, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-
-	if rows < 1 {
-		return ErrPaymentMethodNotFound
-	}
-
-	return nil
-}
-
 // GetAllNMIBacked returns all payment methods for NMI-backed processors
 func (r *PaymentMethodRepo) GetAllNMIBacked(ctx context.Context) ([]*models.PaymentMethod, error) {
 	nmiProcessors := processors.GetNMIBackedProcessorsList()
 	methods := []*models.PaymentMethod{}
 	err := r.db.GetDB().NewSelect().Model(&methods).
 		Where("pm.processor IN (?)", bun.In(nmiProcessors)).
-		OrderExpr("pm.created_at DESC").
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return methods, nil
-}
-
-// GetActiveNMIBacked returns all active payment methods for NMI-backed processors
-func (r *PaymentMethodRepo) GetActiveNMIBacked(ctx context.Context) ([]*models.PaymentMethod, error) {
-	nmiProcessors := processors.GetNMIBackedProcessorsList()
-	methods := []*models.PaymentMethod{}
-	err := r.db.GetDB().NewSelect().Model(&methods).
-		Where("pm.processor IN (?)", bun.In(nmiProcessors)).
-		Where("pm.is_active = ?", true).
 		OrderExpr("pm.created_at DESC").
 		Scan(ctx)
 	if err != nil {
@@ -292,39 +218,14 @@ func (r *PaymentMethodRepo) GetNMIBackedByUserID(ctx context.Context, userID str
 	return methods, nil
 }
 
-// GetActiveNMIBackedByUserID returns all active payment methods for NMI-backed processors for a user
-func (r *PaymentMethodRepo) GetActiveNMIBackedByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	nmiProcessors := processors.GetNMIBackedProcessorsList()
-	methods := []*models.PaymentMethod{}
-	if err := r.db.GetDB().NewSelect().Model(&methods).
-		Where("pm.user_id = ?", userID).
-		Where("pm.processor IN (?)", bun.In(nmiProcessors)).
-		Where("pm.is_active = ?", true).
-		OrderExpr("pm.created_at DESC").
-		Scan(ctx); err != nil {
-		return nil, err
-	}
-	return methods, nil
-}
-
 // Deprecated: GetAllNMI is deprecated. Use GetAllNMIBacked instead.
 func (r *PaymentMethodRepo) GetAllNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
 	return r.GetAllNMIBacked(ctx)
 }
 
-// Deprecated: GetActiveNMI is deprecated. Use GetActiveNMIBacked instead.
-func (r *PaymentMethodRepo) GetActiveNMI(ctx context.Context) ([]*models.PaymentMethod, error) {
-	return r.GetActiveNMIBacked(ctx)
-}
-
 // Deprecated: GetNMIByUserID is deprecated. Use GetNMIBackedByUserID instead.
 func (r *PaymentMethodRepo) GetNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
 	return r.GetNMIBackedByUserID(ctx, userID)
-}
-
-// Deprecated: GetActiveNMIByUserID is deprecated. Use GetActiveNMIBackedByUserID instead.
-func (r *PaymentMethodRepo) GetActiveNMIByUserID(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
-	return r.GetActiveNMIBackedByUserID(ctx, userID)
 }
 
 func (r *PaymentMethodRepo) ExistsForUser(ctx context.Context, id uuid.UUID, userID string) (bool, error) {
@@ -347,19 +248,6 @@ func (r *PaymentMethodRepo) GetByProcessor(ctx context.Context, processor models
 	methods := []*models.PaymentMethod{}
 	err := r.db.GetDB().NewSelect().Model(&methods).
 		Where("pm.processor = ?", processor).
-		OrderExpr("pm.created_at DESC").
-		Scan(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return methods, nil
-}
-
-func (r *PaymentMethodRepo) GetActiveByProcessor(ctx context.Context, processor models.Processor) ([]*models.PaymentMethod, error) {
-	methods := []*models.PaymentMethod{}
-	err := r.db.GetDB().NewSelect().Model(&methods).
-		Where("pm.processor = ?", processor).
-		Where("pm.is_active = ?", true).
 		OrderExpr("pm.created_at DESC").
 		Scan(ctx)
 	if err != nil {

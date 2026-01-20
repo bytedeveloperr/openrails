@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
-	"github.com/uptrace/bun"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/auth"
@@ -31,7 +31,7 @@ type App struct {
 // BootstrapOptions controls optional overrides for embedded use.
 type BootstrapOptions struct {
 	DB           *sql.DB
-	BunDB        *bun.DB
+	PGXPool      *pgxpool.Pool
 	Redis        *redis.Client
 	AuthProvider authprovider.Provider
 	Cache        cache.Cache
@@ -76,9 +76,9 @@ func BootstrapWithOptions(cfg *config.Config, opts *BootstrapOptions) (*App, err
 	var dbOverride *db.DB
 	if opts != nil {
 		switch {
-		case opts.BunDB != nil:
-			if dbo, err := db.NewWithBun(opts.BunDB); err != nil {
-				return nil, fmt.Errorf("use bun db: %w", err)
+		case opts.PGXPool != nil:
+			if dbo, err := db.NewWithPGXPool(opts.PGXPool); err != nil {
+				return nil, fmt.Errorf("use pgx pool: %w", err)
 			} else {
 				dbOverride = dbo
 			}

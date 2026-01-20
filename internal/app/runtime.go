@@ -14,7 +14,10 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
+	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
+	"github.com/doujins-org/doujins-billing/internal/integrations/jupiter"
 	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/jonboulle/clockwork"
 )
@@ -51,12 +54,15 @@ type Runtime struct {
 
 	EventLogService          *services.EventLogService
 	EntitlementService       *services.EntitlementService
-	AdminGrantService        *services.AdminGrantService
 	CreditsService           *services.CreditsService
 	ProcessorCustomerService *services.ProcessorCustomerService
 
-	SolanaPayService *services.SolanaPayService
-	SolanaPayPoller  *services.SolanaPayPoller
+	SolanaPayService         *services.SolanaPayService
+	SolanaPayPoller          *services.SolanaPayPoller
+	SolanaTransactionService *services.SolanaTransactionService
+	SolanaRPC                *solana.RPCClient
+	SolanaTokenRegistry      *jupiter.TokenRegistry
+	FXProvider               fx.Provider
 
 	SubscriptionLifecycleService *services.SubscriptionLifecycleService
 	WebhookDispatcher            *services.WebhookDispatcher
@@ -66,7 +72,8 @@ type Runtime struct {
 	CheckoutService        *services.CheckoutService
 	CheckoutSessionService *services.CheckoutSessionService
 
-	riverStarted bool
+	riverStarted        bool
+	externalRiverClient bool // true if River client was provided externally
 }
 
 // Close gracefully shuts down runtime resources.
@@ -82,7 +89,8 @@ func (r *Runtime) Close(ctx context.Context) error {
 		r.SolanaPayPoller.Stop()
 	}
 
-	if r.RiverClient != nil && r.riverStarted {
+	// Only stop River client if we created it (not external)
+	if r.RiverClient != nil && r.riverStarted && !r.externalRiverClient {
 		log.Info("Stopping River background workers...")
 		if err := r.RiverClient.Stop(ctx); err != nil {
 			// During shutdown, Stop can surface context cancellation if the passed ctx is cancelled.
@@ -126,8 +134,13 @@ func (r *Runtime) Close(ctx context.Context) error {
 }
 
 // InitRiver initialises the River client for background workers.
+// If an external client was provided via SetExternalRiverClient, this is a no-op.
 func (r *Runtime) InitRiver(ctx context.Context) error {
 	if r.RiverClient != nil {
+		return nil
+	}
+	// If external client was set, we don't create our own
+	if r.externalRiverClient {
 		return nil
 	}
 	workers, err := r.buildRiverWorkers(ctx)
@@ -145,9 +158,26 @@ func (r *Runtime) InitRiver(ctx context.Context) error {
 
 // RunWorkers starts River workers (and other background loops) and blocks until ctx is done.
 // This is intended to run in a dedicated worker process, not inside the HTTP server.
+//
+// If an external River client was provided via SetExternalRiverClient, this only starts
+// non-River background loops (e.g., Solana Pay poller). The host is responsible for
+// starting the shared River client.
 func (r *Runtime) RunWorkers(ctx context.Context) error {
 	if r == nil {
 		return fmt.Errorf("runtime is nil")
+	}
+
+	// Start Solana Pay poller if configured (regardless of River setup).
+	if r.SolanaPayPoller != nil && r.Config != nil && r.Config.GetSolanaProcessor() != nil {
+		go r.SolanaPayPoller.Start(ctx)
+	}
+
+	// If external client, don't start River workers - host is responsible
+	if r.externalRiverClient {
+		log.Info("External River client configured - skipping River worker startup")
+		// Block until context is cancelled
+		<-ctx.Done()
+		return ctx.Err()
 	}
 
 	if err := r.InitRiver(ctx); err != nil {
@@ -165,12 +195,43 @@ func (r *Runtime) RunWorkers(ctx context.Context) error {
 		r.RiverClient.PeriodicJobs().Add(job)
 	}
 
-	// Start Solana Pay poller if configured.
-	if r.SolanaPayPoller != nil && r.Config != nil && r.Config.Solana != nil {
-		go r.SolanaPayPoller.Start(ctx)
-	}
-
 	r.riverStarted = true
 	log.Info("Starting River background workers")
 	return r.RiverClient.Start(ctx)
+}
+
+// AddBillingWorkersTo adds billing's River workers to the provided worker registry.
+// This is used by embedded hosts who want to share their River client with billing.
+func (r *Runtime) AddBillingWorkersTo(ctx context.Context, workers *river.Workers) error {
+	if r == nil {
+		return fmt.Errorf("runtime is nil")
+	}
+	return r.addBillingWorkersToRegistry(ctx, workers)
+}
+
+// GetBillingPeriodicJobs returns billing's periodic jobs for external River client setup.
+// This is used by embedded hosts who want to add billing's periodic jobs to their client.
+func (r *Runtime) GetBillingPeriodicJobs(ctx context.Context) ([]*river.PeriodicJob, error) {
+	return r.buildRiverPeriodicJobs(ctx)
+}
+
+// SetExternalRiverClient sets an external River client for billing to use.
+// When set, billing will use this client for enqueueing and will not create its own.
+// The host is responsible for registering billing workers (via AddBillingWorkersTo)
+// and starting the client.
+func (r *Runtime) SetExternalRiverClient(client *river.Client[pgx.Tx]) {
+	if r == nil {
+		return
+	}
+	r.RiverClient = client
+	r.RiverProducer = client // Use same client for enqueueing
+	r.externalRiverClient = true
+}
+
+// HasExternalRiverClient returns true if an external River client was configured.
+func (r *Runtime) HasExternalRiverClient() bool {
+	if r == nil {
+		return false
+	}
+	return r.externalRiverClient
 }

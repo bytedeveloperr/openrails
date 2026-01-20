@@ -229,16 +229,14 @@ func ListPaymentMethods(r *Request) {
 	methods, totalItems, err := r.State.PaymentMethodService.ListByUserID(
 		r.Request.Context(),
 		user.ID,
-		req.IncludeInactive,
 		req.Limit,
 		req.Offset,
 	)
 	if err != nil {
 		log.WithError(err).WithFields(log.Fields{
-			"user_id":          user.ID,
-			"include_inactive": req.IncludeInactive,
-			"limit":            req.Limit,
-			"offset":           req.Offset,
+			"user_id": user.ID,
+			"limit":   req.Limit,
+			"offset":  req.Offset,
 		}).Error("Failed to retrieve payment methods")
 		r.ErrorJSON(http.StatusInternalServerError, "Failed to retrieve payment methods")
 		return
@@ -339,110 +337,5 @@ func DeletePaymentMethod(r *Request) {
 	r.SuccessJSON(map[string]any{
 		"success": true,
 		"message": "Payment method deleted successfully",
-	})
-}
-
-// ActivatePaymentMethod activates a given payment method ID
-func ActivatePaymentMethod(r *Request) {
-	req := new(ActivatePaymentMethodRequest)
-	if !r.BindURI(req.Path()) {
-		return
-	}
-
-	// Validate UUID format
-	id, err := api.ParsePaymentMethodID(req.ID)
-	if err != nil {
-		log.WithError(err).WithField("id", req.ID).Error("Invalid payment method ID format")
-		r.ErrorJSON(http.StatusBadRequest, "Invalid payment method ID format")
-		return
-	}
-
-	user := r.GetUser()
-	if user == nil {
-		log.Error("User not found in request context")
-		r.ErrorJSON(http.StatusUnauthorized, "Authentication required")
-		return
-	}
-
-	// Validate ownership and get payment method details
-	paymentMethod, err := r.State.PaymentMethodService.ValidatePaymentMethodOperation(r.Request.Context(), id, user.ID)
-	if err != nil {
-		switch {
-		case errors.Is(err, services.ErrPaymentMethodNotFound):
-			log.WithFields(log.Fields{
-				"payment_method_id": id,
-				"user_id":           user.ID,
-			}).Warn("Payment method not found for activation")
-			r.ErrorJSON(http.StatusNotFound, "Payment method not found")
-			return
-		case errors.Is(err, services.ErrPaymentMethodAccessDenied):
-			log.WithFields(log.Fields{
-				"payment_method_id": id,
-				"user_id":           user.ID,
-			}).Warn("Unauthorized payment method activation attempt")
-			r.ErrorJSON(http.StatusForbidden, "Access denied - you don't own this payment method")
-			return
-		default:
-			log.WithError(err).WithFields(log.Fields{
-				"payment_method_id": id,
-				"user_id":           user.ID,
-			}).Error("Failed to validate payment method ownership")
-			r.ErrorJSON(http.StatusInternalServerError, "Failed to validate payment method")
-			return
-		}
-	}
-
-	// Check if payment method is already active
-	if paymentMethod.IsActive {
-		log.WithFields(log.Fields{
-			"payment_method_id": id,
-			"user_id":           user.ID,
-		}).Info("Payment method is already active")
-		r.SuccessJSON(map[string]any{
-			"success": true,
-			"message": "Payment method is already active",
-		})
-		return
-	}
-
-	// Check if payment method has failure reasons that prevent activation
-	if paymentMethod.FailureReason != nil && *paymentMethod.FailureReason != "" {
-		log.WithFields(log.Fields{
-			"payment_method_id": id,
-			"user_id":           user.ID,
-			"failure_reason":    *paymentMethod.FailureReason,
-		}).Warn("Cannot activate payment method with failure reason")
-		r.ErrorJSON(http.StatusConflict, "Cannot activate payment method: "+*paymentMethod.FailureReason)
-		return
-	}
-
-	// Perform the activation
-	if err := r.State.PaymentMethodService.ActivateByID(r.Request.Context(), id); err != nil {
-		if errors.Is(err, services.ErrPaymentMethodNotFound) {
-			log.WithFields(log.Fields{
-				"payment_method_id": id,
-				"user_id":           user.ID,
-			}).Warn("Payment method not found during activation")
-			r.ErrorJSON(http.StatusNotFound, "Payment method not found")
-			return
-		}
-		log.WithError(err).WithFields(log.Fields{
-			"payment_method_id": id,
-			"user_id":           user.ID,
-		}).Error("Failed to activate payment method")
-		r.ErrorJSON(http.StatusInternalServerError, "Failed to activate payment method")
-		return
-	}
-
-	// Log successful activation for audit purposes
-	log.WithFields(log.Fields{
-		"payment_method_id": id,
-		"user_id":           user.ID,
-		"processor":         paymentMethod.Processor,
-	}).Info("Payment method successfully activated")
-
-	r.SuccessJSON(map[string]any{
-		"success": true,
-		"message": "Payment method activated successfully",
 	})
 }

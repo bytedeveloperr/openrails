@@ -13,6 +13,7 @@ import (
 	authtesting "github.com/PaulFidika/authkit/testing"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
 
 	"github.com/doujins-org/doujins-billing/internal/server"
 )
@@ -120,6 +121,27 @@ func setupTestSuiteWithAdminAuth(t *testing.T) (*TestContainerSuite, string, str
 	userID := uuid.New().String()
 	email := "admin-" + t.Name() + "@test.example.com"
 	token := getTestIssuer().CreateTokenWithRoles(userID, email, []string{"admin"})
+
+	// AdminRequired checks Postgres roles (profiles.user_roles), not JWT claims.
+	// Seed the minimal role assignment so admin endpoints can be exercised.
+	ctx := context.Background()
+	_, err := suite.BunDB.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS pgcrypto")
+	require.NoError(t, err)
+	_, err = suite.BunDB.ExecContext(ctx,
+		"INSERT INTO profiles.users (id, email, email_verified, created_at, updated_at) VALUES (?::uuid, ?, true, NOW(), NOW()) ON CONFLICT (id) DO NOTHING",
+		userID, email,
+	)
+	require.NoError(t, err)
+	_, err = suite.BunDB.ExecContext(ctx,
+		"INSERT INTO profiles.roles (slug, name) VALUES ('admin', 'Admin') ON CONFLICT (slug) DO NOTHING",
+	)
+	require.NoError(t, err)
+	_, err = suite.BunDB.ExecContext(ctx,
+		"INSERT INTO profiles.user_roles (user_id, role_id) VALUES (?::uuid, profiles.role_id('admin')) ON CONFLICT (user_id, role_id) DO NOTHING",
+		userID,
+	)
+	require.NoError(t, err)
+
 	return suite, token, userID
 }
 

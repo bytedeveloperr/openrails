@@ -2,7 +2,7 @@
 
 #### Scope
 - Provides a billing-related API server for the frontend to use (signups, cancellations, etc.), and an admin-API server for the backend to use (admin cancellations).
-- Handles webhooks from supported payment processors (mobius, ccbill, solana), and updates corresponding subscriptions / entitlements.
+- Handles webhooks from supported payment processors (Stripe, NMI/Mobius, CCBill, Solana), and updates corresponding subscriptions / entitlements.
 - Runs periodic jobs to update subscriptions / entitlements.
 
 #### Interactions with other services (Intended Contract)
@@ -37,24 +37,244 @@
 - Env vars: common overrides include `DB_URL`, `REDIS_ADDR`, `CLICKHOUSE_HTTP_ADDR`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `AUTH_ISSUER`, `AUTH_AUDIENCE`.
 - If not provided, the service uses the defaults above.
 
-#### Embedding (optional)
-You can embed the billing server inside another Go service:
+#### Test Mode (Payment Sandboxes)
+
+The `test_mode` setting controls whether payment processors use sandbox/test environments:
+
+```yaml
+test_mode: true   # Default - use sandbox endpoints (safe for testing)
+test_mode: false  # Production mode - use real payment endpoints
+```
+
+**What test_mode controls:**
+- **NMI/Mobius**: Uses `sandbox.nmi.com` instead of `secure.networkmerchants.com`
+- **CCBill**: Uses `sandbox-api.ccbill.com` instead of `api.ccbill.com`
+- **Solana**: Uses devnet instead of mainnet
+- **Stripe**: Validates key prefix matches mode (`sk_test_*` vs `sk_live_*`)
+- **Webhooks**: Bypasses IP validation and signature verification for easier testing
+
+**Key behaviors:**
+- Defaults to `true` for safety (no accidental charges)
+- Stripe is disabled with a warning if key prefix doesn't match test_mode
+- Orthogonal to `env` - you can run `env=prod` with `test_mode=true` for staging
+
+**Environment variable:** `TEST_MODE=true` or `TEST_MODE=false`
+
+See `config.example.yaml` and `.env.example` for detailed documentation.
+
+#### Feature Flags (Safety Controls)
+
+Feature flags allow you to quickly disable destructive background operations when bugs are suspected, without requiring a code deployment.
+
+```yaml
+feature_flags:
+  dunning_mode: "on"                      # on | dry_run_only | off
+  disable_entitlement_expiration: false   # true | false
+```
+
+**Dunning Mode** (`feature_flags.dunning_mode`):
+
+Controls retry charging for failed subscription rebills.
+
+| Value | Behavior |
+|-------|----------|
+| `on` (default) | Normal dunning - retry charges every 3 days, up to 5 attempts, then cancel |
+| `dry_run_only` | Workflow runs but no charges - subscriptions stay in `past_due`, retry counts preserved |
+| `off` | No dunning - immediate cancellation on rebill failure, no grace period |
+
+**Use cases:**
+- `dry_run_only`: Bug in charge logic causing incorrect amounts - pause charging while you fix and deploy
+- `off`: Dunning workflow itself is broken, or business decision to not do recovery
+
+**Example scenario (dry_run_only):**
+1. Nov 1: User's rebill fails → subscription goes to `past_due`, `retry_attempts=1`
+2. Nov 3: Dunning disabled (`dry_run_only`) → worker logs but skips charge, state unchanged
+3. Nov 7: Bug fixed, set `dunning_mode=on` → worker processes as retry #2
+
+**Disable Entitlement Expiration** (`feature_flags.disable_entitlement_expiration`):
+
+When `true`, stops all entitlement/credit expiration:
+- CreditExpiryWorker skips (credit batches preserved even if expired)
+- HoldExpiryWorker skips (holds stay active even if expired)
+- FailMembership still cancels subscriptions but doesn't revoke entitlements
+- Users keep premium access even after subscription ends
+
+**Use case:** Bug in expiration logic causing premature credit/entitlement loss
+
+**Example scenario:**
+1. Set `disable_entitlement_expiration: true` when bug discovered
+2. Fix the expiration bug, deploy
+3. Set `disable_entitlement_expiration: false`
+4. All accumulated expirations process at once
+
+**Environment variables:**
+```bash
+FEATURE_FLAGS_DUNNING_MODE=on              # on, dry_run_only, off
+FEATURE_FLAGS_DISABLE_ENTITLEMENT_EXPIRATION=false  # true, false
+```
+
+---
+
+## Deployment Modes
+
+Doujins Billing can run in two modes: **standalone** (as its own HTTP server) or **embedded** (inside another Go application).
+
+### Standalone Mode
+
+Run billing as an independent service with its own HTTP server:
+
+```bash
+# Build and run
+task build
+./bin/billing server
+
+# Or run directly
+task dev
+```
+
+The standalone server exposes:
+- **Port 2053** (public): User APIs, admin APIs, webhooks
+- **Port 8060** (private): Internal service-to-service APIs (credits, entitlements)
+
+This is the default mode for production deployments where billing runs as a separate microservice.
+
+### Embedded Mode
+
+Embed billing directly inside another Go application. This is useful when:
+- You want a single binary deployment
+- Your app needs direct Go API access to billing operations
+- You want to control which HTTP routes are exposed
 
 ```go
-emb, err := embedded.New(embedded.Options{Config: cfg})
-if err != nil {
-  return err
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/doujins-org/doujins-billing/config"
+    "github.com/doujins-org/doujins-billing/pkg/embedded"
+)
+
+func main() {
+    // Load billing config
+    cfg, _ := config.Load()
+
+    // Initialize billing
+    billing, err := embedded.New(embedded.Options{
+        Config:       cfg,
+        AuthProvider: myAuthProvider, // your JWT verifier
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer billing.Close(ctx)
+
+    // Start background workers (subscription renewals, dunning, etc.)
+    go billing.RunWorkers(ctx)
+
+    // Your app's router
+    router := gin.Default()
+
+    // Register only the routes you need...
+    // (see "Registering HTTP Routes" below)
+
+    router.Run(":8080")
 }
-defer emb.Close(ctx)
-
-router.Handle("/billing/", emb.Handler())
-router.Handle("/billing-internal/", emb.PrivateHandler())
 ```
 
-If you want background workers in the same process:
+#### Registering HTTP Routes
+
+Pick and choose which route groups to expose:
+
 ```go
-go emb.RunWorkers(ctx)
+// 1. User routes - frontend billing UI
+//    Products, prices, checkout, subscriptions, payments, payment methods,
+//    notifications, credits
+billing.RegisterUserRoutes(router.Group("/v1"), embedded.RouteOptions{})
+
+// 2. Admin routes - admin dashboard
+//    Subscription management, payment management, user management, metrics
+//    Requires admin role in JWT
+billing.RegisterAdminRoutes(router.Group("/v1/admin"), embedded.RouteOptions{})
+
+// 3. Webhook routes - payment processor callbacks
+//    Required if using Stripe, CCBill, or NMI webhooks
+billing.RegisterWebhookRoutes(router.Group("/v1/webhooks"))
 ```
+
+The `RouteOptions{}` uses the `AuthProvider` from `embedded.New()` by default. Override per-group if needed:
+
+```go
+billing.RegisterUserRoutes(router.Group("/v1"), embedded.RouteOptions{
+    AuthProvider: differentAuthProvider,
+})
+```
+
+#### In-Process Go API
+
+For internal operations, use the Go API directly instead of HTTP:
+
+```go
+svc, err := billing.Service()
+if err != nil {
+    return err
+}
+
+// User operations (same as HTTP API)
+products, _ := svc.GetProducts(ctx, service.GetProductsOptions{})
+status, _ := svc.GetBillingStatus(ctx, userID)
+subscriptions, _ := svc.GetSubscriptions(ctx, userID, service.GetSubscriptionsOptions{})
+
+// Admin operations
+metrics, _ := svc.AdminGetMetricsSummary(ctx, service.MetricsOptions{...})
+_ = svc.AdminRefundPayment(ctx, paymentID, service.RefundPaymentRequest{...})
+
+// Credits operations (for usage-based billing)
+hold, _ := svc.HoldCredits(ctx, service.HoldCreditsRequest{
+    UserID:     userID,
+    CreditType: "api_credits",
+    Amount:     100,
+    Source:     "api_call",
+    SourceID:   requestID,
+    ExpiresAt:  time.Now().Add(5 * time.Minute),
+})
+tx, _ := svc.CaptureHold(ctx, service.CaptureHoldRequest{
+    HoldID: hold.ID,
+    Amount: 100,
+})
+_ = svc.ReleaseHold(ctx, holdID) // if operation failed
+
+// Direct credit withdrawal (no hold)
+tx, _ := svc.WithdrawCredits(ctx, service.WithdrawCreditsRequest{
+    UserID:     userID,
+    CreditType: "api_credits",
+    Amount:     50,
+    Source:     "image_generation",
+})
+
+// Entitlements
+entitlements, _ := svc.ListActiveEntitlements(ctx, userID, time.Now())
+records, _ := svc.ListActiveEntitlementRecords(ctx, userID, time.Now())
+
+// Webhook handling (for custom webhook routing)
+result, _ := svc.HandleWebhook(ctx, service.HandleWebhookRequest{
+    Provider:  "stripe",
+    Body:      rawBody,
+    Headers:   map[string]string{"Stripe-Signature": sig},
+    ClientIP:  clientIP,
+})
+```
+
+#### Comparison: Standalone vs Embedded
+
+| Aspect | Standalone | Embedded |
+|--------|-----------|----------|
+| Deployment | Separate container/binary | Single binary with host app |
+| HTTP routing | Fixed routes on ports 2053/8060 | You choose which routes to mount |
+| Health endpoints | Built-in `/health/*`, `/healthz`, `/readyz` | Host app provides its own |
+| Internal ops | HTTP calls to port 8060 | Direct Go API calls |
+| Workers | Built-in, always running | Call `billing.RunWorkers(ctx)` |
+| Config | Own config file/env vars | Passed via `embedded.Options` |
+| Auth | Own JWT verifier | Use host app's auth provider |
+
+---
 
 Developer tasks
 - Build: `task build` → outputs `bin/billing`
@@ -206,7 +426,7 @@ Error types: `invalid_request_error`, `authentication_error`, `authorization_err
 **Query params:**
 - `page`, `page_size` - Pagination
 - `start_date`, `end_date` - Date range (format: `2006-01-02`)
-- `processor` - Filter: `ccbill`, `mobius`, `solana`, `system`
+- `processor` - Filter: `stripe`, `ccbill`, `mobius`, `solana`, `admin`, `manual`
 - `min_amount`, `max_amount` - Amount range
 - `include_stats` - Include summary stats (default: `false`)
 - `include_events` - Include payment events (default: `true`)
@@ -236,32 +456,6 @@ Error types: `invalid_request_error`, `authentication_error`, `authorization_err
   "country": "US",
   "phone": "555-1234",
   "email": "john@example.com"
-}
-```
-
----
-
-#### Solana Wallets
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/v1/me/wallets` | List linked Solana wallets |
-| GET | `/v1/me/wallets/linked` | Get primary linked wallet |
-| POST | `/v1/me/wallets/challenge` | Generate wallet verification challenge |
-| POST | `/v1/me/wallets/verify` | Verify wallet signature |
-| DELETE | `/v1/me/wallets` | Unlink wallet |
-
-**Challenge Request Body:**
-```json
-{ "wallet": "<base58_address>" }
-```
-
-**Verify Request Body:**
-```json
-{
-  "wallet": "<base58_address>",
-  "signature": "<base58_signature>",
-  "message": "<challenge_message>"
 }
 ```
 
@@ -332,24 +526,31 @@ Error types: `invalid_request_error`, `authentication_error`, `authorization_err
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/v1/webhooks/:provider` | Receive webhook from processor (ccbill, mobius, solana) |
+| POST | `/v1/webhooks/:provider` | Receive webhook from processor (stripe, ccbill, mobius, solana) |
 
 ---
 
-### Admin Endpoints (Admin API - Port 8060)
+### Admin Endpoints
 
-Requires `X-API-KEY: <billing_api_key>` header.
+Admin endpoints are under `/v1/admin/*` and require:
+
+- a valid JWT
+- the user to have the `admin` role in AuthKit (`profiles.user_roles`)
+
+Key endpoints:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| PUT | `/v1/subscriptions/:id/extend` | Extend subscription period |
-| POST | `/v1/subscriptions/:id/cancel` | Admin cancel subscription |
-| POST | `/v1/users/:user_id/subscription/cancel` | Cancel user's subscription |
-| GET | `/v1/subscriptions/:id/details` | Get subscription details |
-| GET | `/v1/subscriptions/dashboard-metrics` | Get dashboard metrics |
-| GET | `/v1/subscriptions/daily-metrics` | Get daily metrics |
-| GET | `/v1/subscriptions/processor-metrics` | Get per-processor metrics |
-| GET | `/v1/users/:user_id/entitlements` | Get user's active entitlements |
+| GET | `/v1/admin/subscriptions` | List subscriptions |
+| GET | `/v1/admin/subscriptions/:id` | Get subscription |
+| POST | `/v1/admin/subscriptions/:id/cancel` | Admin-cancel subscription |
+| GET | `/v1/admin/payments` | List payments |
+| GET | `/v1/admin/payments/:id` | Get payment |
+| POST | `/v1/admin/payments/:id/refund` | Record refund |
+| POST | `/v1/admin/users/:user_id/payments/off-channel` | Record off-channel/manual purchase (creates Payment and grants entitlements) |
+| GET | `/v1/admin/users/:user_id/entitlements` | List active entitlement windows |
+| POST | `/v1/admin/users/:user_id/entitlements` | Grant entitlement (creates admin_grants source record) |
+| DELETE | `/v1/admin/users/:user_id/entitlements/:id` | Revoke entitlement |
 
 ---
 
@@ -369,11 +570,6 @@ These endpoints are kept for backwards compatibility but will be removed:
 | `PUT /v1/payment-methods/:id` | `PUT /v1/me/payment-methods/:id` |
 | `DELETE /v1/payment-methods/:id` | `DELETE /v1/me/payment-methods/:id` |
 | `PUT /v1/payment-methods/:id/activate` | `PUT /v1/me/payment-methods/:id/activate` |
-| `GET /v1/wallet/solana` | `GET /v1/me/wallets` |
-| `GET /v1/wallet/solana/linked` | `GET /v1/me/wallets/linked` |
-| `POST /v1/wallet/solana/challenge` | `POST /v1/me/wallets/challenge` |
-| `POST /v1/wallet/solana/verify` | `POST /v1/me/wallets/verify` |
-| `DELETE /v1/wallet/solana` | `DELETE /v1/me/wallets` |
 | `GET /v1/notifications` | `GET /v1/me/notifications` |
 | `GET /v1/notifications/unread-count` | `GET /v1/me/notifications/unread-count` |
 | `POST /v1/notifications/:id/read` | `POST /v1/me/notifications/:id/read` |

@@ -56,21 +56,6 @@ func (s *SubscriptionService) now() time.Time {
 	return time.Now()
 }
 
-func (s *SubscriptionService) nmiClientForProcessor(provider string) (*nmi.NMIClient, error) {
-	providerKey := strings.TrimSpace(strings.ToLower(provider))
-	if providerKey == "" {
-		providerKey = "mobius"
-	}
-	if s.NMIClients == nil {
-		return nil, fmt.Errorf("nmi provider '%s' is not configured", providerKey)
-	}
-	client, ok := s.NMIClients[providerKey]
-	if !ok {
-		return nil, fmt.Errorf("nmi provider '%s' is not configured", providerKey)
-	}
-	return client, nil
-}
-
 const (
 	ProcessorCCBill = "ccbill"
 	ProcessorStripe = "stripe"
@@ -137,18 +122,6 @@ func (s *SubscriptionService) CancelUserSubscription(ctx context.Context, userID
 	}
 
 	return nil
-}
-
-func buildNMIIdempotencyKey(userID string, priceID uuid.UUID, paymentToken string, paymentMethodID string) string {
-	token := strings.TrimSpace(paymentToken)
-	method := strings.TrimSpace(paymentMethodID)
-	if token == "" {
-		token = "none"
-	}
-	if method == "" {
-		method = "none"
-	}
-	return fmt.Sprintf("user:%s:price:%s:token:%s:method:%s", strings.TrimSpace(userID), priceID.String(), token, method)
 }
 
 // GetAvailableProducts returns all active products with their prices

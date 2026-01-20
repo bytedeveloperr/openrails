@@ -6,20 +6,23 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
-	"github.com/uptrace/bun"
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/app"
 	"github.com/doujins-org/doujins-billing/internal/server"
 	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/doujins-org/doujins-billing/pkg/cache"
+	"github.com/doujins-org/doujins-billing/pkg/routes"
+	"github.com/doujins-org/doujins-billing/pkg/service"
 )
 
 type Options struct {
 	Config       *config.Config
 	DB           *sql.DB
-	BunDB        *bun.DB
+	PGXPool      *pgxpool.Pool
 	Redis        *redis.Client
 	AuthProvider authprovider.Provider
 	Cache        cache.Cache
@@ -37,7 +40,7 @@ func New(opts Options) (*Embedded, error) {
 
 	application, err := app.BootstrapWithOptions(opts.Config, &app.BootstrapOptions{
 		DB:           opts.DB,
-		BunDB:        opts.BunDB,
+		PGXPool:      opts.PGXPool,
 		Redis:        opts.Redis,
 		AuthProvider: opts.AuthProvider,
 		Cache:        opts.Cache,
@@ -82,11 +85,123 @@ func (e *Embedded) Handler() http.Handler {
 	return e.server.Handler()
 }
 
+// UserHandler exposes user/public billing APIs (and health endpoints).
+// Mount this under a prefix like `/billing`.
+func (e *Embedded) UserHandler() http.Handler {
+	if e == nil || e.server == nil {
+		return nil
+	}
+	return e.server.UserHandler()
+}
+
+// AdminHandler exposes admin billing APIs (JWT + admin role required).
+// Embedded hosts should mount this only if they have an admin UI/tooling.
+func (e *Embedded) AdminHandler() http.Handler {
+	if e == nil || e.server == nil {
+		return nil
+	}
+	return e.server.AdminHandler()
+}
+
+// WebhookHandler exposes billing processor webhooks (e.g. Stripe callbacks).
+func (e *Embedded) WebhookHandler() http.Handler {
+	if e == nil || e.server == nil {
+		return nil
+	}
+	return e.server.WebhookHandler()
+}
+
+// PrivateHandler is the internal service-to-service HTTP API (X-API-KEY protected).
+//
+// Deprecated: Embedded hosts should not mount this in most cases. Prefer using the in-process
+// Go API returned by `Embedded.Service()` for holds/capture/release/credits/entitlements.
 func (e *Embedded) PrivateHandler() http.Handler {
 	if e == nil || e.server == nil {
 		return nil
 	}
 	return e.server.PrivateHandler()
+}
+
+// ServiceHandler returns the internal service-to-service HTTP API (X-API-KEY protected).
+// Embedded hosts should typically NOT mount this; use `Embedded.Service()` instead.
+func (e *Embedded) ServiceHandler() http.Handler {
+	if e == nil || e.server == nil {
+		return nil
+	}
+	return e.server.ServiceHandler()
+}
+
+// Service returns the in-process billing API for embedded hosts.
+func (e *Embedded) Service() (*service.Service, error) {
+	if e == nil || e.app == nil {
+		return nil, fmt.Errorf("embedded billing: app not initialized")
+	}
+	return service.New(e.app.Runtime)
+}
+
+// RouteOptions configures route registration behavior.
+type RouteOptions struct {
+	// AuthProvider is required for routes that need authentication.
+	// If not provided, uses the auth provider from Embedded initialization.
+	AuthProvider authprovider.Provider
+}
+
+// RegisterUserRoutes registers user-facing billing routes on the provided Gin router group.
+// These routes include products, prices, checkout, subscriptions, payments, etc.
+//
+// Example:
+//
+//	router := gin.Default()
+//	api := router.Group("/v1")
+//	billing.RegisterUserRoutes(api, embedded.RouteOptions{})
+func (e *Embedded) RegisterUserRoutes(group *gin.RouterGroup, opts RouteOptions) {
+	if e == nil || e.app == nil {
+		panic("embedded billing: not initialized")
+	}
+	auth := opts.AuthProvider
+	if auth == nil {
+		auth = e.app.AuthProvider
+	}
+	routes.RegisterUserRoutes(group, e.app.Runtime, routes.Options{
+		AuthProvider: auth,
+	})
+}
+
+// RegisterAdminRoutes registers admin billing routes on the provided Gin router group.
+// These routes include subscription management, payment management, user management, and metrics.
+// All routes require admin authorization.
+//
+// Example:
+//
+//	router := gin.Default()
+//	admin := router.Group("/v1/admin")
+//	billing.RegisterAdminRoutes(admin, embedded.RouteOptions{})
+func (e *Embedded) RegisterAdminRoutes(group *gin.RouterGroup, opts RouteOptions) {
+	if e == nil || e.app == nil {
+		panic("embedded billing: not initialized")
+	}
+	auth := opts.AuthProvider
+	if auth == nil {
+		auth = e.app.AuthProvider
+	}
+	routes.RegisterAdminRoutes(group, e.app.Runtime, routes.Options{
+		AuthProvider: auth,
+	})
+}
+
+// RegisterWebhookRoutes registers webhook routes on the provided Gin router group.
+// These routes handle incoming webhooks from payment processors (Stripe, CCBill, NMI, etc.).
+//
+// Example:
+//
+//	router := gin.Default()
+//	webhooks := router.Group("/v1/webhooks")
+//	billing.RegisterWebhookRoutes(webhooks)
+func (e *Embedded) RegisterWebhookRoutes(group *gin.RouterGroup) {
+	if e == nil || e.app == nil {
+		panic("embedded billing: not initialized")
+	}
+	routes.RegisterWebhookRoutes(group, e.app.Runtime)
 }
 
 func (e *Embedded) RunWorkers(ctx context.Context) error {

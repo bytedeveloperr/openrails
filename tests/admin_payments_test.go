@@ -468,3 +468,222 @@ func TestAdminPaymentsTransactionIDFilter(t *testing.T) {
 		assert.Empty(t, data, "Should return empty array for non-existent transaction")
 	})
 }
+
+// TestAdminRefundPayment tests POST /v1/admin/payments/:id/refund
+func TestAdminRefundPayment(t *testing.T) {
+	suite, adminToken := setupAdminTestSuite(t)
+
+	// Seed test data
+	products := suite.SeedProducts()
+	priceID := products[0].Prices[0].ID
+	userID := uuid.New().String()
+
+	t.Run("requires admin auth", func(t *testing.T) {
+		payment := suite.CreateTestPaymentWithOptions(PaymentOptions{
+			UserID:    userID,
+			PriceID:   priceID,
+			Processor: models.ProcessorMobius,
+			Amount:    1000,
+		})
+
+		w := httptest.NewRecorder()
+		body := `{"amount": 500}`
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/admin/payments/%s/refund", payment.ID.String()), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusUnauthorized, w.Code, "Should return 401 without auth")
+	})
+
+	t.Run("returns 403 for non-admin user", func(t *testing.T) {
+		payment := suite.CreateTestPaymentWithOptions(PaymentOptions{
+			UserID:    userID,
+			PriceID:   priceID,
+			Processor: models.ProcessorMobius,
+			Amount:    1000,
+		})
+
+		userToken := CreateUserToken(t, uuid.New().String())
+
+		w := httptest.NewRecorder()
+		body := `{"amount": 500}`
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/admin/payments/%s/refund", payment.ID.String()), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+userToken)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusForbidden, w.Code, "Should return 403 for non-admin")
+	})
+
+	t.Run("returns 404 for non-existent payment", func(t *testing.T) {
+		nonExistentID := uuid.New()
+
+		w := httptest.NewRecorder()
+		body := `{"amount": 500}`
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/admin/payments/%s/refund", nonExistentID.String()), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusNotFound, w.Code, "Should return 404 for non-existent payment")
+	})
+
+	t.Run("returns 400 for invalid payment ID", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		body := `{"amount": 500}`
+		req, _ := http.NewRequest("POST", "/v1/admin/payments/not-a-uuid/refund", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 for invalid payment ID")
+	})
+
+	t.Run("returns 400 for missing amount", func(t *testing.T) {
+		payment := suite.CreateTestPaymentWithOptions(PaymentOptions{
+			UserID:    userID,
+			PriceID:   priceID,
+			Processor: models.ProcessorMobius,
+			Amount:    1000,
+		})
+
+		w := httptest.NewRecorder()
+		body := `{}`
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/admin/payments/%s/refund", payment.ID.String()), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 for missing amount")
+	})
+
+	t.Run("returns 400 for zero amount", func(t *testing.T) {
+		payment := suite.CreateTestPaymentWithOptions(PaymentOptions{
+			UserID:    userID,
+			PriceID:   priceID,
+			Processor: models.ProcessorMobius,
+			Amount:    1000,
+		})
+
+		w := httptest.NewRecorder()
+		body := `{"amount": 0}`
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/admin/payments/%s/refund", payment.ID.String()), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 for zero amount")
+	})
+
+	t.Run("returns 400 for CCBill payments with helpful message", func(t *testing.T) {
+		payment := suite.CreateTestPaymentWithOptions(PaymentOptions{
+			UserID:    userID,
+			PriceID:   priceID,
+			Processor: models.ProcessorCCBill,
+			Amount:    1000,
+		})
+
+		w := httptest.NewRecorder()
+		body := `{"amount": 500}`
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/admin/payments/%s/refund", payment.ID.String()), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+adminToken)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusBadRequest, w.Code, "Should return 400 for CCBill")
+
+		var response map[string]interface{}
+		err := json.Unmarshal(w.Body.Bytes(), &response)
+		require.NoError(t, err)
+
+		errorObj := response["error"].(map[string]interface{})
+		message := errorObj["message"].(string)
+		assert.Contains(t, message, "CCBill", "Error should mention CCBill")
+		assert.Contains(t, message, "admin portal", "Error should direct to admin portal")
+	})
+}
+
+// TestAdminRefundPaymentAuthBoundaries tests that admin refund properly enforces admin-only access
+func TestAdminRefundPaymentAuthBoundaries(t *testing.T) {
+	suite, adminToken := setupAdminTestSuite(t)
+
+	products := suite.SeedProducts()
+	priceID := products[0].Prices[0].ID
+
+	// Create two different users' payments
+	userA := uuid.New().String()
+	userB := uuid.New().String()
+
+	paymentA := suite.CreateTestPaymentWithOptions(PaymentOptions{
+		UserID:    userA,
+		PriceID:   priceID,
+		Processor: models.ProcessorCCBill, // Use CCBill so we don't need processor mock
+		Amount:    2000,
+	})
+
+	paymentB := suite.CreateTestPaymentWithOptions(PaymentOptions{
+		UserID:    userB,
+		PriceID:   priceID,
+		Processor: models.ProcessorCCBill,
+		Amount:    3000,
+	})
+
+	t.Run("admin can attempt refund on any user's payment", func(t *testing.T) {
+		// Admin can access both payments (though CCBill will return error)
+		for _, payment := range []*models.Payment{paymentA, paymentB} {
+			w := httptest.NewRecorder()
+			body := `{"amount": 500}`
+			req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/admin/payments/%s/refund", payment.ID.String()), strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+adminToken)
+
+			suite.Server.Handler().ServeHTTP(w, req)
+
+			// Should get CCBill error, not auth error
+			assert.Equal(t, http.StatusBadRequest, w.Code, "Admin should be able to access payment")
+
+			var response map[string]interface{}
+			err := json.Unmarshal(w.Body.Bytes(), &response)
+			require.NoError(t, err)
+
+			errorObj := response["error"].(map[string]interface{})
+			message := errorObj["message"].(string)
+			assert.Contains(t, message, "CCBill", "Should get CCBill error, not auth error")
+		}
+	})
+
+	t.Run("regular user cannot refund even their own payment", func(t *testing.T) {
+		userToken := CreateUserToken(t, userA)
+
+		w := httptest.NewRecorder()
+		body := `{"amount": 500}`
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/admin/payments/%s/refund", paymentA.ID.String()), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+userToken)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusForbidden, w.Code, "User should get 403 even for their own payment")
+	})
+
+	t.Run("regular user cannot refund another user's payment", func(t *testing.T) {
+		userToken := CreateUserToken(t, userA)
+
+		w := httptest.NewRecorder()
+		body := `{"amount": 500}`
+		req, _ := http.NewRequest("POST", fmt.Sprintf("/v1/admin/payments/%s/refund", paymentB.ID.String()), strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+userToken)
+
+		suite.Server.Handler().ServeHTTP(w, req)
+
+		assert.Equal(t, http.StatusForbidden, w.Code, "User should get 403 for another user's payment")
+	})
+}

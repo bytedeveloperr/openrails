@@ -10,6 +10,7 @@ import (
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
 	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -60,6 +61,7 @@ type SolanaPayService struct {
 	priceService    *PriceService
 	productService  *ProductService
 	checkoutService *CheckoutService
+	fxProvider      fx.Provider
 }
 
 // NewSolanaPayService creates a new SolanaPayService
@@ -70,6 +72,7 @@ func NewSolanaPayService(
 	priceService *PriceService,
 	productService *ProductService,
 	checkoutService *CheckoutService,
+	fxProvider fx.Provider,
 ) *SolanaPayService {
 	return &SolanaPayService{
 		db:              db,
@@ -78,6 +81,7 @@ func NewSolanaPayService(
 		priceService:    priceService,
 		productService:  productService,
 		checkoutService: checkoutService,
+		fxProvider:      fxProvider,
 	}
 }
 
@@ -135,19 +139,21 @@ func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, p
 	}
 
 	// Validate Solana config
-	if s.cfg.Solana == nil {
+	solanaProc := s.cfg.GetSolanaProcessor()
+	if solanaProc == nil {
 		return nil, fmt.Errorf("solana not configured")
 	}
-	tokenCfg, ok := s.cfg.Solana.SupportedTokens[tokenSymbol]
+	tokenCfg, ok := solanaProc.SupportedTokens[tokenSymbol]
 	if !ok || !tokenCfg.Enabled {
 		return nil, fmt.Errorf("invalid or unsupported token: %s", tokenSymbol)
 	}
 
-	// Calculate token amount from fiat price
-	tokenUnits, _, err := calculateTokenQuote(ctx, tokenCfg, price.Amount)
+	// Calculate token amount from fiat price with FX conversion if needed
+	quote, err := CalculateTokenQuote(ctx, tokenCfg, price.Amount, price.Currency, s.fxProvider)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate token quote: %w", err)
 	}
+	tokenUnits := quote.Units
 
 	// Generate reference for Solana Pay
 	reference, err := solana.GenerateReference()
@@ -156,14 +162,14 @@ func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, p
 	}
 
 	// Get merchant recipient wallet
-	recipient := s.cfg.Solana.RecipientWallet
+	recipient := solanaProc.RecipientWallet
 	if recipient == "" {
 		return nil, fmt.Errorf("merchant wallet not configured")
 	}
 
 	// Get token mint
 	tokenMint := tokenCfg.Mint
-	if s.cfg.Solana.Network == "mainnet" && tokenCfg.MainnetMint != "" {
+	if solanaProc.Network == "mainnet" && tokenCfg.MainnetMint != "" {
 		tokenMint = tokenCfg.MainnetMint
 	}
 
@@ -210,7 +216,11 @@ func (s *SolanaPayService) buildTransferRequestURL(recipient string, amount uint
 	url := fmt.Sprintf("solana:%s", recipient)
 
 	// Get token config for decimals
-	tokenCfg, _ := s.cfg.Solana.SupportedTokens[tokenSymbol]
+	solanaProc := s.cfg.GetSolanaProcessor()
+	if solanaProc == nil {
+		return url // fallback without params if not configured
+	}
+	tokenCfg := solanaProc.SupportedTokens[tokenSymbol]
 
 	// Format amount with proper decimals
 	formattedAmount := formatTokenAmount(amount, tokenCfg.Decimals)
@@ -345,36 +355,15 @@ func (s *SolanaPayService) GetPaymentStatus(ctx context.Context, reference strin
 	return "pending", nil, nil
 }
 
-// getPaymentByReference looks up a payment by its Solana reference
+// getPaymentByReference looks up a payment by its Solana reference.
+// Note: Reference-based lookup is not currently supported since payments
+// are identified by their transaction signature (stored in Payment.TransactionID).
+// The reference is only used during the checkout flow for on-chain matching.
 func (s *SolanaPayService) getPaymentByReference(ctx context.Context, reference string) (*models.Payment, error) {
-	// We need to find a payment where the TransactionID or some metadata contains this reference
-	// For now, we'll check SolanaTransaction table which has the reference
-	var solTx models.SolanaTransaction
-	err := s.db.GetDB().NewSelect().
-		Model(&solTx).
-		Where("processing_result->>'reference' = ?", reference).
-		Limit(1).
-		Scan(ctx)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if solTx.PaymentID == nil {
-		return nil, fmt.Errorf("solana transaction has no linked payment")
-	}
-
-	var payment models.Payment
-	err = s.db.GetDB().NewSelect().
-		Model(&payment).
-		Where("id = ?", *solTx.PaymentID).
-		Scan(ctx)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return &payment, nil
+	// References are ephemeral and used only during checkout flow for on-chain matching.
+	// Once a payment is confirmed, it's identified by its transaction signature.
+	// Return not found - callers should check Redis for pending status.
+	return nil, fmt.Errorf("payment not found for reference")
 }
 
 // formatTokenAmount formats a token amount with the appropriate decimal places

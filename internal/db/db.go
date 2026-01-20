@@ -7,6 +7,8 @@ import (
 
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/sirupsen/logrus"
 
 	"github.com/uptrace/bun"
@@ -84,6 +86,23 @@ func NewWithBun(bunDB *bun.DB) (*DB, error) {
 		bundebug.WithEnabled(false),
 	))
 	return &DB{db: bunDB}, nil
+}
+
+func NewWithPGXPool(pool *pgxpool.Pool) (*DB, error) {
+	if pool == nil {
+		return nil, fmt.Errorf("pgx pool is nil")
+	}
+	sqlDB := stdlib.OpenDBFromPool(pool)
+	db := bun.NewDB(sqlDB, pgdialect.New())
+	models.RegisterModels(db)
+	if err := db.PingContext(context.Background()); err != nil {
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	db.AddQueryHook(bundebug.NewQueryHook(
+		bundebug.WithVerbose(false),
+		bundebug.WithEnabled(false),
+	))
+	return &DB{db: db}, nil
 }
 
 func (d *DB) GetDB() bun.IDB {

@@ -10,6 +10,7 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/google/uuid"
 	"github.com/riverqueue/river"
 	log "github.com/sirupsen/logrus"
 )
@@ -20,14 +21,16 @@ const (
 )
 
 type CancelSubscriptionArgs struct {
-	UserID   string `json:"user_id"`
-	Feedback string `json:"feedback,omitempty"`
+	UserID         string    `json:"user_id"`
+	SubscriptionID uuid.UUID `json:"subscription_id,omitempty"`
+	Feedback       string    `json:"feedback,omitempty"`
 }
 
 func (CancelSubscriptionArgs) Kind() string { return KindSubscriptionCancel }
 
 type ResumeSubscriptionArgs struct {
-	UserID string `json:"user_id"`
+	UserID         string    `json:"user_id"`
+	SubscriptionID uuid.UUID `json:"subscription_id,omitempty"`
 }
 
 func (ResumeSubscriptionArgs) Kind() string { return KindSubscriptionResume }
@@ -52,10 +55,34 @@ func (w CancelSubscriptionWorker) Work(ctx context.Context, job *river.Job[Cance
 		return fmt.Errorf("user_id required")
 	}
 
-	sub, err := w.SubscriptionService.GetActiveSubscription(ctx, userID)
-	if err != nil {
-		log.WithContext(ctx).WithField("user_id", userID).Info("no active subscription to cancel")
-		return nil
+	var sub *models.Subscription
+	var err error
+
+	// If subscription ID is provided, use it directly
+	if job.Args.SubscriptionID != uuid.Nil {
+		sub, err = w.SubscriptionService.GetByID(ctx, job.Args.SubscriptionID)
+		if err != nil {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"user_id":         userID,
+				"subscription_id": job.Args.SubscriptionID,
+			}).Info("subscription not found")
+			return nil
+		}
+		// Verify ownership
+		if sub.UserID != userID {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"user_id":         userID,
+				"subscription_id": job.Args.SubscriptionID,
+			}).Warn("subscription ownership mismatch")
+			return nil
+		}
+	} else {
+		// Fallback to active subscription lookup
+		sub, err = w.SubscriptionService.GetActiveSubscription(ctx, userID)
+		if err != nil {
+			log.WithContext(ctx).WithField("user_id", userID).Info("no active subscription to cancel")
+			return nil
+		}
 	}
 	log.WithContext(ctx).WithFields(log.Fields{
 		"user_id":         userID,
@@ -109,22 +136,46 @@ func (w ResumeSubscriptionWorker) Work(ctx context.Context, job *river.Job[Resum
 		return fmt.Errorf("user_id required")
 	}
 
+	var sub *models.Subscription
+	var err error
 	now := time.Now().UTC()
-	sub := new(models.Subscription)
-	err := w.DB.GetDB().NewSelect().
-		Model(sub).
-		Where("sub.user_id = ?", userID).
-		Where("sub.status = ?", models.StatusCancelled).
-		Where("(sub.current_period_ends_at IS NULL OR sub.current_period_ends_at > ?)", now).
-		OrderExpr("sub.created_at DESC").
-		Limit(1).
-		Scan(ctx)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			log.WithContext(ctx).WithField("user_id", userID).Info("no cancellable subscription to resume")
+
+	// If subscription ID is provided, use it directly
+	if job.Args.SubscriptionID != uuid.Nil {
+		sub, err = w.SubscriptionService.GetByID(ctx, job.Args.SubscriptionID)
+		if err != nil {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"user_id":         userID,
+				"subscription_id": job.Args.SubscriptionID,
+			}).Info("subscription not found")
 			return nil
 		}
-		return err
+		// Verify ownership
+		if sub.UserID != userID {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"user_id":         userID,
+				"subscription_id": job.Args.SubscriptionID,
+			}).Warn("subscription ownership mismatch")
+			return nil
+		}
+	} else {
+		// Fallback to active subscription lookup
+		sub = new(models.Subscription)
+		err = w.DB.GetDB().NewSelect().
+			Model(sub).
+			Where("sub.user_id = ?", userID).
+			Where("sub.status = ?", models.StatusCancelled).
+			Where("(sub.current_period_ends_at IS NULL OR sub.current_period_ends_at > ?)", now).
+			OrderExpr("sub.created_at DESC").
+			Limit(1).
+			Scan(ctx)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				log.WithContext(ctx).WithField("user_id", userID).Info("no cancellable subscription to resume")
+				return nil
+			}
+			return err
+		}
 	}
 
 	if sub.Processor != models.ProcessorStripe {

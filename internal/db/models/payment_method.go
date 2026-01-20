@@ -21,12 +21,11 @@ type PaymentMethod struct {
 	BillingID            *string `bun:"billing_id,nullzero" json:"billing_id"`                        // Secondary identifier (e.g., subscription ID)
 	InitialTransactionID string  `bun:"initial_transaction_id,notnull" json:"initial_transaction_id"` // Transaction that created this vault
 
-	// Payment method status and metadata
-	IsActive      bool    `bun:"is_active,notnull,default:true" json:"is_active"` // Can this method be used for rebills?
-	LastFour      *string `bun:"last_four,nullzero" json:"last_four"`             // Last 4 digits of card
-	CardType      *string `bun:"card_type,nullzero" json:"card_type"`             // "Visa", "MasterCard", etc.
-	ExpiryDate    *string `bun:"expiry_date,nullzero" json:"expiry_date"`         // "MM/YY" format
-	FailureReason *string `bun:"failure_reason,nullzero" json:"failure_reason"`   // Reason if inactive
+	// Payment method metadata
+	LastFour      *string `bun:"last_four,nullzero" json:"last_four"`           // Last 4 digits of card
+	CardType      *string `bun:"card_type,nullzero" json:"card_type"`           // "Visa", "MasterCard", etc.
+	ExpiryDate    *string `bun:"expiry_date,nullzero" json:"expiry_date"`       // "MM/YY" format
+	FailureReason *string `bun:"failure_reason,nullzero" json:"failure_reason"` // Reason if inactive
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`

@@ -43,25 +43,80 @@ const EnvDev string = "dev"
 
 const ConfigContextKey string = "config"
 
+// DefaultLogoURL is a simple billing/payment icon (white dollar sign on purple circle)
+// SVG: <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+//
+//	<circle cx="32" cy="32" r="30" fill="#9945FF"/>
+//	<text x="32" y="44" font-family="Arial" font-size="36" font-weight="bold" fill="white" text-anchor="middle">$</text>
+//	</svg>
+const DefaultLogoURL = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI2NCIgaGVpZ2h0PSI2NCIgdmlld0JveD0iMCAwIDY0IDY0Ij48Y2lyY2xlIGN4PSIzMiIgY3k9IjMyIiByPSIzMCIgZmlsbD0iIzk5NDVGRiIvPjx0ZXh0IHg9IjMyIiB5PSI0NCIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjM2IiBmb250LXdlaWdodD0iYm9sZCIgZmlsbD0id2hpdGUiIHRleHQtYW5jaG9yPSJtaWRkbGUiPiQ8L3RleHQ+PC9zdmc+"
+
+// StoreConfig holds merchant/store branding configuration.
+// Used across the system for consistent branding (Solana Pay, emails, etc.)
+type StoreConfig struct {
+	// Name is the merchant/store name displayed to customers (e.g., in Solana Pay QR codes, emails)
+	Name string `koanf:"name"`
+	// LogoURL is the URL to the store logo/icon (used in Solana Pay QR codes, etc.)
+	// Must be an absolute HTTPS URL to an SVG, PNG, or WebP image
+	LogoURL string `koanf:"logo_url"`
+	// FromEmail is the sender email address for all outgoing emails (receipts, notifications, etc.)
+	// Example: "noreply@mystore.com" or "billing@mystore.com"
+	FromEmail string `koanf:"from_email"`
+}
+
 type Config struct {
-	Env         string            `koanf:"env,omitempty"`
-	Port        FlexiblePort      `koanf:"port,omitempty"`
-	PrivatePort FlexiblePort      `koanf:"private_port,omitempty"` // Private/service API port (default 8060)
-	Host        string            `koanf:"host,omitempty"`
-	APIKey      string            `koanf:"api_key,omitempty"` // Shared secret for service-to-service auth (X-API-KEY header)
-	NMI         *NMIConfig        `koanf:"nmi,omitempty"`
-	CCBill      *CCBillConfig     `koanf:"ccbill,omitempty"`
-	Webhooks    *WebhookConfig    `koanf:"webhooks,omitempty"`
-	Solana      *SolanaConfig     `koanf:"solana,omitempty"`
-	Stripe      *StripeConfig     `koanf:"stripe,omitempty"`
-	DB          *DBConfig         `koanf:"db,omitempty"`
-	Redis       *RedisConfig      `koanf:"redis,omitempty"`
-	Auth        *AuthConfig       `koanf:"auth,omitempty"`
-	ClickHouse  *ClickHouseConfig `koanf:"clickhouse,omitempty"`
-	Logger      *LoggerConfig     `koanf:"logger,omitempty"`
-	SendGrid    *SendGridConfig   `koanf:"sendgrid,omitempty"`
-	CorsOrigins []string          `koanf:"cors_origins,omitempty"`
-	RateLimits  *RateLimitsConfig `koanf:"rate_limits,omitempty"`
+	Env         string       `koanf:"env,omitempty"`
+	Port        FlexiblePort `koanf:"port,omitempty"`         // Standalone only: public HTTP port (default 2053)
+	PrivatePort FlexiblePort `koanf:"private_port,omitempty"` // Standalone only: internal/service API port (default 8060)
+	Host        string       `koanf:"host,omitempty"`         // Standalone only: address to bind to (default 0.0.0.0)
+	APIKey      string       `koanf:"api_key,omitempty"`      // Shared secret for service-to-service auth (X-API-KEY header)
+
+	// TestMode controls whether payment processors use sandbox/test environments.
+	// When true: NMI uses sandbox.nmi.com, CCBill uses sandbox-api.ccbill.com,
+	// Solana uses devnet, Stripe requires sk_test_* key.
+	// When false: All processors use production environments (real charges).
+	// Defaults to true for safety. Set to false only for production deployments.
+	// Note: This is orthogonal to Env - Env controls logging/debug, TestMode controls payments.
+	TestMode *bool `koanf:"test_mode,omitempty"`
+
+	// APIURL is the base URL where billing's /v1/* routes are mounted.
+	// Used for generating URLs (e.g., Solana Pay transaction_request URLs).
+	//
+	// Standalone mode: "https://api.mysite.com" (routes at /v1/*)
+	// Embedded mode:   "https://api.mysite.com/billing" (routes at /billing/v1/*)
+	//
+	// Formula: generated_url = APIURL + "/v1/checkout/:id/solana-pay"
+	APIURL string       `koanf:"api_url,omitempty"`
+	Store  *StoreConfig `koanf:"store,omitempty"`
+
+	// Processors is the unified configuration for all payment processors.
+	// Each key is the processor name (e.g., "mobius", "ccbill", "stripe", "solana").
+	// Reserved names (ccbill, stripe, solana) don't need explicit "type" field.
+	// Non-reserved names (e.g., "mobius", "acme") require "type: nmi".
+	//
+	// Example:
+	//   processors:
+	//     mobius:
+	//       type: nmi
+	//       security_key: "..."
+	//     ccbill:
+	//       client_acc_num: "..."
+	//     stripe:
+	//       secret_key: "sk_..."
+	//     solana:
+	//       recipient_wallet: "..."
+	Processors map[string]*ProcessorConfig `koanf:"processors,omitempty"`
+
+	Webhooks     *WebhookConfig    `koanf:"webhooks,omitempty"`
+	DB           *DBConfig         `koanf:"db,omitempty"`
+	Redis        *RedisConfig      `koanf:"redis,omitempty"`
+	Auth         *AuthConfig       `koanf:"auth,omitempty"`
+	ClickHouse   *ClickHouseConfig `koanf:"clickhouse,omitempty"`
+	Logger       *LoggerConfig     `koanf:"logger,omitempty"`
+	SendGrid     *SendGridConfig   `koanf:"sendgrid,omitempty"`
+	CorsOrigins  []string          `koanf:"cors_origins,omitempty"`
+	RateLimits   *RateLimitsConfig `koanf:"rate_limits,omitempty"`
+	FeatureFlags *FeatureFlags     `koanf:"feature_flags,omitempty"`
 }
 
 // DBConfig holds database configuration.
@@ -126,30 +181,157 @@ func (c *DBConfig) GetConnectionString() string {
 	return ""
 }
 
-type NMIConfig struct {
-	SecurityKey     string                        `koanf:"security_key"`
-	TokenizationKey string                        `koanf:"tokenization_key"`
-	WebhookSecret   string                        `koanf:"webhook_secret"`
-	TestMode        bool                          `koanf:"test_mode"`
-	DirectPostURL   string                        `koanf:"direct_post_url"`
-	QueryURL        string                        `koanf:"query_url"`
-	Providers       map[string]*NMIProviderConfig `koanf:"providers"`
-}
-
-type NMIProviderConfig struct {
-	SecurityKey     string `koanf:"security_key"`
-	TokenizationKey string `koanf:"tokenization_key"`
-	WebhookSecret   string `koanf:"webhook_secret"`
-	TestMode        *bool  `koanf:"test_mode"`
-	DirectPostURL   string `koanf:"direct_post_url"`
-	QueryURL        string `koanf:"query_url"`
-}
-
 type StripeConfig struct {
 	SecretKey     string `koanf:"secret_key"`
 	WebhookSecret string `koanf:"webhook_secret"`
 	SuccessURL    string `koanf:"success_url"`
 	CancelURL     string `koanf:"cancel_url"`
+}
+
+// ProcessorType constants for the unified processor config
+const (
+	ProcessorTypeNMI    = "nmi"
+	ProcessorTypeCCBill = "ccbill"
+	ProcessorTypeStripe = "stripe"
+	ProcessorTypeSolana = "solana"
+)
+
+// ReservedProcessorNames maps processor names that imply their type.
+// These names don't require an explicit "type" field in config.
+var ReservedProcessorNames = map[string]string{
+	"ccbill": ProcessorTypeCCBill,
+	"stripe": ProcessorTypeStripe,
+	"solana": ProcessorTypeSolana,
+}
+
+// ProcessorConfig is the unified configuration for all payment processors.
+// The Type field determines which fields are relevant:
+//   - type: nmi     → NMI fields (security_key, webhook_secret, etc.)
+//   - type: ccbill  → CCBill fields (client_acc_num, client_sub_acc, salt, etc.)
+//   - type: stripe  → Stripe fields (secret_key, webhook_secret, success_url, cancel_url)
+//   - type: solana  → Solana fields (recipient_wallet, rpc_endpoint, etc.)
+//
+// Reserved names (ccbill, stripe, solana) don't need explicit type - it's implied.
+// Non-reserved names (e.g., "mobius", "acme") require type: nmi.
+type ProcessorConfig struct {
+	// Type specifies the processor type: "nmi", "ccbill", "stripe", "solana"
+	// Required for non-reserved processor names.
+	// For reserved names (ccbill, stripe, solana), type is inferred from the name.
+	Type string `koanf:"type"`
+
+	// --- NMI fields (type: nmi) ---
+	SecurityKey     string `koanf:"security_key"`
+	TokenizationKey string `koanf:"tokenization_key"`
+	WebhookSecret   string `koanf:"webhook_secret"`
+	DirectPostURL   string `koanf:"direct_post_url"`
+	QueryURL        string `koanf:"query_url"`
+
+	// --- CCBill fields (type: ccbill) ---
+	Salt               string `koanf:"salt"`
+	ClientSubAcc       string `koanf:"client_sub_acc"`
+	ClientAccNum       string `koanf:"client_acc_num"`
+	SubscriptionTypeId string `koanf:"subscription_type_id"`
+	DataLinkUsername   string `koanf:"datalink_username"`
+	DataLinkPassword   string `koanf:"datalink_password"`
+
+	// --- Stripe fields (type: stripe) ---
+	SecretKey  string `koanf:"secret_key"`
+	SuccessURL string `koanf:"success_url"`
+	CancelURL  string `koanf:"cancel_url"`
+	// WebhookSecret is shared with NMI (same field name)
+
+	// --- Solana fields (type: solana) ---
+	RPCEndpoint     string                 `koanf:"rpc_endpoint"`
+	HeliusAPIKey    string                 `koanf:"helius_api_key"`
+	Network         string                 `koanf:"network"`
+	RecipientWallet string                 `koanf:"recipient_wallet"`
+	SupportedTokens map[string]TokenConfig `koanf:"supported_tokens"`
+	EnabledTokens   []string               `koanf:"enabled_tokens"`
+}
+
+// GetEffectiveType returns the processor type, inferring from reserved names if needed.
+func (p *ProcessorConfig) GetEffectiveType(name string) string {
+	if p.Type != "" {
+		return strings.ToLower(p.Type)
+	}
+	// Check if it's a reserved name
+	normalizedName := strings.ToLower(strings.TrimSpace(name))
+	if impliedType, ok := ReservedProcessorNames[normalizedName]; ok {
+		return impliedType
+	}
+	return ""
+}
+
+// IsNMI returns true if this processor config is for an NMI-backed processor.
+func (p *ProcessorConfig) IsNMI(name string) bool {
+	return p.GetEffectiveType(name) == ProcessorTypeNMI
+}
+
+// IsCCBill returns true if this processor config is for CCBill.
+func (p *ProcessorConfig) IsCCBill(name string) bool {
+	return p.GetEffectiveType(name) == ProcessorTypeCCBill
+}
+
+// IsStripe returns true if this processor config is for Stripe.
+func (p *ProcessorConfig) IsStripe(name string) bool {
+	return p.GetEffectiveType(name) == ProcessorTypeStripe
+}
+
+// IsSolana returns true if this processor config is for Solana.
+func (p *ProcessorConfig) IsSolana(name string) bool {
+	return p.GetEffectiveType(name) == ProcessorTypeSolana
+}
+
+// ToNMIProviderSettings converts the processor config to NMI provider settings.
+// Only valid for NMI-type processors.
+func (p *ProcessorConfig) ToNMIProviderSettings(name string) *NMIProviderSettings {
+	return &NMIProviderSettings{
+		Name:            strings.ToLower(strings.TrimSpace(name)),
+		SecurityKey:     p.SecurityKey,
+		TokenizationKey: p.TokenizationKey,
+		WebhookSecret:   p.WebhookSecret,
+		DirectPostURL:   p.DirectPostURL,
+		QueryURL:        p.QueryURL,
+		TestMode:        false, // Will be set by caller based on global test_mode
+	}
+}
+
+// ToCCBillConfig converts the processor config to CCBillConfig.
+// Only valid for CCBill-type processors.
+func (p *ProcessorConfig) ToCCBillConfig() *CCBillConfig {
+	return &CCBillConfig{
+		Salt:               p.Salt,
+		ClientSubAcc:       p.ClientSubAcc,
+		ClientAccNum:       p.ClientAccNum,
+		SubscriptionTypeId: p.SubscriptionTypeId,
+		DataLinkUsername:   p.DataLinkUsername,
+		DataLinkPassword:   p.DataLinkPassword,
+		TestMode:           false, // Will be set by caller based on global test_mode
+	}
+}
+
+// ToStripeConfig converts the processor config to StripeConfig.
+// Only valid for Stripe-type processors.
+func (p *ProcessorConfig) ToStripeConfig() *StripeConfig {
+	return &StripeConfig{
+		SecretKey:     p.SecretKey,
+		WebhookSecret: p.WebhookSecret,
+		SuccessURL:    p.SuccessURL,
+		CancelURL:     p.CancelURL,
+	}
+}
+
+// ToSolanaConfig converts the processor config to SolanaConfig.
+// Only valid for Solana-type processors.
+func (p *ProcessorConfig) ToSolanaConfig() *SolanaConfig {
+	return &SolanaConfig{
+		RPCEndpoint:     p.RPCEndpoint,
+		HeliusAPIKey:    p.HeliusAPIKey,
+		Network:         p.Network,
+		RecipientWallet: p.RecipientWallet,
+		SupportedTokens: p.SupportedTokens,
+		EnabledTokens:   p.EnabledTokens,
+	}
 }
 
 type NMIProviderSettings struct {
@@ -160,44 +342,6 @@ type NMIProviderSettings struct {
 	TestMode        bool
 	DirectPostURL   string
 	QueryURL        string
-}
-
-func (cfg *NMIConfig) ProviderSettings(name string) (*NMIProviderSettings, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("nmi configuration is missing")
-	}
-
-	providerKey := strings.TrimSpace(strings.ToLower(name))
-	if providerKey == "" {
-		providerKey = "mobius"
-	}
-
-	provider, ok := cfg.Providers[providerKey]
-	if !ok || provider == nil {
-		return nil, fmt.Errorf("nmi provider '%s' is not configured", providerKey)
-	}
-
-	settings := &NMIProviderSettings{
-		Name:            providerKey,
-		SecurityKey:     firstNonEmpty(provider.SecurityKey, cfg.SecurityKey),
-		TokenizationKey: firstNonEmpty(provider.TokenizationKey, cfg.TokenizationKey),
-		WebhookSecret:   firstNonEmpty(provider.WebhookSecret, cfg.WebhookSecret),
-		DirectPostURL:   firstNonEmpty(provider.DirectPostURL, cfg.DirectPostURL),
-		QueryURL:        firstNonEmpty(provider.QueryURL, cfg.QueryURL),
-		TestMode:        cfg.TestMode,
-	}
-	if provider.TestMode != nil {
-		settings.TestMode = *provider.TestMode
-	}
-
-	if settings.SecurityKey == "" {
-		return nil, fmt.Errorf("nmi provider '%s' security key is required", providerKey)
-	}
-	if settings.WebhookSecret == "" {
-		log.Warnf("nmi provider '%s' webhook secret is not configured; signature validation will be disabled", providerKey)
-	}
-
-	return settings, nil
 }
 
 func firstNonEmpty(values ...string) string {
@@ -234,15 +378,24 @@ type AuthConfig struct {
 }
 
 type SolanaConfig struct {
-	RPCEndpoint     string `koanf:"rpc_endpoint"`
+	// RPCEndpoint is a custom RPC endpoint override. If set, it bypasses the fallback chain entirely.
+	// Leave empty to use the automatic fallback chain: Helius (if configured) → Ankr → Solana public.
+	RPCEndpoint string `koanf:"rpc_endpoint"`
+
+	// HeliusAPIKey enables Helius as the primary RPC provider (recommended for production).
+	// Get a free API key at https://helius.dev (100k requests/day on free tier).
+	// If not set, falls back to Ankr → Solana public endpoints.
+	HeliusAPIKey string `koanf:"helius_api_key"`
+
 	Network         string `koanf:"network"` // mainnet, devnet, testnet
 	RecipientWallet string `koanf:"recipient_wallet"`
 
 	SupportedTokens map[string]TokenConfig `koanf:"supported_tokens,omitempty"`
 
-	TransactionTimeoutSeconds int     `koanf:"transaction_timeout_seconds,omitempty"`
-	ConfirmationBlocks        int     `koanf:"confirmation_blocks,omitempty"`
-	MaxTransactionFee         float64 `koanf:"max_transaction_fee,omitempty"`
+	// EnabledTokens is a simplified token configuration (alternative to SupportedTokens).
+	// Use symbol strings for verified tokens (Jupiter lookup): ["SOL", "USDC", "BONK"]
+	// If not set, defaults to ["SOL", "USDC", "PYUSD"].
+	EnabledTokens []string `koanf:"enabled_tokens,omitempty"`
 }
 
 // TokenConfig defines configuration for a specific Solana token
@@ -259,11 +412,73 @@ type TokenConfig struct {
 // RateLimitsConfig is a map of endpoint identifier -> rate limit config
 type RateLimitsConfig map[string]*RateLimit
 
-// SendGridConfig holds SendGrid email configuration
+// DunningMode constants define the dunning behavior modes
+const (
+	// DunningModeOn is the default mode - normal dunning with retry charges, grace period, and recovery workflow
+	DunningModeOn = "on"
+	// DunningModeDryRunOnly runs the dunning workflow but does not attempt charges - for debugging charge logic bugs
+	DunningModeDryRunOnly = "dry_run_only"
+	// DunningModeOff disables dunning entirely - rebill failures result in immediate cancellation with no recovery
+	DunningModeOff = "off"
+)
+
+// ValidDunningModes contains all valid dunning mode values
+var ValidDunningModes = map[string]bool{
+	DunningModeOn:         true,
+	DunningModeDryRunOnly: true,
+	DunningModeOff:        true,
+}
+
+// FeatureFlags holds feature flag configuration for controlling system behavior.
+// These flags are primarily used for safety - disabling destructive operations
+// when bugs are suspected, without requiring a code deployment.
+type FeatureFlags struct {
+	// DunningMode controls dunning (retry charging) behavior for failed subscription rebills.
+	// Values:
+	//   - "on" (default): Normal dunning - retry charges, grace period, recovery workflow
+	//   - "dry_run_only": Workflow runs but no charges attempted - for debugging
+	//   - "off": No dunning - immediate cancellation on rebill failure, no recovery
+	DunningMode string `koanf:"dunning_mode"`
+
+	// DisableEntitlementExpiration stops all entitlement/credit expiration when true.
+	// Affects: CreditExpiryWorker, HoldExpiryWorker, entitlement revocation in FailMembership.
+	// Users keep premium access even after subscription ends.
+	// Default: false (normal expiration behavior)
+	DisableEntitlementExpiration bool `koanf:"disable_entitlement_expiration"`
+}
+
+// GetDunningMode returns the effective dunning mode, defaulting to "on" if not set or invalid.
+func (f *FeatureFlags) GetDunningMode() string {
+	if f == nil || f.DunningMode == "" {
+		return DunningModeOn
+	}
+	mode := strings.ToLower(strings.TrimSpace(f.DunningMode))
+	if !ValidDunningModes[mode] {
+		return DunningModeOn
+	}
+	return mode
+}
+
+// IsDunningEnabled returns true if dunning charges should be attempted.
+// Returns false for "off" and "dry_run_only" modes.
+func (f *FeatureFlags) IsDunningEnabled() bool {
+	return f.GetDunningMode() == DunningModeOn
+}
+
+// IsDunningDryRun returns true if dunning is in dry-run mode (workflow runs, no charges).
+func (f *FeatureFlags) IsDunningDryRun() bool {
+	return f.GetDunningMode() == DunningModeDryRunOnly
+}
+
+// IsDunningOff returns true if dunning is completely disabled (immediate cancel on failure).
+func (f *FeatureFlags) IsDunningOff() bool {
+	return f.GetDunningMode() == DunningModeOff
+}
+
+// SendGridConfig holds SendGrid email configuration.
+// Sender info (from_email, from_name) comes from StoreConfig.
 type SendGridConfig struct {
-	APIKey    string `koanf:"api_key"`
-	FromEmail string `koanf:"from_email"`
-	FromName  string `koanf:"from_name"`
+	APIKey string `koanf:"api_key"`
 }
 
 type ClickHouseConfig struct {
@@ -280,10 +495,14 @@ type LoggerConfig struct {
 	Level string `koanf:"level"` // debug | info | error
 }
 
-// RateLimit defines a rate limit policy
+// RateLimit defines a rate limit policy.
+// All rate limits use a fixed 1-minute window.
 type RateLimit struct {
-	Limit  int           `koanf:"limit"`
-	Window time.Duration `koanf:"window"`
+	// RequestsPerMinute is the maximum number of requests allowed per minute.
+	RequestsPerMinute int `koanf:"requests_per_minute"`
+	// Burst is the maximum burst size (optional, defaults to RequestsPerMinute).
+	// Reserved for future use with token bucket algorithms.
+	Burst int `koanf:"burst"`
 }
 
 // WebhookConfig is kept for backwards compatibility but webhook retry is no longer used.
@@ -307,49 +526,157 @@ func Validate(cfg *Config) error {
 	// Skip strict validation in development environments
 	isDev := cfg.Env == "development" || cfg.Env == "dev" || cfg.Env == ""
 
-	if !isDev {
-		if err := validateNMI(cfg.NMI); err != nil {
-			return fmt.Errorf("nmi config validation failed: %w", err)
-		}
-
-		// Validate CCBill configuration
-		if err := validateCCBill(cfg.CCBill); err != nil {
-			return fmt.Errorf("ccbill config validation failed: %w", err)
+	// Validate Processors map
+	if len(cfg.Processors) > 0 {
+		if err := validateProcessors(cfg, isDev); err != nil {
+			return fmt.Errorf("processors validation failed: %w", err)
 		}
 	}
 
-	// Note: test_mode is allowed in production for safe payment processor testing
+	// Validate Stripe key prefix matches test_mode
+	// This runs after processor validation to check the key we'll actually use
+	validateStripeKeyForTestMode(cfg)
 
 	// Always validate database configuration
 	if err := validateDatabase(cfg.DB); err != nil {
 		return fmt.Errorf("database config validation failed: %w", err)
 	}
 
-	if err := validateStripe(cfg.Stripe); err != nil {
-		return fmt.Errorf("stripe config validation failed: %w", err)
+	return nil
+}
+
+// validateStripeKeyForTestMode checks if the Stripe API key prefix matches the test_mode setting.
+// If there's a mismatch, it logs a warning and clears the key to disable Stripe.
+// This prevents accidentally processing real charges in test mode or test charges in production.
+func validateStripeKeyForTestMode(cfg *Config) {
+	stripeProc, ok := cfg.Processors["stripe"]
+	if !ok || stripeProc == nil {
+		return // No Stripe configured
 	}
 
-	// Note: Webhook retry config validation removed - webhooks are now synchronous-only
+	secretKey := strings.TrimSpace(stripeProc.SecretKey)
+	if secretKey == "" {
+		return // No key configured, nothing to validate
+	}
+
+	isLiveKey := strings.HasPrefix(secretKey, "sk_live_")
+	isTestKey := strings.HasPrefix(secretKey, "sk_test_")
+
+	if cfg.IsTestMode() && isLiveKey {
+		log.Warn("⚠️  Stripe live key provided but test_mode is enabled - disabling Stripe")
+		log.Warn("   Use sk_test_* key when test_mode=true, or set test_mode=false for production")
+		stripeProc.SecretKey = ""
+	} else if !cfg.IsTestMode() && isTestKey {
+		log.Warn("⚠️  Stripe test key provided but test_mode is disabled (production) - disabling Stripe")
+		log.Warn("   Use sk_live_* key when test_mode=false, or set test_mode=true for testing")
+		stripeProc.SecretKey = ""
+	}
+}
+
+// validateProcessors validates all processors in the new Processors map
+func validateProcessors(cfg *Config, isDev bool) error {
+	for name, proc := range cfg.Processors {
+		if proc == nil {
+			continue
+		}
+
+		effectiveType := proc.GetEffectiveType(name)
+		switch effectiveType {
+		case ProcessorTypeNMI:
+			if err := validateNMIProcessor(name, proc, isDev); err != nil {
+				return err
+			}
+		case ProcessorTypeCCBill:
+			if err := validateCCBillProcessor(name, proc, isDev); err != nil {
+				return err
+			}
+		case ProcessorTypeStripe:
+			if err := validateStripeProcessor(name, proc, isDev); err != nil {
+				return err
+			}
+		case ProcessorTypeSolana:
+			if err := validateSolanaProcessor(name, proc, isDev); err != nil {
+				return err
+			}
+		default:
+			return fmt.Errorf("processor '%s' has unknown type '%s'", name, effectiveType)
+		}
+	}
+	return nil
+}
+
+// validateNMIProcessor validates an NMI-type processor
+func validateNMIProcessor(name string, proc *ProcessorConfig, isDev bool) error {
+	if isDev {
+		return nil // Skip strict validation in dev
+	}
+
+	if strings.TrimSpace(proc.SecurityKey) == "" {
+		return fmt.Errorf("processor '%s' (nmi): security_key is required", name)
+	}
+
+	if strings.TrimSpace(proc.WebhookSecret) == "" {
+		log.Warnf("processor '%s' (nmi): webhook_secret not configured; signature verification disabled", name)
+	}
+
+	if proc.DirectPostURL != "" {
+		if _, err := url.Parse(proc.DirectPostURL); err != nil {
+			return fmt.Errorf("processor '%s' (nmi): invalid direct_post_url: %w", name, err)
+		}
+	}
+
+	if proc.QueryURL != "" {
+		if _, err := url.Parse(proc.QueryURL); err != nil {
+			return fmt.Errorf("processor '%s' (nmi): invalid query_url: %w", name, err)
+		}
+	}
 
 	return nil
 }
 
-// validateWebhookConfig is deprecated - webhook retry config is no longer used.
-// Keeping as no-op for backwards compatibility.
-func validateWebhookConfig(cfg *Config) error {
+// validateCCBillProcessor validates a CCBill-type processor
+func validateCCBillProcessor(name string, proc *ProcessorConfig, isDev bool) error {
+	if isDev {
+		return nil // Skip strict validation in dev
+	}
+
+	if strings.TrimSpace(proc.ClientAccNum) == "" {
+		return fmt.Errorf("processor '%s' (ccbill): client_acc_num is required", name)
+	}
+
+	if strings.TrimSpace(proc.ClientSubAcc) == "" {
+		return fmt.Errorf("processor '%s' (ccbill): client_sub_acc is required", name)
+	}
+
+	// DataLink credentials: either both or neither
+	hasUsername := strings.TrimSpace(proc.DataLinkUsername) != ""
+	hasPassword := strings.TrimSpace(proc.DataLinkPassword) != ""
+	if hasUsername != hasPassword {
+		return fmt.Errorf("processor '%s' (ccbill): both datalink_username and datalink_password must be provided when configuring DataLink", name)
+	}
+
 	return nil
 }
 
-func validateStripe(cfg *StripeConfig) error {
-	if cfg == nil {
-		return nil
+// validateStripeProcessor validates a Stripe-type processor
+func validateStripeProcessor(name string, proc *ProcessorConfig, isDev bool) error {
+	if strings.TrimSpace(proc.SecretKey) == "" {
+		log.Warnf("processor '%s' (stripe): secret_key not configured; checkout unavailable", name)
 	}
-	if strings.TrimSpace(cfg.SecretKey) == "" {
-		log.Warn("stripe secret key not configured; checkout will be unavailable")
+
+	if strings.TrimSpace(proc.WebhookSecret) == "" {
+		log.Warnf("processor '%s' (stripe): webhook_secret not configured; signature verification disabled", name)
 	}
-	if strings.TrimSpace(cfg.WebhookSecret) == "" {
-		log.Warn("stripe webhook secret not configured; signature verification will be disabled")
+
+	return nil
+}
+
+// validateSolanaProcessor validates a Solana-type processor
+func validateSolanaProcessor(name string, proc *ProcessorConfig, isDev bool) error {
+	if strings.TrimSpace(proc.RecipientWallet) == "" {
+		log.Warnf("processor '%s' (solana): recipient_wallet not configured; Solana payments disabled", name)
 	}
+
 	return nil
 }
 
@@ -359,73 +686,116 @@ func (cfg *Config) GetWebhookRetryConfig() WebhookRetryConfig {
 	return WebhookRetryConfig{}
 }
 
-// validateNMI validates NMI-specific configuration
-func validateNMI(cfg *NMIConfig) error {
-	if cfg == nil {
-		return fmt.Errorf("nmi configuration is required")
-	}
+// GetNMIProcessors returns all NMI-backed processor configs from the Processors map.
+func (cfg *Config) GetNMIProcessors() map[string]*ProcessorConfig {
+	result := make(map[string]*ProcessorConfig)
 
-	if cfg.DirectPostURL != "" {
-		if _, err := url.Parse(cfg.DirectPostURL); err != nil {
-			return fmt.Errorf("invalid nmi direct_post_url: %w", err)
-		}
-	}
-
-	if cfg.QueryURL != "" {
-		if _, err := url.Parse(cfg.QueryURL); err != nil {
-			return fmt.Errorf("invalid nmi query_url: %w", err)
+	for name, proc := range cfg.Processors {
+		if proc != nil && proc.IsNMI(name) {
+			result[strings.ToLower(name)] = proc
 		}
 	}
 
-	if len(cfg.Providers) == 0 {
-		return fmt.Errorf("at least one nmi provider must be configured")
-	}
+	return result
+}
 
-	for name, provider := range cfg.Providers {
-		if provider == nil {
-			return fmt.Errorf("nmi provider '%s' configuration is missing", name)
-		}
-		if provider.SecurityKey == "" && cfg.SecurityKey == "" {
-			return fmt.Errorf("nmi provider '%s' security key is required", name)
-		}
-		if provider.WebhookSecret == "" && cfg.WebhookSecret == "" {
-			return fmt.Errorf("nmi provider '%s' webhook secret is recommended for security", name)
-		}
-		if provider.DirectPostURL != "" {
-			if _, err := url.Parse(provider.DirectPostURL); err != nil {
-				return fmt.Errorf("invalid nmi provider '%s' direct_post_url: %w", name, err)
-			}
-		}
-		if provider.QueryURL != "" {
-			if _, err := url.Parse(provider.QueryURL); err != nil {
-				return fmt.Errorf("invalid nmi provider '%s' query_url: %w", name, err)
-			}
-		}
+// GetCCBillProcessor returns the CCBill processor config from the Processors map.
+func (cfg *Config) GetCCBillProcessor() *ProcessorConfig {
+	if proc, ok := cfg.Processors["ccbill"]; ok && proc != nil {
+		return proc
 	}
-
 	return nil
 }
 
-// validateCCBill validates CCBill-specific configuration
-func validateCCBill(cfg *CCBillConfig) error {
-	if cfg == nil {
-		return fmt.Errorf("ccbill configuration is required")
+// GetStripeProcessor returns the Stripe processor config from the Processors map.
+func (cfg *Config) GetStripeProcessor() *ProcessorConfig {
+	if proc, ok := cfg.Processors["stripe"]; ok && proc != nil {
+		return proc
 	}
-
-	// Basic required fields
-	if cfg.ClientAccNum == "" {
-		return fmt.Errorf("ccbill client account number is required")
-	}
-
-	if cfg.ClientSubAcc == "" {
-		return fmt.Errorf("ccbill client sub account is required")
-	}
-
-	if (cfg.DataLinkUsername == "") != (cfg.DataLinkPassword == "") {
-		return fmt.Errorf("both datalink username and password must be provided when configuring DataLink access")
-	}
-
 	return nil
+}
+
+// GetSolanaProcessor returns the Solana processor config from the Processors map.
+func (cfg *Config) GetSolanaProcessor() *ProcessorConfig {
+	if proc, ok := cfg.Processors["solana"]; ok && proc != nil {
+		return proc
+	}
+	return nil
+}
+
+// GetProcessor returns a processor config by name from the Processors map.
+func (cfg *Config) GetProcessor(name string) *ProcessorConfig {
+	normalizedName := strings.ToLower(strings.TrimSpace(name))
+	if proc, ok := cfg.Processors[normalizedName]; ok && proc != nil {
+		return proc
+	}
+	return nil
+}
+
+// GetProcessorType returns the type of a processor by name.
+// Returns empty string if processor not found.
+func (cfg *Config) GetProcessorType(name string) string {
+	proc := cfg.GetProcessor(name)
+	if proc == nil {
+		return ""
+	}
+	return proc.GetEffectiveType(name)
+}
+
+// IsNMIProcessor returns true if the named processor is NMI-backed.
+func (cfg *Config) IsNMIProcessor(name string) bool {
+	return cfg.GetProcessorType(name) == ProcessorTypeNMI
+}
+
+// IsTestMode returns true if payment processors should use sandbox/test environments.
+// This is a simple accessor - TestMode defaults to true for safety.
+// Note: This is orthogonal to Env. Env controls logging/debug, TestMode controls payments.
+func (cfg *Config) IsTestMode() bool {
+	if cfg.TestMode == nil {
+		return true // Default to test mode for safety
+	}
+	return *cfg.TestMode
+}
+
+// IsDev returns true if the environment is development.
+func (cfg *Config) IsDev() bool {
+	return cfg.Env == "" || cfg.Env == "dev" || cfg.Env == "development"
+}
+
+// GetFeatureFlags returns the feature flags config, or a default config if not set.
+func (cfg *Config) GetFeatureFlags() *FeatureFlags {
+	if cfg.FeatureFlags == nil {
+		return &FeatureFlags{
+			DunningMode:                  DunningModeOn,
+			DisableEntitlementExpiration: false,
+		}
+	}
+	return cfg.FeatureFlags
+}
+
+// GetDunningMode returns the current dunning mode from feature flags.
+func (cfg *Config) GetDunningMode() string {
+	return cfg.GetFeatureFlags().GetDunningMode()
+}
+
+// IsDunningEnabled returns true if normal dunning charges should be attempted.
+func (cfg *Config) IsDunningEnabled() bool {
+	return cfg.GetFeatureFlags().IsDunningEnabled()
+}
+
+// IsDunningDryRun returns true if dunning is in dry-run mode.
+func (cfg *Config) IsDunningDryRun() bool {
+	return cfg.GetFeatureFlags().IsDunningDryRun()
+}
+
+// IsDunningOff returns true if dunning is completely disabled.
+func (cfg *Config) IsDunningOff() bool {
+	return cfg.GetFeatureFlags().IsDunningOff()
+}
+
+// IsEntitlementExpirationDisabled returns true if entitlement/credit expiration is disabled.
+func (cfg *Config) IsEntitlementExpirationDisabled() bool {
+	return cfg.GetFeatureFlags().DisableEntitlementExpiration
 }
 
 // assembleDBURL builds the database URL from atomic parameters if not explicitly set
@@ -530,27 +900,30 @@ func GetDefaultBillingConfig() *Config {
 		},
 		RateLimits: &RateLimitsConfig{
 			"subscribe": &RateLimit{
-				Limit:  10, // Very restrictive for payment endpoints
-				Window: time.Minute,
+				RequestsPerMinute: 10, // Very restrictive for payment endpoints
+				Burst:             3,
 			},
 			"checkout": &RateLimit{
-				Limit:  5, // Heavy rate limiting for checkout - prevents abuse
-				Window: time.Minute,
+				RequestsPerMinute: 5, // Heavy rate limiting for checkout - prevents abuse
+				Burst:             2,
 			},
 			"webhook": &RateLimit{
-				Limit:  100, // Higher for webhooks
-				Window: time.Minute,
+				RequestsPerMinute: 100, // Higher for webhooks
+				Burst:             20,
 			},
 			"payment": &RateLimit{
-				Limit:  20,
-				Window: time.Minute,
+				RequestsPerMinute: 20,
+				Burst:             5,
 			},
 			"default": &RateLimit{
-				Limit:  60,
-				Window: time.Minute,
+				RequestsPerMinute: 60,
+				Burst:             10,
 			},
 		},
-		Solana: &SolanaConfig{},
+		FeatureFlags: &FeatureFlags{
+			DunningMode:                  DunningModeOn,
+			DisableEntitlementExpiration: false,
+		},
 	}
 }
 
@@ -617,8 +990,37 @@ func Load(configPath string) (*Config, error) {
 			return "env"
 		}
 
-		// Special case: NMI_PROVIDERS_<PROVIDER>_<KEY> -> nmi.providers.<provider>.<key>
+		// Special case: API_URL -> api_url (top-level, not nested api.url)
+		if s == "api_url" {
+			return "api_url"
+		}
+
+		// Special case: BILLING_TEST_MODE or TEST_MODE -> test_mode (top-level)
+		if s == "billing_test_mode" || s == "test_mode" {
+			return "test_mode"
+		}
+
+		// Special case: FEATURE_FLAGS_* -> feature_flags.*
+		// Example: FEATURE_FLAGS_DUNNING_MODE -> feature_flags.dunning_mode
+		// Example: FEATURE_FLAGS_DISABLE_ENTITLEMENT_EXPIRATION -> feature_flags.disable_entitlement_expiration
+		if strings.HasPrefix(s, "feature_flags_") {
+			key := strings.TrimPrefix(s, "feature_flags_")
+			return "feature_flags." + key
+		}
+
+		// NEW: PROCESSORS_<NAME>_<FIELD> -> processors.<name>.<field>
+		// Example: PROCESSORS_MOBIUS_SECURITY_KEY -> processors.mobius.security_key
+		// Example: PROCESSORS_CCBILL_CLIENT_ACC_NUM -> processors.ccbill.client_acc_num
+		if strings.HasPrefix(s, "processors_") {
+			parts := strings.SplitN(s, "_", 3) // ["processors", "mobius", "security_key"]
+			if len(parts) == 3 {
+				return fmt.Sprintf("processors.%s.%s", parts[1], parts[2])
+			}
+		}
+
+		// LEGACY: NMI_PROVIDERS_<PROVIDER>_<KEY> -> nmi.providers.<provider>.<key>
 		// Example: NMI_PROVIDERS_MOBIUS_SECURITY_KEY -> nmi.providers.mobius.security_key
+		// Deprecated: Use PROCESSORS_<NAME>_<FIELD> instead
 		if strings.HasPrefix(s, "nmi_providers_") {
 			parts := strings.SplitN(s, "_", 4) // ["nmi", "providers", "mobius", "security_key"]
 			if len(parts) == 4 {
@@ -646,42 +1048,81 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("unmarshaling config: %w", err)
 	}
 
-	if cfg.Solana == nil {
-		cfg.Solana = &SolanaConfig{}
+	// Store defaults (used across the system for branding)
+	if cfg.Store == nil {
+		cfg.Store = &StoreConfig{}
 	}
-	if cfg.Solana.Network == "" {
-		cfg.Solana.Network = "mainnet"
+	if cfg.Store.Name == "" {
+		cfg.Store.Name = "My Store"
 	}
-	if len(cfg.Solana.SupportedTokens) == 0 {
-		cfg.Solana.SupportedTokens = TokensForNetwork(cfg.Solana.Network)
+	if cfg.Store.LogoURL == "" {
+		cfg.Store.LogoURL = DefaultLogoURL
 	}
 
-	if cfg.NMI == nil {
-		cfg.NMI = &NMIConfig{}
+	// Initialize and normalize Processors map
+	if cfg.Processors == nil {
+		cfg.Processors = make(map[string]*ProcessorConfig)
 	}
-	if cfg.NMI.Providers == nil {
-		cfg.NMI.Providers = make(map[string]*NMIProviderConfig)
-	}
-	if len(cfg.NMI.Providers) > 0 {
-		normalized := make(map[string]*NMIProviderConfig, len(cfg.NMI.Providers))
-		for name, provider := range cfg.NMI.Providers {
+	if len(cfg.Processors) > 0 {
+		normalized := make(map[string]*ProcessorConfig, len(cfg.Processors))
+		for name, proc := range cfg.Processors {
 			key := strings.TrimSpace(strings.ToLower(name))
 			if key == "" {
-				log.Warnf("ignoring NMI provider with empty name (original key: %q)", name)
+				log.Warnf("ignoring processor with empty name (original key: %q)", name)
+				continue
+			}
+			if proc == nil {
+				log.Warnf("ignoring processor '%s' with nil config", key)
 				continue
 			}
 
 			if existing, exists := normalized[key]; exists && existing != nil {
-				log.Warnf("duplicate NMI provider configuration detected for key '%s'; overriding previous value", key)
+				log.Warnf("duplicate processor configuration detected for key '%s'; overriding previous value", key)
 			}
 
-			normalized[key] = provider
+			// Validate type for non-reserved names
+			effectiveType := proc.GetEffectiveType(key)
+			if effectiveType == "" {
+				log.Warnf("processor '%s' has no type specified and is not a reserved name (ccbill, stripe, solana); assuming 'nmi'", key)
+				proc.Type = ProcessorTypeNMI
+			}
+
+			// Warn if reserved name has conflicting type
+			if impliedType, isReserved := ReservedProcessorNames[key]; isReserved && proc.Type != "" && proc.Type != impliedType {
+				log.Warnf("processor '%s' has type '%s' but '%s' is a reserved name implying type '%s'; using implied type",
+					key, proc.Type, key, impliedType)
+				proc.Type = impliedType
+			}
+
+			normalized[key] = proc
 		}
-		cfg.NMI.Providers = normalized
+		cfg.Processors = normalized
 	}
 
+	// Post-process Solana config from Processors map
+	if solanaProc, exists := cfg.Processors["solana"]; exists && solanaProc != nil {
+		// If enabled_tokens came from env var as a string, it might need parsing
+		// koanf doesn't automatically split comma-separated values for slices
+		if len(solanaProc.EnabledTokens) == 1 && strings.Contains(solanaProc.EnabledTokens[0], ",") {
+			// Split the single comma-separated string into multiple tokens
+			tokens := strings.Split(solanaProc.EnabledTokens[0], ",")
+			solanaProc.EnabledTokens = make([]string, 0, len(tokens))
+			for _, t := range tokens {
+				t = strings.TrimSpace(t)
+				if t != "" {
+					solanaProc.EnabledTokens = append(solanaProc.EnabledTokens, t)
+				}
+			}
+		}
+	}
 	// Assemble DB URL from pieces if not explicitly set
 	assembleDBURL(cfg)
+
+	// Log test mode status clearly at startup
+	logTestModeStatus(cfg)
+
+	// Log feature flags status at startup
+	logFeatureFlagsStatus(cfg)
 
 	// Validate the loaded configuration
 	if err := Validate(cfg); err != nil {
@@ -689,4 +1130,53 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// logFeatureFlagsStatus logs the feature flags configuration at startup.
+// This helps operators understand any non-default behavior.
+func logFeatureFlagsStatus(cfg *Config) {
+	flags := cfg.GetFeatureFlags()
+
+	// Log dunning mode if not default
+	dunningMode := flags.GetDunningMode()
+	switch dunningMode {
+	case DunningModeDryRunOnly:
+		log.Warn("⚠️  DUNNING DRY-RUN MODE - Dunning workflow runs but no charges will be attempted")
+		log.Info("   Subscriptions will stay in past_due state, retry counts preserved")
+		log.Info("   Set feature_flags.dunning_mode=on to enable charges")
+	case DunningModeOff:
+		log.Warn("⚠️  DUNNING DISABLED - Failed rebills will result in immediate cancellation")
+		log.Info("   No grace period, no retry attempts, no recovery workflow")
+		log.Info("   Set feature_flags.dunning_mode=on to enable normal dunning")
+	}
+
+	// Log entitlement expiration if disabled
+	if flags.DisableEntitlementExpiration {
+		log.Warn("⚠️  ENTITLEMENT EXPIRATION DISABLED - Credits and entitlements will not expire")
+		log.Info("   CreditExpiryWorker, HoldExpiryWorker, and entitlement revocation are paused")
+		log.Info("   Users keep premium access even after subscription ends")
+		log.Info("   Set feature_flags.disable_entitlement_expiration=false to resume expiration")
+	}
+}
+
+// logTestModeStatus logs the payment processing mode at startup.
+// This helps operators confirm whether they're in test or production mode.
+func logTestModeStatus(cfg *Config) {
+	if cfg.IsTestMode() {
+		log.Warn("⚠️  TEST MODE ENABLED - No real charges will be processed")
+		log.Info("   Payment providers will use sandbox/test environments:")
+		log.Info("   - NMI: sandbox.nmi.com")
+		log.Info("   - CCBill: sandbox-api.ccbill.com")
+		log.Info("   - Stripe: requires sk_test_* key")
+		log.Info("   - Solana: devnet")
+	} else {
+		log.Warn("🔴 PRODUCTION MODE - Real charges enabled")
+		log.Info("   Payment providers will use production environments")
+
+		// Warn if running real charges in dev environment (unusual)
+		if cfg.IsDev() {
+			log.Warn("⚠️  Real payment processing enabled in dev environment - this is unusual")
+			log.Warn("   Set test_mode=true or BILLING_TEST_MODE=true to use sandbox environments")
+		}
+	}
 }

@@ -117,7 +117,7 @@ func SetupSuiteWithMockNMI(t *testing.T) (*TestContainerSuite, *MockNMIServer) {
 		TestMode:    true,
 	}
 
-	client, err := nmi.NewClient("mobius", nmiSettings, false)
+	client, err := nmi.NewClient("mobius", nmiSettings, true) // true = test mode (sandbox endpoints)
 	require.NoError(t, err)
 
 	// Override the DirectPostURL to point to mock server

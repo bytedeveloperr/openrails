@@ -502,30 +502,6 @@ func messageContainsKey(msg *solanago.Message, key solanago.PublicKey, loaded rp
 	return false
 }
 
-func findAccountIndex(msg *solanago.Message, key solanago.PublicKey, loaded rpc.LoadedAddresses) int {
-	offset := 0
-	if msg != nil {
-		for idx, k := range msg.AccountKeys {
-			if k.Equals(key) {
-				return idx
-			}
-		}
-		offset = len(msg.AccountKeys)
-	}
-	for i, k := range loaded.Writable {
-		if k.Equals(key) {
-			return offset + i
-		}
-	}
-	offset += len(loaded.Writable)
-	for i, k := range loaded.ReadOnly {
-		if k.Equals(key) {
-			return offset + i
-		}
-	}
-	return -1
-}
-
 func verifyBalanceChanges(txResult *rpc.GetTransactionResult, accountIndex int, account string, expectedAmount uint64) error {
 	if accountIndex < len(txResult.Meta.PostBalances) && accountIndex < len(txResult.Meta.PreBalances) {
 		post := txResult.Meta.PostBalances[accountIndex]

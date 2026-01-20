@@ -141,7 +141,6 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 		Processor:            models.ProcessorMobius,
 		VaultID:              nmiResponse.CustomerVaultID,
 		InitialTransactionID: "",
-		IsActive:             true,
 		CreatedAt:            s.now(),
 		UpdatedAt:            s.now(),
 		LastFour:             &req.LastFour,
@@ -221,7 +220,6 @@ func (s *VaultService) UpdateVault(ctx context.Context, pm *models.PaymentMethod
 		return nil, fmt.Errorf("failed to update payment vault: %w", err)
 	}
 
-	pm.IsActive = true
 	pm.FailureReason = nil
 	pm.UpdatedAt = s.now()
 	if err := s.PaymentMethodService.Update(ctx, pm); err != nil {
@@ -268,57 +266,16 @@ func (s *VaultService) DeleteVault(ctx context.Context, pm *models.PaymentMethod
 		return fmt.Errorf("failed to delete payment vault: %w", err)
 	}
 
-	pm.IsActive = false
-	pm.UpdatedAt = s.now()
-	if err := s.PaymentMethodService.Update(ctx, pm); err != nil {
-		log.WithError(err).WithField("vault_id", pm.VaultID).Error("Failed to deactivate vault locally")
-		return fmt.Errorf("failed to deactivate local vault record: %w", err)
+	if err := s.PaymentMethodService.Delete(ctx, pm.ID); err != nil {
+		log.WithError(err).WithField("vault_id", pm.VaultID).Error("Failed to delete vault locally")
+		return fmt.Errorf("failed to delete local vault record: %w", err)
 	}
 
 	log.WithField("vault_id", pm.VaultID).Info("Successfully deleted payment vault")
 	return nil
 }
 
-// ActivateVault sets this vault as active for the user and deactivates others
-func (s *VaultService) ActivateVault(ctx context.Context, pm *models.PaymentMethod) (*models.PaymentMethod, error) {
-	if !pm.IsActive {
-		return nil, errors.New("cannot activate inactive vault")
-	}
-
-	if err := s.PaymentMethodService.DeactivateByUserID(ctx, pm.UserID); err != nil {
-		log.WithError(err).WithField("user_id", pm.UserID).Error("Failed to deactivate other vaults")
-		return nil, fmt.Errorf("failed to deactivate other payment methods: %w", err)
-	}
-	if err := s.PaymentMethodService.ActivateByID(ctx, pm.ID); err != nil {
-		log.WithError(err).WithField("vault_id", pm.ID).Error("Failed to activate vault")
-		return nil, fmt.Errorf("failed to activate payment method: %w", err)
-	}
-
-	updated, err := s.PaymentMethodService.GetByID(ctx, pm.ID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to refresh vault: %w", err)
-	}
-
-	log.WithFields(log.Fields{"user_id": pm.UserID, "vault_id": pm.ID}).Info("Successfully activated payment vault")
-	return updated, nil
-}
-
-// GetUserVaults lists vaults for user (optionally including inactive)
-func (s *VaultService) GetUserVaults(ctx context.Context, userID string, includeInactive bool) ([]*models.PaymentMethod, error) {
-	if includeInactive {
-		return s.PaymentMethodService.GetByUserID(ctx, userID)
-	}
-	return s.PaymentMethodService.GetActiveByUserID(ctx, userID)
-}
-
-// GetUserActiveVault returns the active vault for a user
-func (s *VaultService) GetUserActiveVault(ctx context.Context, userID string) (*models.PaymentMethod, error) {
-	vaults, err := s.PaymentMethodService.GetActiveByUserID(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-	if len(vaults) == 0 {
-		return nil, errors.New("no active payment method found")
-	}
-	return vaults[0], nil
+// GetUserVaults lists all vaults for a user
+func (s *VaultService) GetUserVaults(ctx context.Context, userID string) ([]*models.PaymentMethod, error) {
+	return s.PaymentMethodService.GetByUserID(ctx, userID)
 }

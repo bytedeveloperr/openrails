@@ -7,14 +7,21 @@ import (
 	"net/http"
 	"time"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 )
 
 // RequestIDKey is the key for request ID in gin.Context
 const RequestIDKey = "request_id"
+
+// contextKey is a custom type for context keys to avoid collisions
+type contextKey string
+
+// ContextKeyRequestID is the context key for request ID
+const ContextKeyRequestID contextKey = "request_id"
 
 // Logger middleware with enhanced logging for billing service
 func Logger() gin.HandlerFunc {
@@ -76,7 +83,7 @@ func RequestID() gin.HandlerFunc {
 
 		// Add to request context for downstream services
 		ctx := c.Request.Context()
-		ctx = context.WithValue(ctx, "request_id", requestID)
+		ctx = context.WithValue(ctx, ContextKeyRequestID, requestID)
 		c.Request = c.Request.WithContext(ctx)
 
 		c.Next()
@@ -137,10 +144,10 @@ func BillingAuditLog() gin.HandlerFunc {
 			}
 
 			// Add user information if available
-			if cl, ok := authgin.ClaimsFromGin(c); ok && cl.UserID != "" {
-				fields["user_id"] = cl.UserID
-				if cl.Email != "" {
-					fields["user_email"] = cl.Email
+			if uc, ok := authprovider.UserContextFromGin(c); ok && uc.UserID != "" {
+				fields["user_id"] = uc.UserID
+				if uc.Email != "" {
+					fields["user_email"] = uc.Email
 				}
 			}
 

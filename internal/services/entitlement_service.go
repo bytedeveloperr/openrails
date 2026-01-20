@@ -95,6 +95,31 @@ func (s *EntitlementService) ListActiveEntitlements(ctx context.Context, userID 
 	return s.repo.ListActiveEntitlements(ctx, userID, at)
 }
 
+// AppendIndefinite appends an indefinite window right after the latest window's end,
+// unless the user currently has an active indefinite window (end_at IS NULL). In that case, it is an error.
+func (s *EntitlementService) AppendIndefinite(ctx context.Context, userID, entitlement string, sourceType models.EntitlementSourceType, sourceID *uuid.UUID) (*models.Entitlement, error) {
+	now := s.now()
+
+	exists, err := s.repo.HasActiveIndefinite(ctx, userID, entitlement, now)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return nil, fmt.Errorf("cannot append entitlement while an indefinite entitlement is active")
+	}
+
+	var start time.Time = now
+	last, err := s.repo.GetLatestActive(ctx, userID, entitlement)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	if err == nil && last != nil && last.EndAt != nil {
+		start = *last.EndAt
+	}
+
+	return s.GrantWindow(ctx, userID, entitlement, start, nil, sourceType, sourceID)
+}
+
 // GrantWindow creates a new entitlement window for a user
 func (s *EntitlementService) GrantWindow(ctx context.Context, userID, entitlement string, startAt time.Time, endAt *time.Time, sourceType models.EntitlementSourceType, sourceID *uuid.UUID) (*models.Entitlement, error) {
 	now := s.now()
@@ -148,11 +173,4 @@ func (s *EntitlementService) RevokeByID(ctx context.Context, id uuid.UUID, reaso
 // Used during downgrades to revoke entitlements that the new tier doesn't include.
 func (s *EntitlementService) RevokeBySubscriptionAndName(ctx context.Context, subscriptionID uuid.UUID, entitlement string, revokeAt time.Time, reason models.EntitlementRevokeReason) error {
 	return s.repo.RevokeBySubscriptionAndName(ctx, subscriptionID, entitlement, revokeAt, reason)
-}
-
-// GrantEntitlement creates a new entitlement for a user (admin action)
-// If endAt is nil, the entitlement is indefinite (until manually revoked)
-func (s *EntitlementService) GrantEntitlement(ctx context.Context, userID, entitlement string, endAt *time.Time) (*models.Entitlement, error) {
-	now := s.now()
-	return s.GrantWindow(ctx, userID, entitlement, now, endAt, models.EntitlementSourceAdmin, nil)
 }

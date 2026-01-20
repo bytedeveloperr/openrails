@@ -842,49 +842,6 @@ func (s *EventLogService) insertPaymentBatch(ctx context.Context, rows []Payment
 	return batch.Send()
 }
 
-func (s *EventLogService) insertTransaction(ctx context.Context, d TransactionEventData) error {
-	// normalized mapping to payment_events; keep fields as-is
-	query := `
-        INSERT INTO payment_events (
-            event_id, subscription_id, user_id, event_type, processor,
-            processor_transaction_id, amount, currency, billing_info,
-            webhook_source, metadata, timestamp
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-	userID := ""
-	if d.UserID != nil {
-		userID = *d.UserID
-	}
-	return s.clickhouseConn.Exec(ctx, query,
-		d.EventID, d.SubscriptionID, userID, d.EventType, d.Processor,
-		d.ProcessorTransactionID, d.Amount, d.Currency, d.Metadata, "", d.Metadata, d.Timestamp,
-	)
-}
-
-func (s *EventLogService) insertACU(ctx context.Context, data ACUEventData) error {
-	query := `
-        INSERT INTO acu_events (
-            event_id, subscription_id, user_id, event_type, processor,
-            processor_subscription_id, card_info, update_status, requires_action,
-            reason, metadata, timestamp
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-	return s.clickhouseConn.Exec(ctx, query,
-		data.EventID,
-		data.SubscriptionID,
-		data.UserID,
-		data.EventType,
-		data.Processor,
-		data.ProcessorSubscriptionID,
-		data.CardInfo,
-		data.UpdateStatus,
-		data.RequiresAction,
-		data.Reason,
-		data.Metadata,
-		data.Timestamp,
-	)
-}
-
 func (s *EventLogService) insertACUBatch(ctx context.Context, rows []ACUEventData) error {
 	batch, err := s.clickhouseConn.PrepareBatch(ctx, `INSERT INTO acu_events (event_id, subscription_id, user_id, event_type, processor, processor_subscription_id, card_info, update_status, requires_action, reason, metadata, timestamp) VALUES`)
 	if err != nil {
@@ -896,33 +853,6 @@ func (s *EventLogService) insertACUBatch(ctx context.Context, rows []ACUEventDat
 		}
 	}
 	return batch.Send()
-}
-
-func (s *EventLogService) insertChargeback(ctx context.Context, data ChargebackEventData) error {
-	query := `
-        INSERT INTO chargeback_events (
-            event_id, chargeback_id, batch_id, subscription_id, user_id, event_type, processor,
-            processor_transaction_id, amount, currency, chargeback_type, reason,
-            status, metadata, timestamp
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `
-	return s.clickhouseConn.Exec(ctx, query,
-		data.EventID,
-		data.ChargebackID,
-		data.BatchID,
-		data.SubscriptionID,
-		data.UserID,
-		data.EventType,
-		data.Processor,
-		data.ProcessorTransactionID,
-		data.Amount,
-		data.Currency,
-		data.ChargebackType,
-		data.Reason,
-		data.Status,
-		data.Metadata,
-		data.Timestamp,
-	)
 }
 
 func (s *EventLogService) insertChargebackBatch(ctx context.Context, rows []ChargebackEventData) error {

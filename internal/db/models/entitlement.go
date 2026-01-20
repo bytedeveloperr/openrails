@@ -14,7 +14,6 @@ const (
 	EntitlementSourceSubscription EntitlementSourceType = "subscription"
 	EntitlementSourceOneOff       EntitlementSourceType = "one_off"
 	EntitlementSourceAdmin        EntitlementSourceType = "admin"
-	EntitlementSourceGrace        EntitlementSourceType = "grace"
 )
 
 // EntitlementRevokeReason indicates why an entitlement was revoked
