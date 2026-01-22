@@ -92,6 +92,7 @@ func (s *Server) registerStandaloneMetaRoutes(e *gin.Engine) {
 func (s *Server) registerPublicRoutes() {
 	// Standalone public handler: full surface area for convenience.
 	s.registerStandaloneMetaRoutes(s.publicHandler)
+	s.registerDebugRoutes(s.publicHandler)
 	s.registerUserRoutes(s.publicHandler)
 	s.registerWebhookRoutes(s.publicHandler)
 

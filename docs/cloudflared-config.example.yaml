@@ -1,0 +1,17 @@
+# Example `cloudflared` config for exposing billing locally at a stable hostname.
+#
+# Usage (example):
+# - Save as: ~/.cloudflared/doujins-billing-webhooks.yaml
+# - Run: cloudflared tunnel --config ~/.cloudflared/doujins-billing-webhooks.yaml run <tunnel-name>
+#
+# DO NOT COMMIT real tunnel credentials/tokens.
+#
+# Docs: docs/cloudflared-webhooks.md
+
+tunnel: <tunnel-uuid-or-name>
+credentials-file: /path/to/<tunnel-uuid>.json
+
+ingress:
+  - hostname: billing-webhooks-sandbox.<your-domain>
+    service: http://localhost:2053
+  - service: http_status:404

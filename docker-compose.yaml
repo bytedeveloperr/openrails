@@ -3,56 +3,44 @@ services:
     image: postgres:17-bookworm
     restart: unless-stopped
     environment:
-      POSTGRES_DB: doujins_db
+      POSTGRES_DB: billing_db
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin_password
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Install pgvector at container startup (dev-only) then launch postgres.
-    # This avoids a custom Dockerfile.
-    user: root
+      # Bootstrap SQL runs automatically during first initialization
+      - ./migrations/bootstrap/001_postgres_init.sql:/docker-entrypoint-initdb.d/001_postgres_init.sql:ro
     command:
-      - bash
-      - -lc
-      - |
-        set -euo pipefail
-        if [ ! -f /usr/lib/postgresql/17/lib/vector.so ]; then
-          apt-get update
-          apt-get install -y --no-install-recommends postgresql-17-pgvector
-          rm -rf /var/lib/apt/lists/*
-        fi
-        export PATH="/usr/lib/postgresql/17/bin:$PATH"
-        exec /usr/local/bin/docker-entrypoint.sh postgres \
-          -c listen_addresses='*' \
-          -c log_min_messages=warning \
-          -c client_min_messages=warning \
-          -c log_error_verbosity=terse \
-          -c log_connections=off \
-          -c log_disconnections=off \
-          -c log_statement=none \
-          -c log_min_error_statement=error \
-          -c log_min_duration_statement=-1
+      - postgres
+      - -c
+      - listen_addresses=*
+      - -c
+      - log_min_messages=warning
+      - -c
+      - client_min_messages=warning
+      - -c
+      - log_error_verbosity=terse
+      - -c
+      - log_connections=off
+      - -c
+      - log_disconnections=off
+      - -c
+      - log_statement=none
+      - -c
+      - log_min_error_statement=error
+      - -c
+      - log_min_duration_statement=-1
     networks:
-      - local-doujins
+      - local-billing
     healthcheck:
-      # Wait until the main DB (app) is reachable on the TCP port.
-      test:
-        [
-          "CMD",
-          "pg_isready",
-          "-U",
-          "admin",
-          "-d",
-          "doujins_db",
-          "-h",
-          "localhost",
-        ]
+      # Verify bootstrap completed by checking the billing schema exists.
+      test: ["CMD-SHELL", "pg_isready -U admin -d billing_db -h localhost && psql -U admin -d billing_db -tAc \"SELECT 1 FROM pg_namespace WHERE nspname='billing'\" | grep -q 1"]
       interval: 5s
       timeout: 5s
       start_period: 90s
-      retries: 1
+      retries: 5
   
   garnet:
     image: ghcr.io/microsoft/garnet:latest
@@ -70,7 +58,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - local-doujins
+      - local-billing
 
   # ClickHouse Keeper for coordination (enables ON CLUSTER DDL)
   clickhouse-keeper:
@@ -82,7 +70,7 @@ services:
     ports:
       - "9181:9181" # Keeper port
     networks:
-      - local-doujins
+      - local-billing
     healthcheck:
       test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "9181"]
       interval: 10s
@@ -116,32 +104,9 @@ services:
       retries: 5
       start_period: 120s
     networks:
-      - local-doujins
+      - local-billing
 
   # Bootstrap DB: create roles/schema/extensions using superuser
-  db-bootstrap:
-    image: postgres:17-bookworm
-    environment:
-      PGPASSWORD: admin_password
-    volumes:
-      - ./migrations/bootstrap:/bootstrap:ro
-    # Supply psql variables used by the SQL file
-    command: [
-      "psql",
-      "-v", "ON_ERROR_STOP=1",
-      "-h", "postgres",
-      "-U", "admin",
-      "-d", "doujins_db",
-      "-f", "/bootstrap/001_postgres_init.sql"
-    ]
-    restart: "no"
-    networks:
-      - local-doujins
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-
   # One-shot job: Bootstrap ClickHouse cluster (create user, database, permissions)
   clickhouse-bootstrap:
     image: clickhouse/clickhouse-server:25.8-alpine
@@ -159,33 +124,33 @@ services:
         # Run bootstrap SQL as default admin user (has all privileges)
         cat <<'SQL_EOF' | sed 's/{CLICKHOUSE_USER}/analytics_user/g' | sed 's/{CLICKHOUSE_PASSWORD}/analytics_password/g' | clickhouse-client --host clickhouse --multiquery
         -- Create database across cluster
-        CREATE DATABASE IF NOT EXISTS analytics ON CLUSTER doujins;
+        CREATE DATABASE IF NOT EXISTS analytics ON CLUSTER billing;
 
         -- Create ClickHouse user with password
-        CREATE USER IF NOT EXISTS {CLICKHOUSE_USER} ON CLUSTER doujins
+        CREATE USER IF NOT EXISTS {CLICKHOUSE_USER} ON CLUSTER billing
           IDENTIFIED WITH plaintext_password BY '{CLICKHOUSE_PASSWORD}'
           HOST ANY;
 
         -- Grant full database access WITH GRANT OPTION so user can run migrations
-        GRANT ON CLUSTER doujins ALL ON analytics.* TO {CLICKHOUSE_USER} WITH GRANT OPTION;
+        GRANT ON CLUSTER billing ALL ON analytics.* TO {CLICKHOUSE_USER} WITH GRANT OPTION;
 
         -- Grant CLUSTER privilege required for ON CLUSTER DDL statements
-        GRANT ON CLUSTER doujins CLUSTER ON *.* TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER billing CLUSTER ON *.* TO {CLICKHOUSE_USER};
 
         -- Grant system table permissions for monitoring and debugging
-        GRANT ON CLUSTER doujins SELECT ON system.tables TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER doujins SELECT ON system.columns TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER doujins SELECT ON system.databases TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER doujins SELECT ON system.parts TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER doujins SELECT ON system.parts_columns TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER doujins SELECT ON system.mutations TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER doujins SELECT ON system.merges TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER doujins SELECT ON system.processes TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER billing SELECT ON system.tables TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER billing SELECT ON system.columns TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER billing SELECT ON system.databases TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER billing SELECT ON system.parts TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER billing SELECT ON system.parts_columns TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER billing SELECT ON system.mutations TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER billing SELECT ON system.merges TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER billing SELECT ON system.processes TO {CLICKHOUSE_USER};
         SQL_EOF
 
         echo "✓ ClickHouse bootstrap completed successfully"
     networks:
-      - local-doujins
+      - local-billing
 
   # App migrations: run embedded migrator in the billing image
   # Uses host.docker.internal so migrations run against the same DB as local development
@@ -196,15 +161,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      db-bootstrap:
-        condition: service_completed_successfully
       clickhouse-bootstrap:
         condition: service_completed_successfully
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
       # Database connection via host-exposed ports (same as local dev)
-      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@host.docker.internal:5432/doujins_db?sslmode=disable"
+      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@host.docker.internal:5432/billing_db?sslmode=disable"
       # ClickHouse connection via host-exposed ports
       CLICKHOUSE_HTTP_ADDR: "http://host.docker.internal:8123"
       CLICKHOUSE_CLIENT_ADDR: "host.docker.internal:9002"
@@ -214,7 +177,7 @@ services:
     command: ["migrate", "up"]
     restart: "no"
     networks:
-      - local-doujins
+      - local-billing
 
   # Billing service (HTTP server only)
   billing:
@@ -227,8 +190,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      db-bootstrap:
-        condition: service_completed_successfully
       billing-migrate:
         condition: service_completed_successfully
       garnet:
@@ -238,13 +199,13 @@ services:
     ports:
       - "2053:2053"  # API (public endpoints + admin endpoints with JWT auth)
     # Note: Port 8060 (private service API with X-API-Key auth) is exposed internally
-    # via Docker network only - not mapped to host. Other containers in local-doujins
+    # via Docker network only - not mapped to host. Other containers in local-billing
     # network can reach it at billing:8060 for server-to-server calls.
     expose:
       - "8060"  # Private/service API (X-API-KEY auth, internal only)
     environment:
       # Database connection (admin superuser)
-      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
+      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/billing_db?sslmode=disable"
       # Redis connection
       REDIS_ADDR: "garnet:6379"
       REDIS_PASSWORD: ""
@@ -256,47 +217,8 @@ services:
       CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
       # Private service API key for server-to-server calls (X-API-KEY header)
-      API_KEY: "${BILLING_API_KEY:-dev-service-api-key-change-me}"
+      BILLING_API_KEY: "${BILLING_API_KEY:-dev-service-api-key-change-me}"
     command: ["server", "--start-workers"]
-
-  # Billing workers (River + other background loops)
-  billing-worker:
-    profiles: ["all", "billing"]
-    build:
-      context: .
-      dockerfile: Dockerfile
-    restart: unless-stopped
-    depends_on:
-      postgres:
-        condition: service_healthy
-      db-bootstrap:
-        condition: service_completed_successfully
-      billing-migrate:
-        condition: service_completed_successfully
-      garnet:
-        condition: service_healthy
-      clickhouse:
-        condition: service_healthy
-    environment:
-      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/doujins_db?sslmode=disable"
-      REDIS_ADDR: "garnet:6379"
-      REDIS_PASSWORD: ""
-      REDIS_DB: "0"
-      CLICKHOUSE_HTTP_ADDR: "http://clickhouse:8123"
-      CLICKHOUSE_CLIENT_ADDR: "clickhouse:9000"
-      CLICKHOUSE_DB: "analytics"
-      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
-      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
-      API_KEY: "${BILLING_API_KEY:-dev-service-api-key-change-me}"
-    command: ["worker"]
-    networks:
-      - local-doujins
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:2053/health/live"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
     volumes:
       - billing_spool:/var/lib/doujins-billing/spool
 
@@ -312,5 +234,5 @@ volumes:
   billing_spool:
 
 networks:
-  local-doujins:
-    name: local-doujins
+  local-billing:
+    name: local-billing

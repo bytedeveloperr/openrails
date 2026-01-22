@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	authkitmigrations "github.com/PaulFidika/authkit/migrations/postgres"
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	clickhousemigrations "github.com/doujins-org/doujins-billing/migrations/clickhouse"
@@ -18,54 +17,12 @@ import (
 	"github.com/uptrace/bun"
 )
 
-// RunAuthKit applies only AuthKit migrations to the profiles schema.
-// Run this once before running Run() on all services.
-func RunAuthKit(ctx context.Context, cfg *config.Config) error {
-	if cfg == nil || cfg.DB == nil {
-		return fmt.Errorf("missing database config")
-	}
-
-	database, err := db.NewDB(cfg.DB)
-	if err != nil {
-		return fmt.Errorf("open db: %w", err)
-	}
-	defer func() { _ = database.Close() }()
-
-	bunDB, ok := database.GetDB().(*bun.DB)
-	if !ok {
-		return fmt.Errorf("unexpected db type for migrator")
-	}
-	sqlDB := bunDB.DB
-
-	log.Info("Running AuthKit migrations (profiles schema)...")
-	migrations, err := migratekit.LoadFromFS(authkitmigrations.FS)
-	if err != nil {
-		return fmt.Errorf("authkit: load migrations: %w", err)
-	}
-
-	m := migratekit.NewPostgres(sqlDB, "authkit")
-	// ApplyMigrations now calls Setup() automatically within the lock
-	if err := m.ApplyMigrations(ctx, migrations); err != nil {
-		return fmt.Errorf("authkit: apply migrations: %w", err)
-	}
-
-	log.Info("✓ AuthKit migrations completed successfully")
-	return nil
-}
-
 // RunPostgres applies all Postgres migrations:
-// 0. AuthKit (profiles schema) - via migratekit
-// 1. River (billing schema) - via rivermigrate
-// 2. Billing (billing schema) - via migratekit
+// 0. River (billing schema) - via rivermigrate
+// 1. Billing (billing schema) - via migratekit
 func RunPostgres(ctx context.Context, cfg *config.Config) error {
 	if cfg == nil || cfg.DB == nil {
 		return fmt.Errorf("missing database config")
-	}
-
-	// ---------- 0. AuthKit Migrations (profiles schema) ----------
-	log.Info("Running AuthKit migrations (profiles schema)...")
-	if err := RunAuthKit(ctx, cfg); err != nil {
-		return fmt.Errorf("authkit migrations failed: %w", err)
 	}
 
 	database, err := db.NewDB(cfg.DB)
@@ -82,13 +39,13 @@ func RunPostgres(ctx context.Context, cfg *config.Config) error {
 
 	schema := "billing" // Hardcoded schema
 
-	// ---------- 1. River Migrations (billing schema) ----------
+	// ---------- 0. River Migrations (billing schema) ----------
 	log.Info("Running River migrations (billing schema)...")
 	if err := runRiverMigrations(ctx, cfg, schema); err != nil {
 		return fmt.Errorf("river migrations failed: %w", err)
 	}
 
-	// ---------- 2. Billing Migrations (billing schema) ----------
+	// ---------- 1. Billing Migrations (billing schema) ----------
 	log.Info("Running Billing migrations (billing schema)...")
 	migrations, err := migratekit.LoadFromFS(postgresmigrations.FS)
 	if err != nil {
@@ -125,7 +82,7 @@ func RunClickHouse(ctx context.Context, cfg *config.Config) error {
 }
 
 // Run applies all migrations (Postgres and ClickHouse independently):
-// Postgres: AuthKit → River → Billing
+// Postgres: River → Billing
 // ClickHouse: Billing analytics
 func Run(ctx context.Context, cfg *config.Config) error {
 	if cfg == nil || cfg.DB == nil {
@@ -194,7 +151,7 @@ func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) 
 
 	chCluster := cfg.Cluster
 	if chCluster == "" {
-		chCluster = "doujins"
+		chCluster = "billing"
 	}
 
 	chMigrations, err := migratekit.LoadFromFS(clickhousemigrations.FS)

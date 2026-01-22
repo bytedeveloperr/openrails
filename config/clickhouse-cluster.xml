@@ -6,18 +6,18 @@
     <macros>
         <shard>1</shard>
         <replica>replica1</replica>
-        <cluster>doujins</cluster>
+        <cluster>billing</cluster>
     </macros>
 
     <remote_servers>
-        <doujins>
+        <billing>
             <shard>
                 <replica>
                     <host>localhost</host>
                     <port>9000</port>
                 </replica>
             </shard>
-        </doujins>
+        </billing>
     </remote_servers>
 
     <!-- ClickHouse Keeper connection for distributed DDL -->

@@ -79,7 +79,7 @@ func main() {
 
 	migratePgCmd := &cobra.Command{
 		Use:   "pg",
-		Short: "Apply all Postgres migrations (AuthKit → River → Billing)",
+		Short: "Apply all Postgres migrations (River → Billing)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := cmd.Context().Value(config.ConfigContextKey).(*config.Config)
 			ctx := cmd.Context()

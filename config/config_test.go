@@ -6,6 +6,40 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestLoad_APIKeyFromEnv(t *testing.T) {
+	t.Run("loads api_key from BILLING_API_KEY", func(t *testing.T) {
+		t.Setenv("BILLING_API_KEY", "test-billing-api-key")
+
+		cfg, err := Load("nonexistent-config.yaml")
+		assert.NoError(t, err)
+		assert.Equal(t, "test-billing-api-key", cfg.APIKey)
+	})
+
+	t.Run("loads api_key from API_KEY", func(t *testing.T) {
+		t.Setenv("API_KEY", "test-api-key")
+
+		cfg, err := Load("nonexistent-config.yaml")
+		assert.NoError(t, err)
+		assert.Equal(t, "test-api-key", cfg.APIKey)
+	})
+
+	t.Run("loads nested keys via single underscore (db.url)", func(t *testing.T) {
+		t.Setenv("DB_URL", "postgres://u:p@localhost:5432/db?sslmode=disable")
+
+		cfg, err := Load("nonexistent-config.yaml")
+		assert.NoError(t, err)
+		assert.Equal(t, "postgres://u:p@localhost:5432/db?sslmode=disable", cfg.DB.URL)
+	})
+
+	t.Run("loads JSON arrays for slices (auth.issuers)", func(t *testing.T) {
+		t.Setenv("AUTH_ISSUERS", `["http://a.test","http://b.test"]`)
+
+		cfg, err := Load("nonexistent-config.yaml")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"http://a.test", "http://b.test"}, cfg.Auth.Issuers)
+	})
+}
+
 func TestIsTestMode(t *testing.T) {
 	t.Run("defaults to true when nil", func(t *testing.T) {
 		cfg := &Config{TestMode: nil}

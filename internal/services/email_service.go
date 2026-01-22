@@ -27,6 +27,7 @@ var errUserEmailUnavailable = errors.New("user email unavailable")
 type EmailService struct {
 	client *sendgrid.Client
 	from   *mail.Email
+	store  *config.StoreConfig
 	Clock  clockwork.Clock
 
 	// Domain dependencies for building subscription emails
@@ -74,7 +75,7 @@ func NewEmailService(sendgridCfg *config.SendGridConfig, storeCfg *config.StoreC
 	client := sendgrid.NewSendClient(apiKey)
 	from := mail.NewEmail(fromName, fromEmail)
 
-	return &EmailService{client: client, from: from}, nil
+	return &EmailService{client: client, from: from, store: storeCfg}, nil
 }
 
 // SetDomainServices configures the domain services needed for subscription emails.
@@ -153,7 +154,7 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 
 	productName := data.ProductName
 	if productName == "" {
-		productName = "Doujins premium content"
+		productName = "Premium content"
 	}
 
 	amountLine := fmt.Sprintf("%.2f %s", data.AmountDollars(), strings.ToUpper(data.Currency))
@@ -166,14 +167,19 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 	paymentMethod := strings.ToLower(data.PaymentMethod)
 	isSolana := paymentMethod == "solana"
 
-	subject := "Thanks for supporting Doujins!"
+	storeName := "My Store"
+	if s.store != nil && strings.TrimSpace(s.store.Name) != "" {
+		storeName = strings.TrimSpace(s.store.Name)
+	}
+
+	subject := fmt.Sprintf("Thanks for supporting %s!", storeName)
 	if isSolana {
-		subject = "Your Solana premium purchase is confirmed"
+		subject = "Your Solana purchase is confirmed"
 	}
 
 	messageIntro := "Thanks for completing your purchase!"
 	if data.IsPremium {
-		messageIntro = "Thanks for unlocking Doujins Premium!"
+		messageIntro = fmt.Sprintf("Thanks for unlocking %s Premium!", storeName)
 	}
 
 	if isSolana {
@@ -182,13 +188,13 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 			<p>Hi there,</p>
 			<p>%s This one-time Solana transaction instantly extended your premium access.</p>
 			<ul>
-				<li><strong>Product:</strong> %s</li>
-				<li><strong>Amount:</strong> %s</li>
-				<li><strong>Date:</strong> %s</li>
+			<li><strong>Product:</strong> %s</li>
+			<li><strong>Amount:</strong> %s</li>
+			<li><strong>Date:</strong> %s</li>
 			</ul>
 			<p>Enjoy your premium benefits—no rebill will occur automatically.</p>
-			<p>The Doujins Team</p>
-		`, messageIntro, productName, amountLine, issuedAt)
+			<p>The %s Team</p>
+		`, messageIntro, productName, amountLine, issuedAt, storeName)
 
 		plainContent := fmt.Sprintf(`
 		Solana Payment Received
@@ -199,8 +205,8 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 		Date: %s
 
 		Enjoy your premium benefits—there won't be an automatic rebill.
-		The Doujins Team
-		`, messageIntro, productName, amountLine, issuedAt)
+		The %s Team
+		`, messageIntro, productName, amountLine, issuedAt, storeName)
 
 		return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
 	}
@@ -215,8 +221,8 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 			<li><strong>Date:</strong> %s</li>
 		</ul>
 		<p>Your access has been updated instantly. Enjoy!</p>
-		<p>The Doujins Team</p>
-	`, messageIntro, productName, amountLine, issuedAt)
+		<p>The %s Team</p>
+	`, messageIntro, productName, amountLine, issuedAt, storeName)
 
 	plainContent := fmt.Sprintf(`
 		Payment Received
@@ -227,8 +233,8 @@ func (s *EmailService) SendOneOffPurchaseReceipt(ctx context.Context, data OneOf
 		Date: %s
 
 		Your access has been updated instantly. Enjoy!
-		The Doujins Team
-	`, messageIntro, productName, amountLine, issuedAt)
+		The %s Team
+	`, messageIntro, productName, amountLine, issuedAt, storeName)
 
 	return s.SendEmail(ctx, data.UserEmail, subject, htmlContent, plainContent)
 }
@@ -407,6 +413,14 @@ func (s *EmailService) getEmailData(ctx context.Context, userID string) (*Subscr
 	if err != nil {
 		return nil, fmt.Errorf("failed to get price: %w", err)
 	}
+	priceName := strings.TrimSpace(price.DisplayName)
+
+	productName := ""
+	if s.productService != nil {
+		if prod, perr := s.productService.GetByID(ctx, price.ProductID); perr == nil && prod != nil {
+			productName = strings.TrimSpace(prod.DisplayName)
+		}
+	}
 
 	// Calculate billing period based on subscription and price interval
 	periodStart := s.now()
@@ -435,6 +449,8 @@ func (s *EmailService) getEmailData(ctx context.Context, userID string) (*Subscr
 		UserEmail:      email,
 		Username:       username,
 		SubscriptionID: subscription.ID,
+		ProductName:    productName,
+		PriceName:      priceName,
 		Amount:         price.Amount,
 		Currency:       price.Currency,
 		PeriodStart:    periodStart,

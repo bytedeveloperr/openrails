@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if [ -f "$ROOT_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
+COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.yaml}"
+BILLING_LOCAL_URL="${BILLING_LOCAL_URL:-http://localhost:2053}"
+
+require() {
+  local name="$1"
+  if ! command -v "$name" >/dev/null 2>&1; then
+    echo "Missing required command: $name" >&2
+    exit 1
+  fi
+}
+
+require curl
+require openssl
+require docker
+require cloudflared
+
+if [ -z "${CLOUDFLARED_TUNNEL_TOKEN:-}" ]; then
+  echo "Missing CLOUDFLARED_TUNNEL_TOKEN" >&2
+  exit 1
+fi
+if [ -z "${CLOUDFLARED_PUBLIC_HOSTNAME:-}" ]; then
+  echo "Missing CLOUDFLARED_PUBLIC_HOSTNAME" >&2
+  exit 1
+fi
+if [ -z "${PROCESSORS_MOBIUS_WEBHOOK_SECRET:-}" ]; then
+  echo "Missing PROCESSORS_MOBIUS_WEBHOOK_SECRET (billing will reject unsigned webhooks)" >&2
+  exit 1
+fi
+
+echo "1) Starting docker compose stack..."
+docker compose -f "$COMPOSE_FILE" up -d
+
+echo "2) Waiting for billing health..."
+for i in {1..60}; do
+  if curl -fsS "$BILLING_LOCAL_URL/health/live" >/dev/null 2>&1; then
+    echo "  billing is up: $BILLING_LOCAL_URL"
+    break
+  fi
+  sleep 1
+  if [ "$i" -eq 60 ]; then
+    echo "Billing did not become healthy in time: $BILLING_LOCAL_URL/health/live" >&2
+    exit 1
+  fi
+done
+
+echo "3) Starting cloudflared tunnel in background..."
+cloudflared tunnel run --token "$CLOUDFLARED_TUNNEL_TOKEN" >/tmp/cloudflared-billing-webhooks.log 2>&1 &
+TUNNEL_PID="$!"
+
+cleanup() {
+  echo ""
+  echo "Stopping cloudflared (pid=$TUNNEL_PID)..."
+  kill "$TUNNEL_PID" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+PUBLIC_BASE="https://${CLOUDFLARED_PUBLIC_HOSTNAME}"
+
+echo "4) Probing public hostname routing..."
+curl -fsS "$PUBLIC_BASE/health/live" >/dev/null
+echo "  public routing OK: $PUBLIC_BASE"
+
+echo "5) Sending signed test webhook to public URL..."
+EVENT_ID="e2e_test_$(date +%s%N)"
+BODY="{\"event_id\":\"$EVENT_ID\",\"event_type\":\"test\",\"event_body\":{}}"
+SIG="$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$PROCESSORS_MOBIUS_WEBHOOK_SECRET" | awk '{print $NF}')"
+
+curl -i "$PUBLIC_BASE/v1/webhooks/mobius" \
+  -H "Content-Type: application/json" \
+  -H "X-Signature: sha256=$SIG" \
+  --data "$BODY"
+
+echo ""
+echo "Next steps:"
+echo "  - Register webhook URL in Mobius/NMI portal:"
+echo "      $PUBLIC_BASE/v1/webhooks/mobius"
+echo "  - Use tokenization harness (if env=dev):"
+echo "      $PUBLIC_BASE/debug/mobius/tokenization?mode=real"
+echo ""
+echo "Cloudflared logs: /tmp/cloudflared-billing-webhooks.log"
+echo "Leave this running while testing. Ctrl+C to stop."
+
+wait "$TUNNEL_PID"

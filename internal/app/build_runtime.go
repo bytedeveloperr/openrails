@@ -14,7 +14,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 
-	authkitPostgres "github.com/PaulFidika/authkit/migrations/postgres"
 	"github.com/doujins-org/doujins-billing/config"
 	"github.com/doujins-org/doujins-billing/internal/db"
 	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
@@ -269,7 +268,6 @@ func validateDatabase(cfg *config.Config, database *db.DB) error {
 	sqlDB := bunDB.DB
 
 	if err := migratekit.ValidatePostgresMigrations(context.Background(), sqlDB,
-		migratekit.MigrationSource{App: "authkit", FS: authkitPostgres.FS},
 		migratekit.MigrationSource{App: "billing", FS: postgresmigrations.FS},
 	); err != nil {
 		log.WithError(err).Fatal("Postgres migrations validation failed")

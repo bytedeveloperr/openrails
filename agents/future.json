@@ -102,6 +102,19 @@
         "[ ] Document the user/admin UX and operational guardrails"
       ],
       "completed": false
+    },
+    {
+      "id": 201,
+      "name": "multi-tenant / multi-store hosted platform (wrapper system)",
+      "description": "Evolve doujins-billing from a single-store, single-tenant, self-hosted service into a hosted platform that can serve multiple tenants/stores.\n\n## Current Scope (explicit)\n\nThis repo/system is intentionally scoped to:\n- Single store / single tenant\n- Either embedded inside a host app, or hosted as a standalone service for that one store\n\n## Future Direction\n\nMulti-tenant support should be built as a **separate system that wraps this system** (control plane + tenancy management), not by tightly coupling application-specific concerns into the core billing engine.\n\n## Goals\n\n- Support multiple tenants, each with one or more stores.\n- Strong isolation between tenants (data, secrets, webhooks, processor credentials).\n- Operational tooling to provision/manage tenants (UI/CLI), rotate secrets, and audit actions.\n\n## Key Questions\n\n- Isolation model: single DB with `tenant_id` everywhere vs separate DB per tenant.\n- Processor credential management: per-tenant secrets (Vault/Secrets Manager) vs DB-encrypted fields.\n- Webhook routing + verification: per-tenant webhook signing secrets and deterministic callback URLs.\n- Auth model: JWT issuer/audience per tenant, and admin/operator access across tenants.\n\n## Tasks\n\n- [ ] Write a short RFC: hosted control-plane vs per-tenant deployments\n- [ ] Decide tenancy isolation approach (shared DB schema vs per-tenant DB)\n- [ ] If shared DB: add `tenant_id`/`store_id` to all billing tables + indexes\n- [ ] Add request scoping for all APIs (derive tenant from auth/API key/host header)\n- [ ] Define per-tenant processor configuration loading (secrets + caching)\n- [ ] Define webhook entrypoint strategy (hostname/path includes tenant/store) and signature verification per tenant\n- [ ] Define admin/operator API surface (tenant provisioning, audit logs, break-glass support)\n- [ ] Ensure data export/deletion primitives exist for compliance (per-tenant)\n\n## Exit Criteria\n\n- A thin wrapper system can run one billing instance and safely serve multiple tenants/stores, or can provision per-tenant instances, without requiring host-app-specific patches to the core engine.",
+      "tasks": [
+        "[ ] RFC: tenancy model and wrapper architecture",
+        "[ ] Decide shared DB vs per-tenant DB",
+        "[ ] Define per-tenant config + secrets management",
+        "[ ] Define webhook routing + per-tenant verification",
+        "[ ] Define auth + admin/operator access model"
+      ],
+      "completed": false
     }
   ]
 }

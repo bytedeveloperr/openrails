@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 
@@ -257,40 +256,6 @@ func mobiusResponseDetail(code int) string {
 	return mobiusResponseMessages[code]
 }
 
-func resolveWebhookSecret(provider string, cfg *config.NMIProviderSettings) string {
-	upperProvider := strings.ToUpper(provider)
-	secrets := []string{
-		strings.TrimSpace(os.Getenv(fmt.Sprintf("NMI_%s_WEBHOOK_SECRET", upperProvider))),
-	}
-	if strings.EqualFold(provider, "mobius") {
-		secrets = append(secrets, strings.TrimSpace(os.Getenv("MOBIUS_WEBHOOK_SECRET")))
-	}
-	secrets = append(secrets,
-		strings.TrimSpace(os.Getenv("NMI_WEBHOOK_SECRET")),
-	)
-	for _, candidate := range secrets {
-		if candidate != "" {
-			return candidate
-		}
-	}
-	if cfg != nil {
-		return strings.TrimSpace(cfg.WebhookSecret)
-	}
-	return ""
-}
-
-func resolveEndpoint(defaultURL string, cfgValue string, envKeys ...string) string {
-	for _, key := range envKeys {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-			return value
-		}
-	}
-	if value := strings.TrimSpace(cfgValue); value != "" {
-		return value
-	}
-	return defaultURL
-}
-
 // NewClient creates a new NMI client for a specific provider.
 // testMode: when true, uses sandbox.nmi.com endpoints; when false, uses production endpoints.
 // Note: The testMode param should come from config.IsTestMode().
@@ -299,21 +264,12 @@ func NewClient(provider string, cfg *config.NMIProviderSettings, testMode bool) 
 		return nil, errors.New("nmi provider configuration is required")
 	}
 
-	webhookSecret := resolveWebhookSecret(provider, cfg)
+	webhookSecret := strings.TrimSpace(cfg.WebhookSecret)
 	if webhookSecret == "" {
-		log.WithField("provider", provider).Warn("NMI webhook secret not configured - webhook signature verification will be disabled")
+		log.WithField("provider", provider).Warn("NMI webhook secret not configured - webhooks will be rejected")
 	}
 
-	securityKey := strings.TrimSpace(firstNonEmpty(
-		os.Getenv(fmt.Sprintf("NMI_%s_SECURITY_KEY", strings.ToUpper(provider))),
-		cfg.SecurityKey,
-	))
-	if strings.EqualFold(provider, "mobius") && securityKey == "" {
-		securityKey = strings.TrimSpace(os.Getenv("MOBIUS_SECURITY_KEY"))
-	}
-	if securityKey == "" && cfg.SecurityKey != "" {
-		securityKey = strings.TrimSpace(cfg.SecurityKey)
-	}
+	securityKey := strings.TrimSpace(cfg.SecurityKey)
 
 	// In production mode (testMode=false), security key is required
 	if !testMode && securityKey == "" {
@@ -339,22 +295,14 @@ func NewClient(provider string, cfg *config.NMIProviderSettings, testMode bool) 
 		}).Info("NMI using sandbox endpoints (test_mode=true)")
 	} else {
 		// Production: use config values or defaults
-		directPostURL = resolveEndpoint(
-			firstNonEmpty(cfg.DirectPostURL, DefaultDirectPostURL),
-			cfg.DirectPostURL,
-			fmt.Sprintf("NMI_%s_DIRECT_POST_URL", strings.ToUpper(provider)),
-		)
-		if strings.EqualFold(provider, "mobius") {
-			directPostURL = resolveEndpoint(directPostURL, cfg.DirectPostURL, "MOBIUS_DIRECT_POST_URL")
+		directPostURL = strings.TrimSpace(cfg.DirectPostURL)
+		if directPostURL == "" {
+			directPostURL = DefaultDirectPostURL
 		}
 
-		queryURL = resolveEndpoint(
-			firstNonEmpty(cfg.QueryURL, DefaultQueryAPIURL),
-			cfg.QueryURL,
-			fmt.Sprintf("NMI_%s_QUERY_URL", strings.ToUpper(provider)),
-		)
-		if strings.EqualFold(provider, "mobius") {
-			queryURL = resolveEndpoint(queryURL, cfg.QueryURL, "MOBIUS_QUERY_URL")
+		queryURL = strings.TrimSpace(cfg.QueryURL)
+		if queryURL == "" {
+			queryURL = DefaultQueryAPIURL
 		}
 	}
 

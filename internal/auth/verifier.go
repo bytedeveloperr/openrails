@@ -18,7 +18,7 @@ type Verifier interface {
 }
 
 // NewVerifier builds an authkit-backed verifier using billing auth config.
-// Supports multiple issuers to accept tokens from both doujins and hentai0.
+// Supports multiple issuers to accept tokens from multiple IdPs/environments.
 func NewVerifier(cfg *config.AuthConfig) (Verifier, error) {
 	if cfg == nil {
 		return nil, errors.New("auth config is required")

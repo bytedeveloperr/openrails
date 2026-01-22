@@ -74,49 +74,40 @@ func (s *Service) handleNMIWebhook(ctx context.Context, provider string, req Han
 		}, nil
 	}
 
-	// Use global test_mode for webhook auth bypass decision
-	isTestMode := s.rt.Config.IsTestMode()
-
 	signature := ""
 	signatureValidated := false
-	if !isTestMode {
-		if client.GetWebhookSecret() != "" {
-			// Try multiple signature header names
-			signature = req.Headers["X-Signature"]
-			if signature == "" {
-				signature = req.Headers["X-NMI-Signature"]
-			}
-			if signature == "" {
-				signature = req.Headers["X-Mobius-Signature"]
-			}
-			if signature == "" {
-				log.Error("Missing webhook signature for NMI webhook")
-				return &WebhookResult{
-					Accepted: false,
-					Error:    "missing webhook signature",
-				}, nil
-			}
-			if err := client.VerifyWebhookSignature(req.Body, signature); err != nil {
-				log.WithError(err).Error("NMI webhook signature verification failed")
-				return &WebhookResult{
-					Accepted: false,
-					Error:    "invalid webhook signature",
-				}, nil
-			}
-			signatureValidated = true
-		} else {
-			if !isTestMode {
-				log.Error("NMI webhook secret not configured")
-				return &WebhookResult{
-					Accepted: false,
-					Error:    "missing webhook signature",
-				}, nil
-			}
-			log.Warn("NMI webhook secret not configured - skipping signature verification")
-		}
-	} else {
-		log.Debug("NMI webhook authentication bypassed - test mode enabled")
+
+	if client.GetWebhookSecret() == "" {
+		log.Error("NMI webhook secret not configured")
+		return &WebhookResult{
+			Accepted: false,
+			Error:    "missing webhook signature",
+		}, nil
 	}
+
+	// Try multiple signature header names
+	signature = req.Headers["X-Signature"]
+	if signature == "" {
+		signature = req.Headers["X-NMI-Signature"]
+	}
+	if signature == "" {
+		signature = req.Headers["X-Mobius-Signature"]
+	}
+	if signature == "" {
+		log.Error("Missing webhook signature for NMI webhook")
+		return &WebhookResult{
+			Accepted: false,
+			Error:    "missing webhook signature",
+		}, nil
+	}
+	if err := client.VerifyWebhookSignature(req.Body, signature); err != nil {
+		log.WithError(err).Error("NMI webhook signature verification failed")
+		return &WebhookResult{
+			Accepted: false,
+			Error:    "invalid webhook signature",
+		}, nil
+	}
+	signatureValidated = true
 
 	var data services.NMIWebhookEvent
 	if err := json.Unmarshal(req.Body, &data); err != nil {
@@ -165,7 +156,7 @@ func (s *Service) handleNMIWebhook(ctx context.Context, provider string, req Han
 }
 
 func (s *Service) handleCCBillWebhook(ctx context.Context, req HandleWebhookRequest) (*WebhookResult, error) {
-	// Use global test_mode for webhook auth bypass decision
+	// Use global test_mode for CCBill IP allowlist bypass.
 	isTestMode := s.rt.Config.IsTestMode()
 
 	if !isTestMode {
@@ -225,9 +216,6 @@ func (s *Service) handleCCBillWebhook(ctx context.Context, req HandleWebhookRequ
 }
 
 func (s *Service) handleStripeWebhook(ctx context.Context, req HandleWebhookRequest) (*WebhookResult, error) {
-	// Use global test_mode for webhook auth bypass decision
-	isTestMode := s.rt.Config.IsTestMode()
-
 	secret := ""
 	if stripeProc := s.rt.Config.GetStripeProcessor(); stripeProc != nil {
 		secret = stripeProc.WebhookSecret
@@ -235,30 +223,26 @@ func (s *Service) handleStripeWebhook(ctx context.Context, req HandleWebhookRequ
 
 	sig := req.Headers["Stripe-Signature"]
 	var signatureValidPtr *bool
-	if secret != "" {
-		if sig == "" {
-			return &WebhookResult{
-				Accepted: false,
-				Error:    "missing webhook signature",
-			}, nil
-		}
-		if err := verifyStripeSignature(secret, sig, req.Body, 5*time.Minute); err != nil {
-			return &WebhookResult{
-				Accepted: false,
-				Error:    "invalid webhook signature",
-			}, nil
-		}
-		truth := true
-		signatureValidPtr = &truth
-	} else {
-		if !isTestMode {
-			return &WebhookResult{
-				Accepted: false,
-				Error:    "webhook signature required",
-			}, nil
-		}
-		log.Warn("Stripe webhook secret not configured; signature verification disabled")
+	if secret == "" {
+		return &WebhookResult{
+			Accepted: false,
+			Error:    "webhook signature required",
+		}, nil
 	}
+	if sig == "" {
+		return &WebhookResult{
+			Accepted: false,
+			Error:    "missing webhook signature",
+		}, nil
+	}
+	if err := verifyStripeSignature(secret, sig, req.Body, 5*time.Minute); err != nil {
+		return &WebhookResult{
+			Accepted: false,
+			Error:    "invalid webhook signature",
+		}, nil
+	}
+	truth := true
+	signatureValidPtr = &truth
 
 	eventID, eventType, err := parseStripeEventMeta(req.Body)
 	if err != nil {

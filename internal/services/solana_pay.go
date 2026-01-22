@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -213,12 +214,12 @@ func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, p
 // buildTransferRequestURL constructs the solana: URL per the Solana Pay spec
 func (s *SolanaPayService) buildTransferRequestURL(recipient string, amount uint64, tokenMint, tokenSymbol, reference string) string {
 	// Base URL: solana:<recipient>
-	url := fmt.Sprintf("solana:%s", recipient)
+	baseURL := fmt.Sprintf("solana:%s", recipient)
 
 	// Get token config for decimals
 	solanaProc := s.cfg.GetSolanaProcessor()
 	if solanaProc == nil {
-		return url // fallback without params if not configured
+		return baseURL // fallback without params if not configured
 	}
 	tokenCfg := solanaProc.SupportedTokens[tokenSymbol]
 
@@ -237,9 +238,15 @@ func (s *SolanaPayService) buildTransferRequestURL(recipient string, amount uint
 	params += fmt.Sprintf("&reference=%s", reference)
 
 	// Add label
-	params += "&label=Doujins%20Purchase"
+	label := "Purchase"
+	if s.cfg != nil && s.cfg.Store != nil {
+		if name := strings.TrimSpace(s.cfg.Store.Name); name != "" {
+			label = name + " Purchase"
+		}
+	}
+	params += fmt.Sprintf("&label=%s", url.QueryEscape(label))
 
-	return url + params
+	return baseURL + params
 }
 
 // storePendingPayment stores a pending payment in Redis

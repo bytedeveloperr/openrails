@@ -32,6 +32,19 @@ port: 2053             # Public HTTP/HTTPS port (default: 2053)
 private_port: 8060     # Internal/service API port (default: 8060)
 
 # =============================================================================
+# DEVELOPER TOOLS (OPTIONAL)
+# =============================================================================
+# Cloudflared is used for deterministic public webhook URLs when testing Mobius/NMI sandbox.
+# Billing does not run `cloudflared`, but these keys document the stable hostname/token
+# that your developer tooling uses. Prefer setting `cloudflared.tunnel_token` via env.
+#
+# See: docs/cloudflared-webhooks.md and .env.example
+cloudflared:
+  # tunnel_token: ""  # secret; prefer env CLOUDFLARED_TUNNEL_TOKEN
+  tunnel_name: "billing-webhooks"
+  public_hostname: "billing-webhooks.example.com"
+
+# =============================================================================
 # BOTH MODES (standalone + embedded)
 # =============================================================================
 # These settings apply in both standalone and embedded modes.
@@ -50,7 +63,7 @@ private_port: 8060     # Internal/service API port (default: 8060)
 api_url: "https://api.example.com"
 
 # Billing API key for private admin routes (header: X-API-KEY)
-# Default is "change-me-in-dev"; override via env BILLING_API_KEY for non-dev
+# Default is "change-me-in-dev"; override via env BILLING_API_KEY (or API_KEY) for non-dev
 api_key: "change-me-in-dev"
 
 # CORS origins for frontend access (REQUIRED for browser requests)
@@ -72,6 +85,7 @@ store:
   name: "My Store"                              # Merchant name (default: "My Store")
   logo_url: "https://your-domain.com/logo.png"  # Logo URL (default: embedded $ icon)
   from_email: "noreply@your-domain.com"         # Sender email for all outgoing emails (required if sendgrid configured)
+  billing_url: "https://your-domain.com/account" # Customer billing settings URL (used in emails)
 
 # =============================================================================
 # LOGGING
@@ -92,7 +106,7 @@ db:
   # Option 2: Atomic parameters (preferred for Kubernetes/Vault)
   host: "localhost"
   port: "5432"
-  database: "doujins_db"
+  database: "billing_db"
   username: "admin"
   # password: set via DB_PASSWORD env var
   sslmode: "disable"
@@ -109,18 +123,17 @@ redis:
 # =============================================================================
 # AUTHENTICATION (JWT Verifier)
 # =============================================================================
-# Billing is a JWT verifier (not issuer). It verifies tokens from doujins/hentai0.
+# Billing is a JWT verifier (not issuer). It verifies tokens from your IdP.
 
 auth:
   # Issuers - array of token issuer URLs
   # Billing fetches public keys from each {issuer}/.well-known/jwks.json per OIDC spec
   issuers:
-    - "http://localhost:2052"  # doujins
-    - "http://localhost:4000"  # hentai0
+    - "http://localhost:8080"
+    - "http://localhost:8081"
   # Production example:
   # issuers:
-  #   - "https://doujins.com"
-  #   - "https://hentai0.com"
+  #   - "https://issuer.example.com"
 
   # Expected audience - the expected "aud" claim in incoming JWTs
   expected_audience: "billing-app"
@@ -146,6 +159,7 @@ processors:
     # Secrets - set via env: PROCESSORS_MOBIUS_SECURITY_KEY, etc.
     # security_key: ""
     # tokenization_key: ""
+    # tokenization_url: "https://secure.networkmerchants.com/token/Collect.js"
     # webhook_secret: ""
 
     # Provider-specific URLs (optional - defaults to standard NMI)
@@ -237,8 +251,8 @@ processors:
 clickhouse:
   http_addr: "http://clickhouse:8123"
   client_addr: "clickhouse:9000"
-  database: "analytics"
-  cluster: "doujins"  # ClickHouse cluster name
+  db: "analytics"
+  cluster: "billing"  # ClickHouse cluster name
   # user: set via CLICKHOUSE_USER env var
   # password: set via CLICKHOUSE_PASSWORD env var
 

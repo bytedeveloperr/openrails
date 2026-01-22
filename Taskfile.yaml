@@ -34,6 +34,31 @@ tasks:
       - echo "Running in development mode with Air..."
       - air -c .air.toml
 
+  docker-up:
+    desc: Start local docker compose stack (billing + deps)
+    cmds:
+      - docker compose -f docker-compose.yaml up -d
+
+  docker-down:
+    desc: Stop local docker compose stack
+    cmds:
+      - docker compose -f docker-compose.yaml down
+
+  docker-logs:
+    desc: Tail billing logs from docker compose stack
+    cmds:
+      - docker compose -f docker-compose.yaml logs -f billing
+
+  tunnel-webhooks:
+    desc: Run cloudflared tunnel for deterministic webhook hostname (requires CLOUDFLARED_TUNNEL_TOKEN)
+    cmds:
+      - bash scripts/webhook_tunnel.sh
+
+  e2e-mobius-sandbox:
+    desc: Start compose + start cloudflared + send signed test webhook (requires cloudflared + env vars)
+    cmds:
+      - bash scripts/mobius_sandbox_e2e.sh
+
   test:
     desc: Run tests
     cmds:

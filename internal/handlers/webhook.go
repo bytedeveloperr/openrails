@@ -34,8 +34,8 @@ func Webhook(r *Request) {
 		provider = "mobius"
 	}
 
-	// NOTE: Webhook authentication is bypassed in test mode (config.IsTestMode() == true)
-	// This is useful for integration tests and development environments
+	// Note: CCBill webhook IP allowlist checks are bypassed in test mode for developer ergonomics.
+	// NMI/Mobius and Stripe signatures are still verified when secrets are configured.
 	if r.State == nil || r.State.RiverProducer == nil {
 		r.ErrorJSON(http.StatusInternalServerError, "job queue unavailable")
 		return
@@ -48,7 +48,7 @@ func Webhook(r *Request) {
 		"client_ip": clientIP,
 	}).Debug("Received webhook")
 
-	// Use global test_mode for all webhook auth bypass decisions
+	// Use global test_mode for CCBill IP allowlist bypass.
 	isTestMode := true
 	if r.State != nil && r.State.Config != nil {
 		isTestMode = r.State.Config.IsTestMode()
@@ -204,36 +204,26 @@ func enqueueStripeWebhook(r *Request, clientIP string) bool {
 		return false
 	}
 
-	isDev := true
-	if r.State.Config != nil {
-		env := strings.TrimSpace(strings.ToLower(r.State.Config.Env))
-		isDev = env == "" || env == "dev" || env == "development"
-	}
-
 	secret := ""
 	if stripeProc := r.State.Config.GetStripeProcessor(); stripeProc != nil {
 		secret = stripeProc.WebhookSecret
 	}
 	sig := r.Request.Header.Get("Stripe-Signature")
 	var signatureValidPtr *bool
-	if secret != "" {
-		if sig == "" {
-			r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
-			return false
-		}
-		if err = verifyStripeSignature(secret, sig, body, 5*time.Minute); err != nil {
-			r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
-			return false
-		}
-		truth := true
-		signatureValidPtr = &truth
-	} else {
-		if !isDev {
-			r.ErrorJSON(http.StatusUnauthorized, "Webhook signature required")
-			return false
-		}
-		log.Warn("Stripe webhook secret not configured; signature verification disabled")
+	if secret == "" {
+		r.ErrorJSON(http.StatusUnauthorized, "Webhook signature required")
+		return false
 	}
+	if sig == "" {
+		r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
+		return false
+	}
+	if err = verifyStripeSignature(secret, sig, body, 5*time.Minute); err != nil {
+		r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
+		return false
+	}
+	truth := true
+	signatureValidPtr = &truth
 
 	eventID, eventType, err := parseStripeEventMeta(body)
 	if err != nil {
@@ -309,42 +299,33 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 		return false
 	}
 
-	isTestMode := true
-	if r.State != nil && r.State.Config != nil {
-		isTestMode = r.State.Config.IsTestMode()
-	}
-
 	signature := ""
 	signatureValidated := false
-	if !isTestMode {
-		if client.GetWebhookSecret() != "" {
-			signature = r.Request.Header.Get("X-Signature")
-			if signature == "" {
-				signature = r.Request.Header.Get("X-NMI-Signature")
-			}
-			if signature == "" {
-				signature = r.Request.Header.Get("X-Mobius-Signature")
-			}
-			if signature == "" {
-				log.Error("Missing webhook signature for NMI webhook")
-				r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
-				return false
-			}
-			if err := client.VerifyWebhookSignature(body, signature); err != nil {
-				log.WithError(err).Error("NMI webhook signature verification failed")
-				r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
-				return false
-			}
-			signatureValidated = true
-		} else {
-			// No webhook secret configured but not in test mode - this is an error
-			log.Error("NMI webhook secret not configured")
-			r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
-			return false
-		}
-	} else {
-		log.Debug("NMI webhook authentication bypassed - test mode enabled")
+
+	if client.GetWebhookSecret() == "" {
+		log.Error("NMI webhook secret not configured")
+		r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
+		return false
 	}
+
+	signature = r.Request.Header.Get("X-Signature")
+	if signature == "" {
+		signature = r.Request.Header.Get("X-NMI-Signature")
+	}
+	if signature == "" {
+		signature = r.Request.Header.Get("X-Mobius-Signature")
+	}
+	if signature == "" {
+		log.Error("Missing webhook signature for NMI webhook")
+		r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
+		return false
+	}
+	if err := client.VerifyWebhookSignature(body, signature); err != nil {
+		log.WithError(err).Error("NMI webhook signature verification failed")
+		r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
+		return false
+	}
+	signatureValidated = true
 
 	var data services.NMIWebhookEvent
 	if err := json.Unmarshal(body, &data); err != nil {

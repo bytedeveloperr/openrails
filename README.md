@@ -13,28 +13,28 @@
 ---
 
 #### Stack
-- Postgres: shared `postgres:17-bookworm` container from the Doujins backend stack (DB `doujins_db`, user `admin` / `admin_password`)
+- Postgres: `postgres:17-bookworm` (DB `billing_db`, user `admin` / `admin_password`)
 - Garnet (Redis-compatible): `ghcr.io/microsoft/garnet` on `6379`
 - ClickHouse: `clickhouse/clickhouse-server` (DB `analytics`, user `analytics_user`, pass `analytics_password`)
-- Billing service: this server exposing public API on `:2053` and a private/internal port `:8060` (exposed to the compose network only). Admin routes require an internal shared secret.
+- Billing service: this server exposing public API on `:2053` and a private/internal port `:8060` (exposed to the compose network only).
 
 #### Quick Start
-- Ensure the shared Postgres container from `doujins-backend` is running and attached to the `local-doujins` network
-- Start services: `task docker-up` (or `docker-compose up -d`)
+- Start services: `task docker-up` (or `docker compose -f docker-compose.yaml up -d`)
 - Follow logs: `task docker-logs` (Ctrl+C to stop following)
 - Stop services: `task docker-down`
 
-- Postgres bootstrap: `db-bootstrap` runs `migrations/bootstrap/*.sql` against the shared database to (re)create roles, schemas, and extensions.
-- ClickHouse migrations: `clickhouse-init` job waits for ClickHouse to be healthy, then applies `migrations/clickhouse/*.sql` to the `analytics` database.
+- Postgres bootstrap: `migrations/bootstrap/001_postgres_init.sql` is mounted into `/docker-entrypoint-initdb.d` and runs automatically on first initialization.
+- ClickHouse bootstrap: `clickhouse-bootstrap` waits for ClickHouse to be healthy and creates the `analytics` database + user/permissions.
+- Billing migrations: `billing-migrate` applies Postgres + ClickHouse migrations.
 - Billing service connects using built-in defaults that match the compose network/service names.
 
-- Postgres: `postgres://admin:admin_password@postgres:5432/doujins_db?sslmode=disable`
+- Postgres: `postgres://admin:admin_password@postgres:5432/billing_db?sslmode=disable`
 - Redis (Garnet): `garnet:6379`, DB `0`
 - ClickHouse: `http://clickhouse:8123` with `analytics_user/analytics_password` on DB `analytics`
 
 #### Overriding configuration (optional)
 - Config file: place `config.yaml` in repo root or `./config/config.yaml`.
-- Env vars: common overrides include `DB_URL`, `REDIS_ADDR`, `CLICKHOUSE_HTTP_ADDR`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USERNAME`, `CLICKHOUSE_PASSWORD`, `AUTH_ISSUER`, `AUTH_AUDIENCE`.
+- Env vars: follow the standard koanf mapping used across the stack (e.g. `DB_URL` → `db.url`, `CLICKHOUSE_HTTP_ADDR` → `clickhouse.http_addr`, `AUTH_EXPECTED_AUDIENCE` → `auth.expected_audience`).
 - If not provided, the service uses the defaults above.
 
 #### Test Mode (Payment Sandboxes)
@@ -51,7 +51,7 @@ test_mode: false  # Production mode - use real payment endpoints
 - **CCBill**: Uses `sandbox-api.ccbill.com` instead of `api.ccbill.com`
 - **Solana**: Uses devnet instead of mainnet
 - **Stripe**: Validates key prefix matches mode (`sk_test_*` vs `sk_live_*`)
-- **Webhooks**: Bypasses IP validation and signature verification for easier testing
+- **Webhooks**: Incoming webhooks are still signature-verified where supported (recommended for both sandbox and prod)
 
 **Key behaviors:**
 - Defaults to `true` for safety (no accidental charges)
@@ -584,18 +584,18 @@ Networking
 - Public: port `2053` is published to the host.
 - Private: port `8060` is exposed to the Docker network for intra-service communication (same host, no TLS needed).
 
-Admin access
-- Shared secret: admin routes are protected by header `X-API-KEY: <token>`.
+Service API access
+- Shared secret: private service API routes (port `8060`) are protected by header `X-API-KEY: <token>`.
 - Default (dev): `change-me-in-dev`.
-- Override via env `BILLING_API_KEY` or config `billing_api_key`.
+- Override via env `BILLING_API_KEY` or config `api_key`.
 
 JWT verification (Verifier Only)
-- Billing acts as a **JWT verifier**, not an issuer. It verifies tokens issued by doujins and/or hentai0.
-- The middleware validates signature and claims, extracting `sub` (user ID), `email`, optional `preferred_username`/`username`/`name`, and `roles` if present.
-- Configuration requirements:
-  - `BILLING_AUTH_ISSUERS`: JSON array of token issuer URLs (e.g., `["http://localhost:2052", "http://localhost:4000"]` for local dev, or `["https://doujins.com", "https://hentai0.com"]` for production)
-  - `AUTH_EXPECTED_AUDIENCE`: The expected audience claim in JWTs (must be `billing-app`)
-  - Public keys are automatically fetched from each `{issuer}/.well-known/jwks.json` per OIDC spec
+	- Billing acts as a **JWT verifier**, not an issuer. It verifies tokens issued by your IdP(s).
+	- The middleware validates signature and claims, extracting `sub` (user ID), `email`, optional `preferred_username`/`username`/`name`, and `roles` if present.
+	- Configuration requirements:
+	  - `AUTH_ISSUERS`: JSON array of token issuer URLs (e.g., `["http://localhost:8080"]` for local dev, or `["https://issuer.example.com"]` for production)
+	  - `AUTH_EXPECTED_AUDIENCE`: The expected audience claim in JWTs (typically `billing-app`)
+	  - Public keys are automatically fetched from each `{issuer}/.well-known/jwks.json` per OIDC spec
 - Signature verification:
   - RS256 only (RSA signatures)
   - Public keys fetched via JWKS discovery from each configured issuer (supports automatic key rotation)
@@ -607,12 +607,11 @@ JWT verification (Verifier Only)
   - `sub` must be present (user ID)
 
 - Postgres
-  - Shared container: provided by `doujins-backend` compose (service name `postgres`).
-  - Bootstrap SQL lives under `migrations/bootstrap/` and is applied by the `db-bootstrap` job; rerun by restarting that service.
+  - Bootstrap SQL lives under `migrations/bootstrap/` and runs at DB init via `/docker-entrypoint-initdb.d/`.
 - ClickHouse
   - Data volumes: `clickhouse_data`, `clickhouse_logs`.
   - Migrations live in `migrations/clickhouse/` and include tables for: `subscription_events`, `payment_events`, `webhook_events`, `acu_events`, `chargeback_events`.
-  - To reapply, remove the data volume or re-run the `clickhouse-init` service after clearing state.
+  - To reapply, remove the data volume and re-run `billing-migrate` (ClickHouse migrations are applied by the billing migrator).
 - Garnet
   - Data volume: `garnet_data` (optional for persistence). Used for caching/rate limiting.
 
@@ -630,9 +629,9 @@ Troubleshooting
   - Ensure services are healthy: `docker-compose ps` and `docker-compose logs <service>`.
   - Verify defaults weren’t overridden incorrectly (env/config). Remove overrides to return to zero‑config.
 - Postgres bootstrap didn’t run:
-  - Restart the `db-bootstrap` service. If the shared Postgres container was reset, ensure the `local-doujins` network still exists before bringing billing back up.
+  - Ensure the Postgres volume is fresh (entrypoint init scripts only run on first init). If needed, remove the `postgres_data` volume and restart compose.
 - ClickHouse tables missing:
-  - Check `clickhouse-init` logs. Ensure `migrations/clickhouse/*.sql` exist and the database is `analytics`.
+  - Check `clickhouse-bootstrap` logs and then `billing-migrate` logs. Ensure `migrations/clickhouse/*.sql` exist and the database is `analytics`.
 
 Container usage
 - Runtime configs (`config.yaml`, `config.docker.yaml`, etc.) are not baked into the image. Mount the desired file and point the CLI at it, e.g. `docker run -v $(pwd)/config.docker.yaml:/app/config.docker.yaml:ro doujins/billing:latest -c /app/config.docker.yaml server`.

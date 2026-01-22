@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -62,6 +63,9 @@ type StoreConfig struct {
 	// FromEmail is the sender email address for all outgoing emails (receipts, notifications, etc.)
 	// Example: "noreply@mystore.com" or "billing@mystore.com"
 	FromEmail string `koanf:"from_email"`
+	// BillingURL is the customer-facing URL where users can manage billing settings (e.g., update payment method).
+	// Example: "https://example.com/account" or "https://example.com/account/billing"
+	BillingURL string `koanf:"billing_url"`
 }
 
 type Config struct {
@@ -70,6 +74,11 @@ type Config struct {
 	PrivatePort FlexiblePort `koanf:"private_port,omitempty"` // Standalone only: internal/service API port (default 8060)
 	Host        string       `koanf:"host,omitempty"`         // Standalone only: address to bind to (default 0.0.0.0)
 	APIKey      string       `koanf:"api_key,omitempty"`      // Shared secret for service-to-service auth (X-API-KEY header)
+
+	// Cloudflared contains Cloudflare Tunnel settings used for local/dev tooling.
+	// Billing does not run cloudflared, but we keep these keys in config so that
+	// config.example.yaml can document deterministic webhook setups consistently.
+	Cloudflared *CloudflaredConfig `koanf:"cloudflared,omitempty"`
 
 	// TestMode controls whether payment processors use sandbox/test environments.
 	// When true: NMI uses sandbox.nmi.com, CCBill uses sandbox-api.ccbill.com,
@@ -222,6 +231,9 @@ type ProcessorConfig struct {
 	// --- NMI fields (type: nmi) ---
 	SecurityKey     string `koanf:"security_key"`
 	TokenizationKey string `koanf:"tokenization_key"`
+	// TokenizationURL is the Collect.js script URL used client-side for tokenization (e.g., https://secure.networkmerchants.com/token/Collect.js).
+	// Billing does not fetch this URL; it is intended for configuration parity and sandbox experimentation.
+	TokenizationURL string `koanf:"tokenization_url"`
 	WebhookSecret   string `koanf:"webhook_secret"`
 	DirectPostURL   string `koanf:"direct_post_url"`
 	QueryURL        string `koanf:"query_url"`
@@ -371,9 +383,9 @@ type RedisConfig struct {
 }
 
 // AuthConfig holds JWT verification configuration for billing service.
-// Billing is a JWT verifier (not issuer) - it validates tokens issued by doujins/hentai0.
+// Billing is a JWT verifier (not issuer) - it validates tokens issued by your IdP.
 type AuthConfig struct {
-	Issuers          []string `koanf:"issuers"`           // List of expected token issuers (e.g., ["https://doujins.com", "https://hentai0.com"])
+	Issuers          []string `koanf:"issuers"`           // List of expected token issuers (e.g., ["https://issuer.example.com"])
 	ExpectedAudience string   `koanf:"expected_audience"` // Accept token only if it contains this audience (e.g., "billing-app")
 }
 
@@ -396,6 +408,15 @@ type SolanaConfig struct {
 	// Use symbol strings for verified tokens (Jupiter lookup): ["SOL", "USDC", "BONK"]
 	// If not set, defaults to ["SOL", "USDC", "PYUSD"].
 	EnabledTokens []string `koanf:"enabled_tokens,omitempty"`
+}
+
+type CloudflaredConfig struct {
+	// TunnelToken is the cloudflared "tunnel run token" (secret). Prefer setting via env.
+	TunnelToken string `koanf:"tunnel_token"`
+	// TunnelName is a human-friendly identifier for the tunnel (non-secret).
+	TunnelName string `koanf:"tunnel_name"`
+	// PublicHostname is the stable hostname (e.g., billing-webhooks-sandbox.example.com) routed to localhost.
+	PublicHostname string `koanf:"public_hostname"`
 }
 
 // TokenConfig defines configuration for a specific Solana token
@@ -487,7 +508,7 @@ type ClickHouseConfig struct {
 	Database   string `koanf:"db"`          // ClickHouse database name (e.g., analytics)
 	Username   string `koanf:"user"`        // Optional username for authentication
 	Password   string `koanf:"password"`    // Optional password for authentication
-	Cluster    string `koanf:"cluster"`     // ClickHouse cluster name (e.g., doujins)
+	Cluster    string `koanf:"cluster"`     // ClickHouse cluster name (e.g., billing)
 }
 
 // LoggerConfig holds logging configuration
@@ -689,6 +710,9 @@ func (cfg *Config) GetWebhookRetryConfig() WebhookRetryConfig {
 // GetNMIProcessors returns all NMI-backed processor configs from the Processors map.
 func (cfg *Config) GetNMIProcessors() map[string]*ProcessorConfig {
 	result := make(map[string]*ProcessorConfig)
+	if cfg == nil || cfg.Processors == nil {
+		return result
+	}
 
 	for name, proc := range cfg.Processors {
 		if proc != nil && proc.IsNMI(name) {
@@ -701,6 +725,9 @@ func (cfg *Config) GetNMIProcessors() map[string]*ProcessorConfig {
 
 // GetCCBillProcessor returns the CCBill processor config from the Processors map.
 func (cfg *Config) GetCCBillProcessor() *ProcessorConfig {
+	if cfg == nil || cfg.Processors == nil {
+		return nil
+	}
 	if proc, ok := cfg.Processors["ccbill"]; ok && proc != nil {
 		return proc
 	}
@@ -709,6 +736,9 @@ func (cfg *Config) GetCCBillProcessor() *ProcessorConfig {
 
 // GetStripeProcessor returns the Stripe processor config from the Processors map.
 func (cfg *Config) GetStripeProcessor() *ProcessorConfig {
+	if cfg == nil || cfg.Processors == nil {
+		return nil
+	}
 	if proc, ok := cfg.Processors["stripe"]; ok && proc != nil {
 		return proc
 	}
@@ -717,6 +747,9 @@ func (cfg *Config) GetStripeProcessor() *ProcessorConfig {
 
 // GetSolanaProcessor returns the Solana processor config from the Processors map.
 func (cfg *Config) GetSolanaProcessor() *ProcessorConfig {
+	if cfg == nil || cfg.Processors == nil {
+		return nil
+	}
 	if proc, ok := cfg.Processors["solana"]; ok && proc != nil {
 		return proc
 	}
@@ -725,6 +758,9 @@ func (cfg *Config) GetSolanaProcessor() *ProcessorConfig {
 
 // GetProcessor returns a processor config by name from the Processors map.
 func (cfg *Config) GetProcessor(name string) *ProcessorConfig {
+	if cfg == nil || cfg.Processors == nil {
+		return nil
+	}
 	normalizedName := strings.ToLower(strings.TrimSpace(name))
 	if proc, ok := cfg.Processors[normalizedName]; ok && proc != nil {
 		return proc
@@ -835,7 +871,7 @@ func assembleDBURL(cfg *Config) {
 	if cfg.DB.Password == "admin_password" {
 		warnings = append(warnings, "DB password")
 	}
-	if cfg.DB.Database == "doujins_db" {
+	if cfg.DB.Database == "billing_db" {
 		warnings = append(warnings, "DB database name")
 	}
 
@@ -872,7 +908,7 @@ func GetDefaultBillingConfig() *Config {
 		DB: &DBConfig{
 			Host:     "localhost",
 			Port:     "5432",
-			Database: "doujins_db",
+			Database: "billing_db",
 			Username: "admin",
 			Password: "admin_password",
 			SSLMode:  "disable",
@@ -884,7 +920,7 @@ func GetDefaultBillingConfig() *Config {
 			DB:       0,
 		},
 		Auth: &AuthConfig{
-			Issuers:          []string{"http://doujins:2052", "http://doujins:4000"}, // Accept tokens from both doujins and hentai0
+			Issuers:          []string{"http://localhost:8080"},
 			ExpectedAudience: "billing-app",
 		},
 		ClickHouse: &ClickHouseConfig{
@@ -893,7 +929,7 @@ func GetDefaultBillingConfig() *Config {
 			Database:   "analytics",
 			Username:   "analytics_user",     // Match docker-compose CLICKHOUSE_USER
 			Password:   "analytics_password", // Match docker-compose CLICKHOUSE_PASSWORD
-			Cluster:    "doujins",            // Match docker-compose cluster name
+			Cluster:    "billing",            // Match docker-compose cluster name
 		},
 		Logger: &LoggerConfig{
 			Level: "info", // Default to info level (options: debug, info, warn, error, fatal, panic)
@@ -980,12 +1016,21 @@ func Load(configPath string) (*Config, error) {
 		return nil, err
 	}
 
-	// Load environment variables using koanf's env provider
-	// Transform env var names to config keys (e.g., DB_URL -> db.url)
-	envCallback := func(s string) string {
+	// Load environment variables using koanf's env provider.
+	//
+	// This follows the same approach as ~/doujins and ~/hentai0:
+	// - Lowercase env keys
+	// - Apply targeted hardcoded mappings for tricky cases
+	// - Otherwise, replace ONLY the first underscore with a dot (preserves snake_case field names)
+	//
+	// Examples:
+	// - DB_URL -> db.url
+	// - CLICKHOUSE_HTTP_ADDR -> clickhouse.http_addr
+	// - STORE_FROM_EMAIL -> store.from_email
+	envKeyToConfigKey := func(s string) string {
 		s = strings.ToLower(s)
 
-		// Special case: ENVIRONMENT -> env
+		// Special case: ENVIRONMENT -> env (back-compat with some .env templates)
 		if s == "environment" {
 			return "env"
 		}
@@ -995,53 +1040,126 @@ func Load(configPath string) (*Config, error) {
 			return "api_url"
 		}
 
-		// Special case: BILLING_TEST_MODE or TEST_MODE -> test_mode (top-level)
-		if s == "billing_test_mode" || s == "test_mode" {
+		// Special case: API_KEY/BILLING_API_KEY -> api_key (top-level, not api.key)
+		// Used for private/service API auth (X-API-KEY header).
+		if s == "api_key" || s == "billing_api_key" {
+			return "api_key"
+		}
+
+		// Special case: TEST_MODE/BILLING_TEST_MODE -> test_mode (top-level)
+		if s == "test_mode" || s == "billing_test_mode" {
 			return "test_mode"
 		}
 
-		// Special case: FEATURE_FLAGS_* -> feature_flags.*
-		// Example: FEATURE_FLAGS_DUNNING_MODE -> feature_flags.dunning_mode
-		// Example: FEATURE_FLAGS_DISABLE_ENTITLEMENT_EXPIRATION -> feature_flags.disable_entitlement_expiration
-		if strings.HasPrefix(s, "feature_flags_") {
-			key := strings.TrimPrefix(s, "feature_flags_")
-			return "feature_flags." + key
+		// Special case: PRIVATE_PORT -> private_port (top-level, not private.port)
+		if s == "private_port" {
+			return "private_port"
 		}
 
-		// NEW: PROCESSORS_<NAME>_<FIELD> -> processors.<name>.<field>
+		// Special case: CORS_ORIGINS -> cors_origins (top-level, not cors.origins)
+		if s == "cors_origins" {
+			return "cors_origins"
+		}
+
+		// Legacy (avoid ad-hoc os.Getenv in integrations): MOBIUS_* -> processors.mobius.*
+		// Example: MOBIUS_SECURITY_KEY -> processors.mobius.security_key
+		if strings.HasPrefix(s, "mobius_") {
+			return "processors.mobius." + strings.TrimPrefix(s, "mobius_")
+		}
+
+		// Legacy (avoid ad-hoc os.Getenv in integrations):
+		// - NMI_<PROVIDER>_<FIELD> -> processors.<provider>.<field>
+		// - NMI_WEBHOOK_SECRET -> apply as default for all NMI processors (handled later)
+		if strings.HasPrefix(s, "nmi_") {
+			rest := strings.TrimPrefix(s, "nmi_")
+			if rest == "webhook_secret" {
+				return "legacy.nmi_webhook_secret"
+			}
+			parts := strings.SplitN(rest, "_", 2)
+			if len(parts) == 2 {
+				return fmt.Sprintf("processors.%s.%s", parts[0], parts[1])
+			}
+		}
+
+		// FEATURE_FLAGS_* -> feature_flags.*
+		if strings.HasPrefix(s, "feature_flags_") {
+			return "feature_flags." + strings.TrimPrefix(s, "feature_flags_")
+		}
+
+		// PROCESSORS_<NAME>_<FIELD> -> processors.<name>.<field>
 		// Example: PROCESSORS_MOBIUS_SECURITY_KEY -> processors.mobius.security_key
-		// Example: PROCESSORS_CCBILL_CLIENT_ACC_NUM -> processors.ccbill.client_acc_num
 		if strings.HasPrefix(s, "processors_") {
-			parts := strings.SplitN(s, "_", 3) // ["processors", "mobius", "security_key"]
+			parts := strings.SplitN(s, "_", 3)
 			if len(parts) == 3 {
 				return fmt.Sprintf("processors.%s.%s", parts[1], parts[2])
 			}
 		}
 
-		// LEGACY: NMI_PROVIDERS_<PROVIDER>_<KEY> -> nmi.providers.<provider>.<key>
-		// Example: NMI_PROVIDERS_MOBIUS_SECURITY_KEY -> nmi.providers.mobius.security_key
-		// Deprecated: Use PROCESSORS_<NAME>_<FIELD> instead
+		// Legacy NMI_PROVIDERS_* still supported for backwards compatibility.
 		if strings.HasPrefix(s, "nmi_providers_") {
-			parts := strings.SplitN(s, "_", 4) // ["nmi", "providers", "mobius", "security_key"]
+			parts := strings.SplitN(s, "_", 4)
 			if len(parts) == 4 {
 				return fmt.Sprintf("nmi.providers.%s.%s", parts[2], parts[3])
 			}
 		}
 
-		// Standard transformation: Replace first underscore with dot
-		// DB_URL -> db.url
-		// REDIS_ADDR -> redis.addr
-		// CLICKHOUSE_HTTP_ADDR -> clickhouse.http_addr
-		// CCBILL_SALT -> ccbill.salt
+		// Replace only the first underscore for other nested config keys.
 		if !strings.Contains(s, "_") {
-			return s // No underscore, return as-is
+			return s
 		}
 		return strings.Replace(s, "_", ".", 1)
 	}
 
-	if err := k.Load(env.Provider("", ".", envCallback), nil); err != nil {
+	envCallbackWithValue := func(key string, value string) (string, interface{}) {
+		mapped := envKeyToConfigKey(key)
+		if mapped == "" {
+			return "", nil
+		}
+
+		v := strings.TrimSpace(value)
+
+		// Allow JSON for arrays/objects (common in docker-compose: AUTH_ISSUERS='["..."]').
+		if len(v) >= 2 {
+			if (v[0] == '[' && v[len(v)-1] == ']') || (v[0] == '{' && v[len(v)-1] == '}') {
+				var decoded interface{}
+				if err := json.Unmarshal([]byte(v), &decoded); err == nil {
+					return mapped, decoded
+				}
+			}
+		}
+
+		// Convenience: allow comma-separated lists for common slice env vars.
+		if mapped == "cors_origins" && strings.Contains(v, ",") {
+			parts := strings.Split(v, ",")
+			out := make([]string, 0, len(parts))
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					out = append(out, p)
+				}
+			}
+			return mapped, out
+		}
+		if strings.HasSuffix(mapped, ".enabled_tokens") && strings.Contains(v, ",") {
+			parts := strings.Split(v, ",")
+			out := make([]string, 0, len(parts))
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					out = append(out, p)
+				}
+			}
+			return mapped, out
+		}
+
+		return mapped, value
+	}
+
+	if err := k.Load(env.ProviderWithValue("", ".", envCallbackWithValue), nil); err != nil {
 		return nil, fmt.Errorf("loading environment variables: %w", err)
 	}
+
+	legacyNMIWebhookSecret := strings.TrimSpace(k.String("legacy.nmi_webhook_secret"))
 
 	// Unmarshal into config struct (overlay onto defaults)
 	if err := k.Unmarshal("", cfg); err != nil {
@@ -1099,22 +1217,19 @@ func Load(configPath string) (*Config, error) {
 		cfg.Processors = normalized
 	}
 
-	// Post-process Solana config from Processors map
-	if solanaProc, exists := cfg.Processors["solana"]; exists && solanaProc != nil {
-		// If enabled_tokens came from env var as a string, it might need parsing
-		// koanf doesn't automatically split comma-separated values for slices
-		if len(solanaProc.EnabledTokens) == 1 && strings.Contains(solanaProc.EnabledTokens[0], ",") {
-			// Split the single comma-separated string into multiple tokens
-			tokens := strings.Split(solanaProc.EnabledTokens[0], ",")
-			solanaProc.EnabledTokens = make([]string, 0, len(tokens))
-			for _, t := range tokens {
-				t = strings.TrimSpace(t)
-				if t != "" {
-					solanaProc.EnabledTokens = append(solanaProc.EnabledTokens, t)
-				}
+	// Apply global legacy NMI webhook secret if provided (back-compat with NMI_WEBHOOK_SECRET).
+	// This prevents needing ad-hoc env reads in the NMI integration.
+	if legacyNMIWebhookSecret != "" {
+		for name, proc := range cfg.Processors {
+			if proc == nil {
+				continue
+			}
+			if proc.IsNMI(name) && strings.TrimSpace(proc.WebhookSecret) == "" {
+				proc.WebhookSecret = legacyNMIWebhookSecret
 			}
 		}
 	}
+
 	// Assemble DB URL from pieces if not explicitly set
 	assembleDBURL(cfg)
 
@@ -1176,7 +1291,7 @@ func logTestModeStatus(cfg *Config) {
 		// Warn if running real charges in dev environment (unusual)
 		if cfg.IsDev() {
 			log.Warn("⚠️  Real payment processing enabled in dev environment - this is unusual")
-			log.Warn("   Set test_mode=true or BILLING_TEST_MODE=true to use sandbox environments")
+			log.Warn("   Set test_mode=true or TEST_MODE=true to use sandbox environments")
 		}
 	}
 }
