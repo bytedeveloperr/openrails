@@ -97,6 +97,9 @@ var debugMobiusTokenizationTemplate = template.Must(template.New("debug_mobius_t
 
       <label for="token" style="margin-top:12px;">Token output</label>
       <textarea id="token" rows="3" readonly placeholder="payment_token will appear here"></textarea>
+      <div class="row" style="margin-top: 8px;">
+        <button id="btn-copy-token" class="secondary" type="button">Copy token</button>
+      </div>
       <div id="status" class="muted" style="margin-top:8px;"></div>
     </div>
 
@@ -106,6 +109,9 @@ var debugMobiusTokenizationTemplate = template.Must(template.New("debug_mobius_t
 
       <label for="jwt">Bearer token (JWT)</label>
       <textarea id="jwt" rows="2" placeholder="paste JWT here (no 'Bearer ' prefix)"></textarea>
+
+      <label for="e2e_run_id">E2E Run ID (optional)</label>
+      <input id="e2e_run_id" placeholder="e2e_20250101T000000_..." />
 
       <div class="two">
         <div>
@@ -144,6 +150,30 @@ var debugMobiusTokenizationTemplate = template.Must(template.New("debug_mobius_t
 
       <label for="api-result" style="margin-top:12px;">API response</label>
       <textarea id="api-result" rows="6" readonly placeholder="response will appear here"></textarea>
+    </div>
+
+    <div class="card">
+      <h2>3) Example API calls (copy/paste)</h2>
+      <p class="muted">Replace placeholders (<code>PRICE_ID</code>, <code>PAYMENT_METHOD_ID</code>, etc.). Use <code>X-E2E-Run-ID</code> + <code>X-Idempotency-Key</code> for repeatable runs.</p>
+      <pre style="white-space: pre-wrap; background: #fafafa; padding: 12px; border-radius: 10px; border: 1px solid #eee;"><code># Create a checkout session (Mobius subscription)
+curl -fsS "https://YOUR_BILLING_HOST/v1/checkout" \
+  -H "Authorization: Bearer YOUR_JWT" \
+  -H "Content-Type: application/json" \
+  -H "X-E2E-Run-ID: YOUR_E2E_RUN_ID" \
+  -H "X-Idempotency-Key: e2e_YOUR_E2E_RUN_ID_checkout" \
+  --data '{
+    "price_id": "price_PRICE_UUID",
+    "mode": "subscription",
+    "metadata": {"e2e_run_id":"YOUR_E2E_RUN_ID"},
+    "payment": {
+      "processor": "mobius",
+      "payment_method_id": "pm_PAYMENT_METHOD_UUID"
+    }
+  }'
+
+# Poll status
+curl -fsS "https://YOUR_BILLING_HOST/v1/checkout/checkout_session_UUID" \
+  -H "Authorization: Bearer YOUR_JWT"</code></pre>
     </div>
 
     <script src="{{.EffectiveScriptURL}}" data-tokenization-key="{{.TokenizationKey}}"></script>
@@ -185,6 +215,7 @@ var debugMobiusTokenizationTemplate = template.Must(template.New("debug_mobius_t
 
       async function createPaymentMethod() {
         const jwt = (el('jwt').value || '').trim();
+        const e2eRunID = (el('e2e_run_id').value || '').trim();
         const token = (el('token').value || '').trim();
         if (!jwt) { el('api-result').value = 'Missing JWT'; return; }
         if (!token) { el('api-result').value = 'Missing payment_token'; return; }
@@ -203,12 +234,14 @@ var debugMobiusTokenizationTemplate = template.Must(template.New("debug_mobius_t
         };
 
         try {
+          const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + jwt,
+          };
+          if (e2eRunID) headers['X-E2E-Run-ID'] = e2eRunID;
           const res = await fetch('/v1/me/payment-methods', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer ' + jwt,
-            },
+            headers,
             body: JSON.stringify(body),
           });
           const text = await res.text();
@@ -229,6 +262,22 @@ var debugMobiusTokenizationTemplate = template.Must(template.New("debug_mobius_t
         }
       });
       el('btn-create-pm').addEventListener('click', createPaymentMethod);
+      el('btn-copy-token').addEventListener('click', async () => {
+        const token = (el('token').value || '').trim();
+        if (!token) { status('No token to copy.'); return; }
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(token);
+            status('Token copied to clipboard.');
+            return;
+          }
+        } catch (e) {
+          // ignore and fallback
+        }
+        el('token').focus();
+        el('token').select();
+        status('Token selected (press Ctrl/Cmd+C).');
+      });
 
       // auto-config if script is present
       setTimeout(() => {

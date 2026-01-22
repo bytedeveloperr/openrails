@@ -282,29 +282,32 @@ func NewClient(provider string, cfg *config.NMIProviderSettings, testMode bool) 
 	}
 
 	// Endpoint selection:
-	// - Test mode: Always use sandbox.nmi.com (hardcoded, ignores config URLs)
-	// - Production mode: Use config URLs if provided, otherwise use defaults
-	var directPostURL, queryURL string
-	if testMode {
-		directPostURL = SandboxDirectPostURL
-		queryURL = SandboxQueryAPIURL
-		log.WithFields(log.Fields{
-			"provider":    provider,
-			"direct_post": directPostURL,
-			"query":       queryURL,
-		}).Info("NMI using sandbox endpoints (test_mode=true)")
-	} else {
-		// Production: use config values or defaults
-		directPostURL = strings.TrimSpace(cfg.DirectPostURL)
-		if directPostURL == "" {
+	// - Prefer explicit config overrides in BOTH test and prod.
+	// - Otherwise: test mode falls back to sandbox.nmi.com; prod falls back to secure.* defaults.
+	directPostURL := strings.TrimSpace(cfg.DirectPostURL)
+	queryURL := strings.TrimSpace(cfg.QueryURL)
+
+	if directPostURL == "" {
+		if testMode {
+			directPostURL = SandboxDirectPostURL
+		} else {
 			directPostURL = DefaultDirectPostURL
 		}
-
-		queryURL = strings.TrimSpace(cfg.QueryURL)
-		if queryURL == "" {
+	}
+	if queryURL == "" {
+		if testMode {
+			queryURL = SandboxQueryAPIURL
+		} else {
 			queryURL = DefaultQueryAPIURL
 		}
 	}
+
+	log.WithFields(log.Fields{
+		"provider":    provider,
+		"test_mode":   testMode,
+		"direct_post": directPostURL,
+		"query":       queryURL,
+	}).Info("NMI endpoint selection")
 
 	return &NMIClient{
 		providerName:  provider,

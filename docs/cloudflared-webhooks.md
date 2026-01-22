@@ -30,6 +30,7 @@ Pick a stable hostname you can register once in the Mobius/NMI portal, for examp
 
 Repo shortcuts (optional):
 - `task tunnel-webhooks` (runs `scripts/webhook_tunnel.sh`)
+- `task verify-webhook-tunnel` (curls `/health/live` + `/health/ready` via the public hostname)
 - `task e2e-mobius-sandbox` (runs compose + tunnel + signed test webhook)
 
 ### What is `cloudflared service install ...`?

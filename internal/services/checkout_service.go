@@ -52,6 +52,9 @@ type CheckoutRequest struct {
 	LastFour   string `json:"last_four,omitempty"`
 	CardType   string `json:"card_type,omitempty"`
 	ExpiryDate string `json:"expiry_date,omitempty"`
+
+	// Optional metadata forwarded from checkout session (used for E2E tracing).
+	Metadata map[string]string `json:"-"`
 }
 
 // CheckoutResponse represents the unified checkout response
@@ -755,6 +758,16 @@ func (s *CheckoutService) processNMISubscription(
 	// Build subscription ID
 	subscriptionID := uuid.New()
 
+	// Optional E2E tracing (forwarded from checkout session metadata)
+	orderID := subscriptionID.String()
+	poNumber := subscriptionID.String()
+	if req.Metadata != nil {
+		if runID := strings.TrimSpace(req.Metadata["e2e_run_id"]); runID != "" {
+			orderID = fmt.Sprintf("e2e_%s_%s", runID, subscriptionID.String())
+			poNumber = orderID
+		}
+	}
+
 	// Determine start date for delayed start
 	var startDate string
 	var delayedStart *time.Time
@@ -780,8 +793,8 @@ func (s *CheckoutService) processNMISubscription(
 		Amount:          float64(price.Amount) / 100.0, // Convert cents to dollars
 		Currency:        price.Currency,
 		Email:           req.Email,
-		OrderID:         subscriptionID.String(),
-		PONumber:        subscriptionID.String(),
+		OrderID:         orderID,
+		PONumber:        poNumber,
 		CustomerID:      user.ID,
 		StartDate:       startDate,
 	}
@@ -833,6 +846,14 @@ func (s *CheckoutService) processNMISubscription(
 		StartedAt:               *timePtr(time.Now()),
 	}
 
+	if req.Metadata != nil {
+		if runID := strings.TrimSpace(req.Metadata["e2e_run_id"]); runID != "" {
+			if payload, err := json.Marshal(map[string]any{"e2e_run_id": runID, "order_id": orderID}); err == nil {
+				subscription.Metadata = payload
+			}
+		}
+	}
+
 	if createdPaymentMethod != nil {
 		subscription.PaymentMethodID = &createdPaymentMethod.ID
 	} else if req.PaymentMethodID != "" {
@@ -878,6 +899,15 @@ func (s *CheckoutService) processNMISubscription(
 			Amount:         price.Amount,
 			Currency:       price.Currency,
 			SubscriptionID: &subscriptionID,
+			Metadata: func() map[string]any {
+				if req.Metadata == nil {
+					return nil
+				}
+				if runID := strings.TrimSpace(req.Metadata["e2e_run_id"]); runID != "" {
+					return map[string]any{"e2e_run_id": runID, "order_id": orderID}
+				}
+				return nil
+			}(),
 		})
 	}
 
@@ -980,6 +1010,11 @@ func (s *CheckoutService) processNMISale(
 
 	// Generate order ID for the sale
 	orderID := uuid.New().String()
+	if req.Metadata != nil {
+		if runID := strings.TrimSpace(req.Metadata["e2e_run_id"]); runID != "" {
+			orderID = fmt.Sprintf("e2e_%s_%s", runID, orderID)
+		}
+	}
 
 	// Execute sale via NMI
 	saleResp, err := client.RunSale(nmi.SaleParams{
@@ -1006,6 +1041,15 @@ func (s *CheckoutService) processNMISale(
 		TransactionID: saleResp.TransactionID,
 		Amount:        price.Amount,
 		Currency:      price.Currency,
+		Metadata: func() map[string]any {
+			if req.Metadata == nil {
+				return nil
+			}
+			if runID := strings.TrimSpace(req.Metadata["e2e_run_id"]); runID != "" {
+				return map[string]any{"e2e_run_id": runID, "order_id": orderID}
+			}
+			return nil
+		}(),
 	})
 	if err != nil {
 		log.WithError(err).WithField("transaction_id", saleResp.TransactionID).Error("failed to register purchase after successful NMI sale")
@@ -1302,6 +1346,15 @@ func (s *CheckoutService) resolveVault(ctx context.Context, req *CheckoutRequest
 		}(),
 		CardType:   req.CardType,
 		ExpiryDate: req.ExpiryDate,
+		Metadata: func() map[string]any {
+			if req.Metadata == nil {
+				return nil
+			}
+			if v := strings.TrimSpace(req.Metadata["e2e_run_id"]); v != "" {
+				return map[string]any{"e2e_run_id": v}
+			}
+			return nil
+		}(),
 	})
 	if err != nil {
 		return "", nil, err
@@ -1430,6 +1483,9 @@ type RegisterPurchaseRequest struct {
 	DiscountCode     *string
 	DiscountReason   *string
 	DiscountMetadata map[string]any
+
+	// Optional metadata (e.g., E2E tracing).
+	Metadata map[string]any
 }
 
 // RegisterPurchaseResponse contains the result of a registered purchase
@@ -1528,6 +1584,7 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 		DiscountCode:     req.DiscountCode,
 		DiscountReason:   req.DiscountReason,
 		DiscountMetadata: req.DiscountMetadata,
+		Metadata:         req.Metadata,
 	}
 
 	if err := s.PaymentService.Create(ctx, payment); err != nil {

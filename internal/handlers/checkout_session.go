@@ -28,6 +28,15 @@ func CreateCheckoutSession(r *Request) {
 	}
 
 	req.IdempotencyKey = r.GinCtx.GetHeader("X-Idempotency-Key")
+	e2eRunID := strings.TrimSpace(r.GinCtx.GetHeader("X-E2E-Run-ID"))
+	if e2eRunID != "" {
+		if req.Metadata == nil {
+			req.Metadata = map[string]string{}
+		}
+		if _, ok := req.Metadata["e2e_run_id"]; !ok {
+			req.Metadata["e2e_run_id"] = e2eRunID
+		}
+	}
 	svcReq := &services.CheckoutSessionCreateRequest{
 		PriceID:        req.PriceID,
 		Mode:           req.Mode,

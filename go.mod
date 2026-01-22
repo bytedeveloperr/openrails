@@ -4,7 +4,7 @@ go 1.24.2
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.3
-	github.com/PaulFidika/authkit v0.2.5
+	github.com/PaulFidika/authkit v0.2.10
 	github.com/doujins-org/ginapi v0.1.0
 	github.com/doujins-org/migratekit v0.7.11
 	github.com/doujins-org/solana-go v1.13.0

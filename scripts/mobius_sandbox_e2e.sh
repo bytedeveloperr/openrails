@@ -12,6 +12,7 @@ fi
 
 COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/docker-compose.yaml}"
 BILLING_LOCAL_URL="${BILLING_LOCAL_URL:-http://localhost:2053}"
+COMPOSE_PROFILES="${COMPOSE_PROFILES:-all}"
 
 require() {
   local name="$1"
@@ -40,7 +41,15 @@ if [ -z "${PROCESSORS_MOBIUS_WEBHOOK_SECRET:-}" ]; then
 fi
 
 echo "1) Starting docker compose stack..."
-docker compose -f "$COMPOSE_FILE" up -d
+PROFILE_ARGS=()
+IFS=',' read -r -a PROFILES <<<"$COMPOSE_PROFILES"
+for p in "${PROFILES[@]}"; do
+  p="$(echo "$p" | xargs)"
+  if [ -n "$p" ]; then
+    PROFILE_ARGS+=(--profile "$p")
+  fi
+done
+docker compose -f "$COMPOSE_FILE" "${PROFILE_ARGS[@]}" up -d
 
 echo "2) Waiting for billing health..."
 for i in {1..60}; do

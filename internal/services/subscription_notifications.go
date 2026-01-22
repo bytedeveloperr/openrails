@@ -71,11 +71,11 @@ func (s *EmailService) storeName() string {
 	return name
 }
 
-func (s *EmailService) storeBillingURL() string {
+func (s *EmailService) storeCustomerPortalURL() string {
 	if s == nil || s.store == nil {
 		return ""
 	}
-	return strings.TrimSpace(s.store.BillingURL)
+	return strings.TrimSpace(s.store.CustomerPortalURL)
 }
 
 // SendSubscriptionConfirmation sends a confirmation email when subscription is created
@@ -245,14 +245,14 @@ func (s *EmailService) SendSubscriptionExpired(ctx context.Context, data Subscri
 	if premiumName == "" {
 		premiumName = storeName + " Premium"
 	}
-	billingURL := s.storeBillingURL()
+	customerPortalURL := s.storeCustomerPortalURL()
 	subject := fmt.Sprintf("Your %s access has expired", premiumName)
 
 	linkHTML := ""
 	linkText := ""
-	if billingURL != "" {
-		linkHTML = fmt.Sprintf(`<p><a href="%s" style="display:inline-block;padding:10px 18px;background:#6c4ad0;color:#ffffff;text-decoration:none;border-radius:4px;">Manage billing settings</a></p>`, billingURL)
-		linkText = fmt.Sprintf("\n\t\tUpdate your payment method anytime to restart your membership: %s\n", billingURL)
+	if customerPortalURL != "" {
+		linkHTML = fmt.Sprintf(`<p><a href="%s" style="display:inline-block;padding:10px 18px;background:#6c4ad0;color:#ffffff;text-decoration:none;border-radius:4px;">Manage billing settings</a></p>`, customerPortalURL)
+		linkText = fmt.Sprintf("\n\t\tUpdate your payment method anytime to restart your membership: %s\n", customerPortalURL)
 	}
 
 	htmlContent := fmt.Sprintf(`
@@ -287,14 +287,14 @@ func (s *EmailService) sendPaymentFailed(ctx context.Context, data SubscriptionE
 	if premiumName == "" {
 		premiumName = storeName + " Premium"
 	}
-	billingURL := s.storeBillingURL()
+	customerPortalURL := s.storeCustomerPortalURL()
 	subject := fmt.Sprintf("We couldn’t renew your %s subscription", premiumName)
 
 	linkHTML := ""
 	linkText := ""
-	if billingURL != "" {
-		linkHTML = fmt.Sprintf(`<p><a href="%s" style="display:inline-block;padding:10px 18px;background:#6c4ad0;color:#ffffff;text-decoration:none;border-radius:4px;">Update payment method</a></p>`, billingURL)
-		linkText = fmt.Sprintf("Update your payment details here to avoid losing access: %s", billingURL)
+	if customerPortalURL != "" {
+		linkHTML = fmt.Sprintf(`<p><a href="%s" style="display:inline-block;padding:10px 18px;background:#6c4ad0;color:#ffffff;text-decoration:none;border-radius:4px;">Update payment method</a></p>`, customerPortalURL)
+		linkText = fmt.Sprintf("Update your payment details here to avoid losing access: %s", customerPortalURL)
 	}
 
 	htmlContent := fmt.Sprintf(`

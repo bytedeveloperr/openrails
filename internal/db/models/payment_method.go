@@ -26,6 +26,7 @@ type PaymentMethod struct {
 	CardType      *string `bun:"card_type,nullzero" json:"card_type"`           // "Visa", "MasterCard", etc.
 	ExpiryDate    *string `bun:"expiry_date,nullzero" json:"expiry_date"`       // "MM/YY" format
 	FailureReason *string `bun:"failure_reason,nullzero" json:"failure_reason"` // Reason if inactive
+	Metadata      map[string]any `bun:"metadata,type:jsonb,nullzero" json:"metadata,omitempty"`
 
 	CreatedAt time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time `bun:"updated_at,notnull,default:current_timestamp" json:"updated_at"`

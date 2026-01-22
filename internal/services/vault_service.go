@@ -48,6 +48,7 @@ type CreateVaultRequest struct {
 	LastFour     string
 	CardType     string
 	ExpiryDate   string
+	Metadata     map[string]any
 }
 
 type UpdateVaultRequest struct {
@@ -146,6 +147,7 @@ func (s *VaultService) CreateVault(ctx context.Context, user *UserIdentity, req 
 		LastFour:             &req.LastFour,
 		ExpiryDate:           &req.ExpiryDate,
 		CardType:             &req.CardType,
+		Metadata:             req.Metadata,
 	}
 
 	if err := s.PaymentMethodService.Create(ctx, pm); err != nil {

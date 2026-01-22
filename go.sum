@@ -14,8 +14,8 @@ github.com/ClickHouse/clickhouse-go/v2 v2.40.3 h1:46jB4kKwVDUOnECpStKMVXxvR0Cg9z
 github.com/ClickHouse/clickhouse-go/v2 v2.40.3/go.mod h1:qO0HwvjCnTB4BPL/k6EE3l4d9f/uF+aoimAhJX70eKA=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
-github.com/PaulFidika/authkit v0.2.5 h1:cfOf091yRpnpKOoVNPTLFl8affsVEdmteGmi4/g4NDU=
-github.com/PaulFidika/authkit v0.2.5/go.mod h1:GSqinQscEX0vubLqEh+ycWhcDSC8+j4RfLGCLpnY6DU=
+github.com/PaulFidika/authkit v0.2.10 h1:kR9Fk69T64JNa7Cw1rP/Uq4EvRgGj6v9BWVSFfavsdU=
+github.com/PaulFidika/authkit v0.2.10/go.mod h1:TCxKAJhJBRAeqpyPjiV7Ifk7r0oj9BDhFUWSI+mFqws=
 github.com/andybalholm/brotli v1.2.0 h1:ukwgCxwYrmACq68yiUqwIWnGY0cTPox/M94sVwToPjQ=
 github.com/andybalholm/brotli v1.2.0/go.mod h1:rzTDkvFWvIrjDXZHkuS16NPggd91W3kUSvPlQ1pLaKY=
 github.com/benbjohnson/clock v1.1.0/go.mod h1:J11/hYXuz8f4ySSvYwY0FKfm+ezbsZBKZxNJlLklBHA=

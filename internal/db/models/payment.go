@@ -33,6 +33,7 @@ type Payment struct {
 	DiscountCode     *string        `bun:"discount_code,nullzero" json:"discount_code,omitempty"`
 	DiscountReason   *string        `bun:"discount_reason,nullzero" json:"discount_reason,omitempty"`
 	DiscountMetadata map[string]any `bun:"discount_metadata,type:jsonb,nullzero" json:"discount_metadata,omitempty"`
+	Metadata         map[string]any `bun:"metadata,type:jsonb,nullzero" json:"metadata,omitempty"`
 
 	PurchasedAt time.Time `bun:"purchased_at,notnull,default:current_timestamp" json:"purchased_at"`
 	CreatedAt   time.Time `bun:"created_at,notnull,default:current_timestamp" json:"created_at"`

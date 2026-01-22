@@ -63,9 +63,9 @@ type StoreConfig struct {
 	// FromEmail is the sender email address for all outgoing emails (receipts, notifications, etc.)
 	// Example: "noreply@mystore.com" or "billing@mystore.com"
 	FromEmail string `koanf:"from_email"`
-	// BillingURL is the customer-facing URL where users can manage billing settings (e.g., update payment method).
-	// Example: "https://example.com/account" or "https://example.com/account/billing"
-	BillingURL string `koanf:"billing_url"`
+	// CustomerPortalURL is the customer-facing URL where users can manage billing settings
+	// (e.g., update payment method, manage subscription).
+	CustomerPortalURL string `koanf:"customer_portal_url"`
 }
 
 type Config struct {

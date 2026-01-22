@@ -85,7 +85,7 @@ store:
   name: "My Store"                              # Merchant name (default: "My Store")
   logo_url: "https://your-domain.com/logo.png"  # Logo URL (default: embedded $ icon)
   from_email: "noreply@your-domain.com"         # Sender email for all outgoing emails (required if sendgrid configured)
-  billing_url: "https://your-domain.com/account" # Customer billing settings URL (used in emails)
+  customer_portal_url: "https://your-domain.com/account" # Customer portal URL (used in emails)
 
 # =============================================================================
 # LOGGING

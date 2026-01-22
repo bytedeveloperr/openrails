@@ -29,7 +29,7 @@ func TestNewClient_EndpointSelection(t *testing.T) {
 		assert.False(t, client.TestMode)
 	})
 
-	t.Run("test mode ignores custom URLs", func(t *testing.T) {
+	t.Run("test mode uses custom URLs if provided", func(t *testing.T) {
 		customCfg := &config.NMIProviderSettings{
 			SecurityKey:   "test-security-key",
 			DirectPostURL: "https://custom.example.com/transact",
@@ -37,9 +37,8 @@ func TestNewClient_EndpointSelection(t *testing.T) {
 		}
 		client, err := NewClient("mobius", customCfg, true)
 		require.NoError(t, err)
-		// In test mode, custom URLs should be ignored
-		assert.Equal(t, SandboxDirectPostURL, client.DirectPostURL, "should use sandbox URL, not custom")
-		assert.Equal(t, SandboxQueryAPIURL, client.QueryURL, "should use sandbox URL, not custom")
+		assert.Equal(t, "https://custom.example.com/transact", client.DirectPostURL)
+		assert.Equal(t, "https://custom.example.com/query", client.QueryURL)
 	})
 
 	t.Run("production mode uses custom URLs if provided", func(t *testing.T) {
