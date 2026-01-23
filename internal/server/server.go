@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
+	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
@@ -31,6 +33,9 @@ type Server struct {
 	runtime      *app.Runtime
 	rdb          *redis.Client
 	authProvider authprovider.Provider
+
+	adminAuth     *authgin.Auth
+	adminAuthPool *pgxpool.Pool
 
 	// publicHandler is the standalone "full surface" HTTP handler.
 	// It includes user + admin + webhook routes.
@@ -68,6 +73,9 @@ func New(deps Dependencies) (*Server, error) {
 	}
 
 	s.setupHandlers()
+	if err := s.initAdminAuthKit(); err != nil {
+		return nil, err
+	}
 	s.registerPublicRoutes()
 	s.registerAdminRoutes()
 	s.registerServiceRoutes()
@@ -124,6 +132,10 @@ func (s *Server) ServiceHandler() http.Handler { return s.privateHandler }
 
 // Close currently does not own underlying resources; callers should close the App.
 func (s *Server) Close(_ context.Context) error {
+	if s.adminAuthPool != nil {
+		s.adminAuthPool.Close()
+		s.adminAuthPool = nil
+	}
 	log.Info("Billing HTTP server shut down")
 	return nil
 }
