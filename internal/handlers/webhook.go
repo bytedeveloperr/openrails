@@ -293,6 +293,8 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 	for k, v := range r.Request.Header {
 		headers[k] = v
 	}
+
+	// TODO - Remove logging, may expose sensitive data
 	log.WithFields(log.Fields{
 		"provider":  provider,
 		"client_ip": clientIP,

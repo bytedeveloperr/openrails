@@ -1591,10 +1591,21 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 		return nil, fmt.Errorf("failed to create payment record: %w", err)
 	}
 
+	sourceId := paymentID
+	if req.SubscriptionID != nil {
+		log.WithFields(log.Fields{
+			"payment_id":      paymentID,
+			"user_id":         req.UserID,
+			"price_id":        req.PriceID,
+			"subscription_id": req.SubscriptionID,
+		}).Info("registered subscription payment")
+		sourceId = *req.SubscriptionID
+	}
+
 	// Grant entitlements
 	var grantedEntitlements []string
-	if err := s.grantProductEntitlements(ctx, req.UserID, product, paymentID, coverage, req.SubscriptionID != nil && req.SubscriptionID.String() != ""); err != nil {
-		log.WithError(err).WithField("payment_id", paymentID).Error("failed to grant entitlements after payment")
+	if err := s.grantProductEntitlements(ctx, req.UserID, product, sourceId, coverage, req.SubscriptionID != nil && req.SubscriptionID.String() != ""); err != nil {
+		log.WithError(err).WithField("payment_id", sourceId).Error("failed to grant entitlements after payment")
 		// Don't fail - payment record was created successfully
 	} else if product.EntitlementsSpec != nil {
 		for entName := range product.EntitlementsSpec {
