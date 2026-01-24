@@ -294,14 +294,14 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 		headers[k] = v
 	}
 
-	// TODO - Remove logging, may expose sensitive data
-	log.WithFields(log.Fields{
+	// Remove logging, may expose sensitive data
+	/*log.WithFields(log.Fields{
 		"provider":  provider,
 		"client_ip": clientIP,
 		"headers":   headers,
 		"body":      string(body),
 	}).Info("Received NMI webhook - headers and body dump")
-
+	*/
 	providerKey := strings.TrimSpace(strings.ToLower(provider))
 	if providerKey == "" {
 		providerKey = "mobius"
