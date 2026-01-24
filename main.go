@@ -272,18 +272,28 @@ func runWorker(cmd *cobra.Command, args []string) error {
 
 	// Start only background workers (no HTTP server). Fail fast if River cannot start.
 	workerCtx, cancel := context.WithCancel(cmd.Context())
-	errCh := make(chan error, 1)
+	workerDone := make(chan struct{})
+	var workerErr atomic.Pointer[error]
 	go func() {
-		errCh <- application.Runtime.RunWorkers(workerCtx)
+		defer close(workerDone)
+		err := application.Runtime.RunWorkers(workerCtx)
+		errCopy := err
+		workerErr.Store(&errCopy)
 	}()
 
 	select {
-	case err := <-errCh:
-		cancel()
-		if err := application.Close(context.Background()); err != nil {
-			log.WithError(err).Error("Application cleanup failed")
+	case <-workerDone:
+		if p := workerErr.Load(); p != nil && *p != nil && *p != context.Canceled {
+			cancel()
+			if err := application.Close(context.Background()); err != nil {
+				log.WithError(err).Error("Application cleanup failed")
+			}
+			return *p
 		}
-		return err
+		log.Warn("Background workers exited without error; waiting for shutdown signal")
+		<-sigChan
+		log.Info("Shutdown signal received, stopping workers...")
+		cancel()
 	case <-sigChan:
 		log.Info("Shutdown signal received, stopping workers...")
 		cancel()
@@ -296,9 +306,9 @@ func runWorker(cmd *cobra.Command, args []string) error {
 		log.WithError(err).Error("Application shutdown encountered issues")
 	}
 
-	workerErr := <-errCh
-	if workerErr != nil && workerErr != context.Canceled {
-		return workerErr
+	<-workerDone
+	if p := workerErr.Load(); p != nil && *p != nil && *p != context.Canceled {
+		return *p
 	}
 
 	log.Info("Billing service workers shutdown complete")

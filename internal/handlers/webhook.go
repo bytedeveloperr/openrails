@@ -324,6 +324,7 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 	sigHeader := r.Request.Header.Get("Webhook-Signature")
 	signature := sigHeader
 	if sigHeader != "" {
+		// TODO - Move to utility function or merge with VerifyWebhookSignature?
 		// Expect format: t=nonce,s=signature
 		var nonce, signature string
 		parts := strings.Split(sigHeader, ",")
