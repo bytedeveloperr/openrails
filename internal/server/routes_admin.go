@@ -36,6 +36,9 @@ func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
 	// User management
 	admin.GET("/users/:user_id", s.wrap(handlers.GetAdminUserBillingProfile))
 	admin.GET("/users/:user_id/entitlements", s.wrap(handlers.GetAdminUserEntitlements))
+	admin.GET("/users/:user_id/mobius", s.wrap(handlers.GetAdminUserMobius))
+	admin.GET("/users/:user_id/mobius/metrics", s.wrap(handlers.GetAdminUserMobiusMetrics))
+
 	admin.POST("/users/:user_id/entitlements", s.wrap(handlers.GrantAdminEntitlement))
 	admin.DELETE("/users/:user_id/entitlements/:id", s.wrap(handlers.RevokeAdminEntitlement))
 
