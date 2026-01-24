@@ -201,7 +201,7 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 		return nil, nil, fmt.Errorf("failed to check existing subscriptions: %w", err)
 	}
 
-	// Tweak query to allow reuse of cancellled subscriptions.
+	// Only stop if an active subscription exists
 	if err == nil && activeSub != nil && activeSub.Status == models.StatusActive {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"user_id":                   params.UserID,
