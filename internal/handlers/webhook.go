@@ -288,6 +288,20 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 		return false
 	}
 
+	// Dump headers and body to log for debugging
+	headers := make(map[string][]string)
+	for k, v := range r.Request.Header {
+		headers[k] = v
+	}
+
+	// Remove logging, may expose sensitive data
+	/*log.WithFields(log.Fields{
+		"provider":  provider,
+		"client_ip": clientIP,
+		"headers":   headers,
+		"body":      string(body),
+	}).Info("Received NMI webhook - headers and body dump")
+	*/
 	providerKey := strings.TrimSpace(strings.ToLower(provider))
 	if providerKey == "" {
 		providerKey = "mobius"
@@ -299,33 +313,76 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 		return false
 	}
 
-	signature := ""
 	signatureValidated := false
+	signingKey := client.GetWebhookSecret()
 
-	if client.GetWebhookSecret() == "" {
+	if signingKey == "" {
 		log.Error("NMI webhook secret not configured")
 		r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
 		return false
 	}
 
-	signature = r.Request.Header.Get("X-Signature")
-	if signature == "" {
-		signature = r.Request.Header.Get("X-NMI-Signature")
+	// Try PHP-style signature verification if Webhook-Signature header is present
+	sigHeader := r.Request.Header.Get("Webhook-Signature")
+	signature := sigHeader
+	if sigHeader != "" {
+		// TODO - Move to utility function or merge with VerifyWebhookSignature?
+		// Expect format: t=nonce,s=signature
+		var nonce, signature string
+		parts := strings.Split(sigHeader, ",")
+
+		if len(parts) == 2 {
+			for _, part := range parts {
+				kv := strings.SplitN(strings.TrimSpace(part), "=", 2)
+				log.WithField("kv", kv).Info("Split part into key-value")
+				if len(kv) == 2 {
+					switch kv[0] {
+					case "t":
+						nonce = kv[1]
+					case "s":
+						signature = kv[1]
+					}
+				}
+			}
+		}
+
+		if nonce == "" || signature == "" {
+			log.Error("unrecognized webhook signature format")
+			r.ErrorJSON(http.StatusUnauthorized, "unrecognized webhook signature format")
+			return false
+		}
+		mac := hmac.New(sha256.New, []byte(signingKey))
+		dataToSign := nonce + "." + string(body)
+		mac.Write([]byte(dataToSign))
+		expectedSig := hex.EncodeToString(mac.Sum(nil))
+		if signature != expectedSig {
+			log.Error("invalid webhook - invalid signature, cannot verify sender")
+			r.ErrorJSON(http.StatusUnauthorized, "invalid webhook signature")
+			return false
+		}
+		log.Info("Webhook signature verified successfully")
+		signatureValidated = true
+	} else {
+		// Fallback to legacy signature headers
+		signature = r.Request.Header.Get("X-Signature")
+		if signature == "" {
+			signature = r.Request.Header.Get("X-NMI-Signature")
+		}
+		if signature == "" {
+			signature = r.Request.Header.Get("X-Mobius-Signature")
+		}
+		if signature == "" {
+			log.Error("Missing webhook signature for NMI webhook")
+			r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
+			return false
+		}
+		if err := client.VerifyWebhookSignature(body, signature); err != nil {
+			log.WithError(err).Error("NMI webhook signature verification failed")
+			r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
+			return false
+		}
+		signatureValidated = true
 	}
-	if signature == "" {
-		signature = r.Request.Header.Get("X-Mobius-Signature")
-	}
-	if signature == "" {
-		log.Error("Missing webhook signature for NMI webhook")
-		r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
-		return false
-	}
-	if err := client.VerifyWebhookSignature(body, signature); err != nil {
-		log.WithError(err).Error("NMI webhook signature verification failed")
-		r.ErrorJSON(http.StatusUnauthorized, "Invalid webhook signature")
-		return false
-	}
-	signatureValidated = true
 
 	var data services.NMIWebhookEvent
 	if err := json.Unmarshal(body, &data); err != nil {

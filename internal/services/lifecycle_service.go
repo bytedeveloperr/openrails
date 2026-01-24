@@ -200,7 +200,9 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, fmt.Errorf("failed to check existing subscriptions: %w", err)
 	}
-	if err == nil && activeSub != nil {
+
+	// Only stop if an active subscription exists
+	if err == nil && activeSub != nil && activeSub.Status == models.StatusActive {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"user_id":                   params.UserID,
 			"product_id":                price.ProductID,
@@ -331,16 +333,30 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 		}).Info("Preparing to grant subscription entitlements")
 
 		for _, ent := range entNames {
-			exists, err := entitlementService.ExistsBySource(ctx, models.EntitlementSourceSubscription, subscription.ID, ent)
+			existsBySource, err := entitlementService.ExistsBySource(ctx, models.EntitlementSourceSubscription, subscription.ID, ent)
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed entitlement check: %w", err)
 			}
-			if exists {
+
+			if existsBySource {
 				log.WithContext(ctx).WithFields(log.Fields{
 					"subscription_id": subscription.ID,
 					"user_id":         subscription.UserID,
 					"entitlement":     ent,
-				}).Info("Entitlement already granted; skipping")
+				}).Info("Entitlement already granted for subscription; skipping")
+				continue
+			}
+
+			isActive, err := entitlementService.IsEntitled(ctx, params.UserID, ent, now)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed entitlement active check: %w", err)
+			}
+			if isActive {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"subscription_id": subscription.ID,
+					"user_id":         subscription.UserID,
+					"entitlement":     ent,
+				}).Info("Entitlement already active; skipping")
 				continue
 			}
 

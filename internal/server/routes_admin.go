@@ -1,8 +1,8 @@
 package server
 
 import (
-	authpolicy "github.com/doujins-org/doujins-billing/internal/auth/policy"
 	"github.com/doujins-org/doujins-billing/internal/handlers"
+	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/gin-gonic/gin"
 )
 
@@ -12,7 +12,14 @@ func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
 	// Now they're unified on the main server with proper JWT-based authorization.
 	admin := e.Group("/v1/admin")
 	admin.Use(s.authProvider.Required())
-	admin.Use(authpolicy.AdminRequired(s.runtime.DB.GetDB()))
+
+	admin.Use(func(c *gin.Context) {
+		if uc, ok := authprovider.UserContextFromGin(c); ok && uc.UserID != "" {
+			c.Set("auth.user_id", uc.UserID)
+		}
+		c.Next()
+	})
+	admin.Use(s.adminAuth.RequireAdmin(s.adminAuthPool))
 
 	// Subscription management
 	admin.GET("/subscriptions", s.wrap(handlers.GetAdminSubscriptions))
@@ -29,6 +36,9 @@ func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
 	// User management
 	admin.GET("/users/:user_id", s.wrap(handlers.GetAdminUserBillingProfile))
 	admin.GET("/users/:user_id/entitlements", s.wrap(handlers.GetAdminUserEntitlements))
+	admin.GET("/users/:user_id/mobius", s.wrap(handlers.GetAdminUserMobius))
+	admin.GET("/users/:user_id/mobius/metrics", s.wrap(handlers.GetAdminUserMobiusMetrics))
+
 	admin.POST("/users/:user_id/entitlements", s.wrap(handlers.GrantAdminEntitlement))
 	admin.DELETE("/users/:user_id/entitlements/:id", s.wrap(handlers.RevokeAdminEntitlement))
 
