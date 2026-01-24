@@ -93,6 +93,11 @@ func (s *Service) handleNMIWebhook(ctx context.Context, provider string, req Han
 	if signature == "" {
 		signature = req.Headers["X-Mobius-Signature"]
 	}
+
+	if signature == "" {
+		signature = req.Headers["Webhook-Signature"]
+	}
+
 	if signature == "" {
 		log.Error("Missing webhook signature for NMI webhook")
 		return &WebhookResult{

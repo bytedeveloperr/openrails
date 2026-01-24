@@ -288,6 +288,18 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 		return false
 	}
 
+	// Dump headers and body to log for debugging
+	headers := make(map[string][]string)
+	for k, v := range r.Request.Header {
+		headers[k] = v
+	}
+	log.WithFields(log.Fields{
+		"provider":  provider,
+		"client_ip": clientIP,
+		"headers":   headers,
+		"body":      string(body),
+	}).Info("Received NMI webhook - headers and body dump")
+
 	providerKey := strings.TrimSpace(strings.ToLower(provider))
 	if providerKey == "" {
 		providerKey = "mobius"
@@ -315,6 +327,11 @@ func enqueueNMIWebhook(r *Request, provider string, clientIP string) bool {
 	if signature == "" {
 		signature = r.Request.Header.Get("X-Mobius-Signature")
 	}
+
+	if signature == "" {
+		signature = r.Request.Header.Get("Webhook-Signature")
+	}
+
 	if signature == "" {
 		log.Error("Missing webhook signature for NMI webhook")
 		r.ErrorJSON(http.StatusUnauthorized, "Missing webhook signature")
