@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -213,6 +214,10 @@ func parseTransactionAmount(body *NMITransactionEventBody) (float64, error) {
 	amountStr := body.Amount.Trimmed()
 	if amountStr == "" && body.TransactionDetail != nil {
 		amountStr = body.TransactionDetail.Amount.Trimmed()
+	}
+
+	if amountStr == "" && body.Action != nil {
+		amountStr = body.Action.Amount.Trimmed()
 	}
 	if amountStr == "" {
 		return 0, fmt.Errorf("no amount in transaction body")
@@ -1332,13 +1337,14 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 	var subscription *models.Subscription
 	if nmiSubID != "" {
 		subID, parseErr := uuid.Parse(nmiSubID)
+		log.Println("NMI Refund - Parsed Subscription ID:", subID, "Error:", parseErr)
 		if parseErr == nil {
 			subscription, err = s.SubscriptionService.GetByID(ctx, subID)
 			if err != nil && !errors.Is(err, sql.ErrNoRows) {
 				log.WithContext(ctx).WithError(err).WithField("processor_subscription_id", nmiSubID).
 					Warn("Failed to look up subscription for refund (by UUID)")
 			} else if errors.Is(err, sql.ErrNoRows) {
-				log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).
+				log.WithContext(ctx).WithField("subscription_id", nmiSubID).
 					Warn("Received refund for unknown subscription (by UUID); continuing without lifecycle actions")
 			}
 		} else {
@@ -1353,10 +1359,12 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 		}
 	}
 
+	log.Println("subscription price", *subscription.Price)
+
 	// Determine if we should terminate subscription based on refund amount
 	shouldTerminate := false
 	if subscription != nil && subscription.Price != nil && subscription.Price.Amount > 0 {
-		refundAmountCents := int64(refundAmount * 100)
+		refundAmountCents := int64(math.Abs(refundAmount) * 100)
 		refundPercentage := (refundAmountCents * 100) / subscription.Price.Amount
 		if refundPercentage >= 80 {
 			shouldTerminate = true
