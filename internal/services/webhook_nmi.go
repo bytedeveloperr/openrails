@@ -705,7 +705,16 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 	}*/
 	actionSource := ""
 
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
+	subID, err := uuid.Parse(nmiSubID)
+	if err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_reference": nmiSubID,
+			"provider":               provider,
+		}).WithError(err).Error("Failed to parse subscription ID as UUID")
+		return fmt.Errorf("failed to parse subscription ID '%s' as UUID: %w", nmiSubID, err)
+	}
+
+	subscription, err := s.SubscriptionService.GetByID(ctx, subID)
 	if err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"subscription_reference": nmiSubID,
@@ -912,6 +921,15 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription reference", map[string]interface{}{}, nil)
 	}
 
+	subID, err := uuid.Parse(nmiSubID)
+	if err != nil {
+		log.WithContext(ctx).WithFields(log.Fields{
+			"subscription_reference": nmiSubID,
+			"provider":               provider,
+		}).WithError(err).Error("Failed to parse subscription ID as UUID")
+		return fmt.Errorf("failed to parse subscription ID '%s' as UUID: %w", nmiSubID, err)
+	}
+
 	//actionSource := "" //transactionActionSource(body)
 	/*if !isRecurringSource(actionSource) {
 		log.WithContext(ctx).
@@ -929,7 +947,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 	)
 
 	if s.SubscriptionService != nil {
-		subscription, fetchErr = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
+		subscription, fetchErr = s.SubscriptionService.GetByID(ctx, subID)
 		if fetchErr != nil && !errors.Is(fetchErr, sql.ErrNoRows) {
 			log.WithContext(ctx).WithFields(log.Fields{
 				"processor_subscription_id": nmiSubID,
@@ -1053,7 +1071,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 	log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).Info("Subscription marked as failed for NMI transaction failure")
 
 	if s.EventLogService != nil && subscription != nil {
-		if updated, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID); err == nil && updated != nil {
+		if updated, err := s.SubscriptionService.GetByID(ctx, subID); err == nil && updated != nil {
 			subscription = updated
 		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			log.WithContext(ctx).WithError(err).WithField("processor_subscription_id", nmiSubID).
