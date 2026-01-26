@@ -1805,10 +1805,10 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 	}
 
 	if err := s.SubscriptionLifecycleService.FailMembership(ctx, &FailMembershipParams{
-		Processor:               models.ProcessorCCBill,
-		ProcessorSubscriptionID: ccBillSubID,
-		FailureReason:           &data.FailureReason,
-		FailureCode:             &data.FailureCode,
+		Processor:      models.ProcessorCCBill,
+		SubscriptionID: &subscription.ID,
+		FailureReason:  &data.FailureReason,
+		FailureCode:    &data.FailureCode,
 	}); err != nil {
 		return fmt.Errorf("failed to fail membership: %w", err)
 	}

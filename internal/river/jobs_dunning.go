@@ -207,9 +207,9 @@ func (w *DunningWorker) processSubscription(
 			_ = w.IdempotencyService.Fail(ctx, idemOp, idemKey, errors.New(reason))
 		}
 		if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorMobius,
-			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
-			FailureReason:           &reason,
+			Processor:      models.ProcessorMobius,
+			SubscriptionID: &sub.ID,
+			FailureReason:  &reason,
 		}); err != nil {
 			logEntry.WithError(err).Warn("fail-membership after missing payment method")
 		}
@@ -228,9 +228,9 @@ func (w *DunningWorker) processSubscription(
 			_ = w.IdempotencyService.Fail(ctx, idemOp, idemKey, err)
 		}
 		if err2 := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorMobius,
-			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
-			FailureReason:           &msg,
+			Processor:      models.ProcessorMobius,
+			SubscriptionID: &sub.ID,
+			FailureReason:  &msg,
 		}); err2 != nil {
 			logEntry.WithError(err2).Warn("record rebill failure")
 		}
@@ -246,9 +246,9 @@ func (w *DunningWorker) processSubscription(
 			_ = w.IdempotencyService.Fail(ctx, idemOp, idemKey, errors.New(reason))
 		}
 		if err := lifecycle.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorMobius,
-			ProcessorSubscriptionID: sub.ProcessorSubscriptionID,
-			FailureReason:           &reason,
+			Processor:      models.ProcessorMobius,
+			SubscriptionID: &sub.ID,
+			FailureReason:  &reason,
 		}); err != nil {
 			logEntry.WithError(err).Warn("apply failure policy after declined rebill")
 		}

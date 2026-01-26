@@ -282,6 +282,16 @@ func (r *PaymentRepo) CountByUserAndProcessor(ctx context.Context, userID string
 	return
 }
 
+func (r *PaymentRepo) MarkFailed(ctx context.Context, id uuid.UUID) error {
+	_, err := r.db.GetDB().
+		NewUpdate().
+		Model((*models.Payment)(nil)).
+		Set("status = ?", "failed").
+		Where("purch.id = ?", id).
+		Exec(ctx)
+	return err
+}
+
 func applyPaymentSorting(q *bun.SelectQuery, sortBy, sortOrder string) *bun.SelectQuery {
 	// Validate and map sort field
 	var column string

@@ -63,10 +63,10 @@ type CancelMembershipParams struct {
 }
 
 type FailMembershipParams struct {
-	Processor               models.Processor
-	ProcessorSubscriptionID string
-	FailureReason           *string
-	FailureCode             *string
+	Processor      models.Processor
+	SubscriptionID *uuid.UUID
+	FailureReason  *string
+	FailureCode    *string
 }
 
 func safeString(value *string) string {
@@ -402,6 +402,19 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 	// Create Payment record if payment info is provided
 	if params.TransactionID != "" && s.PaymentService != nil {
 		paymentService := NewPaymentService(dbb)
+		existingPayment, err := paymentService.GetByTransactionID(ctx, params.Processor, params.TransactionID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, fmt.Errorf("failed to check existing payment: %w", err)
+		}
+		if err == nil && existingPayment != nil && existingPayment.UserID == subscription.UserID {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"subscription_id": subscription.ID,
+				"user_id":         subscription.UserID,
+				"payment_id":      existingPayment.ID,
+				"transaction_id":  params.TransactionID,
+			}).Info("Payment already exists for transaction; skipping")
+			return subscription, notifications, nil
+		}
 
 		// Use provided amount/currency or fall back to price defaults
 		amount := params.Amount
@@ -816,12 +829,6 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 
 		// Update subscription status
 		now := s.now()
-		subscription.Status = models.StatusCancelled
-		subscription.CancelledAt = &now
-		subscription.CancelType = &params.CancelType
-		if params.CancelFeedback != nil {
-			subscription.CancelFeedback = params.CancelFeedback
-		}
 
 		// Set end date to now or current period end based on whether access is revoked
 		if params.RevokeAccess {
@@ -832,6 +839,20 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 			if subscription.CurrentPeriodEndsAt == nil {
 				subscription.EndedAt = &now
 			}
+		}
+
+		// Set cancellation details if ended at is set
+		if params.CancelFeedback != nil && subscription.EndedAt != nil {
+			log.Println("Setting cancellation fields")
+			subscription.Status = models.StatusCancelled
+			subscription.CancelType = &params.CancelType
+			subscription.CancelFeedback = params.CancelFeedback
+			cancelTime := s.now()
+			// Ensure constraint: ended_at >= cancelled_at (or either is NULL)
+			if subscription.EndedAt != nil && cancelTime.After(*subscription.EndedAt) {
+				subscription.EndedAt = &cancelTime
+			}
+			subscription.CancelledAt = &cancelTime
 		}
 
 		if err := subService.Update(ctx, subscription); err != nil {
@@ -1039,7 +1060,7 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 
 	log.WithContext(ctx).WithFields(log.Fields{
 		"processor":                 params.Processor,
-		"processor_subscription_id": params.ProcessorSubscriptionID,
+		"processor_subscription_id": params.SubscriptionID,
 		"failure_reason":            safeString(params.FailureReason),
 		"failure_code":              safeString(params.FailureCode),
 		"dunning_mode":              dunningMode,
@@ -1063,7 +1084,7 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 			}
 		}
 
-		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), provider, params.ProcessorSubscriptionID)
+		subscription, err := subService.GetByID(ctx, *params.SubscriptionID)
 		if err != nil {
 			log.WithContext(ctx).WithError(err).Warn("Failed to locate subscription for failure flow")
 			return fmt.Errorf("subscription not found: %w", err)
@@ -1102,8 +1123,13 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 
 			// If we've reached MaxDunningFailures, cancel; otherwise schedule next attempt in DunningInterval
 			if *subscription.RetryAttempts >= MaxDunningFailures {
-				subscription.Status = models.StatusCancelled
-				subscription.EndedAt = &now
+				//subscription.Status = models.StatusCancelled
+				//subscription.CancelledAt = &now
+				// Ensure EndedAt is equal to or after CancelledAt to satisfy DB constraint
+				//subscription.EndedAt = &now
+
+				expired := models.CancelTypeExpired
+				subscription.Cancel("transaction_failure", &expired)
 			} else {
 				nextRetry := now.Add(DunningInterval)
 				subscription.NextRetryAt = &nextRetry
