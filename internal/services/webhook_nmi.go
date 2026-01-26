@@ -692,7 +692,8 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription reference", map[string]interface{}{}, nil)
 	}
 
-	actionSource := transactionActionSource(body)
+	// The following field checked for does not
+	/*actionSource := transactionActionSource(body)
 	if !isRecurringSource(actionSource) {
 		log.WithContext(ctx).
 			WithFields(log.Fields{
@@ -701,7 +702,8 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 				"event_type":             s.Data.EventType,
 			}).Info("Ignoring NMI transaction success without recurring source")
 		return nil
-	}
+	}*/
+	actionSource := ""
 
 	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
 	if err != nil {
@@ -910,8 +912,8 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription reference", map[string]interface{}{}, nil)
 	}
 
-	actionSource := transactionActionSource(body)
-	if !isRecurringSource(actionSource) {
+	//actionSource := "" //transactionActionSource(body)
+	/*if !isRecurringSource(actionSource) {
 		log.WithContext(ctx).
 			WithFields(log.Fields{
 				"subscription_reference": nmiSubID,
@@ -919,12 +921,13 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 				"event_type":             s.Data.EventType,
 			}).Info("Ignoring NMI transaction failure without recurring source")
 		return nil
-	}
+	}*/
 
 	var (
 		subscription *models.Subscription
 		fetchErr     error
 	)
+
 	if s.SubscriptionService != nil {
 		subscription, fetchErr = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
 		if fetchErr != nil && !errors.Is(fetchErr, sql.ErrNoRows) {
