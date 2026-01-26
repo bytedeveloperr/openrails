@@ -402,6 +402,19 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 	// Create Payment record if payment info is provided
 	if params.TransactionID != "" && s.PaymentService != nil {
 		paymentService := NewPaymentService(dbb)
+		existingPayment, err := paymentService.GetByTransactionID(ctx, params.Processor, params.TransactionID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, nil, fmt.Errorf("failed to check existing payment: %w", err)
+		}
+		if err == nil && existingPayment != nil && existingPayment.UserID == subscription.UserID {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"subscription_id": subscription.ID,
+				"user_id":         subscription.UserID,
+				"payment_id":      existingPayment.ID,
+				"transaction_id":  params.TransactionID,
+			}).Info("Payment already exists for transaction; skipping")
+			return subscription, notifications, nil
+		}
 
 		// Use provided amount/currency or fall back to price defaults
 		amount := params.Amount
