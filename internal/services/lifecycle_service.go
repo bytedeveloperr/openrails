@@ -843,11 +843,15 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 
 		// Set cancellation details if ended at is set
 		if params.CancelFeedback != nil && subscription.EndedAt != nil {
+			log.Println("Setting cancellation fields")
 			subscription.Status = models.StatusCancelled
 			subscription.CancelType = &params.CancelType
 			subscription.CancelFeedback = params.CancelFeedback
-			// following code is to ensure chk end_at constraint is not violated
-			cancelTime := subscription.EndedAt.Add(1 * time.Minute)
+			cancelTime := s.now()
+			// Ensure constraint: ended_at >= cancelled_at (or either is NULL)
+			if subscription.EndedAt != nil && cancelTime.After(*subscription.EndedAt) {
+				subscription.EndedAt = &cancelTime
+			}
 			subscription.CancelledAt = &cancelTime
 		}
 
