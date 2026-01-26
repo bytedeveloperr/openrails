@@ -116,9 +116,9 @@ func transactionSubscriptionID(body *NMITransactionEventBody) string {
 	if body.Subscription != nil {
 		candidates = append(candidates, body.Subscription.SubscriptionID.Trimmed())
 	}
-	if body.TransactionDetail != nil && body.TransactionDetail.Subscription != nil {
+	/*if body.TransactionDetail != nil && body.TransactionDetail.Subscription != nil {
 		candidates = append(candidates, body.TransactionDetail.Subscription.SubscriptionID.Trimmed())
-	}
+	}*/
 	candidates = append(candidates, body.OrderID.Trimmed())
 	if body.TransactionDetail != nil {
 		candidates = append(candidates, body.TransactionDetail.OrderID.Trimmed())
@@ -127,13 +127,14 @@ func transactionSubscriptionID(body *NMITransactionEventBody) string {
 	if body.TransactionDetail != nil {
 		candidates = append(candidates, body.TransactionDetail.PONumber.Trimmed())
 	}
-	candidates = append(candidates, body.CustomerID.Trimmed())
-	if body.TransactionDetail != nil {
-		candidates = append(candidates, body.TransactionDetail.CustomerID.Trimmed())
-	}
+	/*
+		candidates = append(candidates, body.CustomerID.Trimmed())
+		if body.TransactionDetail != nil {
+			candidates = append(candidates, body.TransactionDetail.CustomerID.Trimmed())
+		}*/
 
 	for _, candidate := range candidates {
-		log.Println("[DEBUG] Checking candidate subscription ID:", candidate)
+		log.Println("[DEBUG] Checking candidate ID:", candidate)
 		if candidate != "" {
 			return candidate
 		}
@@ -793,6 +794,8 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		}).Info("Subscription activated via NMI transaction success")
 
 		processed = true
+	case models.StatusActive:
+		// Do nothing, subscription is already active
 	default:
 		log.WithContext(ctx).WithFields(log.Fields{
 			"subscription_id":             subscription.ID,
