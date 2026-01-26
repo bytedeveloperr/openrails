@@ -133,6 +133,7 @@ func transactionSubscriptionID(body *NMITransactionEventBody) string {
 	}
 
 	for _, candidate := range candidates {
+		log.Println("[DEBUG] Checking candidate subscription ID:", candidate)
 		if candidate != "" {
 			return candidate
 		}
@@ -944,6 +945,11 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		prevStatus = subscription.Status
 	}
 
+	txnID := body.TransactionID.Trimmed()
+	if txnID == "" && body.TransactionDetail != nil {
+		txnID = body.TransactionDetail.TransactionID.Trimmed()
+	}
+
 	var failureReason, failureCode *string
 	if body.Action != nil {
 		if txt := strings.TrimSpace(body.Action.ResponseText); txt != "" {
@@ -971,6 +977,66 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		logFields["failure_code"] = *failureCode
 	}
 	log.WithContext(ctx).WithFields(logFields).Warn("Marking subscription as failed due to NMI transaction failure")
+
+	if s.PaymentService != nil && subscription != nil && txnID != "" {
+		existingPayment, err := s.PaymentService.GetByTransactionID(ctx, models.Processor(s.Processor), txnID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("failed to fetch existing payment for transaction: %w", err)
+		}
+
+		if err == nil && existingPayment != nil {
+			if err := s.PaymentService.MarkFailed(ctx, existingPayment.ID); err != nil {
+				return fmt.Errorf("failed to mark payment as failed: %w", err)
+			}
+		} else {
+			amount, amountErr := transactionAmount(body)
+			currency := transactionCurrency(body)
+
+			var amountCents int64
+			if amountErr != nil {
+				if subscription.Price != nil && subscription.Price.Amount > 0 {
+					amountCents = subscription.Price.Amount
+				}
+			} else {
+				amountCents = int64(amount * 100)
+			}
+
+			currencyValue := strings.ToLower(strings.TrimSpace(currency))
+			if currencyValue == "" {
+				if subscription.Price != nil && strings.TrimSpace(subscription.Price.Currency) != "" {
+					currencyValue = subscription.Price.Currency
+				} else {
+					currencyValue = "usd"
+				}
+			}
+
+			listAmount := amountCents
+			if subscription.Price != nil && subscription.Price.Amount > 0 {
+				listAmount = subscription.Price.Amount
+			}
+
+			now := s.now()
+			payment := &models.Payment{
+				ID:             uuid.New(),
+				UserID:         subscription.UserID,
+				PriceID:        subscription.PriceID,
+				SubscriptionID: &subscription.ID,
+				Processor:      models.Processor(s.Processor),
+				TransactionID:  txnID,
+				Amount:         amountCents,
+				ListAmount:     listAmount,
+				Currency:       currencyValue,
+				PurchasedAt:    now,
+				CreatedAt:      now,
+			}
+			if err := s.PaymentService.Create(ctx, payment); err != nil {
+				return fmt.Errorf("failed to create payment for failure: %w", err)
+			}
+			if err := s.PaymentService.MarkFailed(ctx, payment.ID); err != nil {
+				return fmt.Errorf("failed to mark new payment as failed: %w", err)
+			}
+		}
+	}
 
 	if err := s.SubscriptionLifecycleService.FailMembership(ctx, &FailMembershipParams{
 		Processor:               models.Processor(s.Processor),
@@ -1002,7 +1068,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		if failureCode != nil && *failureCode != "" {
 			metadata["failure_code"] = *failureCode
 		}
-		if txnID := body.TransactionID.Trimmed(); txnID != "" {
+		if txnID != "" {
 			metadata["transaction_id"] = txnID
 		}
 
@@ -1025,7 +1091,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 			Metadata:       CreateMetadataJSON(metadata),
 			Timestamp:      s.now().UTC(),
 		}
-		if txnID := body.TransactionID.Trimmed(); txnID != "" {
+		if txnID != "" {
 			paymentEvent.ProcessorTransactionID = &txnID
 		}
 		if err := s.EventLogService.LogPaymentEvent(ctx, paymentEvent); err != nil {
@@ -1033,7 +1099,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		}
 
 		var txnPtr *string
-		if txnID := body.TransactionID.Trimmed(); txnID != "" {
+		if txnID != "" {
 			txnPtr = &txnID
 			metadata["transaction_id"] = txnID
 		}

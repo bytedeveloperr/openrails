@@ -150,3 +150,7 @@ func (s *PaymentService) GetLatestBySubscriptionID(ctx context.Context, subscrip
 func (s *PaymentService) CountByUserAndProcessor(ctx context.Context, userID string, processor models.Processor) (successful int, failed int, err error) {
 	return s.repo.CountByUserAndProcessor(ctx, userID, processor)
 }
+
+func (s *PaymentService) MarkFailed(ctx context.Context, id uuid.UUID) error {
+	return s.repo.MarkFailed(ctx, id)
+}
