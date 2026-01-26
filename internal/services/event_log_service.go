@@ -780,13 +780,13 @@ func (s *EventLogService) insertSubscription(ctx context.Context, data Subscript
 		data.Status,
 		data.CancelType,
 		data.Processor,
-		data.ProcessorSubscriptionID,
-		data.ProcessorTransactionID,
+		nullableString2(data.ProcessorSubscriptionID),
+		nullableString2(data.ProcessorTransactionID),
 		data.PriceAmount,
 		data.PriceCurrency,
 		data.BillingCycleDays,
-		data.ProductID,
-		data.PriceID,
+		nullableUUID(data.ProductID),
+		nullableUUID(data.PriceID),
 		data.Metadata,
 		data.Timestamp,
 	)
@@ -798,11 +798,25 @@ func (s *EventLogService) insertSubscriptionBatch(ctx context.Context, rows []Su
 		return err
 	}
 	for _, d := range rows {
-		if err := batch.Append(d.EventID, d.SubscriptionID, d.UserID, d.EventType, d.Status, d.CancelType, d.Processor, d.ProcessorSubscriptionID, d.ProcessorTransactionID, d.PriceAmount, d.PriceCurrency, d.BillingCycleDays, d.ProductID, d.PriceID, d.Metadata, d.Timestamp); err != nil {
+		if err := batch.Append(d.EventID, d.SubscriptionID, d.UserID, d.EventType, d.Status, d.CancelType, d.Processor, nullableString2(d.ProcessorSubscriptionID), nullableString2(d.ProcessorTransactionID), d.PriceAmount, d.PriceCurrency, d.BillingCycleDays, nullableUUID(d.ProductID), nullableUUID(d.PriceID), d.Metadata, d.Timestamp); err != nil {
 			return err
 		}
 	}
 	return batch.Send()
+}
+
+func nullableUUID(id *uuid.UUID) any {
+	if id == nil {
+		return nil
+	}
+	return *id
+}
+
+func nullableString2(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
 }
 
 func (s *EventLogService) insertPayment(ctx context.Context, data PaymentEventData) error {

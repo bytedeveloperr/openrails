@@ -984,25 +984,9 @@ func (c *NMIClient) GetCustomerVaultData(customerVaultID string) (string, error)
 }
 
 func (c *NMIClient) GetSubscriptionData(subscriptionID string) (string, error) {
-	if err := c.checkConfiguration(); err != nil {
-		return "", err
-	}
-
-	values := url.Values{
-		"Servicert_type": {"recurring"},
-		"security_key":   {c.SecurityKey},
-	}
-
-	if subscriptionID != "" {
-		values.Set("subscription_id", subscriptionID)
-	}
-
-	response, err := c.sendQueryRequest(values)
-	if err != nil {
-		return "", err
-	}
-
-	return response, nil
+	return c.QueryRecurringSubscriptions(RecurringQueryParams{
+		SubscriptionID: subscriptionID,
+	})
 }
 
 func (c *NMIClient) GetRecurringPlanData() (string, error) {
@@ -1013,6 +997,44 @@ func (c *NMIClient) GetRecurringPlanData() (string, error) {
 	values := url.Values{
 		"Servicert_type": {"recurring_plans"},
 		"security_key":   {c.SecurityKey},
+	}
+
+	response, err := c.sendQueryRequest(values)
+	if err != nil {
+		return "", err
+	}
+
+	return response, nil
+}
+
+type RecurringQueryParams struct {
+	SubscriptionID string
+	ResultLimit    int
+	PageNumber     int
+	ResultOrder    string
+}
+
+func (c *NMIClient) QueryRecurringSubscriptions(params RecurringQueryParams) (string, error) {
+	if err := c.checkConfiguration(); err != nil {
+		return "", err
+	}
+
+	values := url.Values{
+		"report_type": {"recurring"},
+		"security_key": {c.SecurityKey},
+	}
+
+	if strings.TrimSpace(params.SubscriptionID) != "" {
+		values.Set("subscription_id", params.SubscriptionID)
+	}
+	if params.ResultLimit > 0 {
+		values.Set("result_limit", strconv.Itoa(params.ResultLimit))
+	}
+	if params.PageNumber >= 0 {
+		values.Set("page_number", strconv.Itoa(params.PageNumber))
+	}
+	if strings.TrimSpace(params.ResultOrder) != "" {
+		values.Set("result_order", params.ResultOrder)
 	}
 
 	response, err := c.sendQueryRequest(values)
