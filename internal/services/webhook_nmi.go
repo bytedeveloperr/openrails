@@ -490,7 +490,7 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 	// Note: NMI subscription add events don't include a transaction ID.
 	// The initial transaction will come separately via transaction.sale.success webhook.
 	// We use the subscription ID as a reference for tracking.
-	transactionRef := "sub:" + nmiSubID
+	transactionRef := nmiSubID //"sub:" + nmiSubID
 
 	log.WithContext(ctx).WithFields(log.Fields{
 		"subscription_id":             subscription.ID,
