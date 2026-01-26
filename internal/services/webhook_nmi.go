@@ -1062,17 +1062,18 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		}
 	}
 
-	if err := s.SubscriptionLifecycleService.FailMembership(ctx, &FailMembershipParams{
-		Processor:               models.Processor(s.Processor),
-		ProcessorSubscriptionID: nmiSubID,
-		FailureReason:           failureReason,
-		FailureCode:             failureCode,
-	}); err != nil {
-		return fmt.Errorf("failed to mark subscription as failed: %w", err)
+	if subscription != nil {
+		if err := s.SubscriptionLifecycleService.FailMembership(ctx, &FailMembershipParams{
+			Processor:      models.Processor(s.Processor),
+			SubscriptionID: &subscription.ID,
+			FailureReason:  failureReason,
+			FailureCode:    failureCode,
+		}); err != nil {
+			return fmt.Errorf("failed to mark subscription as failed: %w", err)
+		}
+
+		log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).Info("Subscription marked as failed for NMI transaction failure")
 	}
-
-	log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).Info("Subscription marked as failed for NMI transaction failure")
-
 	if s.EventLogService != nil && subscription != nil {
 		if updated, err := s.SubscriptionService.GetByID(ctx, subID); err == nil && updated != nil {
 			subscription = updated
@@ -1330,13 +1331,25 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 	// Try to find subscription - refund may be for a subscription payment
 	var subscription *models.Subscription
 	if nmiSubID != "" {
-		subscription, err = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			log.WithContext(ctx).WithError(err).WithField("processor_subscription_id", nmiSubID).
-				Warn("Failed to look up subscription for refund")
-		} else if errors.Is(err, sql.ErrNoRows) {
-			log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).
-				Warn("Received refund for unknown subscription; continuing without lifecycle actions")
+		subID, parseErr := uuid.Parse(nmiSubID)
+		if parseErr == nil {
+			subscription, err = s.SubscriptionService.GetByID(ctx, subID)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				log.WithContext(ctx).WithError(err).WithField("processor_subscription_id", nmiSubID).
+					Warn("Failed to look up subscription for refund (by UUID)")
+			} else if errors.Is(err, sql.ErrNoRows) {
+				log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).
+					Warn("Received refund for unknown subscription (by UUID); continuing without lifecycle actions")
+			}
+		} else {
+			subscription, err = s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, nmiSubID)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				log.WithContext(ctx).WithError(err).WithField("processor_subscription_id", nmiSubID).
+					Warn("Failed to look up subscription for refund (by processor_subscription_id)")
+			} else if errors.Is(err, sql.ErrNoRows) {
+				log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).
+					Warn("Received refund for unknown subscription (by processor_subscription_id); continuing without lifecycle actions")
+			}
 		}
 	}
 
@@ -1362,32 +1375,35 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 		// Use lifecycle service to cancel membership with immediate revocation
 		processor := models.Processor(s.Processor)
 		cancelReason := "Refund processed"
-		if err := s.SubscriptionLifecycleService.CancelMembership(ctx, &CancelMembershipParams{
-			Processor:               &processor,
-			ProcessorSubscriptionID: &nmiSubID,
-			CancelType:              models.CancelTypeMerchant,
-			CancelFeedback:          &cancelReason,
-			RevokeAccess:            true,
-		}); err != nil {
-			log.WithContext(ctx).WithError(err).Error("Failed to cancel membership after refund")
-		} else {
-			log.WithContext(ctx).WithFields(log.Fields{
-				"subscription_id":           subscription.ID,
-				"processor_subscription_id": nmiSubID,
-			}).Info("Subscription cancelled after refund meet threshold")
-			if s.EventLogService != nil {
-				statusCancelled := models.StatusCancelled
-				cancelType := models.CancelTypeMerchant
-				meta := map[string]interface{}{
-					"event_type":           s.Data.EventType,
-					"refund_amount":        refundAmount,
-					"subscription_id":      subscription.ID.String(),
-					"processor":            provider,
-					"status_after":         string(statusCancelled),
-					"previous_status":      string(subscription.Status),
-					"cancelled_via_refund": shouldTerminate,
+		if subscription != nil {
+			if err := s.SubscriptionLifecycleService.CancelMembership(ctx, &CancelMembershipParams{
+				Processor:               &processor,
+				ProcessorSubscriptionID: &nmiSubID,
+				SubscriptionID:          &subscription.ID,
+				CancelType:              models.CancelTypeMerchant,
+				CancelFeedback:          &cancelReason,
+				RevokeAccess:            true,
+			}); err != nil {
+				log.WithContext(ctx).WithError(err).Error("Failed to cancel membership after refund")
+			} else {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"subscription_id":           subscription.ID,
+					"processor_subscription_id": nmiSubID,
+				}).Info("Subscription cancelled after refund meet threshold")
+				if s.EventLogService != nil {
+					statusCancelled := models.StatusCancelled
+					cancelType := models.CancelTypeMerchant
+					meta := map[string]interface{}{
+						"event_type":           s.Data.EventType,
+						"refund_amount":        refundAmount,
+						"subscription_id":      subscription.ID.String(),
+						"processor":            provider,
+						"status_after":         string(statusCancelled),
+						"previous_status":      string(subscription.Status),
+						"cancelled_via_refund": shouldTerminate,
+					}
+					s.logSubscriptionEvent(ctx, subscription, PaymentEventSubscriptionCancelled, nil, meta, &statusCancelled, &cancelType)
 				}
-				s.logSubscriptionEvent(ctx, subscription, PaymentEventSubscriptionCancelled, nil, meta, &statusCancelled, &cancelType)
 			}
 		}
 	}

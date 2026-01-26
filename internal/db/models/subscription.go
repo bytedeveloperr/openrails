@@ -130,7 +130,9 @@ func (s *Subscription) ResetCurrentPeriods() error {
 		emptyTime := time.Time{}
 		s.CurrentPeriodStartsAt = &emptyTime
 		s.CurrentPeriodEndsAt = &emptyTime
-		s.EndedAt = &now
+		nt := now.Add(-2 * time.Minute)
+		// Ensure endedAt is before cancelledAt to satisfy DB constraint
+		s.EndedAt = &nt
 	}
 
 	return nil

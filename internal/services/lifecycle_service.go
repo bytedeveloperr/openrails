@@ -63,10 +63,10 @@ type CancelMembershipParams struct {
 }
 
 type FailMembershipParams struct {
-	Processor               models.Processor
-	ProcessorSubscriptionID string
-	FailureReason           *string
-	FailureCode             *string
+	Processor      models.Processor
+	SubscriptionID *uuid.UUID
+	FailureReason  *string
+	FailureCode    *string
 }
 
 func safeString(value *string) string {
@@ -829,12 +829,6 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 
 		// Update subscription status
 		now := s.now()
-		subscription.Status = models.StatusCancelled
-		subscription.CancelledAt = &now
-		subscription.CancelType = &params.CancelType
-		if params.CancelFeedback != nil {
-			subscription.CancelFeedback = params.CancelFeedback
-		}
 
 		// Set end date to now or current period end based on whether access is revoked
 		if params.RevokeAccess {
@@ -845,6 +839,16 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 			if subscription.CurrentPeriodEndsAt == nil {
 				subscription.EndedAt = &now
 			}
+		}
+
+		// Set cancellation details if ended at is set
+		if params.CancelFeedback != nil && subscription.EndedAt != nil {
+			subscription.Status = models.StatusCancelled
+			subscription.CancelType = &params.CancelType
+			subscription.CancelFeedback = params.CancelFeedback
+			// following code is to ensure chk end_at constraint is not violated
+			cancelTime := subscription.EndedAt.Add(1 * time.Minute)
+			subscription.CancelledAt = &cancelTime
 		}
 
 		if err := subService.Update(ctx, subscription); err != nil {
@@ -1052,7 +1056,7 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 
 	log.WithContext(ctx).WithFields(log.Fields{
 		"processor":                 params.Processor,
-		"processor_subscription_id": params.ProcessorSubscriptionID,
+		"processor_subscription_id": params.SubscriptionID,
 		"failure_reason":            safeString(params.FailureReason),
 		"failure_code":              safeString(params.FailureCode),
 		"dunning_mode":              dunningMode,
@@ -1076,7 +1080,7 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 			}
 		}
 
-		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), provider, params.ProcessorSubscriptionID)
+		subscription, err := subService.GetByID(ctx, *params.SubscriptionID)
 		if err != nil {
 			log.WithContext(ctx).WithError(err).Warn("Failed to locate subscription for failure flow")
 			return fmt.Errorf("subscription not found: %w", err)
@@ -1115,8 +1119,13 @@ func (s *SubscriptionLifecycleService) FailMembership(ctx context.Context, param
 
 			// If we've reached MaxDunningFailures, cancel; otherwise schedule next attempt in DunningInterval
 			if *subscription.RetryAttempts >= MaxDunningFailures {
-				subscription.Status = models.StatusCancelled
-				subscription.EndedAt = &now
+				//subscription.Status = models.StatusCancelled
+				//subscription.CancelledAt = &now
+				// Ensure EndedAt is equal to or after CancelledAt to satisfy DB constraint
+				//subscription.EndedAt = &now
+
+				expired := models.CancelTypeExpired
+				subscription.Cancel("transaction_failure", &expired)
 			} else {
 				nextRetry := now.Add(DunningInterval)
 				subscription.NextRetryAt = &nextRetry
