@@ -1359,8 +1359,6 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 		}
 	}
 
-	log.Println("subscription price", *subscription.Price)
-
 	// Determine if we should terminate subscription based on refund amount
 	shouldTerminate := false
 	if subscription != nil && subscription.Price != nil && subscription.Price.Amount > 0 {
