@@ -20,8 +20,8 @@ func IsAdmin(ctx context.Context, db bun.IDB, userID string) (bool, error) {
 	// Always check admin role live in Postgres (immediate revocation).
 	return db.NewSelect().
 		TableExpr("profiles.user_roles ur").
-		Join("JOIN profiles.roles r ON r.id = ur.role_id").
-		Where("ur.user_id = ? AND r.slug = 'admin' AND r.deleted_at IS NULL", uid).
+		Join("JOIN profiles.roles r ON ur.role_id = r.id").
+		Where("ur.user_id = ? AND r.slug = 'admin' AND r.deleted_at IS NULL AND EXISTS (SELECT 1 FROM profiles.users u WHERE u.id = ? AND u.deleted_at IS NULL AND u.banned_at IS NULL)", uid, uid).
 		Exists(ctx)
 }
 
