@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEmbeddedHandlers_SurfaceSplitting(t *testing.T) {
+func TestEmbeddedHandlers_Surface(t *testing.T) {
 	srv := setupTestServer(t)
 	require.NotNil(t, srv)
 
@@ -40,50 +40,5 @@ func TestEmbeddedHandlers_SurfaceSplitting(t *testing.T) {
 		w := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(w, req)
 		require.NotEqual(t, http.StatusNotFound, w.Code)
-	}
-
-	// Split handlers should expose only their intended surfaces.
-	{
-		// Embedded minimal surfaces should NOT include standalone health endpoints.
-		req := httptest.NewRequest(http.MethodGet, "/health/live", nil)
-		w := httptest.NewRecorder()
-		srv.UserHandler().ServeHTTP(w, req)
-		require.Equal(t, http.StatusNotFound, w.Code)
-	}
-	{
-		req := httptest.NewRequest(http.MethodGet, "/v1/products", nil)
-		w := httptest.NewRecorder()
-		srv.UserHandler().ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code)
-	}
-	{
-		req := httptest.NewRequest(http.MethodGet, "/v1/admin/metrics/summary", nil)
-		w := httptest.NewRecorder()
-		srv.UserHandler().ServeHTTP(w, req)
-		require.Equal(t, http.StatusNotFound, w.Code)
-	}
-	{
-		req := httptest.NewRequest(http.MethodPost, "/v1/webhooks/stripe", nil)
-		w := httptest.NewRecorder()
-		srv.WebhookHandler().ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code)
-	}
-	{
-		req := httptest.NewRequest(http.MethodGet, "/v1/products", nil)
-		w := httptest.NewRecorder()
-		srv.WebhookHandler().ServeHTTP(w, req)
-		require.Equal(t, http.StatusNotFound, w.Code)
-	}
-	{
-		req := httptest.NewRequest(http.MethodGet, "/v1/admin/metrics/summary", nil)
-		w := httptest.NewRecorder()
-		srv.AdminHandler().ServeHTTP(w, req)
-		require.NotEqual(t, http.StatusNotFound, w.Code)
-	}
-	{
-		req := httptest.NewRequest(http.MethodGet, "/v1/products", nil)
-		w := httptest.NewRecorder()
-		srv.AdminHandler().ServeHTTP(w, req)
-		require.Equal(t, http.StatusNotFound, w.Code)
 	}
 }

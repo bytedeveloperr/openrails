@@ -166,20 +166,21 @@ go func() {
 
 ## Handlers
 
-The embedded instance provides several HTTP handlers:
+The embedded instance provides HTTP handlers suitable for mounting under a prefix (e.g. `/billing`) via `http.StripPrefix`.
 
 ```go
-// Full billing API (user + admin + webhooks)
+// Full public billing API (health + user + admin + webhooks; debug routes in dev only)
 billing.Handler() http.Handler
 
-// User-facing routes only (/v1/checkout, /v1/me/*, etc.)
-billing.UserHandler() http.Handler
+// Selective handler (choose route groups)
+billing.NewHTTPHandler(embedded.HTTPHandlerOptions{
+	IncludeUser:     true,
+	IncludeAdmin:    true,
+	IncludeWebhooks: true,
+})
 
-// Admin routes only (/v1/admin/*)
-billing.AdminHandler() http.Handler
-
-// Webhook routes only (/v1/webhooks/*)
-billing.WebhookHandler() http.Handler
+// Internal service-to-service API (X-API-KEY protected; standalone private port)
+billing.PrivateHandler() http.Handler
 ```
 
 ## In-Process Service API

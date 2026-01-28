@@ -53,6 +53,9 @@ func getSharedTestSuite(t *testing.T) *TestContainerSuite {
 	sharedSuiteOnce.Do(func() {
 		sharedSuite = NewTestContainerSuite(t)
 	})
+	// The suite is shared across tests; keep its t handle fresh to avoid panics
+	// when helpers call require/assert via suite.t.
+	sharedSuite.t = t
 	return sharedSuite
 }
 

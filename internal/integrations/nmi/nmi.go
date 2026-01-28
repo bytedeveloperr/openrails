@@ -1020,7 +1020,7 @@ func (c *NMIClient) QueryRecurringSubscriptions(params RecurringQueryParams) (st
 	}
 
 	values := url.Values{
-		"report_type": {"recurring"},
+		"report_type":  {"recurring"},
 		"security_key": {c.SecurityKey},
 	}
 

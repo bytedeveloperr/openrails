@@ -580,10 +580,10 @@ func TestDunningMaxRetriesFailsSubscription(t *testing.T) {
 		failureReason := "Card declined"
 		failureCode := "05"
 		err := lifecycleService.FailMembership(ctx, &services.FailMembershipParams{
-			Processor:               models.ProcessorMobius,
-			ProcessorSubscriptionID: processorSubID,
-			FailureReason:           &failureReason,
-			FailureCode:             &failureCode,
+			Processor:      models.ProcessorMobius,
+			SubscriptionID: &sub.ID,
+			FailureReason:  &failureReason,
+			FailureCode:    &failureCode,
 		})
 		require.NoError(t, err)
 
@@ -677,8 +677,7 @@ func TestDunningSuccessReactivates(t *testing.T) {
 		// Simulate successful rebill via RenewMembership
 		// RenewMembership uses the mock clock for period calculations
 		err := lifecycleService.RenewMembership(ctx, &services.RenewMembershipParams{
-			Processor:               models.ProcessorMobius,
-			ProcessorSubscriptionID: processorSubID,
+			Processor: models.ProcessorMobius,
 		})
 		require.NoError(t, err)
 
@@ -777,8 +776,7 @@ func TestSubscriptionRenewalWithMockClock(t *testing.T) {
 	t.Run("renewal extends period by billing cycle days", func(t *testing.T) {
 		// Simulate renewal webhook
 		err := lifecycleService.RenewMembership(ctx, &services.RenewMembershipParams{
-			Processor:               models.ProcessorMobius,
-			ProcessorSubscriptionID: processorSubID,
+			Processor: models.ProcessorMobius,
 		})
 		require.NoError(t, err)
 
