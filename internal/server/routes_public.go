@@ -89,18 +89,6 @@ func (s *Server) registerStandaloneMetaRoutes(e *gin.Engine) {
 	e.GET("/readyz", s.readyHandler)
 }
 
-func (s *Server) registerPublicRoutes() {
-	// Standalone public handler: full surface area for convenience.
-	s.registerStandaloneMetaRoutes(s.publicHandler)
-	s.registerDebugRoutes(s.publicHandler)
-	s.registerUserRoutes(s.publicHandler)
-	s.registerWebhookRoutes(s.publicHandler)
-
-	// Embedded split handlers: allow hosts to mount only what they need.
-	s.registerUserRoutes(s.userHandler)
-	s.registerWebhookRoutes(s.webhookHandler)
-}
-
 func (s *Server) readyHandler(c *gin.Context) {
 	ctx := c.Request.Context()
 	checks := gin.H{

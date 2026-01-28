@@ -17,9 +17,11 @@ import (
 	"github.com/doujins-org/doujins-billing/internal/server"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jonboulle/clockwork"
 	_ "github.com/lib/pq" // PostgreSQL driver for schema creation
 	"github.com/redis/go-redis/v9"
+	"github.com/riverqueue/river"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -255,6 +257,45 @@ func (suite *TestContainerSuite) runDatabaseMigrations() {
 	`)
 	require.NoError(suite.t, err)
 
+	// Minimal profiles schema for integration tests (admin roles + webhook username resolution).
+	_, err = sqlDB.ExecContext(suite.ctx, `
+		CREATE TABLE IF NOT EXISTS profiles.users (
+			id uuid PRIMARY KEY,
+			username text NULL,
+			email text NULL,
+			email_verified boolean NOT NULL DEFAULT false,
+			is_active boolean NOT NULL DEFAULT true,
+			deleted_at timestamptz NULL,
+			banned_at timestamptz NULL,
+			discord_username text NULL,
+			created_at timestamptz NOT NULL DEFAULT now(),
+			updated_at timestamptz NOT NULL DEFAULT now()
+		);
+		CREATE UNIQUE INDEX IF NOT EXISTS users_username_unique ON profiles.users (username) WHERE username IS NOT NULL;
+
+		CREATE TABLE IF NOT EXISTS profiles.roles (
+			id bigserial PRIMARY KEY,
+			slug text NOT NULL UNIQUE,
+			name text NOT NULL,
+			deleted_at timestamptz NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS profiles.user_roles (
+			user_id uuid NOT NULL REFERENCES profiles.users(id) ON DELETE CASCADE,
+			role_id bigint NOT NULL REFERENCES profiles.roles(id) ON DELETE CASCADE,
+			PRIMARY KEY (user_id, role_id)
+		);
+
+		CREATE OR REPLACE FUNCTION profiles.role_id(p_slug text)
+		RETURNS bigint
+		LANGUAGE sql
+		STABLE
+		AS $$
+			SELECT id FROM profiles.roles WHERE slug = p_slug
+		$$;
+	`)
+	require.NoError(suite.t, err)
+
 	// Run all migrations using the migrate package
 	err = migrate.RunPostgres(suite.ctx, suite.Config)
 	require.NoError(suite.t, err)
@@ -473,7 +514,7 @@ func (suite *TestContainerSuite) GetClock() clockwork.Clock {
 
 // GetRiverClient returns the River client for job enqueueing and inspection.
 // Returns nil if River is not initialized.
-func (suite *TestContainerSuite) GetRiverClient() interface{} {
+func (suite *TestContainerSuite) GetRiverClient() *river.Client[pgx.Tx] {
 	if suite.App == nil || suite.App.Runtime == nil {
 		return nil
 	}

@@ -216,7 +216,7 @@ func TestSolanaPayPostEndpoint(t *testing.T) {
 
 		// Use mock NMI to allow this request to succeed
 		suiteWithNMI, _ := SetupSuiteWithMockNMI(t)
-		suiteWithNMI.Config.Solana = suite.Config.Solana
+		suiteWithNMI.Config.Processors["solana"] = suite.Config.Processors["solana"]
 		products2 := suiteWithNMI.SeedProducts()
 		mobiusPriceID2 := products2[0].Prices[0].ID
 

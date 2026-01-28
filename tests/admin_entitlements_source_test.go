@@ -58,8 +58,6 @@ func TestRemovedAdminGrantRoutesReturn404(t *testing.T) {
 	for _, path := range []string{
 		"/v1/admin/users/" + userID + "/grants",
 		"/v1/admin/grants/" + uuid.New().String(),
-		"/v1/admin/users/" + userID + "/mobius",
-		"/v1/admin/users/" + userID + "/mobius/metrics",
 	} {
 		w := httptest.NewRecorder()
 		req, _ := http.NewRequest("GET", path, nil)

@@ -37,17 +37,13 @@ type Server struct {
 	adminAuth     *authgin.Auth
 	adminAuthPool *pgxpool.Pool
 
-	// publicHandler is the standalone "full surface" HTTP handler.
-	// It includes user + admin + webhook routes.
+	// publicHandler is the default "full surface" HTTP handler.
+	// It includes health + debug (dev only) + user + admin + webhook routes.
 	publicHandler *gin.Engine
 
-	// The split handlers below are primarily intended for embedded hosts that want to mount only
-	// the minimal required surface area.
-	userHandler    *gin.Engine // user/public billing APIs (and health)
-	adminHandler   *gin.Engine // admin-only APIs (JWT + admin role required)
-	webhookHandler *gin.Engine // processor webhooks (e.g. Stripe)
-
-	privateHandler *gin.Engine // service API (X-API-KEY auth)
+	// privateHandler is the service-to-service API (X-API-KEY auth).
+	// This runs on a separate port and should only be accessible within the Docker network.
+	privateHandler *gin.Engine
 }
 
 func New(deps Dependencies) (*Server, error) {
@@ -72,45 +68,68 @@ func New(deps Dependencies) (*Server, error) {
 		authProvider: deps.AuthProvider,
 	}
 
-	s.setupHandlers()
+	s.setupPrivateHandler()
 	if err := s.initAdminAuthKit(); err != nil {
 		return nil, err
 	}
-	s.registerPublicRoutes()
-	s.registerAdminRoutes()
+
+	// Default (standalone-friendly) HTTP surface.
+	// Standalone mode owns service-level health/debug routes.
+	s.publicHandler = s.newPublicEngine()
+	s.registerStandaloneMetaRoutes(s.publicHandler)
+	s.registerDebugRoutes(s.publicHandler)
+	s.registerUserRoutes(s.publicHandler)
+	s.registerAdminRoutesOn(s.publicHandler)
+	s.registerWebhookRoutes(s.publicHandler)
+
+	// Private/service API surface.
 	s.registerServiceRoutes()
 
 	log.Info("Billing service initialized successfully")
 	return s, nil
 }
 
-func (s *Server) setupHandlers() {
-	newPublicEngine := func() *gin.Engine {
-		e := gin.New()
-		e.Use(gin.Recovery())
-		e.Use(gin.LoggerWithConfig(gin.LoggerConfig{
-			SkipPaths: []string{"/health/live", "/health/ready", "/healthz", "/readyz", "/health"},
-		}))
-		e.Use(middleware.CORS(s.cfg.CorsOrigins))
-		e.Use(middleware.RateLimit(s.cfg.RateLimits, s.rdb))
-		return e
-	}
+func (s *Server) newPublicEngine() *gin.Engine {
+	e := gin.New()
+	e.Use(gin.Recovery())
+	e.Use(gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipPaths: []string{"/health/live", "/health/ready", "/healthz", "/readyz", "/health"},
+	}))
+	e.Use(middleware.CORS(s.cfg.CorsOrigins))
+	e.Use(middleware.RateLimit(s.cfg.RateLimits, s.rdb))
+	return e
+}
 
-	// Standalone handler (full surface).
-	s.publicHandler = newPublicEngine()
-
-	// Embedded-friendly split handlers.
-	s.userHandler = newPublicEngine()
-	s.adminHandler = newPublicEngine()
-	s.webhookHandler = newPublicEngine()
-
-	// Private handler for service-to-service API (X-API-KEY auth)
-	// This runs on a separate port and should only be accessible within the Docker network
+func (s *Server) setupPrivateHandler() {
 	s.privateHandler = gin.New()
 	s.privateHandler.Use(gin.Recovery())
 	s.privateHandler.Use(gin.Logger())
-	// No CORS needed for internal service-to-service calls
-	// Rate limiting could be added if needed
+	// No CORS needed for internal service-to-service calls.
+}
+
+func (s *Server) newHTTPHandlerEngine(opts HTTPHandlerOptions) *gin.Engine {
+	opts = opts.withDefaults()
+	e := s.newPublicEngine()
+
+	if opts.IncludeUser {
+		s.registerUserRoutes(e)
+	}
+	if opts.IncludeAdmin {
+		s.registerAdminRoutesOn(e)
+	}
+	if opts.IncludeWebhooks {
+		s.registerWebhookRoutes(e)
+	}
+	return e
+}
+
+// NewHTTPHandler returns a single mountable `http.Handler` for the selected route groups.
+//
+// Intended for embedded hosts. Mount via an outer mux and `http.StripPrefix`, e.g.:
+//
+//	mux.Handle("/billing/", http.StripPrefix("/billing", handler))
+func (s *Server) NewHTTPHandler(opts HTTPHandlerOptions) http.Handler {
+	return s.newHTTPHandlerEngine(opts)
 }
 
 func (s *Server) wrap(fn func(r *handlers.Request)) func(c *gin.Context) {
@@ -119,16 +138,12 @@ func (s *Server) wrap(fn func(r *handlers.Request)) func(c *gin.Context) {
 	}
 }
 
-func (s *Server) Handler() http.Handler        { return s.publicHandler }
+// Handler returns the full public HTTP surface (health + debug (dev only) + user + admin + webhooks).
+// It is designed to be mounted at a path prefix via http.StripPrefix.
+func (s *Server) Handler() http.Handler { return s.publicHandler }
+
+// PrivateHandler returns the internal service-to-service HTTP API (X-API-KEY protected).
 func (s *Server) PrivateHandler() http.Handler { return s.privateHandler }
-
-func (s *Server) UserHandler() http.Handler    { return s.userHandler }
-func (s *Server) AdminHandler() http.Handler   { return s.adminHandler }
-func (s *Server) WebhookHandler() http.Handler { return s.webhookHandler }
-
-// ServiceHandler returns the internal service-to-service HTTP API (X-API-KEY protected).
-// Embedded hosts should typically NOT mount this; use the in-process Go API (`pkg/service`) instead.
-func (s *Server) ServiceHandler() http.Handler { return s.privateHandler }
 
 // Close currently does not own underlying resources; callers should close the App.
 func (s *Server) Close(_ context.Context) error {

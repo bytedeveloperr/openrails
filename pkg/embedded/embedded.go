@@ -85,32 +85,37 @@ func (e *Embedded) Handler() http.Handler {
 	return e.server.Handler()
 }
 
+// HTTPHandlerOptions controls which billing HTTP route groups are included in the returned handler.
+//
+// If all fields are false (zero value), the options default to user + admin + webhooks.
+//
+// Note: billing health endpoints are not exposed in embedded mode.
+// If a host wants billing readiness, call IsBillingReady and include it in the host's /readyz.
+type HTTPHandlerOptions struct {
+	IncludeUser     bool
+	IncludeAdmin    bool
+	IncludeWebhooks bool
+}
+
+// NewHTTPHandler returns a single mountable `http.Handler` for the selected route groups.
+//
+// Mount it under a prefix via `http.StripPrefix`, e.g. `/billing`.
+func (e *Embedded) NewHTTPHandler(opts HTTPHandlerOptions) http.Handler {
+	if e == nil || e.server == nil {
+		return nil
+	}
+	return e.server.NewHTTPHandler(server.HTTPHandlerOptions{
+		IncludeUser:     opts.IncludeUser,
+		IncludeAdmin:    opts.IncludeAdmin,
+		IncludeWebhooks: opts.IncludeWebhooks,
+	})
+}
+
 // UserHandler exposes user/public billing APIs (and health endpoints).
 // Mount this under a prefix like `/billing`.
-func (e *Embedded) UserHandler() http.Handler {
-	if e == nil || e.server == nil {
-		return nil
-	}
-	return e.server.UserHandler()
-}
-
 // AdminHandler exposes admin billing APIs (JWT + admin role required).
 // Embedded hosts should mount this only if they have an admin UI/tooling.
-func (e *Embedded) AdminHandler() http.Handler {
-	if e == nil || e.server == nil {
-		return nil
-	}
-	return e.server.AdminHandler()
-}
-
 // WebhookHandler exposes billing processor webhooks (e.g. Stripe callbacks).
-func (e *Embedded) WebhookHandler() http.Handler {
-	if e == nil || e.server == nil {
-		return nil
-	}
-	return e.server.WebhookHandler()
-}
-
 // PrivateHandler is the internal service-to-service HTTP API (X-API-KEY protected).
 //
 // Deprecated: Embedded hosts should not mount this in most cases. Prefer using the in-process
@@ -124,13 +129,6 @@ func (e *Embedded) PrivateHandler() http.Handler {
 
 // ServiceHandler returns the internal service-to-service HTTP API (X-API-KEY protected).
 // Embedded hosts should typically NOT mount this; use `Embedded.Service()` instead.
-func (e *Embedded) ServiceHandler() http.Handler {
-	if e == nil || e.server == nil {
-		return nil
-	}
-	return e.server.ServiceHandler()
-}
-
 // Service returns the in-process billing API for embedded hosts.
 func (e *Embedded) Service() (*service.Service, error) {
 	if e == nil || e.app == nil {
