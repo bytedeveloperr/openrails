@@ -88,6 +88,7 @@ func RateLimit(rateLimiterConfig *config.RateLimitsConfig, rdb *redis.Client) gi
 				"bucket":    bucket,
 			}).Warn("Rate limit exceeded")
 			response.TooManyRequests(c, "Rate limit exceeded")
+			c.Abort()
 			return
 		}
 

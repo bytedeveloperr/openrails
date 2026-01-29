@@ -33,6 +33,9 @@ type SolanaPayPoller struct {
 	mu      sync.Mutex
 	running bool
 	stopCh  chan struct{}
+
+	retryMu    sync.Mutex
+	retryAfter map[string]time.Time
 }
 
 // NewSolanaPayPoller creates a new poller for Solana Pay payments
@@ -59,6 +62,7 @@ func NewSolanaPayPoller(
 		solanaTransactionSvc:   solanaTransactionService,
 		checkoutService:        checkoutService,
 		checkoutSessionService: checkoutSessionService,
+		retryAfter:             make(map[string]time.Time),
 	}
 }
 
@@ -136,15 +140,21 @@ func (p *SolanaPayPoller) pollPendingPayments(ctx context.Context) {
 
 // checkPayment checks a single payment reference for confirmation
 func (p *SolanaPayPoller) checkPayment(ctx context.Context, reference string) {
+	if !p.shouldAttempt(reference) {
+		return
+	}
+
 	// Get the pending payment details from Redis
 	pending, err := p.solanaPayService.GetPendingPayment(ctx, reference)
 	if err != nil {
 		log.WithError(err).WithField("reference", reference).Warn("Failed to get pending payment")
+		p.deferRetry(reference, err)
 		return
 	}
 	if pending == nil {
 		// Payment expired, clean up the set
 		p.solanaPayService.RemovePendingPayment(ctx, reference)
+		p.clearRetry(reference)
 		return
 	}
 
@@ -153,8 +163,10 @@ func (p *SolanaPayPoller) checkPayment(ctx context.Context, reference string) {
 	sigs, err := p.rpc.GetSignaturesForAddress(ctx, reference, limit)
 	if err != nil {
 		log.WithError(err).WithField("reference", reference).Debug("Failed to get signatures for reference")
+		p.deferRetry(reference, err)
 		return
 	}
+	p.clearRetry(reference)
 
 	if len(sigs) == 0 {
 		return // No transactions yet
@@ -183,9 +195,48 @@ func (p *SolanaPayPoller) checkPayment(ctx context.Context, reference string) {
 
 			// Remove from pending set
 			p.solanaPayService.RemovePendingPayment(ctx, reference)
+			p.clearRetry(reference)
 			return
 		}
 	}
+}
+
+func (p *SolanaPayPoller) shouldAttempt(reference string) bool {
+	p.retryMu.Lock()
+	defer p.retryMu.Unlock()
+
+	next, ok := p.retryAfter[reference]
+	if !ok {
+		return true
+	}
+	if time.Now().Before(next) {
+		return false
+	}
+	return true
+}
+
+func (p *SolanaPayPoller) clearRetry(reference string) {
+	p.retryMu.Lock()
+	defer p.retryMu.Unlock()
+	delete(p.retryAfter, reference)
+}
+
+func (p *SolanaPayPoller) deferRetry(reference string, err error) {
+	if reference == "" {
+		return
+	}
+
+	backoff := time.Minute
+	if err != nil {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "too many requests") || strings.Contains(lower, "429") {
+			backoff = 2 * time.Minute
+		}
+	}
+
+	p.retryMu.Lock()
+	p.retryAfter[reference] = time.Now().Add(backoff)
+	p.retryMu.Unlock()
 }
 
 // verifyPayment validates that a transaction matches our expected payment

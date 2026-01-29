@@ -2,6 +2,7 @@ package solana
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -9,6 +10,7 @@ import (
 
 	solanago "github.com/doujins-org/solana-go"
 	"github.com/doujins-org/solana-go/rpc"
+	"github.com/doujins-org/solana-go/rpc/jsonrpc"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -27,7 +29,7 @@ type RPCFallbackClient struct {
 	mu        sync.RWMutex
 
 	// Track endpoint health for smart failover
-	failures map[int]time.Time // endpoint index -> last failure time
+	failures map[int]time.Time // endpoint index -> next retry time
 }
 
 // RPCFallbackConfig holds configuration for building the fallback chain.
@@ -172,6 +174,9 @@ func NewRPCFallbackClient(cfg RPCFallbackConfig) *RPCFallbackClient {
 // failureCooldown is how long we wait before retrying a failed endpoint.
 const failureCooldown = 30 * time.Second
 
+// rateLimitCooldown is how long we wait before retrying an endpoint that returned 429.
+const rateLimitCooldown = 2 * time.Minute
+
 // getActiveEndpoints returns endpoints that aren't in cooldown, preserving priority order.
 func (c *RPCFallbackClient) getActiveEndpoints() []int {
 	c.mu.RLock()
@@ -181,8 +186,8 @@ func (c *RPCFallbackClient) getActiveEndpoints() []int {
 	active := make([]int, 0, len(c.endpoints))
 
 	for i := range c.endpoints {
-		if failTime, failed := c.failures[i]; failed {
-			if now.Sub(failTime) < failureCooldown {
+		if retryAt, failed := c.failures[i]; failed {
+			if now.Before(retryAt) {
 				continue // Still in cooldown
 			}
 		}
@@ -200,10 +205,13 @@ func (c *RPCFallbackClient) getActiveEndpoints() []int {
 }
 
 // markFailed records a failure for an endpoint.
-func (c *RPCFallbackClient) markFailed(idx int) {
+func (c *RPCFallbackClient) markFailed(idx int, cooldown time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.failures[idx] = time.Now()
+	if cooldown <= 0 {
+		cooldown = failureCooldown
+	}
+	c.failures[idx] = time.Now().Add(cooldown)
 
 	log.WithFields(log.Fields{
 		"endpoint": c.endpoints[idx].Name,
@@ -216,6 +224,24 @@ func (c *RPCFallbackClient) markSuccess(idx int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	delete(c.failures, idx)
+}
+
+func isRateLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var rpcErr *jsonrpc.RPCError
+	if errors.As(err, &rpcErr) && rpcErr.Code == 429 {
+		return true
+	}
+
+	var httpErr *jsonrpc.HTTPError
+	if errors.As(err, &httpErr) && httpErr.Code == 429 {
+		return true
+	}
+
+	return strings.Contains(strings.ToLower(err.Error()), "too many requests")
 }
 
 // withFallback executes a function against RPC endpoints with automatic failover.
@@ -235,13 +261,18 @@ func (c *RPCFallbackClient) withFallback(ctx context.Context, operation string, 
 		}
 
 		lastErr = err
-		c.markFailed(idx)
+		cooldown := failureCooldown
+		if isRateLimitError(err) {
+			cooldown = rateLimitCooldown
+		}
+
+		c.markFailed(idx, cooldown)
 
 		log.WithFields(log.Fields{
 			"endpoint":  endpoint.Name,
 			"operation": operation,
 			"error":     err.Error(),
-		}).Debug("RPC operation failed, trying next endpoint")
+		}).Info("RPC operation failed, trying next endpoint")
 	}
 
 	return fmt.Errorf("all RPC endpoints failed for %s: %w", operation, lastErr)
