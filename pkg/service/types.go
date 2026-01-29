@@ -407,15 +407,12 @@ type UnreadNotificationCount struct {
 
 // CreditBalance represents a user's credit balance for a specific type.
 type CreditBalance struct {
-	Type           string
-	DisplayName    string
-	Unit           string
-	DecimalPlaces  int
-	Balance        int64
-	HeldBalance    int64
-	Permanent      int64
-	Expiring       int64
-	EarliestExpiry *int64 // Unix epoch seconds
+	Type          string
+	DisplayName   string
+	Unit          string
+	DecimalPlaces int
+	Balance       int64
+	HeldBalance   int64
 }
 
 // GetCreditTransactionsOptions specifies filters for listing credit transactions.

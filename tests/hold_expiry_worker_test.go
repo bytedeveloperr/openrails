@@ -44,8 +44,6 @@ func (suite *TestContainerSuite) createTestCreditBalance(userID string, creditTy
 		CreditTypeID: creditTypeID,
 		Balance:      balance,
 		HeldBalance:  heldBalance,
-		Permanent:    balance,
-		Expiring:     0,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}

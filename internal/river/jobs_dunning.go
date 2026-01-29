@@ -129,12 +129,13 @@ func (w *DunningWorker) Work(ctx context.Context, job *river.Job[DunningArgs]) e
 	paymentSvc := services.NewPaymentService(w.DB)
 	lifecycle := services.NewSubscriptionLifecycleService(w.DB, productSvc, priceSvc, entitlementSvc, notifSvc, paymentSvc, w.EventLogService)
 	lifecycle.SetConfig(w.Config) // For feature flag access
+	creditsSvc := services.NewCreditsService(w.DB)
 
 	successCount := 0
 	failCount := 0
 
 	for _, sub := range dueSubscriptions {
-		result := w.processSubscription(ctx, &sub, lifecycle, priceSvc, paymentSvc)
+		result := w.processSubscription(ctx, &sub, lifecycle, priceSvc, paymentSvc, creditsSvc)
 		if result {
 			successCount++
 		} else {
@@ -159,6 +160,7 @@ func (w *DunningWorker) processSubscription(
 	lifecycle *services.SubscriptionLifecycleService,
 	priceSvc *services.PriceService,
 	paymentSvc *services.PaymentService,
+	creditsSvc *services.CreditsService,
 ) bool {
 	logEntry := log.WithContext(ctx).WithField("subscription_id", sub.ID)
 
@@ -265,6 +267,27 @@ func (w *DunningWorker) processSubscription(
 			_ = w.IdempotencyService.Fail(ctx, idemOp, idemKey, err)
 		}
 		return false
+	}
+
+	if creditsSvc != nil {
+		var updated models.Subscription
+		if err := w.DB.GetDB().NewSelect().
+			Model(&updated).
+			Column("id", "current_period_ends_at").
+			Where("id = ?", sub.ID).
+			Limit(1).
+			Scan(ctx); err != nil {
+			logEntry.WithError(err).Warn("load subscription after rebill for credit grants")
+		} else if updated.CurrentPeriodEndsAt != nil && !updated.CurrentPeriodEndsAt.IsZero() {
+			if err := creditsSvc.GrantSubscriptionCredits(ctx, services.GrantSubscriptionCreditsParams{
+				SubscriptionID: sub.ID,
+				PeriodEnd:      updated.CurrentPeriodEndsAt.UTC(),
+				Cadence:        models.CreditGrantCadencePerRenewal,
+				Source:         "subscription_renewal",
+			}); err != nil {
+				logEntry.WithError(err).Warn("grant subscription credits after successful rebill")
+			}
+		}
 	}
 
 	// Create payment record

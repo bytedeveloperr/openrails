@@ -69,8 +69,6 @@ func (s *CreditsService) GetBalance(ctx context.Context, userID string, creditTy
 			CreditTypeID: ct.ID,
 			Balance:      0,
 			HeldBalance:  0,
-			Permanent:    0,
-			Expiring:     0,
 		}, nil
 	}
 	return nil, err
@@ -125,6 +123,9 @@ func (s *CreditsService) Deposit(ctx context.Context, params CreditDepositParams
 	if err != nil {
 		return nil, err
 	}
+	if !ct.IsActive {
+		return nil, ErrCreditTypeInactive
+	}
 
 	tx, err := s.db.GetDB().(*bun.DB).BeginTx(ctx, nil)
 	if err != nil {
@@ -132,32 +133,56 @@ func (s *CreditsService) Deposit(ctx context.Context, params CreditDepositParams
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	trx, err := s.depositTx(ctx, tx, ct, params)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return trx, nil
+}
+
+func (s *CreditsService) getCreditTypeByNameTx(ctx context.Context, tx bun.Tx, name string) (*models.CreditType, error) {
+	ct := new(models.CreditType)
+	if err := tx.NewSelect().Model(ct).Where("name = ?", name).Limit(1).Scan(ctx); err != nil {
+		return nil, err
+	}
+	return ct, nil
+}
+
+func (s *CreditsService) depositTx(ctx context.Context, tx bun.Tx, ct *models.CreditType, params CreditDepositParams) (*models.CreditTransaction, error) {
 	now := s.now()
 	bal, err := s.lockBalance(ctx, tx, params.UserID, ct.ID)
 	if err != nil {
 		return nil, err
 	}
-	newBal := bal.Balance + params.Amount
-	newPermanent := bal.Permanent
-	newExpiring := bal.Expiring
-	var earliest *time.Time
-	if bal.EarliestExpiry != nil {
-		earliest = bal.EarliestExpiry
-	}
-	if params.ExpiresAt != nil {
-		newExpiring += params.Amount
-		if earliest == nil || params.ExpiresAt.Before(*earliest) {
-			earliest = params.ExpiresAt
+
+	// Idempotency: if caller provides SourceID, treat (user_id, credit_type_id, source, source_id)
+	// as an idempotency key for deposits. This is safe because we lock the user_credit_balances row
+	// for UPDATE, serializing deposits per user+credit_type.
+	if params.SourceID != nil {
+		existing := new(models.CreditTransaction)
+		err := tx.NewSelect().
+			Model(existing).
+			Where("user_id = ? AND credit_type_id = ?", params.UserID, ct.ID).
+			Where("transaction_type = 'deposit'").
+			Where("source = ? AND source_id = ?", params.Source, *params.SourceID).
+			Limit(1).
+			Scan(ctx)
+		if err == nil {
+			return existing, nil
 		}
-	} else {
-		newPermanent += params.Amount
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
 	}
+
+	newBal := bal.Balance + params.Amount
 
 	if _, err := tx.NewUpdate().Model((*models.UserCreditBalance)(nil)).
 		Set("balance = ?", newBal).
-		Set("permanent_balance = ?", newPermanent).
-		Set("expiring_balance = ?", newExpiring).
-		Set("earliest_expiry = ?", earliest).
 		Set("updated_at = ?", now).
 		Where("user_id = ? AND credit_type_id = ?", params.UserID, ct.ID).
 		Exec(ctx); err != nil {
@@ -194,9 +219,6 @@ func (s *CreditsService) Deposit(ctx context.Context, params CreditDepositParams
 		}
 	}
 
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
 	return trx, nil
 }
 
@@ -218,6 +240,9 @@ func (s *CreditsService) Withdraw(ctx context.Context, params CreditWithdrawPara
 	ct, err := s.GetCreditTypeByName(ctx, params.CreditType)
 	if err != nil {
 		return nil, err
+	}
+	if !ct.IsActive {
+		return nil, ErrCreditTypeInactive
 	}
 
 	tx, err := s.db.GetDB().(*bun.DB).BeginTx(ctx, nil)
@@ -247,6 +272,9 @@ func (s *CreditsService) Hold(ctx context.Context, userID string, creditType str
 	ct, err := s.GetCreditTypeByName(ctx, creditType)
 	if err != nil {
 		return nil, err
+	}
+	if !ct.IsActive {
+		return nil, ErrCreditTypeInactive
 	}
 
 	tx, err := s.db.GetDB().(*bun.DB).BeginTx(ctx, nil)
@@ -411,8 +439,6 @@ func (s *CreditsService) lockBalance(ctx context.Context, tx bun.Tx, userID stri
 		CreditTypeID: creditTypeID,
 		Balance:      0,
 		HeldBalance:  0,
-		Permanent:    0,
-		Expiring:     0,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
@@ -434,54 +460,38 @@ func (s *CreditsService) withdrawTx(ctx context.Context, tx bun.Tx, creditTypeID
 	}
 
 	remaining := params.Amount
-	if bal.Expiring > 0 {
-		var batches []models.CreditExpiryBatch
-		if err := tx.NewSelect().Model(&batches).
-			Where("user_id = ? AND credit_type_id = ? AND remaining_amount > 0 AND expires_at > ?", params.UserID, creditTypeID, now).
-			OrderExpr("expires_at ASC").
-			For("UPDATE").
-			Scan(ctx); err != nil {
+	var batches []models.CreditExpiryBatch
+	if err := tx.NewSelect().Model(&batches).
+		Where("user_id = ? AND credit_type_id = ? AND remaining_amount > 0 AND expires_at > ?", params.UserID, creditTypeID, now).
+		OrderExpr("expires_at ASC").
+		For("UPDATE").
+		Scan(ctx); err != nil {
+		return nil, err
+	}
+	for i := range batches {
+		if remaining == 0 {
+			break
+		}
+		use := batches[i].RemainingAmount
+		if use > remaining {
+			use = remaining
+		}
+		if use <= 0 {
+			continue
+		}
+		batches[i].RemainingAmount -= use
+		remaining -= use
+		if _, err := tx.NewUpdate().Model(&batches[i]).
+			Column("remaining_amount").
+			WherePK().
+			Exec(ctx); err != nil {
 			return nil, err
 		}
-		for i := range batches {
-			if remaining == 0 {
-				break
-			}
-			use := batches[i].RemainingAmount
-			if use > remaining {
-				use = remaining
-			}
-			batches[i].RemainingAmount -= use
-			remaining -= use
-			bal.Expiring -= use
-			if _, err := tx.NewUpdate().Model(&batches[i]).
-				Column("remaining_amount").
-				WherePK().
-				Exec(ctx); err != nil {
-				return nil, err
-			}
-		}
-	}
-	if remaining > 0 {
-		bal.Permanent -= remaining
-		remaining = 0
 	}
 	bal.Balance -= params.Amount
 
-	var earliest *time.Time
-	var next time.Time
-	if err := tx.NewSelect().Model((*models.CreditExpiryBatch)(nil)).
-		ColumnExpr("min(expires_at)").
-		Where("user_id = ? AND credit_type_id = ? AND remaining_amount > 0 AND expires_at > ?", params.UserID, creditTypeID, now).
-		Scan(ctx, &next); err == nil && !next.IsZero() {
-		earliest = &next
-	}
-
 	if _, err := tx.NewUpdate().Model((*models.UserCreditBalance)(nil)).
 		Set("balance = ?", bal.Balance).
-		Set("permanent_balance = ?", bal.Permanent).
-		Set("expiring_balance = ?", bal.Expiring).
-		Set("earliest_expiry = ?", earliest).
 		Set("updated_at = ?", now).
 		Where("user_id = ? AND credit_type_id = ?", params.UserID, creditTypeID).
 		Exec(ctx); err != nil {

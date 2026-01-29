@@ -24,9 +24,9 @@ type Spool struct {
 }
 
 const (
-	defaultSpoolDir        = "/var/lib/openrails/spool"
+	defaultSpoolDir         = "/var/lib/openrails/spool"
 	legacyOpenRailsSpoolDir = "/var/lib/openrails-billing/spool"
-	legacySpoolDir         = "/var/lib/doujins-billing/spool"
+	legacySpoolDir          = "/var/lib/doujins-billing/spool"
 )
 
 func dirExists(path string) bool {

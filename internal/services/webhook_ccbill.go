@@ -36,6 +36,7 @@ type CCBillWebhookService struct {
 	PaymentService               *PaymentService
 	DeduplicationService         *DeduplicationService
 	CheckoutSessionService       *CheckoutSessionService
+	CreditsService               *CreditsService
 }
 
 // now returns the current time from the service's clock, or time.Now() if no clock is set.
@@ -44,6 +45,42 @@ func (s *CCBillWebhookService) now() time.Time {
 		return s.Clock.Now()
 	}
 	return time.Now()
+}
+
+func parseCCBillTimestamp(ts string) (time.Time, error) {
+	ts = strings.TrimSpace(ts)
+	if ts == "" {
+		return time.Time{}, fmt.Errorf("timestamp is empty")
+	}
+	// CCBill webhooks use "YYYY-MM-DD HH:MM:SS" without timezone.
+	// Treat as UTC for deterministic behavior.
+	return time.ParseInLocation("2006-01-02 15:04:05", ts, time.UTC)
+}
+
+func parseCCBillDate(dateStr string) (time.Time, error) {
+	dateStr = strings.TrimSpace(dateStr)
+	if dateStr == "" {
+		return time.Time{}, fmt.Errorf("date is empty")
+	}
+	return time.ParseInLocation("2006-01-02", dateStr, time.UTC)
+}
+
+// parseCCBillDateUsingTimestamp parses date-only fields (e.g., nextRenewalDate/nextRetryDate)
+// and preserves the time-of-day from the event timestamp when available.
+func parseCCBillDateUsingTimestamp(dateStr, tsStr string) (*time.Time, error) {
+	if strings.TrimSpace(dateStr) == "" {
+		return nil, nil
+	}
+	d, err := parseCCBillDate(dateStr)
+	if err != nil {
+		return nil, err
+	}
+	if ts, err := parseCCBillTimestamp(tsStr); err == nil {
+		combined := time.Date(d.Year(), d.Month(), d.Day(), ts.Hour(), ts.Minute(), ts.Second(), ts.Nanosecond(), time.UTC)
+		return &combined, nil
+	}
+	d = d.UTC()
+	return &d, nil
 }
 
 // normalizeCurrency extracts and normalizes currency code to lowercase.
@@ -250,6 +287,10 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 	}
 
 	currencyValue := normalizeCurrency(data.BilledCurrencyCode)
+	paidTermEnd, err := parseCCBillDateUsingTimestamp(data.NextRenewalDate, data.Timestamp)
+	if err != nil {
+		return fmt.Errorf("failed to parse nextRenewalDate '%s': %w", data.NextRenewalDate, err)
+	}
 
 	// CreateMembership now creates the Payment record internally
 	subscription, err := s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
@@ -258,12 +299,32 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		Processor:               models.ProcessorCCBill,
 		ProcessorSubscriptionID: &ccBillSubID,
 		UserEmail:               emailPtr,
+		CurrentPeriodEndsAt:     paidTermEnd,
 		TransactionID:           transactionID,
 		Amount:                  billedAmountCents,
 		Currency:                currencyValue,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to create membership: %w", err)
+	}
+
+	if s.CreditsService != nil {
+		periodEnd := time.Time{}
+		if paidTermEnd != nil {
+			periodEnd = paidTermEnd.UTC()
+		} else if subscription.CurrentPeriodEndsAt != nil {
+			periodEnd = subscription.CurrentPeriodEndsAt.UTC()
+		}
+		if !periodEnd.IsZero() {
+			if err := s.CreditsService.GrantSubscriptionCredits(ctx, GrantSubscriptionCreditsParams{
+				SubscriptionID: subscription.ID,
+				PeriodEnd:      periodEnd,
+				Cadence:        models.CreditGrantCadenceOnce,
+				Source:         "subscription_initial",
+			}); err != nil {
+				log.WithContext(ctx).WithError(err).Warn("failed to grant initial subscription credits (CCBill)")
+			}
+		}
 	}
 
 	if s.CheckoutSessionService != nil {
@@ -878,18 +939,17 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 			return fmt.Errorf("failed to get subscription: %w", err)
 		}
 
-		// Parse the new renewal date
-		newRenewalDate, err := time.Parse("2006-01-02 15:04:05", nextRenewalDate)
+		parsed, err := parseCCBillDateUsingTimestamp(nextRenewalDate, data.Timestamp)
 		if err != nil {
-			// Try alternative date format
-			newRenewalDate, err = time.Parse("2006-01-02", nextRenewalDate)
-			if err != nil {
-				return fmt.Errorf("failed to parse nextRenewalDate '%s': %w", nextRenewalDate, err)
-			}
+			return fmt.Errorf("failed to parse nextRenewalDate '%s': %w", nextRenewalDate, err)
+		}
+		if parsed == nil {
+			return fmt.Errorf("missing nextRenewalDate")
 		}
 
 		// Update subscription billing date
-		sub.CurrentPeriodEndsAt = &newRenewalDate
+		oldRenewalDate := sub.CurrentPeriodEndsAt
+		sub.CurrentPeriodEndsAt = parsed
 
 		if err := subService.Update(ctx, sub); err != nil {
 			return fmt.Errorf("failed to update subscription billing date: %w", err)
@@ -901,8 +961,8 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 				"processor_subscription_id": pSubscriptionID,
 				"processor":                 "ccbill",
 				"event_source":              "webhook",
-				"old_renewal_date":          sub.CurrentPeriodEndsAt,
-				"new_renewal_date":          newRenewalDate,
+				"old_renewal_date":          oldRenewalDate,
+				"new_renewal_date":          sub.CurrentPeriodEndsAt,
 			}
 
 			uid1 := sub.UserID
@@ -926,7 +986,7 @@ func (s *CCBillWebhookService) handleBillingDateChange(ctx context.Context) erro
 			"subscriptionID":          sub.ID,
 			"userID":                  sub.UserID,
 			"processorSubscriptionID": pSubscriptionID,
-			"newRenewalDate":          newRenewalDate,
+			"newRenewalDate":          parsed,
 		}).Info("Updated subscription billing date successfully")
 
 		return nil
@@ -1716,10 +1776,22 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 	billedAmountCents := int64(billedAmount * 100)
 	currencyValue := normalizeCurrency(data.BilledCurrencyCode)
 
+	prevSub, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", ccBillSubID)
+	if err != nil {
+		return fmt.Errorf("failed to get subscription for renewal: %w", err)
+	}
+	prevStatus := prevSub.Status
+
+	paidTermEnd, err := parseCCBillDateUsingTimestamp(data.NextRenewalDate, data.Timestamp)
+	if err != nil {
+		return fmt.Errorf("failed to parse nextRenewalDate '%s': %w", data.NextRenewalDate, err)
+	}
+
 	// RenewMembership now creates the Payment record internally
 	if err = s.SubscriptionLifecycleService.RenewMembership(ctx, &RenewMembershipParams{
 		Processor:               models.ProcessorCCBill,
 		ProcessorSubscriptionID: ccBillSubID,
+		CurrentPeriodEndsAt:     paidTermEnd,
 		TransactionID:           transactionID,
 		Amount:                  billedAmountCents,
 		Currency:                currencyValue,
@@ -1731,6 +1803,25 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", ccBillSubID)
 	if err != nil {
 		return fmt.Errorf("failed to get subscription for logging: %w", err)
+	}
+
+	if s.CreditsService != nil {
+		periodEnd := time.Time{}
+		if paidTermEnd != nil {
+			periodEnd = paidTermEnd.UTC()
+		} else if subscription.CurrentPeriodEndsAt != nil {
+			periodEnd = subscription.CurrentPeriodEndsAt.UTC()
+		}
+		if !periodEnd.IsZero() {
+			if err := s.CreditsService.GrantSubscriptionCredits(ctx, GrantSubscriptionCreditsParams{
+				SubscriptionID: subscription.ID,
+				PeriodEnd:      periodEnd,
+				Cadence:        models.CreditGrantCadencePerRenewal,
+				Source:         "subscription_renewal",
+			}); err != nil {
+				log.WithContext(ctx).WithError(err).Warn("failed to grant renewal subscription credits (CCBill)")
+			}
+		}
 	}
 
 	// Log renewal payment event to ClickHouse
@@ -1775,6 +1866,54 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 		}
 	}
 
+	// Log subscription recovery (past_due -> active) for analytics.
+	if s.EventLogService != nil && prevStatus == models.StatusPastDue {
+		statusActive := string(models.StatusActive)
+		uidStr := subscription.UserID
+		priceAmount := 0.0
+		priceCurrency := ""
+		billingCycleDays := uint32(0)
+		var productID *uuid.UUID
+		var priceID *uuid.UUID
+		if subscription.Price != nil {
+			priceAmount = float64(subscription.Price.Amount) / 100.0
+			priceCurrency = subscription.Price.Currency
+			if subscription.Price.BillingCycleDays != nil {
+				billingCycleDays = uint32(*subscription.Price.BillingCycleDays)
+			}
+			productID = &subscription.Price.ProductID
+			priceID = &subscription.Price.ID
+		}
+		metadata := map[string]interface{}{
+			"processor_subscription_id": ccBillSubID,
+			"processor":                 "ccbill",
+			"event_source":              "webhook",
+			"from_status":               string(prevStatus),
+			"to_status":                 statusActive,
+		}
+		subscriptionEventData := SubscriptionEventData{
+			EventID:                 uuid.New(),
+			SubscriptionID:          subscription.ID,
+			UserID:                  uidStr,
+			EventType:               PaymentEventSubscriptionReactivated,
+			Status:                  statusActive,
+			CancelType:              "",
+			PriceAmount:             priceAmount,
+			PriceCurrency:           priceCurrency,
+			BillingCycleDays:        billingCycleDays,
+			ProductID:               productID,
+			PriceID:                 priceID,
+			Processor:               "ccbill",
+			ProcessorSubscriptionID: &ccBillSubID,
+			ProcessorTransactionID:  &transactionID,
+			Metadata:                CreateMetadataJSON(metadata),
+			Timestamp:               s.now(),
+		}
+		if err := s.EventLogService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
+			log.WithError(err).Error("Failed to log subscription reactivation event to ClickHouse")
+		}
+	}
+
 	log.WithContext(ctx).WithFields(log.Fields{
 		"subscriptionID": subscription.ID,
 		"userID":         subscription.UserID,
@@ -1798,19 +1937,74 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 	ccBillSubID := data.SubscriptionID
 	transactionID := data.TransactionID
 
-	// Get the subscription for logging before failing it
-	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", ccBillSubID)
+	nextRetryAt, err := parseCCBillDateUsingTimestamp(data.NextRetryDate, data.Timestamp)
 	if err != nil {
-		return fmt.Errorf("subscription not found: %w", err)
+		return fmt.Errorf("failed to parse nextRetryDate '%s': %w", data.NextRetryDate, err)
 	}
 
-	if err := s.SubscriptionLifecycleService.FailMembership(ctx, &FailMembershipParams{
-		Processor:      models.ProcessorCCBill,
-		SubscriptionID: &subscription.ID,
-		FailureReason:  &data.FailureReason,
-		FailureCode:    &data.FailureCode,
+	var subForLogs *models.Subscription
+
+	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		txdb := db.NewWithTx(tx)
+		priceService := NewPriceService(txdb)
+		productService := NewProductService(txdb)
+		notificationService := NewNotificationService(txdb, nil)
+		subService := NewSubscriptionService(txdb, priceService, productService, notificationService, s.CCBillClient, nil, nil)
+		entSvc := NewEntitlementService(txdb)
+		entSvc.SetClock(s.Clock)
+
+		sub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", ccBillSubID)
+		if err != nil {
+			return fmt.Errorf("subscription not found: %w", err)
+		}
+
+		// Mark subscription as past_due using CCBill's retry schedule.
+		sub.Status = models.StatusPastDue
+		sub.NextRetryAt = nextRetryAt
+		sub.LastRetryAt = nil
+		sub.RetryAttempts = nil
+
+		paidTermEnd := sub.CurrentPeriodEndsAt
+		sub.GraceEndsAt = nil
+
+		// For CCBill, retry behavior is dictated by the processor. We treat nextRetryAt as the
+		// only grace signal: if CCBill indicates it will retry after the paid term ends, we keep
+		// access until that retry time (and subsequent failures will update it again).
+		if paidTermEnd != nil && nextRetryAt != nil && nextRetryAt.After(*paidTermEnd) {
+			candidate := nextRetryAt.UTC()
+			sub.GraceEndsAt = &candidate
+		}
+
+		if err := subService.Update(ctx, sub); err != nil {
+			return fmt.Errorf("failed to update subscription during renewal failure: %w", err)
+		}
+
+		// Ensure entitlements are finite and end at the paid term end; optionally extend within grace cap.
+		if paidTermEnd != nil {
+			if err := entSvc.EndActiveBySubscription(ctx, sub.ID, *paidTermEnd, nil); err != nil {
+				return fmt.Errorf("failed to set entitlement end at paid term end: %w", err)
+			}
+		}
+		if sub.GraceEndsAt != nil {
+			if err := entSvc.ExtendActiveBySubscription(ctx, sub.ID, *sub.GraceEndsAt); err != nil {
+				return fmt.Errorf("failed to extend entitlement grace window: %w", err)
+			}
+		}
+
+		subForLogs = sub
+		return nil
 	}); err != nil {
-		return fmt.Errorf("failed to fail membership: %w", err)
+		return err
+	}
+
+	// Reload subscription for logging (ensures relations are present if service loads them).
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", ccBillSubID)
+	if err != nil {
+		// Fall back to the version we updated inside the transaction.
+		subscription = subForLogs
+	}
+	if subscription == nil {
+		return fmt.Errorf("subscription not found for logging: %s", ccBillSubID)
 	}
 
 	// Log renewal failure event to ClickHouse - standardized with NMI/Mobius
@@ -1823,6 +2017,9 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 			"failure_reason":            data.FailureReason,
 			"processor_subscription_id": ccBillSubID,
 			"is_renewal":                true,
+			"next_retry_at":             subscription.NextRetryAt,
+			"paid_term_end":             subscription.CurrentPeriodEndsAt,
+			"grace_ends_at":             subscription.GraceEndsAt,
 		}
 
 		paymentEventData := PaymentEventData{
@@ -1841,6 +2038,45 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 		if err := s.EventLogService.LogPaymentEvent(ctx, paymentEventData); err != nil {
 			log.WithError(err).Error("Failed to log renewal failure event to ClickHouse")
 		}
+
+		statusPastDue := string(models.StatusPastDue)
+		uidStr := subscription.UserID
+		priceAmount := 0.0
+		priceCurrency := ""
+		billingCycleDays := uint32(0)
+		var productID *uuid.UUID
+		var priceID *uuid.UUID
+		if subscription.Price != nil {
+			priceAmount = float64(subscription.Price.Amount) / 100.0
+			priceCurrency = subscription.Price.Currency
+			if subscription.Price.BillingCycleDays != nil {
+				billingCycleDays = uint32(*subscription.Price.BillingCycleDays)
+			}
+			productID = &subscription.Price.ProductID
+			priceID = &subscription.Price.ID
+		}
+		subscriptionEventData := SubscriptionEventData{
+			EventID:                 uuid.New(),
+			SubscriptionID:          subscription.ID,
+			UserID:                  uidStr,
+			EventType:               PaymentEventSubscriptionPastDue,
+			Status:                  statusPastDue,
+			CancelType:              "",
+			PriceAmount:             priceAmount,
+			PriceCurrency:           priceCurrency,
+			BillingCycleDays:        billingCycleDays,
+			ProductID:               productID,
+			PriceID:                 priceID,
+			Processor:               "ccbill",
+			ProcessorSubscriptionID: &ccBillSubID,
+			ProcessorTransactionID:  &transactionID,
+			Metadata:                CreateMetadataJSON(metadata),
+			Timestamp:               s.now(),
+		}
+
+		if err := s.EventLogService.LogSubscriptionEvent(ctx, subscriptionEventData); err != nil {
+			log.WithError(err).Error("Failed to log subscription past_due event to ClickHouse")
+		}
 	}
 
 	log.WithContext(ctx).WithFields(log.Fields{
@@ -1849,6 +2085,9 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 		"processorSubscriptionID": ccBillSubID,
 		"failureCode":             data.FailureCode,
 		"failureReason":           data.FailureReason,
+		"nextRetryAt":             subscription.NextRetryAt,
+		"paidTermEnd":             subscription.CurrentPeriodEndsAt,
+		"graceEndsAt":             subscription.GraceEndsAt,
 	}).Info("Handled renewal failure")
 
 	return nil
@@ -1890,7 +2129,7 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 		ProcessorSubscriptionID: &ccBillSubID,
 		CancelType:              cancelType,
 		CancelFeedback:          &data.Reason,
-		RevokeAccess:            true, // CCBill cancellations revoke access immediately
+		RevokeAccess:            false, // Keep access until paid term end
 	}); err != nil {
 		return fmt.Errorf("failed to cancel membership: %w", err)
 	}

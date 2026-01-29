@@ -35,7 +35,7 @@ tasks:
       - air -c .air.toml
 
   docker-up:
-    desc: Start local docker compose stack (billing + deps)
+    desc: Start local docker compose stack (openrails + deps)
     cmds:
       - docker compose -f docker-compose.yaml --profile all up -d
 
@@ -50,9 +50,9 @@ tasks:
       - docker compose -f docker-compose.yaml down
 
   docker-logs:
-    desc: Tail billing logs from docker compose stack
+    desc: Tail openrails logs from docker compose stack
     cmds:
-      - docker compose -f docker-compose.yaml logs -f billing
+      - docker compose -f docker-compose.yaml logs -f openrails
 
   tunnel-webhooks:
     desc: Run cloudflared tunnel for deterministic webhook hostname (requires CLOUDFLARED_TUNNEL_TOKEN)
@@ -60,7 +60,7 @@ tasks:
       - bash scripts/webhook_tunnel.sh
 
   verify-webhook-tunnel:
-    desc: Verify Cloudflared routing reaches local billing (/health/live + /health/ready)
+    desc: Verify Cloudflared routing reaches local openrails (/health/live + /health/ready)
     cmds:
       - bash scripts/verify_webhook_tunnel.sh
 
@@ -75,7 +75,7 @@ tasks:
       - bash scripts/seed_e2e_mobius.sh
 
   e2e-dump-local:
-    desc: Dump local billing rows for current E2E_RUN_ID/E2E_USER_ID
+    desc: Dump local rows for current E2E_RUN_ID/E2E_USER_ID
     cmds:
       - bash scripts/e2e_dump_local.sh
 

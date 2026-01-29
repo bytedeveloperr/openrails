@@ -14,8 +14,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 
-	"github.com/open-rails/migratekit"
 	"github.com/jonboulle/clockwork"
+	"github.com/open-rails/migratekit"
 	"github.com/open-rails/openrails/config"
 	"github.com/open-rails/openrails/internal/db"
 	repo "github.com/open-rails/openrails/internal/db/repo"
@@ -187,6 +187,7 @@ func buildRuntimeWithOverrides(cfg *config.Config, overrides *runtimeOverrides) 
 		CheckoutService:          serviceInstances.CheckoutService,
 		CheckoutSessionService:   serviceInstances.CheckoutSessionService,
 		CreditsService:           serviceInstances.CreditsService,
+		CreditTypeService:        serviceInstances.CreditTypeService,
 		ProcessorCustomerService: serviceInstances.ProcessorCustomerService,
 	}
 
@@ -429,6 +430,7 @@ type servicesInstances struct {
 	CheckoutService          *services.CheckoutService
 	CheckoutSessionService   *services.CheckoutSessionService
 	CreditsService           *services.CreditsService
+	CreditTypeService        *services.CreditTypeService
 	ProcessorCustomerService *services.ProcessorCustomerService
 }
 
@@ -444,6 +446,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 	entitlementService.Clock = clock
 	creditsService := services.NewCreditsService(database)
 	creditsService.Clock = clock
+	creditTypeService := services.NewCreditTypeService(database)
 	processorCustomerService := services.NewProcessorCustomerService(database)
 	profileRepo := repo.NewProfileRepo(database)
 
@@ -613,6 +616,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		CheckoutService:              checkoutService,
 		CheckoutSessionService:       checkoutSessionService,
 		CreditsService:               creditsService,
+		CreditTypeService:            creditTypeService,
 		ProcessorCustomerService:     processorCustomerService,
 	}
 }

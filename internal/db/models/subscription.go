@@ -59,6 +59,7 @@ type Subscription struct {
 	LastRetryAt   *time.Time `bun:"last_retry_at,nullzero" json:"last_retry_at"`   // Date of last rebill attempt
 	RetryAttempts *int       `bun:"retry_attempts,nullzero" json:"retry_attempts"` // Number of retry attempts (nullable for new subscriptions)
 	NextRetryAt   *time.Time `bun:"next_retry_at,nullzero" json:"next_retry_at"`   // When to try next rebill
+	GraceEndsAt   *time.Time `bun:"grace_ends_at,nullzero" json:"grace_ends_at"`   // Optional grace window end during dunning (processor-specific)
 
 	// Cancellation information
 	CancelFeedback *string     `bun:"cancel_feedback,nullzero" json:"cancel_feedback"` // User's cancellation message

@@ -141,8 +141,9 @@ func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscript
 		ColumnExpr("COUNT(*)").
 		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
 		Where("ent.source_id = ?", subscriptionID).
-		Where("ent.end_at IS NULL").
+		Where("ent.revoked_at IS NULL").
 		Where("ent.deleted_at IS NULL").
+		Where("(ent.end_at IS NULL OR ent.end_at > ?)", endAt).
 		Where("ent.start_at >= ?", endAt).
 		Scan(ctx, &invalidCount)
 	if err != nil {
@@ -158,8 +159,9 @@ func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscript
 		Set("updated_at = ?", now).
 		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
 		Where("ent.source_id = ?", subscriptionID).
-		Where("ent.end_at IS NULL").
-		Where("ent.deleted_at IS NULL")
+		Where("ent.revoked_at IS NULL").
+		Where("ent.deleted_at IS NULL").
+		Where("(ent.end_at IS NULL OR ent.end_at > ?)", endAt)
 
 	// Only set revoked_at and revoke_reason if a reason is provided (immediate revocation)
 	if reason != nil {
@@ -168,6 +170,41 @@ func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscript
 	}
 
 	_, err = q.Exec(ctx)
+	return err
+}
+
+// ExtendActiveBySubscription extends active entitlements for a subscription to endAt.
+// It only updates rows whose end_at is NULL or before endAt, and will never shorten a window.
+func (r *EntitlementRepo) ExtendActiveBySubscription(ctx context.Context, subscriptionID uuid.UUID, endAt time.Time, now time.Time) error {
+	// Validate: do not produce end_at <= start_at
+	var invalidCount int
+	err := r.db.GetDB().NewSelect().
+		Model((*models.Entitlement)(nil)).
+		ColumnExpr("COUNT(*)").
+		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
+		Where("ent.source_id = ?", subscriptionID).
+		Where("ent.revoked_at IS NULL").
+		Where("ent.deleted_at IS NULL").
+		Where("(ent.end_at IS NULL OR ent.end_at < ?)", endAt).
+		Where("ent.start_at >= ?", endAt).
+		Scan(ctx, &invalidCount)
+	if err != nil {
+		return fmt.Errorf("failed to check entitlement validity: %w", err)
+	}
+	if invalidCount > 0 {
+		return fmt.Errorf("cannot extend end_at to %v: %d entitlement(s) have start_at >= end_at (zero or negative duration)", endAt, invalidCount)
+	}
+
+	_, err = r.db.GetDB().NewUpdate().
+		Model((*models.Entitlement)(nil)).
+		Set("end_at = ?", endAt).
+		Set("updated_at = ?", now).
+		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
+		Where("ent.source_id = ?", subscriptionID).
+		Where("ent.revoked_at IS NULL").
+		Where("ent.deleted_at IS NULL").
+		Where("(ent.end_at IS NULL OR ent.end_at < ?)", endAt).
+		Exec(ctx)
 	return err
 }
 

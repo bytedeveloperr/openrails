@@ -100,3 +100,52 @@ func (s *ProductService) UpdateDescription(ctx context.Context, id uuid.UUID, de
 	product.Description = description
 	return s.repo.Update(ctx, product)
 }
+
+type ProductDefinitionUpdateParams struct {
+	DisplayName      *string
+	Description      *string
+	EntitlementsSpec map[string]*int
+	SetEntitlements  bool
+	CreditsSpec      models.CreditsSpec
+	SetCredits       bool
+	TierGroup        *string
+	SetTierGroup     bool
+	TierRank         *int
+	IsActive         *bool
+}
+
+// UpdateDefinition updates host-configurable fields on a product (catalog definition surface).
+//
+// This is intentionally separate from Update(), which forbids arbitrary changes for safety.
+func (s *ProductService) UpdateDefinition(ctx context.Context, id uuid.UUID, params ProductDefinitionUpdateParams) (*models.Product, error) {
+	product, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if params.DisplayName != nil {
+		product.DisplayName = *params.DisplayName
+	}
+	if params.Description != nil {
+		product.Description = *params.Description
+	}
+	if params.SetEntitlements {
+		product.EntitlementsSpec = params.EntitlementsSpec
+	}
+	if params.SetTierGroup {
+		product.TierGroup = params.TierGroup
+	}
+	if params.TierRank != nil {
+		product.TierRank = *params.TierRank
+	}
+	if params.IsActive != nil {
+		product.IsActive = *params.IsActive
+	}
+	if params.SetCredits {
+		product.CreditsSpec = params.CreditsSpec
+	}
+
+	if err := s.repo.Update(ctx, product); err != nil {
+		return nil, err
+	}
+	return product, nil
+}

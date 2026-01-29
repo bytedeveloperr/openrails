@@ -224,7 +224,11 @@ Marks the notification as read. Response `{ message: "notification marked as rea
 
 ### GET /v1/me/credits
 Returns all active credit balances for the current user (promo + purchased).
-Each entry: `{ type, display_name, unit, decimal_places, balance, held_balance, permanent_balance, expiring_balance, earliest_expiry? }`.
+Each entry: `{ type, display_name, unit, decimal_places, balance, held_balance }`.
+
+Notes:
+- Expiring credit grants are supported via `expires_at` on deposits; balances returned here are totals (no permanent/expiring split).
+- Holds do not reserve specific expiring lots; expiry can reduce available balance and cause a later hold capture to fail.
 
 ### GET /v1/me/credits/{type}
 Returns the credit balance for a single credit type (e.g. `api_credits`).
@@ -244,8 +248,15 @@ Returns active entitlements for the user at the current time. Optional query par
 entitlements at a specific time. Response: array of entitlement records.
 
 ### GET /v1/users/{user_id}/credits
+Deprecated path (was documented incorrectly). Use `GET /v1/credits/users/{user_id}`.
+
+### GET /v1/credits/users/{user_id}
 Returns credit balance summary for a user. Optional query param `type` (defaults to `api_credits`, which must exist in `billing.credit_types`).
-Response: `{ type, balance, held_balance, permanent_balance, expiring_balance }`.
+Response: `{ type, balance, held_balance }`.
+
+### POST /v1/credits/deposit
+Deposit/grant credits. Body: `{ user_id, credit_type, amount, source, source_id?, expires_at?, description? }` where `expires_at` is epoch seconds.
+Returns a `CreditTransaction`. If `source_id` is provided, deposits are idempotent per `(user_id, credit_type, source, source_id)`.
 
 ### POST /v1/credits/withdraw
 Withdraw credits. Body: `{ user_id, credit_type, amount, source, source_id? }`.
@@ -255,11 +266,94 @@ Returns a `CreditTransaction`. On insufficient credits, returns 402 with `insuff
 Reserve credits for long-running jobs. Body: `{ user_id, credit_type, amount, source, source_id, expires_at }` (epoch seconds).
 Returns a `CreditHold`. On insufficient credits, returns 402.
 
-### POST /v1/credits/hold/{id}/capture
+### POST /v1/credits/holds/{id}/capture
 Capture a hold: `{ amount }` (amount <= hold). Returns a `CreditTransaction`.
 
-### POST /v1/credits/hold/{id}/release
+### POST /v1/credits/holds/{id}/release
 Release a hold without spending credits. Response `{ ok: true }`.
+
+### Credit types (definition surface)
+
+These endpoints let the host define credit types in `billing.credit_types` (OpenRails does not seed credit types in production).
+
+### GET /v1/credit-types?active_only=true
+List credit types.
+
+### POST /v1/credit-types
+Create a credit type. Body: `{ name, display_name, unit, decimal_places }`.
+
+### PATCH /v1/credit-types/{name}
+Update mutable fields. Body: `{ display_name?, is_active? }`. `name`, `unit`, and `decimal_places` are treated as immutable.
+
+### POST /v1/credit-types/{name}/deactivate
+Marks the credit type inactive.
+
+### POST /v1/credit-types/{name}/activate
+Marks the credit type active.
+
+### Catalog (definition surface)
+
+#### Checkout prerequisites
+
+OpenRails does not seed products/prices/credit types in production. For checkout to work, the host must define:
+
+- `billing.products`: at least one active product.
+- `billing.prices`: at least one active price for that product.
+- Processor mappings on the price (`billing.prices.processors`) for any processor you intend to use:
+  - Stripe: `processors.stripe.price_id` (and optionally `processors.stripe.product_id`).
+  - Mobius/NMI: `processors.mobius.plan_id` (or legacy `processors.nmi.plan_id`).
+  - CCBill: `processors.ccbill.form_name` + `processors.ccbill.flex_id`.
+- Any credit types referenced by `products.credits_spec` must exist in `billing.credit_types`.
+
+### POST /v1/catalog/products
+Create a product. Body includes at least `{ slug, display_name }`, and may include `entitlements_spec` and `credits_spec`.
+
+#### `credits_spec` v2
+
+`credits_spec` is a JSON object keyed by credit type name (`billing.credit_types.name`). Example:
+
+```json
+{
+  "api_credits": { "amount": 100000, "expires_days": 30, "cadence": "per_renewal" },
+  "signup_bonus": { "amount": 5000, "expires_days": 90, "cadence": "once" }
+}
+```
+
+- `amount` is in the credit type's base integer units (not USD cents).
+- `expires_days` is optional; when present, each grant expires after N days.
+- `cadence` is `once` (default) or `per_renewal`.
+
+Renewal semantics:
+- `cadence=once` is granted on initial subscription activation.
+- `cadence=per_renewal` is granted on confirmed renewal/rebill success (Stripe invoice paid; Mobius/NMI rebill success; CCBill RenewalSuccess).
+
+Idempotency / webhook replay safety:
+- Recurring grants are idempotent per `(subscription_id, credit_type_id, period_end)` using `billing.subscription_credit_grants`.
+- Duplicate webhooks for the same period do not double-grant.
+
+Host policy defaults (current behavior):
+- Upgrades/downgrades do not trigger an immediate extra credit grant; recurring credits are granted on the next confirmed renewal.
+- Refunds do not claw back previously granted credits (no automatic negative adjustments).
+
+Legacy migration note: older deployments may have stored `{promo_amount_cents, promo_expires_days, grant_on}`. OpenRails translates this to a v2 map entry keyed by `api_credits` for backwards compatibility; the host must still define that credit type if it wants the legacy grants to work.
+
+### PATCH /v1/catalog/products/{id}
+Update product definition fields (display_name, description, entitlements_spec, credits_spec, tier_group/tier_rank, is_active).
+
+### POST /v1/catalog/prices
+Create a price. Supports per-processor mapping mode: `{ processors: { stripe: { link: {...} } | { create: {...} }, ... } }`.
+
+Processor mapping modes:
+- `link`: host provides existing processor identifiers and OpenRails stores them in `billing.prices.processors`.
+- `create`: OpenRails attempts to create remote objects and stores the returned IDs.
+
+Auto-create support:
+- Stripe: supported (`create`), using Stripe API.
+- Mobius/NMI: link-only (provide `plan_id`).
+- CCBill: link-only (provide `form_name` + `flex_id`).
+
+### PATCH /v1/catalog/prices/{id}
+Update price display name, processors mapping, or active status.
 
 ## Admin API (`/v1/admin`, JWT + `admin` role)
 

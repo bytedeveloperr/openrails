@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -122,8 +121,6 @@ func (w CreditExpiryWorker) Work(ctx context.Context, job *river.Job[CreditExpir
 					CreditTypeID: k.CreditTypeID,
 					Balance:      0,
 					HeldBalance:  0,
-					Permanent:    0,
-					Expiring:     0,
 					CreatedAt:    now,
 					UpdatedAt:    now,
 				}
@@ -134,31 +131,12 @@ func (w CreditExpiryWorker) Work(ctx context.Context, job *river.Job[CreditExpir
 			}
 
 			newBalance := bal.Balance - amount
-			if newBalance < bal.HeldBalance {
-				newBalance = bal.HeldBalance
-			}
 			if newBalance < 0 {
 				newBalance = 0
-			}
-			newExpiring := bal.Expiring - amount
-			if newExpiring < 0 {
-				newExpiring = 0
-			}
-
-			var earliest *time.Time
-			var next time.Time
-			if err := tx.NewSelect().
-				Model((*models.CreditExpiryBatch)(nil)).
-				ColumnExpr("min(expires_at)").
-				Where("user_id = ? AND credit_type_id = ? AND remaining_amount > 0 AND expires_at > ?", k.UserID, k.CreditTypeID, now).
-				Scan(ctx, &next); err == nil && !next.IsZero() {
-				earliest = &next
 			}
 
 			if _, err := tx.NewUpdate().Model((*models.UserCreditBalance)(nil)).
 				Set("balance = ?", newBalance).
-				Set("expiring_balance = ?", newExpiring).
-				Set("earliest_expiry = ?", earliest).
 				Set("updated_at = ?", now).
 				Where("user_id = ? AND credit_type_id = ?", k.UserID, k.CreditTypeID).
 				Exec(ctx); err != nil {

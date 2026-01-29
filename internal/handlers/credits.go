@@ -11,15 +11,12 @@ import (
 )
 
 type creditBalanceResponse struct {
-	Type           string `json:"type"`
-	DisplayName    string `json:"display_name"`
-	Unit           string `json:"unit"`
-	DecimalPlaces  int    `json:"decimal_places"`
-	Balance        int64  `json:"balance"`
-	HeldBalance    int64  `json:"held_balance"`
-	Permanent      int64  `json:"permanent_balance"`
-	Expiring       int64  `json:"expiring_balance"`
-	EarliestExpiry *int64 `json:"earliest_expiry,omitempty"`
+	Type          string `json:"type"`
+	DisplayName   string `json:"display_name"`
+	Unit          string `json:"unit"`
+	DecimalPlaces int    `json:"decimal_places"`
+	Balance       int64  `json:"balance"`
+	HeldBalance   int64  `json:"held_balance"`
 }
 
 func GetMyCredits(r *Request) {
@@ -30,16 +27,13 @@ func GetMyCredits(r *Request) {
 	}
 
 	var rows []struct {
-		CreditTypeID   uuid.UUID  `bun:"credit_type_id"`
-		Name           string     `bun:"name"`
-		DisplayName    string     `bun:"display_name"`
-		Unit           string     `bun:"unit"`
-		DecimalPlaces  int        `bun:"decimal_places"`
-		Balance        *int64     `bun:"balance"`
-		HeldBalance    *int64     `bun:"held_balance"`
-		Permanent      *int64     `bun:"permanent_balance"`
-		Expiring       *int64     `bun:"expiring_balance"`
-		EarliestExpiry *time.Time `bun:"earliest_expiry"`
+		CreditTypeID  uuid.UUID `bun:"credit_type_id"`
+		Name          string    `bun:"name"`
+		DisplayName   string    `bun:"display_name"`
+		Unit          string    `bun:"unit"`
+		DecimalPlaces int       `bun:"decimal_places"`
+		Balance       *int64    `bun:"balance"`
+		HeldBalance   *int64    `bun:"held_balance"`
 	}
 
 	err := r.State.DB.GetDB().NewSelect().
@@ -51,9 +45,6 @@ func GetMyCredits(r *Request) {
 		ColumnExpr("ct.decimal_places").
 		ColumnExpr("ucb.balance").
 		ColumnExpr("ucb.held_balance").
-		ColumnExpr("ucb.permanent_balance").
-		ColumnExpr("ucb.expiring_balance").
-		ColumnExpr("ucb.earliest_expiry").
 		Join("LEFT JOIN billing.user_credit_balances ucb ON ucb.credit_type_id = ct.id AND ucb.user_id = ?", user.ID).
 		Where("ct.is_active = true").
 		Scan(r.Request.Context(), &rows)
@@ -64,21 +55,13 @@ func GetMyCredits(r *Request) {
 
 	resp := make([]creditBalanceResponse, 0, len(rows))
 	for _, row := range rows {
-		var earliest *int64
-		if row.EarliestExpiry != nil && !row.EarliestExpiry.IsZero() {
-			epoch := row.EarliestExpiry.Unix()
-			earliest = &epoch
-		}
 		resp = append(resp, creditBalanceResponse{
-			Type:           row.Name,
-			DisplayName:    row.DisplayName,
-			Unit:           row.Unit,
-			DecimalPlaces:  row.DecimalPlaces,
-			Balance:        derefInt64(row.Balance),
-			HeldBalance:    derefInt64(row.HeldBalance),
-			Permanent:      derefInt64(row.Permanent),
-			Expiring:       derefInt64(row.Expiring),
-			EarliestExpiry: earliest,
+			Type:          row.Name,
+			DisplayName:   row.DisplayName,
+			Unit:          row.Unit,
+			DecimalPlaces: row.DecimalPlaces,
+			Balance:       derefInt64(row.Balance),
+			HeldBalance:   derefInt64(row.HeldBalance),
 		})
 	}
 
@@ -108,22 +91,13 @@ func GetMyCreditsType(r *Request) {
 		return
 	}
 
-	earliest := (*int64)(nil)
-	if bal.EarliestExpiry != nil && !bal.EarliestExpiry.IsZero() {
-		ts := bal.EarliestExpiry.Unix()
-		earliest = &ts
-	}
-
 	r.SuccessJSON(creditBalanceResponse{
-		Type:           creditType,
-		DisplayName:    ct.DisplayName,
-		Unit:           ct.Unit,
-		DecimalPlaces:  ct.DecimalPlaces,
-		Balance:        bal.Balance,
-		HeldBalance:    bal.HeldBalance,
-		Permanent:      bal.Permanent,
-		Expiring:       bal.Expiring,
-		EarliestExpiry: earliest,
+		Type:          creditType,
+		DisplayName:   ct.DisplayName,
+		Unit:          ct.Unit,
+		DecimalPlaces: ct.DecimalPlaces,
+		Balance:       bal.Balance,
+		HeldBalance:   bal.HeldBalance,
 	})
 }
 
@@ -164,6 +138,56 @@ type serviceWithdrawRequest struct {
 	SourceID   *uuid.UUID `json:"source_id"`
 }
 
+type serviceDepositRequest struct {
+	UserID      string     `json:"user_id" binding:"required"`
+	CreditType  string     `json:"credit_type" binding:"required"`
+	Amount      int64      `json:"amount" binding:"required"`
+	Source      string     `json:"source" binding:"required"`
+	SourceID    *uuid.UUID `json:"source_id"`
+	ExpiresAt   *int64     `json:"expires_at"` // epoch seconds
+	Description *string    `json:"description"`
+}
+
+// ServiceDepositCredits deposits/grants credits to a user.
+// POST /v1/credits/deposit (private port 8060, X-API-KEY)
+func ServiceDepositCredits(r *Request) {
+	var req serviceDepositRequest
+	if err := r.GinCtx.ShouldBindJSON(&req); err != nil {
+		r.ErrorJSON(http.StatusBadRequest, "invalid request")
+		return
+	}
+	svc, err := billingservice.New(r.State)
+	if err != nil {
+		r.ErrorJSON(http.StatusInternalServerError, "billing service unavailable")
+		return
+	}
+
+	var expiresAt *time.Time
+	if req.ExpiresAt != nil {
+		v := time.Unix(*req.ExpiresAt, 0).UTC()
+		expiresAt = &v
+	}
+
+	trx, err := svc.DepositCredits(r.Request.Context(), billingservice.DepositCreditsRequest{
+		UserID:      req.UserID,
+		CreditType:  req.CreditType,
+		Amount:      req.Amount,
+		Source:      req.Source,
+		SourceID:    req.SourceID,
+		ExpiresAt:   expiresAt,
+		Description: req.Description,
+	})
+	if err != nil {
+		if err == billingservice.ErrCreditTypeInactive {
+			r.ErrorJSON(http.StatusBadRequest, "credit_type_inactive")
+			return
+		}
+		r.ErrorJSON(http.StatusInternalServerError, "deposit failed")
+		return
+	}
+	r.SuccessJSON(trx)
+}
+
 func ServiceWithdrawCredits(r *Request) {
 	var req serviceWithdrawRequest
 	if err := r.GinCtx.ShouldBindJSON(&req); err != nil {
@@ -184,6 +208,10 @@ func ServiceWithdrawCredits(r *Request) {
 	})
 	if err == billingservice.ErrInsufficientCredits {
 		r.ErrorJSON(http.StatusPaymentRequired, "insufficient_credits")
+		return
+	}
+	if err == billingservice.ErrCreditTypeInactive {
+		r.ErrorJSON(http.StatusBadRequest, "credit_type_inactive")
 		return
 	}
 	if err != nil {
@@ -223,6 +251,10 @@ func ServiceHoldCredits(r *Request) {
 	})
 	if err == billingservice.ErrInsufficientCredits {
 		r.ErrorJSON(http.StatusPaymentRequired, "insufficient_credits")
+		return
+	}
+	if err == billingservice.ErrCreditTypeInactive {
+		r.ErrorJSON(http.StatusBadRequest, "credit_type_inactive")
 		return
 	}
 	if err != nil {
@@ -298,11 +330,9 @@ func ServiceGetUserCredits(r *Request) {
 		return
 	}
 	r.SuccessJSON(map[string]any{
-		"type":              creditType,
-		"balance":           bal.Balance,
-		"held_balance":      bal.HeldBalance,
-		"permanent_balance": bal.Permanent,
-		"expiring_balance":  bal.Expiring,
+		"type":         creditType,
+		"balance":      bal.Balance,
+		"held_balance": bal.HeldBalance,
 	})
 }
 

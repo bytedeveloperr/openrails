@@ -22,16 +22,13 @@ type CreditType struct {
 type UserCreditBalance struct {
 	bun.BaseModel `bun:"table:billing.user_credit_balances,alias:ucb"`
 
-	ID             uuid.UUID  `bun:"id,pk,type:uuid" json:"id"`
-	UserID         string     `bun:"user_id,notnull" json:"user_id"`
-	CreditTypeID   uuid.UUID  `bun:"credit_type_id,notnull" json:"credit_type_id"`
-	Balance        int64      `bun:"balance,notnull" json:"balance"`
-	HeldBalance    int64      `bun:"held_balance,notnull" json:"held_balance"`
-	Permanent      int64      `bun:"permanent_balance,notnull" json:"permanent_balance"`
-	Expiring       int64      `bun:"expiring_balance,notnull" json:"expiring_balance"`
-	EarliestExpiry *time.Time `bun:"earliest_expiry,nullzero" json:"earliest_expiry,omitempty"`
-	CreatedAt      time.Time  `bun:"created_at,notnull" json:"created_at"`
-	UpdatedAt      time.Time  `bun:"updated_at,notnull" json:"updated_at"`
+	ID           uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
+	UserID       string    `bun:"user_id,notnull" json:"user_id"`
+	CreditTypeID uuid.UUID `bun:"credit_type_id,notnull" json:"credit_type_id"`
+	Balance      int64     `bun:"balance,notnull" json:"balance"`
+	HeldBalance  int64     `bun:"held_balance,notnull" json:"held_balance"`
+	CreatedAt    time.Time `bun:"created_at,notnull" json:"created_at"`
+	UpdatedAt    time.Time `bun:"updated_at,notnull" json:"updated_at"`
 }
 
 type CreditTransaction struct {
@@ -77,4 +74,16 @@ type CreditHold struct {
 	Captured     *int64    `bun:"captured_amount,nullzero" json:"captured_amount,omitempty"`
 	CreatedAt    time.Time `bun:"created_at,notnull" json:"created_at"`
 	UpdatedAt    time.Time `bun:"updated_at,notnull" json:"updated_at"`
+}
+
+// SubscriptionCreditGrant is an idempotency record for subscription-driven credit grants
+// (e.g., recurring monthly stipends).
+type SubscriptionCreditGrant struct {
+	bun.BaseModel `bun:"table:billing.subscription_credit_grants,alias:scg"`
+
+	ID             uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
+	SubscriptionID uuid.UUID `bun:"subscription_id,notnull" json:"subscription_id"`
+	CreditTypeID   uuid.UUID `bun:"credit_type_id,notnull" json:"credit_type_id"`
+	PeriodEnd      time.Time `bun:"period_end,notnull" json:"period_end"`
+	CreatedAt      time.Time `bun:"created_at,notnull" json:"created_at"`
 }

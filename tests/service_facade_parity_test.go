@@ -46,8 +46,6 @@ func TestServiceFacade_CreditsAndEntitlements_ParityWithServiceHTTP(t *testing.T
 		CreditTypeID: ct.ID,
 		Balance:      10_000,
 		HeldBalance:  0,
-		Permanent:    10_000,
-		Expiring:     0,
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}

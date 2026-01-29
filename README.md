@@ -590,6 +590,18 @@ Service API access
 - Default (dev): `change-me-in-dev`.
 - Override via env `BILLING_API_KEY` or config `api_key`.
 
+Private “definition” surface (host-owned catalog + credits)
+- OpenRails does **not** seed products/prices/credit types in production. Hosts should define them via:
+  - Private service API (port `8060`, `X-API-KEY`)
+    - Credit types: `GET /v1/credit-types`, `POST /v1/credit-types`, `PATCH /v1/credit-types/{name}`, `POST /v1/credit-types/{name}/activate|deactivate`
+    - Catalog: `POST /v1/catalog/products`, `PATCH /v1/catalog/products/{id}`, `POST /v1/catalog/prices`, `PATCH /v1/catalog/prices/{id}`
+    - Credits funding: `POST /v1/credits/deposit`
+  - Embedded Go API (in-process, no HTTP)
+    - Credit types: `Service.ListCreditTypes`, `Service.CreateCreditType`, `Service.UpdateCreditType`, `Service.ActivateCreditType`, `Service.DeactivateCreditType`
+    - Catalog: `Service.CreateProduct`, `Service.UpdateProduct`, `Service.CreatePrice`, `Service.UpdatePrice`
+    - Credits funding: `Service.DepositCredits`
+- Full request/response docs live in `docs/api/endpoints.md`.
+
 JWT verification (Verifier Only)
 	- Billing acts as a **JWT verifier**, not an issuer. It verifies tokens issued by your IdP(s).
 	- The middleware validates signature and claims, extracting `sub` (user ID), `email`, optional `preferred_username`/`username`/`name`, and `roles` if present.

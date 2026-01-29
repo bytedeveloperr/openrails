@@ -170,9 +170,28 @@ func RegisterServiceRoutes(group *gin.RouterGroup, rt *app.Runtime, authMiddlewa
 
 	// Credits operations
 	credits := group.Group("/credits")
+	credits.POST("/deposit", wrap(handlers.ServiceDepositCredits))
 	credits.POST("/withdraw", wrap(handlers.ServiceWithdrawCredits))
 	credits.POST("/hold", wrap(handlers.ServiceHoldCredits))
 	credits.POST("/holds/:id/capture", wrap(handlers.ServiceCaptureHold))
 	credits.POST("/holds/:id/release", wrap(handlers.ServiceReleaseHold))
 	credits.GET("/users/:user_id", wrap(handlers.ServiceGetUserCredits))
+
+	// Credit type definitions (host-configurable)
+	creditTypes := group.Group("/credit-types")
+	creditTypes.POST("", wrap(handlers.ServiceCreateCreditType))
+	creditTypes.GET("", wrap(handlers.ServiceListCreditTypes))
+	creditTypes.PATCH("/:name", wrap(handlers.ServiceUpdateCreditType))
+	creditTypes.POST("/:name/deactivate", wrap(handlers.ServiceDeactivateCreditType))
+	creditTypes.POST("/:name/activate", wrap(handlers.ServiceActivateCreditType))
+
+	// Catalog definition (host-configurable)
+	catalog := group.Group("/catalog")
+	products := catalog.Group("/products")
+	products.POST("", wrap(handlers.ServiceCreateProduct))
+	products.PATCH("/:id", wrap(handlers.ServiceUpdateProduct))
+
+	prices := catalog.Group("/prices")
+	prices.POST("", wrap(handlers.ServiceCreatePrice))
+	prices.PATCH("/:id", wrap(handlers.ServiceUpdatePrice))
 }

@@ -35,6 +35,7 @@ func New(rt *app.Runtime) (*Service, error) {
 }
 
 var ErrInsufficientCredits = services.ErrInsufficientCredits
+var ErrCreditTypeInactive = services.ErrCreditTypeInactive
 
 type HoldCreditsRequest struct {
 	UserID     string
@@ -153,6 +154,60 @@ func (s *Service) WithdrawCredits(ctx context.Context, req WithdrawCreditsReques
 		Amount:     req.Amount,
 		Source:     req.Source,
 		SourceID:   req.SourceID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &CreditTransaction{
+		ID:              trx.ID,
+		UserID:          trx.UserID,
+		Amount:          trx.Amount,
+		TransactionType: trx.TransactionType,
+		Source:          trx.Source,
+		SourceID:        trx.SourceID,
+		ExpiresAt:       trx.ExpiresAt,
+		Description:     trx.Description,
+		CreatedAt:       trx.CreatedAt,
+	}, nil
+}
+
+type DepositCreditsRequest struct {
+	UserID      string
+	CreditType  string
+	Amount      int64
+	Source      string
+	SourceID    *uuid.UUID
+	ExpiresAt   *time.Time
+	Description *string
+}
+
+func (s *Service) DepositCredits(ctx context.Context, req DepositCreditsRequest) (*CreditTransaction, error) {
+	if s == nil || s.rt == nil || s.rt.CreditsService == nil {
+		return nil, fmt.Errorf("billing service: not initialized")
+	}
+	req.UserID = strings.TrimSpace(req.UserID)
+	req.CreditType = strings.TrimSpace(req.CreditType)
+	req.Source = strings.TrimSpace(req.Source)
+	if req.UserID == "" {
+		return nil, fmt.Errorf("user_id required")
+	}
+	if req.CreditType == "" {
+		return nil, fmt.Errorf("credit_type required")
+	}
+	if req.Amount <= 0 {
+		return nil, fmt.Errorf("amount must be > 0")
+	}
+	if req.Source == "" {
+		return nil, fmt.Errorf("source required")
+	}
+	trx, err := s.rt.CreditsService.Deposit(ctx, services.CreditDepositParams{
+		UserID:      req.UserID,
+		CreditType:  req.CreditType,
+		Amount:      req.Amount,
+		Source:      req.Source,
+		SourceID:    req.SourceID,
+		ExpiresAt:   req.ExpiresAt,
+		Description: req.Description,
 	})
 	if err != nil {
 		return nil, err

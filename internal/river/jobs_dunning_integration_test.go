@@ -1,0 +1,183 @@
+package riverjobs
+
+import (
+	"context"
+	"database/sql"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/integrations/nmi"
+	"github.com/riverqueue/river"
+	"github.com/stretchr/testify/require"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
+	"github.com/uptrace/bun/driver/pgdriver"
+)
+
+func TestDunningWorker_RebillSuccess_GrantsCreditsOnce(t *testing.T) {
+	dsn := os.Getenv("OPENRAILS_TEST_DB_URL")
+	if dsn == "" {
+		t.Skip("set OPENRAILS_TEST_DB_URL to run integration tests")
+	}
+
+	sqlDB := sql.OpenDB(pgdriver.NewConnector(pgdriver.WithDSN(dsn)))
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	bunDB := bun.NewDB(sqlDB, pgdialect.New())
+	models.RegisterModels(bunDB)
+
+	ctx := context.Background()
+	require.NoError(t, bunDB.PingContext(ctx))
+
+	var exists bool
+	require.NoError(t, bunDB.NewSelect().
+		ColumnExpr("EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='billing' AND table_name='subscription_credit_grants')").
+		Scan(ctx, &exists))
+	if !exists {
+		t.Skip("billing.subscription_credit_grants not found; run migrations before integration tests")
+	}
+
+	dbi, err := db.NewWithBun(bunDB)
+	require.NoError(t, err)
+
+	now := time.Now().UTC().Truncate(time.Second)
+
+	creditTypeName := "test_credits_" + uuid.New().String()
+	creditTypeID := uuid.New()
+	productID := uuid.New()
+	priceID := uuid.New()
+	paymentMethodID := uuid.New()
+	subID := uuid.New()
+	userID := uuid.New().String()
+
+	billingDays := 30
+
+	_, err = bunDB.NewInsert().Model(&models.CreditType{
+		ID:            creditTypeID,
+		Name:          creditTypeName,
+		DisplayName:   "Test Credits",
+		Unit:          "units",
+		DecimalPlaces: 0,
+		IsActive:      true,
+		CreatedAt:     now,
+	}).Exec(ctx)
+	require.NoError(t, err)
+
+	_, err = bunDB.NewInsert().Model(&models.Product{
+		ID:          productID,
+		Slug:        "test_product_" + uuid.New().String(),
+		DisplayName: "Test Product",
+		Description: "Test",
+		CreditsSpec: models.CreditsSpec{
+			creditTypeName: {Amount: 100, Cadence: models.CreditGrantCadencePerRenewal},
+		},
+		IsActive:  true,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}).Exec(ctx)
+	require.NoError(t, err)
+
+	_, err = bunDB.NewInsert().Model(&models.Price{
+		ID:               priceID,
+		ProductID:        productID,
+		DisplayName:      "Test Monthly",
+		IsActive:         true,
+		Amount:           999,
+		Currency:         "usd",
+		BillingCycleDays: &billingDays,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}).Exec(ctx)
+	require.NoError(t, err)
+
+	billingID := "bill_" + uuid.New().String()
+	_, err = bunDB.NewInsert().Model(&models.PaymentMethod{
+		ID:                   paymentMethodID,
+		UserID:               userID,
+		Processor:            models.ProcessorMobius,
+		VaultID:              "vault_" + uuid.New().String(),
+		BillingID:            &billingID,
+		InitialTransactionID: "txn_initial_" + uuid.New().String(),
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}).Exec(ctx)
+	require.NoError(t, err)
+
+	periodEnd := now.Add(-1 * time.Minute)
+	periodStart := periodEnd.Add(-30 * 24 * time.Hour)
+	nextRetry := now.Add(-30 * time.Second)
+
+	_, err = bunDB.NewInsert().Model(&models.Subscription{
+		ID:                      subID,
+		UserID:                  userID,
+		ProductID:               productID,
+		PriceID:                 priceID,
+		Status:                  models.StatusPastDue,
+		Processor:               models.ProcessorMobius,
+		ProcessorSubscriptionID: "sub_test_" + uuid.New().String(),
+		PaymentMethodID:         &paymentMethodID,
+		CurrentPeriodStartsAt:   &periodStart,
+		CurrentPeriodEndsAt:     &periodEnd,
+		StartedAt:               periodStart,
+		NextRetryAt:             &nextRetry,
+		CreatedAt:               now,
+		UpdatedAt:               now,
+	}).Exec(ctx)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_, _ = bunDB.NewDelete().Model((*models.SubscriptionCreditGrant)(nil)).Where("subscription_id = ?", subID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.CreditExpiryBatch)(nil)).Where("user_id = ?", userID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.CreditTransaction)(nil)).Where("user_id = ?", userID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.UserCreditBalance)(nil)).Where("user_id = ?", userID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.Payment)(nil)).Where("subscription_id = ?", subID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.Subscription)(nil)).Where("id = ?", subID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.PaymentMethod)(nil)).Where("id = ?", paymentMethodID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.Price)(nil)).Where("id = ?", priceID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.Product)(nil)).Where("id = ?", productID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.CreditType)(nil)).Where("id = ?", creditTypeID).Exec(ctx)
+	})
+
+	// Stub NMI direct post endpoint for AttemptManualRebill.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		_, _ = w.Write([]byte("response=1&transactionid=txn_test_123"))
+	}))
+	t.Cleanup(srv.Close)
+
+	client, err := nmi.NewClient("mobius", &config.NMIProviderSettings{
+		SecurityKey:   "test_security_key",
+		WebhookSecret: "test_secret",
+		DirectPostURL: srv.URL,
+		QueryURL:      srv.URL,
+	}, true)
+	require.NoError(t, err)
+
+	worker := &DunningWorker{
+		DB:         dbi,
+		NMIClients: map[string]*nmi.NMIClient{"mobius": client},
+	}
+
+	require.NoError(t, worker.Work(ctx, &river.Job[DunningArgs]{}))
+
+	grantCount, err := bunDB.NewSelect().
+		Model((*models.SubscriptionCreditGrant)(nil)).
+		Where("subscription_id = ?", subID).
+		Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, grantCount)
+
+	depositCount, err := bunDB.NewSelect().
+		Model((*models.CreditTransaction)(nil)).
+		Where("user_id = ? AND credit_type_id = ?", userID, creditTypeID).
+		Where("transaction_type = 'deposit' AND source = 'subscription_renewal'").
+		Count(ctx)
+	require.NoError(t, err)
+	require.Equal(t, 1, depositCount)
+}

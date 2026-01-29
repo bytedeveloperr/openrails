@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -185,7 +186,11 @@ func TestReplayService_WebhookReplay(t *testing.T) {
 	// Create a test HTTP server to receive webhooks
 	var receivedRequests []TestWebhookRequest
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("local listener not permitted in this environment: %v", err)
+	}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 
 		request := TestWebhookRequest{
@@ -210,6 +215,8 @@ func TestReplayService_WebhookReplay(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"message": "webhook processed successfully"})
 	}))
+	server.Listener = ln
+	server.Start()
 	defer server.Close()
 
 	rs := &ReplayService{
@@ -265,13 +272,19 @@ func TestReplayService_WebhookReplay(t *testing.T) {
 func TestReplayService_ConcurrentReplay(t *testing.T) {
 	var requestCount atomic.Uint64
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("local listener not permitted in this environment: %v", err)
+	}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount.Add(1)
 		// Add small delay to simulate processing time
 		time.Sleep(5 * time.Millisecond)
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"message": "ok"})
 	}))
+	server.Listener = ln
+	server.Start()
 	defer server.Close()
 
 	rs := &ReplayService{
@@ -302,10 +315,16 @@ func TestReplayService_ConcurrentReplay(t *testing.T) {
 // TestReplayService_ErrorHandling tests error handling scenarios
 func TestReplayService_ErrorHandling(t *testing.T) {
 	// Create a server that returns errors
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("local listener not permitted in this environment: %v", err)
+	}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Internal server error"))
 	}))
+	server.Listener = ln
+	server.Start()
 	defer server.Close()
 
 	rs := &ReplayService{
@@ -373,10 +392,16 @@ func TestHelperFunctions(t *testing.T) {
 	err = ValidateEvent("ccbill", "nonexistent.json")
 	assert.Error(t, err, "Should fail with nonexistent event file")
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("local listener not permitted in this environment: %v", err)
+	}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{"message": "ok"})
 	}))
+	server.Listener = ln
+	server.Start()
 	defer server.Close()
 
 	ctx := context.Background()
@@ -390,10 +415,16 @@ func TestHelperFunctions(t *testing.T) {
 	err = ReplayAllEvents(ctx, "ccbill", server.URL)
 	assert.NoError(t, err, "Should replay all CCBill events successfully")
 
-	errorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ln2, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Skipf("local listener not permitted in this environment: %v", err)
+	}
+	errorServer := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Internal server error"))
 	}))
+	errorServer.Listener = ln2
+	errorServer.Start()
 	defer errorServer.Close()
 
 	err = ReplayEvent(ctx, "ccbill", "newsalesuccess.json", errorServer.URL)

@@ -146,6 +146,13 @@ func (s *EntitlementService) EndActiveBySubscription(ctx context.Context, subscr
 	return s.repo.EndActiveBySubscription(ctx, subscriptionID, endAt, now, reason)
 }
 
+// ExtendActiveBySubscription extends active entitlements for a subscription to endAt.
+// It only extends (never shortens) existing windows.
+func (s *EntitlementService) ExtendActiveBySubscription(ctx context.Context, subscriptionID uuid.UUID, endAt time.Time) error {
+	now := s.now()
+	return s.repo.ExtendActiveBySubscription(ctx, subscriptionID, endAt, now)
+}
+
 // ResumeBySubscription clears scheduled end_at for a subscription's entitlements.
 func (s *EntitlementService) ResumeBySubscription(ctx context.Context, subscriptionID uuid.UUID) error {
 	now := s.now()

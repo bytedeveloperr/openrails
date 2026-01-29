@@ -466,6 +466,11 @@ type FeatureFlags struct {
 	// Users keep premium access even after subscription ends.
 	// Default: false (normal expiration behavior)
 	DisableEntitlementExpiration bool `koanf:"disable_entitlement_expiration"`
+
+	// VerifyProcessorMappings enables remote verification of provided processor identifiers
+	// when using the catalog definition surface (e.g., checking a Stripe price_id exists).
+	// Default: false (link ids are validated only for presence/shape, not existence).
+	VerifyProcessorMappings bool `koanf:"verify_processor_mappings"`
 }
 
 // GetDunningMode returns the effective dunning mode, defaulting to "on" if not set or invalid.

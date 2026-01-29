@@ -370,6 +370,7 @@ const (
 	PaymentEventSubscriptionCancelled   PaymentEventType = "subscription_cancelled"
 	PaymentEventSubscriptionExpired     PaymentEventType = "subscription_expired"
 	PaymentEventSubscriptionReactivated PaymentEventType = "subscription_reactivated"
+	PaymentEventSubscriptionPastDue     PaymentEventType = "subscription_past_due"
 
 	// Customer/billing info events
 	PaymentEventBillingDateChanged  PaymentEventType = "billing_date_changed"

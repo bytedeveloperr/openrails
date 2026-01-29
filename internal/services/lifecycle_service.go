@@ -38,6 +38,9 @@ type CreateMembershipParams struct {
 	Processor               models.Processor
 	ProcessorSubscriptionID *string
 	UserEmail               *string
+	// CurrentPeriodEndsAt is an optional override for the subscription paid-term end.
+	// Used for processors like CCBill that provide an authoritative nextRenewalDate.
+	CurrentPeriodEndsAt *time.Time
 	// Payment fields - required for creating Payment record
 	TransactionID string // Processor's transaction ID for this purchase
 	Amount        int64  // Amount charged in smallest unit (cents for USD)
@@ -47,6 +50,9 @@ type CreateMembershipParams struct {
 type RenewMembershipParams struct {
 	Processor               models.Processor
 	ProcessorSubscriptionID string
+	// CurrentPeriodEndsAt is an optional override for the subscription paid-term end.
+	// Used for processors like CCBill that provide an authoritative nextRenewalDate.
+	CurrentPeriodEndsAt *time.Time
 	// Payment fields - required for creating Payment record
 	TransactionID string // Processor's transaction ID for this renewal
 	Amount        int64  // Amount charged in smallest unit (cents for USD)
@@ -226,7 +232,9 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 	now := s.now()
 	periodStartsAt := now
 	var periodEndsAt time.Time
-	if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
+	if params.CurrentPeriodEndsAt != nil && !params.CurrentPeriodEndsAt.IsZero() && params.CurrentPeriodEndsAt.After(periodStartsAt) {
+		periodEndsAt = params.CurrentPeriodEndsAt.UTC()
+	} else if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
 		periodEndsAt = now.Add(time.Duration(*price.BillingCycleDays) * 24 * time.Hour)
 	} else {
 		periodEndsAt = now.Add(30 * 24 * time.Hour)
@@ -361,15 +369,28 @@ func (s *SubscriptionLifecycleService) createMembershipCore(ctx context.Context,
 			}
 
 			start := periodStartsAt
-			finite, err := entitlementService.LatestFiniteWindow(ctx, params.UserID, ent, now)
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return nil, nil, fmt.Errorf("failed to fetch finite entitlement: %w", err)
-			}
-			if err == nil && finite != nil && finite.EndAt != nil {
-				start = *finite.EndAt
+			if params.Processor != models.ProcessorCCBill {
+				finite, err := entitlementService.LatestFiniteWindow(ctx, params.UserID, ent, now)
+				if err != nil && !errors.Is(err, sql.ErrNoRows) {
+					return nil, nil, fmt.Errorf("failed to fetch finite entitlement: %w", err)
+				}
+				if err == nil && finite != nil && finite.EndAt != nil {
+					start = *finite.EndAt
+				}
 			}
 
-			window, err := entitlementService.GrantWindow(ctx, params.UserID, ent, start, nil, models.EntitlementSourceSubscription, &subscription.ID)
+			var endAt *time.Time
+			if params.Processor == models.ProcessorCCBill {
+				// CCBill entitlements must be finite and match the paid term.
+				// This avoids unlimited access if retries/dunning extends.
+				if start.After(periodEndsAt) {
+					start = periodStartsAt
+				}
+				periodEndsAtCopy := periodEndsAt
+				endAt = &periodEndsAtCopy
+			}
+
+			window, err := entitlementService.GrantWindow(ctx, params.UserID, ent, start, endAt, models.EntitlementSourceSubscription, &subscription.ID)
 			if err != nil {
 				log.WithContext(ctx).WithFields(log.Fields{
 					"subscription_id": subscription.ID,
@@ -571,6 +592,9 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 			periodStartsAt = now
 			periodEndsAt = now.Add(time.Duration(*price.BillingCycleDays) * 24 * time.Hour)
 		}
+		if params.CurrentPeriodEndsAt != nil && !params.CurrentPeriodEndsAt.IsZero() && params.CurrentPeriodEndsAt.After(periodStartsAt) {
+			periodEndsAt = params.CurrentPeriodEndsAt.UTC()
+		}
 
 		// Update subscription
 		subscription.Status = models.StatusActive
@@ -581,6 +605,11 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 		subscription.CancelType = nil
 		subscription.CancelFeedback = nil
 		subscription.EndedAt = nil
+		// Clear any dunning/grace fields on successful renewal.
+		subscription.LastRetryAt = nil
+		subscription.RetryAttempts = nil
+		subscription.NextRetryAt = nil
+		subscription.GraceEndsAt = nil
 
 		if err := subService.Update(ctx, subscription); err != nil {
 			return fmt.Errorf("failed to update subscription: %w", err)
@@ -595,6 +624,14 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 			"period_end":                periodEndsAt,
 			"downgrade_applied":         applyingDowngrade,
 		}).Info("Updated subscription for renewal")
+
+		// For CCBill, entitlements must be finite and track the paid term.
+		// On renewal success, extend entitlement windows to the new current_period_ends_at.
+		if params.Processor == models.ProcessorCCBill {
+			if err := entitlementService.ExtendActiveBySubscription(ctx, subscription.ID, periodEndsAt); err != nil {
+				return fmt.Errorf("failed to extend subscription entitlements on renewal: %w", err)
+			}
+		}
 
 		// Handle entitlements for downgrade
 		if applyingDowngrade && oldProduct != nil && newProduct != nil {
@@ -639,7 +676,12 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 						continue
 					}
 					if !exists {
-						if _, err := entitlementService.GrantWindow(ctx, subscription.UserID, entName, now, nil, models.EntitlementSourceSubscription, &subscription.ID); err != nil {
+						var endAt *time.Time
+						if params.Processor == models.ProcessorCCBill {
+							pe := periodEndsAt
+							endAt = &pe
+						}
+						if _, err := entitlementService.GrantWindow(ctx, subscription.UserID, entName, now, endAt, models.EntitlementSourceSubscription, &subscription.ID); err != nil {
 							log.WithContext(ctx).WithError(err).WithField("entitlement", entName).Warn("Failed to grant new entitlement during downgrade")
 						} else {
 							log.WithContext(ctx).WithFields(log.Fields{
@@ -829,31 +871,20 @@ func (s *SubscriptionLifecycleService) CancelMembership(ctx context.Context, par
 
 		// Update subscription status
 		now := s.now()
-
-		// Set end date to now or current period end based on whether access is revoked
+		endAt := now
 		if params.RevokeAccess {
-			subscription.EndedAt = &now
+			// Immediate revocation
 			subscription.CurrentPeriodEndsAt = &now
-		} else {
-			// Let subscription run until current period ends
-			if subscription.CurrentPeriodEndsAt == nil {
-				subscription.EndedAt = &now
-			}
+		} else if subscription.CurrentPeriodEndsAt != nil && subscription.CurrentPeriodEndsAt.After(now) {
+			// Period-end cancellation: keep access until paid term ends.
+			endAt = *subscription.CurrentPeriodEndsAt
 		}
 
-		// Set cancellation details if ended at is set
-		if params.CancelFeedback != nil && subscription.EndedAt != nil {
-			log.Println("Setting cancellation fields")
-			subscription.Status = models.StatusCancelled
-			subscription.CancelType = &params.CancelType
-			subscription.CancelFeedback = params.CancelFeedback
-			cancelTime := s.now()
-			// Ensure constraint: ended_at >= cancelled_at (or either is NULL)
-			if subscription.EndedAt != nil && cancelTime.After(*subscription.EndedAt) {
-				subscription.EndedAt = &cancelTime
-			}
-			subscription.CancelledAt = &cancelTime
-		}
+		subscription.Status = models.StatusCancelled
+		subscription.EndedAt = &endAt
+		subscription.CancelType = &params.CancelType
+		subscription.CancelFeedback = params.CancelFeedback
+		subscription.CancelledAt = &now
 
 		if err := subService.Update(ctx, subscription); err != nil {
 			log.WithContext(ctx).WithError(err).WithFields(log.Fields{

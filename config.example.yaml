@@ -180,6 +180,9 @@ processors:
     subscription_type_id: "0001"  # Must match CCBill portal config
     # salt: set via PROCESSORS_CCBILL_SALT env var
 
+    # CCBill retry/dunning behavior is controlled by CCBill itself. OpenRails follows the
+    # webhook-provided nextRetryDate schedule and does not offer grace tuning knobs here.
+
     # DataLink credentials (enables reconciliation worker)
     # datalink_username: set via PROCESSORS_CCBILL_DATALINK_USERNAME env var
     # datalink_password: set via PROCESSORS_CCBILL_DATALINK_PASSWORD env var

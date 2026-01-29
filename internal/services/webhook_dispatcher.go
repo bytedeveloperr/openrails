@@ -89,6 +89,7 @@ func (d *WebhookDispatcher) processCCBill(ctx context.Context, event *WebhookMes
 		PaymentService:               d.PaymentService,
 		DeduplicationService:         d.DeduplicationService,
 		CheckoutSessionService:       d.CheckoutSessionService,
+		CreditsService:               d.CreditsService,
 	}
 	return service.HandleCCBillWebhook(ctx)
 }
@@ -113,6 +114,7 @@ func (d *WebhookDispatcher) processNMI(ctx context.Context, event *WebhookMessag
 		EventLogService:              d.EventLogService,
 		SubscriptionService:          d.SubscriptionService,
 		PaymentService:               d.PaymentService,
+		CreditsService:               d.CreditsService,
 		DeduplicationService:         d.DeduplicationService,
 		NotificationService:          d.NotificationService,
 		SubscriptionLifecycleService: d.SubscriptionLifecycleService,

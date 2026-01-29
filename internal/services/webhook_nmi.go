@@ -34,6 +34,7 @@ type NMIWebhookService struct {
 	EventLogService              *EventLogService
 	SubscriptionService          *SubscriptionService
 	PaymentService               *PaymentService
+	CreditsService               *CreditsService
 	DeduplicationService         *DeduplicationService
 	NotificationService          *NotificationService
 	SubscriptionLifecycleService *SubscriptionLifecycleService
@@ -791,6 +792,22 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			return fmt.Errorf("failed to activate subscription: %w", err)
 		}
 
+		if s.CreditsService != nil && s.SubscriptionService != nil {
+			updated, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorMobius), provider, nmiSubID)
+			if err != nil {
+				log.WithContext(ctx).WithError(err).Warn("failed to load subscription for initial credit grants (NMI)")
+			} else if updated.CurrentPeriodEndsAt != nil && !updated.CurrentPeriodEndsAt.IsZero() {
+				if err := s.CreditsService.GrantSubscriptionCredits(ctx, GrantSubscriptionCreditsParams{
+					SubscriptionID: updated.ID,
+					PeriodEnd:      updated.CurrentPeriodEndsAt.UTC(),
+					Cadence:        models.CreditGrantCadenceOnce,
+					Source:         "subscription_initial",
+				}); err != nil {
+					log.WithContext(ctx).WithError(err).Warn("failed to grant initial subscription credits (NMI)")
+				}
+			}
+		}
+
 		log.WithContext(ctx).WithFields(log.Fields{
 			"subscription_id":           subscription.ID,
 			"processor_subscription_id": subscription.ProcessorSubscriptionID,
@@ -822,6 +839,22 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			Currency:                currencyValue,
 		}); err != nil {
 			return fmt.Errorf("failed to renew subscription: %w", err)
+		}
+
+		if s.CreditsService != nil && s.SubscriptionService != nil {
+			updated, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorMobius), provider, nmiSubID)
+			if err != nil {
+				log.WithContext(ctx).WithError(err).Warn("failed to load subscription for renewal credit grants (NMI)")
+			} else if updated.CurrentPeriodEndsAt != nil && !updated.CurrentPeriodEndsAt.IsZero() {
+				if err := s.CreditsService.GrantSubscriptionCredits(ctx, GrantSubscriptionCreditsParams{
+					SubscriptionID: updated.ID,
+					PeriodEnd:      updated.CurrentPeriodEndsAt.UTC(),
+					Cadence:        models.CreditGrantCadencePerRenewal,
+					Source:         "subscription_renewal",
+				}); err != nil {
+					log.WithContext(ctx).WithError(err).Warn("failed to grant renewal subscription credits (NMI)")
+				}
+			}
 		}
 
 		log.WithContext(ctx).WithFields(log.Fields{

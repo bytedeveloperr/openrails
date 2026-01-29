@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -22,7 +23,7 @@ type Product struct {
 	EntitlementsSpec map[string]*int `bun:"entitlements_spec,type:jsonb,nullzero" json:"entitlements_spec,omitempty"`
 
 	// Credits configuration: bundled promo credits for subscriptions
-	CreditsSpec *CreditsSpec `bun:"credits_spec,type:jsonb,nullzero" json:"credits_spec,omitempty"`
+	CreditsSpec CreditsSpec `bun:"credits_spec,type:jsonb,nullzero" json:"credits_spec,omitempty"`
 
 	// Tier configuration for upgrade/downgrade relationships
 	// Products in the same TierGroup are mutually exclusive - user must upgrade/downgrade between them
@@ -38,12 +39,78 @@ type Product struct {
 	Prices []*Price `bun:"rel:has-many,join:id=product_id" json:"prices,omitempty"`
 }
 
-// CreditsSpec defines bundled promotional credits for a product subscription.
-// Amounts are stored in cents.
-type CreditsSpec struct {
-	PromoAmountCents int64  `json:"promo_amount_cents,omitempty"`
-	PromoExpiresDays int    `json:"promo_expires_days,omitempty"`
-	GrantOn          string `json:"grant_on,omitempty"` // initial|renewal
+// CreditsSpec defines bundled credit grants for a product (e.g., promo credits on signup,
+// or a recurring monthly stipend on renewals).
+//
+// Keys are credit type names (billing.credit_types.name). Amounts are stored as BIGINT in the
+// credit type's base units (unit-agnostic), not USD cents.
+type CreditsSpec map[string]CreditGrantSpec
+
+// UnmarshalJSON supports both the current map-based credits_spec and the legacy promo-style
+// credits_spec ({promo_amount_cents, promo_expires_days, grant_on}). The legacy format is
+// translated into a single credit type entry keyed by "api_credits" for backwards compatibility.
+func (c *CreditsSpec) UnmarshalJSON(b []byte) error {
+	if c == nil {
+		return nil
+	}
+	if len(b) == 0 || string(b) == "null" {
+		*c = nil
+		return nil
+	}
+
+	// First try the v2 schema.
+	var v2 map[string]CreditGrantSpec
+	if err := json.Unmarshal(b, &v2); err == nil {
+		*c = v2
+		return nil
+	}
+
+	// Fall back to legacy schema.
+	var legacy struct {
+		PromoAmountCents int64  `json:"promo_amount_cents"`
+		PromoExpiresDays int    `json:"promo_expires_days"`
+		GrantOn          string `json:"grant_on"` // initial|renewal
+	}
+	if err := json.Unmarshal(b, &legacy); err != nil {
+		return err
+	}
+	if legacy.PromoAmountCents <= 0 {
+		*c = nil
+		return nil
+	}
+
+	days := legacy.PromoExpiresDays
+	if days <= 0 {
+		days = 90
+	}
+	expiresDays := &days
+
+	cadence := CreditGrantCadenceOnce
+	if strings.EqualFold(strings.TrimSpace(legacy.GrantOn), "renewal") {
+		cadence = CreditGrantCadencePerRenewal
+	}
+
+	*c = CreditsSpec{
+		"api_credits": {
+			Amount:      legacy.PromoAmountCents,
+			ExpiresDays: expiresDays,
+			Cadence:     cadence,
+		},
+	}
+	return nil
+}
+
+type CreditGrantCadence string
+
+const (
+	CreditGrantCadenceOnce       CreditGrantCadence = "once"
+	CreditGrantCadencePerRenewal CreditGrantCadence = "per_renewal"
+)
+
+type CreditGrantSpec struct {
+	Amount      int64              `json:"amount"`
+	ExpiresDays *int               `json:"expires_days,omitempty"`
+	Cadence     CreditGrantCadence `json:"cadence,omitempty"` // once|per_renewal (default once)
 }
 
 // Price represents a specific pricing option for a product
@@ -79,11 +146,12 @@ type Price struct {
 
 // Processor config key constants (used in the Processors JSONB map)
 const (
-	ProcessorKeyPlanID         = "plan_id"
-	ProcessorKeyProvider       = "provider"
-	ProcessorKeyCCBillFormName = "form_name"
-	ProcessorKeyCCBillFlexID   = "flex_id"
-	ProcessorKeyStripePriceID  = "price_id"
+	ProcessorKeyPlanID          = "plan_id"
+	ProcessorKeyProvider        = "provider"
+	ProcessorKeyCCBillFormName  = "form_name"
+	ProcessorKeyCCBillFlexID    = "flex_id"
+	ProcessorKeyStripePriceID   = "price_id"
+	ProcessorKeyStripeProductID = "product_id"
 )
 
 // GetProcessorConfig returns the configuration for a specific processor, or nil if not configured

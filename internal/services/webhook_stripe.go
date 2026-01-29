@@ -39,6 +39,16 @@ type stripeEventData struct {
 	Object json.RawMessage `json:"object"`
 }
 
+type stripeInvoiceLineItem struct {
+	Period struct {
+		Start int64 `json:"start"`
+		End   int64 `json:"end"`
+	} `json:"period"`
+	Price struct {
+		ID string `json:"id"`
+	} `json:"price"`
+}
+
 type stripeInvoice struct {
 	ID            string            `json:"id"`
 	Subscription  string            `json:"subscription"`
@@ -48,11 +58,7 @@ type stripeInvoice struct {
 	Currency      string            `json:"currency"`
 	Metadata      map[string]string `json:"metadata"`
 	Lines         struct {
-		Data []struct {
-			Price struct {
-				ID string `json:"id"`
-			} `json:"price"`
-		} `json:"data"`
+		Data []stripeInvoiceLineItem `json:"data"`
 	} `json:"lines"`
 }
 
@@ -131,6 +137,7 @@ func (s *StripeWebhookService) handleInvoicePaid(ctx context.Context, obj json.R
 	}
 
 	sub, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorStripe), "", processorSubID)
+	createdSubscription := false
 	if err != nil {
 		sub, err = s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 			UserID:                  userID,
@@ -145,6 +152,7 @@ func (s *StripeWebhookService) handleInvoicePaid(ctx context.Context, obj json.R
 		if err != nil {
 			return fmt.Errorf("create membership: %w", err)
 		}
+		createdSubscription = true
 	} else {
 		if err := s.SubscriptionLifecycleService.RenewMembership(ctx, &RenewMembershipParams{
 			Processor:               models.ProcessorStripe,
@@ -168,22 +176,30 @@ func (s *StripeWebhookService) handleInvoicePaid(ctx context.Context, obj json.R
 		return fmt.Errorf("product lookup failed: %w", err)
 	}
 
-	if product.CreditsSpec != nil && product.CreditsSpec.PromoAmountCents > 0 {
-		days := product.CreditsSpec.PromoExpiresDays
-		if days <= 0 {
-			days = 90
+	if s.CreditsService != nil && len(product.CreditsSpec) > 0 {
+		periodEnd := stripeInvoicePeriodEnd(inv)
+		if periodEnd.IsZero() && sub.CurrentPeriodEndsAt != nil {
+			periodEnd = sub.CurrentPeriodEndsAt.UTC()
 		}
-		expiresAt := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
-		_, err := s.CreditsService.Deposit(ctx, CreditDepositParams{
-			UserID:     userID,
-			CreditType: "api_credits",
-			Amount:     product.CreditsSpec.PromoAmountCents,
-			Source:     "promo",
-			SourceID:   &sub.ID,
-			ExpiresAt:  &expiresAt,
-		})
-		if err != nil {
-			return fmt.Errorf("grant promo credits: %w", err)
+		if !periodEnd.IsZero() {
+			cadence := models.CreditGrantCadencePerRenewal
+			source := "subscription_renewal"
+			if createdSubscription {
+				cadence = models.CreditGrantCadenceOnce
+				source = "subscription_initial"
+			}
+			if err := s.CreditsService.GrantSubscriptionCredits(ctx, GrantSubscriptionCreditsParams{
+				SubscriptionID: sub.ID,
+				PeriodEnd:      periodEnd,
+				Cadence:        cadence,
+				Source:         source,
+			}); err != nil {
+				// Credits are an optional add-on to subscription processing; don't fail the entire webhook.
+				log.WithContext(ctx).WithError(err).WithFields(log.Fields{
+					"subscription_id": sub.ID,
+					"period_end":      periodEnd,
+				}).Warn("failed to grant subscription credits")
+			}
 		}
 	}
 
@@ -210,6 +226,19 @@ func (s *StripeWebhookService) handleInvoicePaid(ctx context.Context, obj json.R
 		}
 	}
 	return nil
+}
+
+func stripeInvoicePeriodEnd(inv stripeInvoice) time.Time {
+	var end int64
+	for _, line := range inv.Lines.Data {
+		if line.Period.End > end {
+			end = line.Period.End
+		}
+	}
+	if end <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(end, 0).UTC()
 }
 
 func (s *StripeWebhookService) handleCheckoutSessionExpired(ctx context.Context, obj json.RawMessage) error {
@@ -301,24 +330,46 @@ func (s *StripeWebhookService) handleCheckoutSessionCompleted(ctx context.Contex
 		}
 	}
 
-	// Grant purchased credits (dollar-for-dollar) with 1-year expiry
+	// Grant purchased credits based on the product's credits_spec.
 	if price == nil {
 		price, err = s.PriceService.GetByID(ctx, priceID)
 		if err != nil {
 			return fmt.Errorf("price lookup failed: %w", err)
 		}
 	}
-	expiresAt := time.Now().UTC().Add(365 * 24 * time.Hour)
-	_, err = s.CreditsService.Deposit(ctx, CreditDepositParams{
-		UserID:     userID,
-		CreditType: "api_credits",
-		Amount:     price.Amount,
-		Source:     "purchase",
-		SourceID:   nil,
-		ExpiresAt:  &expiresAt,
-	})
+	product, err := s.ProductService.GetByID(ctx, price.ProductID)
 	if err != nil {
-		return fmt.Errorf("grant purchased credits: %w", err)
+		return fmt.Errorf("product lookup failed: %w", err)
+	}
+	if len(product.CreditsSpec) > 0 && s.CreditsService != nil {
+		for creditType, spec := range product.CreditsSpec {
+			cadence := spec.Cadence
+			if cadence == "" {
+				cadence = models.CreditGrantCadenceOnce
+			}
+			if cadence != models.CreditGrantCadenceOnce {
+				continue
+			}
+			if strings.TrimSpace(creditType) == "" || spec.Amount <= 0 {
+				continue
+			}
+			var expiresAt *time.Time
+			if spec.ExpiresDays != nil && *spec.ExpiresDays > 0 {
+				t := time.Now().UTC().Add(time.Duration(*spec.ExpiresDays) * 24 * time.Hour)
+				expiresAt = &t
+			}
+			_, err = s.CreditsService.Deposit(ctx, CreditDepositParams{
+				UserID:     userID,
+				CreditType: creditType,
+				Amount:     spec.Amount,
+				Source:     "purchase",
+				SourceID:   &result.PaymentID,
+				ExpiresAt:  expiresAt,
+			})
+			if err != nil {
+				return fmt.Errorf("grant purchased credits (%s): %w", creditType, err)
+			}
+		}
 	}
 	return nil
 }
@@ -419,11 +470,7 @@ func (s *StripeWebhookService) handleSubscriptionUpdated(ctx context.Context, ob
 	return nil
 }
 
-func (s *StripeWebhookService) resolvePriceFromMetadata(ctx context.Context, metadata map[string]string, lines []struct {
-	Price struct {
-		ID string `json:"id"`
-	} `json:"price"`
-}) (uuid.UUID, *models.Price, error) {
+func (s *StripeWebhookService) resolvePriceFromMetadata(ctx context.Context, metadata map[string]string, lines []stripeInvoiceLineItem) (uuid.UUID, *models.Price, error) {
 	if idStr := pickMetadata(metadata, "internal_price_id", "price_id"); idStr != "" {
 		priceID, err := uuid.Parse(idStr)
 		if err == nil {

@@ -1,0 +1,5 @@
+ALTER TABLE billing.user_credit_balances
+  ADD COLUMN IF NOT EXISTS permanent_balance BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS expiring_balance BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS earliest_expiry TIMESTAMPTZ;
+

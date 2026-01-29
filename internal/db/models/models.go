@@ -40,6 +40,7 @@ var ModelRegistry = []any{
 	(*CreditTransaction)(nil),
 	(*CreditExpiryBatch)(nil),
 	(*CreditHold)(nil),
+	(*SubscriptionCreditGrant)(nil),
 	(*ProcessorCustomer)(nil),
 }
 

@@ -680,16 +680,13 @@ func (s *Service) GetCredits(ctx context.Context, userID string) ([]CreditBalanc
 	// Query all credit types with user balances using a direct query
 	// This matches the pattern used in the HTTP handler
 	var rows []struct {
-		CreditTypeID   uuid.UUID  `bun:"credit_type_id"`
-		Name           string     `bun:"name"`
-		DisplayName    string     `bun:"display_name"`
-		Unit           string     `bun:"unit"`
-		DecimalPlaces  int        `bun:"decimal_places"`
-		Balance        *int64     `bun:"balance"`
-		HeldBalance    *int64     `bun:"held_balance"`
-		Permanent      *int64     `bun:"permanent_balance"`
-		Expiring       *int64     `bun:"expiring_balance"`
-		EarliestExpiry *time.Time `bun:"earliest_expiry"`
+		CreditTypeID  uuid.UUID `bun:"credit_type_id"`
+		Name          string    `bun:"name"`
+		DisplayName   string    `bun:"display_name"`
+		Unit          string    `bun:"unit"`
+		DecimalPlaces int       `bun:"decimal_places"`
+		Balance       *int64    `bun:"balance"`
+		HeldBalance   *int64    `bun:"held_balance"`
 	}
 
 	err := s.rt.DB.GetDB().NewSelect().
@@ -701,9 +698,6 @@ func (s *Service) GetCredits(ctx context.Context, userID string) ([]CreditBalanc
 		ColumnExpr("ct.decimal_places").
 		ColumnExpr("ucb.balance").
 		ColumnExpr("ucb.held_balance").
-		ColumnExpr("ucb.permanent_balance").
-		ColumnExpr("ucb.expiring_balance").
-		ColumnExpr("ucb.earliest_expiry").
 		Join("LEFT JOIN billing.user_credit_balances ucb ON ucb.credit_type_id = ct.id AND ucb.user_id = ?", userID).
 		Where("ct.is_active = true").
 		Scan(ctx, &rows)
@@ -713,21 +707,13 @@ func (s *Service) GetCredits(ctx context.Context, userID string) ([]CreditBalanc
 
 	result := make([]CreditBalance, 0, len(rows))
 	for _, row := range rows {
-		var earliest *int64
-		if row.EarliestExpiry != nil && !row.EarliestExpiry.IsZero() {
-			ts := row.EarliestExpiry.Unix()
-			earliest = &ts
-		}
 		result = append(result, CreditBalance{
-			Type:           row.Name,
-			DisplayName:    row.DisplayName,
-			Unit:           row.Unit,
-			DecimalPlaces:  row.DecimalPlaces,
-			Balance:        derefInt64(row.Balance),
-			HeldBalance:    derefInt64(row.HeldBalance),
-			Permanent:      derefInt64(row.Permanent),
-			Expiring:       derefInt64(row.Expiring),
-			EarliestExpiry: earliest,
+			Type:          row.Name,
+			DisplayName:   row.DisplayName,
+			Unit:          row.Unit,
+			DecimalPlaces: row.DecimalPlaces,
+			Balance:       derefInt64(row.Balance),
+			HeldBalance:   derefInt64(row.HeldBalance),
 		})
 	}
 
@@ -765,22 +751,13 @@ func (s *Service) GetCreditsByType(ctx context.Context, userID, creditType strin
 		return nil, fmt.Errorf("credit type not found")
 	}
 
-	var earliest *int64
-	if bal.EarliestExpiry != nil && !bal.EarliestExpiry.IsZero() {
-		ts := bal.EarliestExpiry.Unix()
-		earliest = &ts
-	}
-
 	return &CreditBalance{
-		Type:           creditType,
-		DisplayName:    ct.DisplayName,
-		Unit:           ct.Unit,
-		DecimalPlaces:  ct.DecimalPlaces,
-		Balance:        bal.Balance,
-		HeldBalance:    bal.HeldBalance,
-		Permanent:      bal.Permanent,
-		Expiring:       bal.Expiring,
-		EarliestExpiry: earliest,
+		Type:          creditType,
+		DisplayName:   ct.DisplayName,
+		Unit:          ct.Unit,
+		DecimalPlaces: ct.DecimalPlaces,
+		Balance:       bal.Balance,
+		HeldBalance:   bal.HeldBalance,
 	}, nil
 }
 
