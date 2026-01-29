@@ -115,12 +115,11 @@ func (e *TierChangeError) Error() string {
 
 // CoverageInfo represents the user's current product coverage
 type CoverageInfo struct {
-	HasCoverage     bool       // Whether user has any active coverage
-	IsIndefinite    bool       // True if coverage has no end date
-	EndDate         *time.Time // When coverage ends (nil if indefinite)
-	ExplicitEndDate *time.Time // If set, forces coverage to this end date
-	SourceType      string     // "subscription" or "entitlement"
-	SourceID        *uuid.UUID // ID of the subscription or entitlement source
+	HasCoverage  bool       // Whether user has any active coverage
+	IsIndefinite bool       // True if coverage has no end date
+	EndDate      *time.Time // When coverage ends (nil if indefinite)
+	SourceType   string     // "subscription" or "entitlement"
+	SourceID     *uuid.UUID // ID of the subscription or entitlement source
 }
 
 // EligibilityStatus represents the result of a purchase eligibility check
@@ -1372,6 +1371,7 @@ func (s *CheckoutService) grantProductEntitlements(
 	paymentID uuid.UUID,
 	coverage *CoverageInfo,
 	subscription bool,
+	walletPurchase bool,
 ) error {
 	if s.EntitlementService == nil || product.EntitlementsSpec == nil {
 		return nil
@@ -1383,11 +1383,6 @@ func (s *CheckoutService) grantProductEntitlements(
 		var startAt time.Time
 		var endAt *time.Time
 
-		// Ensure entitlements last for time specified in end date
-		if coverage.ExplicitEndDate != nil {
-			endAt = coverage.ExplicitEndDate
-		}
-
 		// Determine start time
 		if coverage.HasCoverage && coverage.EndDate != nil {
 			// Delayed start - entitlement starts when current coverage ends
@@ -1395,6 +1390,12 @@ func (s *CheckoutService) grantProductEntitlements(
 		} else {
 			// Immediate start
 			startAt = now
+		}
+
+		// Set entitlements to expire 1 month from purchase for wallet purchases
+		if walletPurchase {
+			newDate := startAt.AddDate(0, 1, 0)
+			endAt = &newDate
 		}
 
 		// Determine end time
@@ -1608,14 +1609,9 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 		sourceId = *req.SubscriptionID
 	}
 
-	if req.WalletPurchase {
-		endDate := time.Now().AddDate(0, 1, 0)
-		coverage.ExplicitEndDate = &endDate
-	}
-
 	// Grant entitlements
 	var grantedEntitlements []string
-	if err := s.grantProductEntitlements(ctx, req.UserID, product, sourceId, coverage, req.SubscriptionID != nil && req.SubscriptionID.String() != ""); err != nil {
+	if err := s.grantProductEntitlements(ctx, req.UserID, product, sourceId, coverage, req.SubscriptionID != nil && req.SubscriptionID.String() != "", req.WalletPurchase); err != nil {
 		log.WithError(err).WithField("payment_id", sourceId).Error("failed to grant entitlements after payment")
 		// Don't fail - payment record was created successfully
 	} else if product.EntitlementsSpec != nil {
