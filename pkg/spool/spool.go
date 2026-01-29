@@ -23,11 +23,31 @@ type Spool struct {
 	lowWMScale float64 // trim down to maxBytes*lowWMScale when over cap (e.g., 0.9)
 }
 
+const (
+	defaultSpoolDir = "/var/lib/openrails-billing/spool"
+	legacySpoolDir  = "/var/lib/doujins-billing/spool"
+)
+
+func dirExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func defaultDir() string {
+	if dirExists(defaultSpoolDir) {
+		return defaultSpoolDir
+	}
+	if dirExists(legacySpoolDir) {
+		return legacySpoolDir
+	}
+	return defaultSpoolDir
+}
+
 // New creates a spool directory with safe defaults and built-in caps.
 // Defaults: 1 GiB total size, unlimited files, 90% low watermark trim target.
 func New(dir string) (*Spool, error) {
 	if dir == "" {
-		dir = "/var/lib/doujins-billing/spool"
+		dir = defaultDir()
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create spool dir: %w", err)

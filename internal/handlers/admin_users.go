@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/api"
-	"github.com/doujins-org/doujins-billing/pkg/query"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/services"
+	"github.com/open-rails/openrails/pkg/api"
+	"github.com/open-rails/openrails/pkg/query"
 )
 
 // AdminUserPath is the path parameter for admin user endpoints

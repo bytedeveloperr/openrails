@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/doujins-org/doujins-billing/config"
+	"github.com/open-rails/openrails/config"
 )
 
 var ccbillIPRanges = []*net.IPNet{

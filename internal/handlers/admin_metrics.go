@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/open-rails/openrails/internal/services"
 )
 
 func GetAdminMetricsSummary(r *Request) {

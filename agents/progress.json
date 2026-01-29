@@ -550,6 +550,59 @@
         "[x] Update downstream host app integration to mount billing once at /billing"
       ],
       "completed": true
+    },
+    {
+      "id": 155,
+      "name": "authkit-http-adapter-migration",
+      "description": "Stop depending on the removed `github.com/open-rails/authkit/adapters/gin` package and migrate Billing to AuthKit's new `adapters/http` verifier + middleware surface.\n\n## Metadata\n\n- Category: auth\n- Status: in_progress\n- Passes: false\n\n## Context\n\n- Previously, `go mod tidy` failed with (fixed 2026-01-29):\n  - `module github.com/open-rails/authkit@latest found (v0.4.1), but does not contain package github.com/open-rails/authkit/adapters/gin`\n- Previously, OpenRails imported `authkit/adapters/gin` (removed 2026-01-29):\n  - `internal/auth/verifier.go`\n  - `internal/server/admin_authkit.go`\n  - `internal/server/server.go`\n- In local `/home/fidika/authkit`, Gin adapters were removed and replaced with net/http-based adapters under `github.com/open-rails/authkit/adapters/http`.\n\n## Decision\n\n- Prefer using `adapters/http` for token verification (and optionally auth middleware), but keep Billing's current API error envelope (ginapi/response) consistent.\n- Avoid adopting `adapters/http`'s JSON error shape (`{\"error\":\"...\"}`) unless we explicitly decide to change Billing's error responses.\n\n## Implementation Notes\n\n- `authhttp.NewVerifier(accept)` (package `github.com/open-rails/authkit/adapters/http`) supports multi-issuer verify-only mode (AcceptConfig).\n- `authhttp.Required/Optional/RequireAdmin` are net/http middleware; using them directly in Gin will require a small adapter layer OR re-implementing the same checks as Gin middleware.\n- Admin gating can be implemented locally by querying Postgres (same query as AuthKit's `authhttp.RequireAdmin`).",
+      "tasks": [
+        "PHASE 1 - Remove `authkit/adapters/gin` imports:",
+        "[x] Update `internal/auth/verifier.go` to use `github.com/open-rails/authkit/adapters/http` (authhttp) for verifier construction",
+        "[x] Remove `authgin` usage from `internal/server/admin_authkit.go` and `internal/server/server.go` (remove `adminAuth *authgin.Auth` field)",
+        "",
+        "PHASE 2 - Replace admin role gate:",
+        "[x] Implement admin gate in Billing using `internal/auth/policy.AdminRequired` (live Postgres check against roles/users)",
+        "[x] Update `internal/server/routes_admin.go` to use the new admin gate middleware (instead of `authkit/adapters/gin` RequireAdmin)",
+        "",
+        "PHASE 3 - Optional: adopt `adapters/http` middleware fully:",
+        "[ ] Decide if Billing should keep current error response envelope or adopt AuthKit's `{\"error\":\"code\"}` responses",
+        "[ ] If keeping current envelope: keep Billing-owned Gin middleware for Required/Optional but use `authhttp.Verifier.Verify` for verification",
+        "[ ] If adopting AuthKit middleware: add a small Gin adapter for net/http middleware and update error handling docs/tests accordingly",
+        "",
+        "VERIFY:",
+        "[x] Run `go mod tidy` and ensure there are no imports of `github.com/open-rails/authkit/adapters/gin`",
+        "[ ] Add targeted tests for the new admin gate (admin/non-admin/banned/deleted cases) if the repo has a testing pattern for middleware"
+      ],
+      "completed": false
+    },
+    {
+      "id": 156,
+      "name": "rebrand-doujins-to-openrails",
+      "description": "Replace \"doujins\" / \"doujins-billing\" branding in docs, strings, paths, and comments with \"openrails\" / \"Open Rails\".\n\n## Metadata\n\n- Category: repo-hygiene\n- Status: completed\n- Passes: true\n- Completed: 2026-01-29\n\n## Notes\n\n- Some `doujins-org/*` occurrences are dependency import paths (e.g. `github.com/doujins-org/ginapi`, `github.com/doujins-org/solana-go`). Rebranding text does not necessarily imply changing these dependencies; decide separately.",
+      "tasks": [
+        "PHASE 1 - Decide naming rules:",
+        "[x] Decide when to use `openrails` vs `Open Rails` (CLI help text, docs titles, config comments)",
+        "[x] Decide whether service name should be \"Open Rails Billing\" or just \"Open Rails\"",
+        "",
+        "PHASE 2 - Update user-facing strings:",
+        "[x] Update CLI/service descriptions (e.g. `main.go` Short/Long strings)",
+        "[x] Update any processor metadata strings (e.g. NMI `order_description`) to remove \"Doujins\"",
+        "",
+        "PHASE 3 - Update paths safely:",
+        "[x] Replace `/var/lib/doujins-billing/...` with `/var/lib/openrails-billing/...`",
+        "[x] Add backwards-compatible fallback behavior (prefer new path; fall back to legacy path if it exists)",
+        "[x] Update docker-compose volumes and docs accordingly",
+        "",
+        "PHASE 4 - Docs/comments/tests:",
+        "[x] Update docs under `docs/` and package READMEs to remove \"doujins-billing\" references",
+        "[x] Update SQL migration comments to remove \"doujins-billing\" wording",
+        "[x] Update test issuer/audience and fixture emails to use `openrails` equivalents",
+        "",
+        "VERIFY:",
+        "[x] `rg -n \"\\\\bdoujins-billing\\\\b|\\\\bdoujins\\\\b\"` has no remaining *branding* hits (allowlist: dependency import paths, `Dockerfile` GOPRIVATE/GONOSUMDB, `agents/*` historical docs, legacy spool dir constant)",
+        "[x] `go test ./...` passes"
+      ],
+      "completed": true
     }
   ]
 }

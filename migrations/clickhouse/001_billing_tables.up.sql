@@ -1,4 +1,4 @@
--- ClickHouse billing tables needed by doujins-billing
+-- ClickHouse billing tables needed by Open Rails Billing
 -- Matches fields used in internal/services/billing_event_service.go
 
 CREATE TABLE IF NOT EXISTS subscription_events {{ON_CLUSTER}} (

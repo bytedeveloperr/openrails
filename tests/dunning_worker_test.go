@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
+	"github.com/open-rails/openrails/internal/db/models"
+	riverjobs "github.com/open-rails/openrails/internal/river"
 )
 
 // TestDunningWorkerNoDueSubscriptions tests that the worker handles no due subscriptions gracefully

@@ -8,8 +8,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/doujins-org/doujins-billing/internal/app"
-	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/open-rails/openrails/internal/app"
+	"github.com/open-rails/openrails/internal/services"
 )
 
 // Service is the exported, in-process billing API.

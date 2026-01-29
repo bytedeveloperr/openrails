@@ -3,10 +3,10 @@ package handlers
 import (
 	"net/http"
 
-	authpolicy "github.com/doujins-org/doujins-billing/internal/auth/policy"
-	"github.com/doujins-org/doujins-billing/pkg/api"
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/doujins-org/ginapi/response"
+	authpolicy "github.com/open-rails/openrails/internal/auth/policy"
+	"github.com/open-rails/openrails/pkg/api"
+	"github.com/open-rails/openrails/pkg/authprovider"
 )
 
 // GetProducts retrieves products and prices for subscription.

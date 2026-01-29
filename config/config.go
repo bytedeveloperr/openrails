@@ -1018,7 +1018,7 @@ func Load(configPath string) (*Config, error) {
 
 	// Load environment variables using koanf's env provider.
 	//
-	// This follows the same approach as ~/doujins and ~/hentai0:
+	// This follows the same approach as other Go services in this workspace:
 	// - Lowercase env keys
 	// - Apply targeted hardcoded mappings for tricky cases
 	// - Otherwise, replace ONLY the first underscore with a dot (preserves snake_case field names)

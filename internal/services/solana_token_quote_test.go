@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/integrations/fx"
 )
 
 func TestCalculateTokenQuote_USDPrice(t *testing.T) {

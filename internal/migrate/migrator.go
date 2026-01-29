@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db"
-	clickhousemigrations "github.com/doujins-org/doujins-billing/migrations/clickhouse"
-	postgresmigrations "github.com/doujins-org/doujins-billing/migrations/postgres"
-	"github.com/doujins-org/migratekit"
+	"github.com/open-rails/migratekit"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db"
+	clickhousemigrations "github.com/open-rails/openrails/migrations/clickhouse"
+	postgresmigrations "github.com/open-rails/openrails/migrations/postgres"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	riverpgxv5 "github.com/riverqueue/river/riverdriver/riverpgxv5"

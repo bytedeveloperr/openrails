@@ -1,9 +1,10 @@
 package server
 
 import (
-	"github.com/doujins-org/doujins-billing/internal/handlers"
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/gin-gonic/gin"
+	"github.com/open-rails/openrails/internal/auth/policy"
+	"github.com/open-rails/openrails/internal/handlers"
+	"github.com/open-rails/openrails/pkg/authprovider"
 )
 
 func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
@@ -17,7 +18,7 @@ func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
 		}
 		c.Next()
 	})
-	admin.Use(s.adminAuth.RequireAdmin(s.adminAuthPool))
+	admin.Use(policy.AdminRequired(s.runtime.DB.GetDB()))
 
 	// Subscription management
 	admin.GET("/subscriptions", s.wrap(handlers.GetAdminSubscriptions))

@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/doujins-org/doujins-billing/config"
+	"github.com/open-rails/openrails/config"
 )
 
 // GenerateFlexFormURLParams contains parameters for generating CCBill FlexForm URLs for subscription payments

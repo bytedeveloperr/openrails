@@ -16,10 +16,10 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/processors"
-	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
-	"github.com/doujins-org/doujins-billing/internal/services"
-	ipverify "github.com/doujins-org/doujins-billing/internal/utils"
+	"github.com/open-rails/openrails/internal/processors"
+	riverjobs "github.com/open-rails/openrails/internal/river"
+	"github.com/open-rails/openrails/internal/services"
+	ipverify "github.com/open-rails/openrails/internal/utils"
 	"github.com/riverqueue/river"
 )
 

@@ -1,4 +1,4 @@
-# Mobius/NMI Sandbox E2E Runbook (doujins-billing)
+# Mobius/NMI Sandbox E2E Runbook (Open Rails Billing)
 
 This runbook exercises the **real** Mobius/NMI sandbox end-to-end:
 - browser-side tokenization (Collect.js) → `payment_token`

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/google/uuid"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/processors"
 	"github.com/uptrace/bun"
 )
 

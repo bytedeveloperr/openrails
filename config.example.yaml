@@ -24,7 +24,7 @@ test_mode: true
 # =============================================================================
 # STANDALONE MODE ONLY
 # =============================================================================
-# These settings only apply when running doujins-billing as a standalone service.
+# These settings only apply when running Open Rails Billing as a standalone service.
 # In embedded mode, the host application handles binding and routing.
 
 host: "0.0.0.0"        # Address to bind to (default: 0.0.0.0)

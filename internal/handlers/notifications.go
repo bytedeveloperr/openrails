@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
+	"github.com/open-rails/openrails/internal/services"
+	"github.com/open-rails/openrails/pkg/query"
 )
 
 // GetNotifications returns paginated in-app notifications for the current user
