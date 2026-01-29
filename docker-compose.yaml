@@ -235,7 +235,7 @@ services:
       BILLING_API_KEY: "${BILLING_API_KEY:-dev-service-api-key-change-me}"
     command: ["server", "--start-workers"]
     volumes:
-      - billing_spool:/var/lib/doujins-billing/spool
+      - billing_spool:/var/lib/openrails-billing/spool
 
   # ---------------------------------------------------------------------------
   # E2E SANDBOX: Local AuthKit issuer for minting JWTs (optional)

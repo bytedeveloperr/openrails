@@ -5,12 +5,12 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
-	"github.com/doujins-org/doujins-billing/internal/processors"
-	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/api"
-	"github.com/doujins-org/doujins-billing/pkg/query"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/integrations/nmi"
+	"github.com/open-rails/openrails/internal/processors"
+	"github.com/open-rails/openrails/internal/services"
+	"github.com/open-rails/openrails/pkg/api"
+	"github.com/open-rails/openrails/pkg/query"
 )
 
 // PaymentPath is the path parameter for single payment operations

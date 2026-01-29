@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/internal/services/webhook"
+	"github.com/open-rails/openrails/internal/services"
+	"github.com/open-rails/openrails/internal/services/webhook"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

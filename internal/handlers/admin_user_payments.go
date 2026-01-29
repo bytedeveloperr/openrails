@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/open-rails/openrails/pkg/api"
 )
 
 // GetAdminUserPayments returns paginated payments for a user

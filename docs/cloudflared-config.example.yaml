@@ -1,8 +1,8 @@
 # Example `cloudflared` config for exposing billing locally at a stable hostname.
 #
 # Usage (example):
-# - Save as: ~/.cloudflared/doujins-billing-webhooks.yaml
-# - Run: cloudflared tunnel --config ~/.cloudflared/doujins-billing-webhooks.yaml run <tunnel-name>
+# - Save as: ~/.cloudflared/openrails-billing-webhooks.yaml
+# - Run: cloudflared tunnel --config ~/.cloudflared/openrails-billing-webhooks.yaml run <tunnel-name>
 #
 # DO NOT COMMIT real tunnel credentials/tokens.
 #

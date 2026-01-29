@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
-	jupiter "github.com/doujins-org/doujins-billing/internal/integrations/jupiter"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/integrations/fx"
+	jupiter "github.com/open-rails/openrails/internal/integrations/jupiter"
 )
 
 // TokenQuote represents a complete quote for converting fiat to a Solana token.

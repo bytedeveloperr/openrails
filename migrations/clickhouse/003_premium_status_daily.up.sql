@@ -1,6 +1,6 @@
 -- Premium status snapshots for analytics
 -- One row per (user_id, day) representing premium status at end of day.
--- This table is owned by doujins-billing because it is derived from billing/subscription state.
+-- This table is owned by Open Rails Billing because it is derived from billing/subscription state.
 
 CREATE TABLE IF NOT EXISTS premium_status_daily {{ON_CLUSTER}} (
   day Date,

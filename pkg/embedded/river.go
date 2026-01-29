@@ -7,7 +7,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
-	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
+	riverjobs "github.com/open-rails/openrails/internal/river"
 )
 
 // ErrNotInitialized is returned when operations are attempted on an uninitialized Embedded instance.

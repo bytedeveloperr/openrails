@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/open-rails/openrails/internal/db/models"
 
 	log "github.com/sirupsen/logrus"
 )

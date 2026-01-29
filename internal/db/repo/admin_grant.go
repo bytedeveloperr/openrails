@@ -3,9 +3,9 @@ package repo
 import (
 	"context"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
 	"github.com/google/uuid"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/internal/db/models"
 )
 
 type AdminGrantRepo struct {

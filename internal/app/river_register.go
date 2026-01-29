@@ -8,7 +8,7 @@ import (
 	"github.com/jonboulle/clockwork"
 	"github.com/riverqueue/river"
 
-	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
+	riverjobs "github.com/open-rails/openrails/internal/river"
 )
 
 // buildRiverWorkers constructs the worker registry for River.

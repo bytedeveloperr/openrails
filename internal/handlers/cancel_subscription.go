@@ -5,10 +5,10 @@ import (
 	"errors"
 	"net/http"
 
-	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
-	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/api"
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
+	riverjobs "github.com/open-rails/openrails/internal/river"
+	"github.com/open-rails/openrails/internal/services"
+	"github.com/open-rails/openrails/pkg/api"
+	"github.com/open-rails/openrails/pkg/authprovider"
 	"github.com/riverqueue/river"
 )
 

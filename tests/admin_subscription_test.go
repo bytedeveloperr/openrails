@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/open-rails/openrails/internal/db/models"
 )
 
 // setupAdminTestSuite sets up the test suite for admin tests.

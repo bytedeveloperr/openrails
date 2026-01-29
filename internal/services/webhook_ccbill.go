@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/db/repo"
 
-	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
+	"github.com/open-rails/openrails/internal/integrations/ccbill"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 )

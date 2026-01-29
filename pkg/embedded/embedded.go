@@ -10,13 +10,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/app"
-	"github.com/doujins-org/doujins-billing/internal/server"
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
-	"github.com/doujins-org/doujins-billing/pkg/cache"
-	"github.com/doujins-org/doujins-billing/pkg/routes"
-	"github.com/doujins-org/doujins-billing/pkg/service"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/app"
+	"github.com/open-rails/openrails/internal/server"
+	"github.com/open-rails/openrails/pkg/authprovider"
+	"github.com/open-rails/openrails/pkg/cache"
+	"github.com/open-rails/openrails/pkg/routes"
+	"github.com/open-rails/openrails/pkg/service"
 )
 
 type Options struct {

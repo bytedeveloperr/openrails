@@ -5,8 +5,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/handlers"
-	"github.com/doujins-org/doujins-billing/internal/middleware"
+	"github.com/open-rails/openrails/internal/handlers"
+	"github.com/open-rails/openrails/internal/middleware"
 )
 
 // registerServiceRoutes sets up routes on the private/service API.

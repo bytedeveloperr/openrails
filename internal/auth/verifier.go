@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
-	"github.com/PaulFidika/authkit/core"
 	jwt "github.com/golang-jwt/jwt/v5"
+	authhttp "github.com/open-rails/authkit/adapters/http"
+	"github.com/open-rails/authkit/core"
 
-	"github.com/doujins-org/doujins-billing/config"
+	"github.com/open-rails/openrails/config"
 )
 
 // Verifier validates bearer tokens against configured issuers/JWKS.
@@ -66,7 +66,7 @@ func NewVerifier(cfg *config.AuthConfig) (Verifier, error) {
 	if err != nil {
 		return nil, err
 	}
-	return authgin.NewVerifier(accept), nil
+	return authhttp.NewVerifier(accept), nil
 }
 
 // FormatVerifierError normalises verifier error messages for HTTP responses.

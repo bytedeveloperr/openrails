@@ -1,6 +1,6 @@
 -- PostgreSQL Bootstrap
 -- Simple initialization: create required billing schema and install extensions.
--- doujins-billing is designed to run standalone; do not create schemas for other apps here.
+-- Open Rails Billing is designed to run standalone; do not create schemas for other apps here.
 
 -- Create schemas
 CREATE SCHEMA IF NOT EXISTS billing;

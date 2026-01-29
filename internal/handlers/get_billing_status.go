@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/services"
 )
 
 type BillingStatusResponse struct {

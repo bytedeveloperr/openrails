@@ -11,8 +11,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/integrations/nmi"
 )
 
 // MockNMIServer simulates the NMI Direct Post API for testing

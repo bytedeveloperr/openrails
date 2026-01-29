@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	billingservice "github.com/doujins-org/doujins-billing/pkg/service"
 	"github.com/google/uuid"
+	billingservice "github.com/open-rails/openrails/pkg/service"
 )
 
 // ServiceEntitlementRecord represents an entitlement record returned by the service API.

@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
+	"github.com/open-rails/openrails/pkg/authprovider"
 )
 
 // RequestIDKey is the key for request ID in gin.Context

@@ -8,11 +8,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/app"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
-	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/app"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/integrations/nmi"
+	"github.com/open-rails/openrails/internal/services"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )

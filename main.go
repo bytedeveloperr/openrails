@@ -14,17 +14,17 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/app"
-	"github.com/doujins-org/doujins-billing/internal/audit"
-	"github.com/doujins-org/doujins-billing/internal/migrate"
-	"github.com/doujins-org/doujins-billing/pkg/embedded"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/app"
+	"github.com/open-rails/openrails/internal/audit"
+	"github.com/open-rails/openrails/internal/migrate"
+	"github.com/open-rails/openrails/pkg/embedded"
 )
 
 func main() {
 	rootCmd := &cobra.Command{
 		Use:   "billing",
-		Short: "Doujins Billing Service",
+		Short: "Open Rails Billing Service",
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			configPath, err := cmd.Flags().GetString("config")
 			if err != nil {
@@ -39,7 +39,7 @@ func main() {
 			cmd.SetContext(context.WithValue(cmd.Context(), config.ConfigContextKey, cfg))
 			return nil
 		},
-		Long: "Standalone billing service for handling payments and subscriptions",
+		Long: "Standalone Open Rails billing service for handling payments and subscriptions",
 	}
 
 	rootCmd.PersistentFlags().

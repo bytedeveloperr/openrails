@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/config"
+	"github.com/open-rails/openrails/config"
 )
 
 // StripeRefundService handles Stripe refund operations

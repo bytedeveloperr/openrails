@@ -13,11 +13,11 @@ import (
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	repo "github.com/doujins-org/doujins-billing/internal/db/repo"
-	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/jonboulle/clockwork"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db/models"
+	repo "github.com/open-rails/openrails/internal/db/repo"
+	"github.com/open-rails/openrails/internal/processors"
 )
 
 var errUserEmailUnavailable = errors.New("user email unavailable")

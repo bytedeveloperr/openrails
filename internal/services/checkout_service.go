@@ -13,14 +13,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
-	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
-	"github.com/doujins-org/doujins-billing/internal/processors"
-	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/integrations/ccbill"
+	"github.com/open-rails/openrails/internal/integrations/nmi"
+	"github.com/open-rails/openrails/internal/processors"
+	"github.com/open-rails/openrails/pkg/api"
 	log "github.com/sirupsen/logrus"
 )
 

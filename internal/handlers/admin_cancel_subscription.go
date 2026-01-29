@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/open-rails/openrails/pkg/api"
 )
 
 // AdminCancelSubscriptionRequest is the request body for admin cancel

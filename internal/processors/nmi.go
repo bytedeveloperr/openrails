@@ -4,8 +4,8 @@ package processors
 import (
 	"strings"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db/models"
 )
 
 // NMIBackedProcessors is the set of processors that use NMI as their underlying gateway.

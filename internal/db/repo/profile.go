@@ -3,8 +3,8 @@ package repo
 import (
 	"context"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
 	"github.com/google/uuid"
+	"github.com/open-rails/openrails/internal/db"
 )
 
 // ProfileRepo provides read-only access to profiles.users fields we care about.
