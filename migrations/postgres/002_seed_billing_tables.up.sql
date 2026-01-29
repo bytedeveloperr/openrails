@@ -1,5 +1,6 @@
 -- 00002_seed_billings_tables.sql
--- Seed data for billing tables - products, prices, and default subscription plans
+-- NOTE: OpenRails should not seed an application-specific catalog (products/prices) in production.
+-- This migration only performs safe legacy-data backfills (no new products/prices are inserted).
 
 -- Explicitly set schema to ensure all objects are created in the correct place
 -- Set timeouts to prevent hanging migrations
@@ -20,44 +21,4 @@ UPDATE billing.subscriptions
 SET started_at = created_at
 WHERE started_at IS NULL;
 
--- SECTION 2: SEED PRODUCTS CATALOG
--- ============================================================================
-
--- Seed product catalog and pricing with deterministic IDs to match frontend fixtures
-DO $$
-DECLARE
-    basic_product_id CONSTANT UUID := 'c454b402-80e7-4f84-924f-99ffaa82d002';
-    premium_product_id CONSTANT UUID := 'bc5fe9a7-b8cf-4a61-b618-886b4c7b6faa';
-    basic_price_id CONSTANT UUID := '1028cc14-cdcb-4be7-92b1-8d434f220d3f';
-    premium_price_id CONSTANT UUID := '99854e03-4f2e-421d-83a5-bf9d46223f01';
-BEGIN
-    -- Insert products with fixed IDs (upsert to keep IDs aligned on re-runs)
-    INSERT INTO billing.products (id, slug, display_name, description, entitlements_spec)
-    VALUES
-        (basic_product_id, 'basic_membership', 'Basic Membership', 'Essential access to the standard catalog and community features.', jsonb_build_object('basic', null)),
-        (premium_product_id, 'premium_membership', 'Premium Membership', 'Everything in Basic plus premium catalog access and enhanced perks.', jsonb_build_object('basic', null, 'premium', null))
-    ON CONFLICT (slug) DO UPDATE SET
-        id = EXCLUDED.id,
-        display_name = EXCLUDED.display_name,
-        description = EXCLUDED.description,
-        entitlements_spec = EXCLUDED.entitlements_spec,
-        updated_at = current_timestamp;
-
-    -- Insert pricing tiers with fixed IDs linked to the deterministic product IDs
-    -- Note: amount is in cents (smallest currency unit), e.g., 499 = $4.99
-    -- processors JSONB contains processor-specific config keyed by processor name
-    -- Prices are IMMUTABLE - DO NOTHING on conflict to preserve historical payment accuracy
-    INSERT INTO billing.prices (id, product_id, display_name, amount, currency, billing_cycle_days, processors, is_active)
-    VALUES
-        (basic_price_id, basic_product_id, 'Basic Monthly', 499, 'usd', 30,
-         '{"mobius": {"plan_id": "basic_monthly"}, "ccbill": {"flex_id": "681cb38f-afb9-4665-931f-2b896072178a", "form_name": "basic-monthly"}}'::jsonb, true),
-        (premium_price_id, premium_product_id, 'Premium Monthly', 999, 'usd', 30,
-         '{"mobius": {"plan_id": "premium_monthly"}, "ccbill": {"flex_id": "681cb38f-afb9-4665-931f-2b896072178a", "form_name": "premium-monthly"}}'::jsonb, true)
-    ON CONFLICT (product_id, amount, currency, billing_cycle_days) DO NOTHING;
-END$$;
-
--- Add helpful comments for operators
-COMMENT ON TABLE billing.products IS 'Product catalog - modify these via your application, not directly in billing service';
-COMMENT ON TABLE billing.prices IS 'Pricing tiers with processor integration - modify these via your application for new campaigns';
-COMMENT ON COLUMN billing.prices.is_active IS 'Set to false to disable pricing tier without deleting (useful for campaigns)';
-COMMENT ON COLUMN billing.prices.processors IS 'JSONB map of processor configs: {"mobius": {"plan_id": "xyz"}, "ccbill": {"price_id": "abc"}}';
+-- (No production seed data for billing.products or billing.prices)

@@ -1,7 +1,3 @@
--- Explicitly set schema to ensure all objects are created in the correct place
-
-DELETE FROM prices
-WHERE ccbill_price_id IN ('ccbill_basic_monthly', 'ccbill_premium_monthly');
-
-DELETE FROM products
-WHERE slug IN ('basic_membership', 'premium_membership');
+-- No-op.
+-- This migration previously removed application-specific seeded catalog rows.
+-- OpenRails no longer seeds a default product catalog in production.

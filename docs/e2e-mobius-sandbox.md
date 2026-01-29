@@ -1,4 +1,4 @@
-# Mobius/NMI Sandbox E2E Runbook (Open Rails Billing)
+# Mobius/NMI Sandbox E2E Runbook (OpenRails)
 
 This runbook exercises the **real** Mobius/NMI sandbox end-to-end:
 - browser-side tokenization (Collect.js) → `payment_token`
@@ -29,9 +29,9 @@ Minimum set (fill in real values):
 # sandbox mode
 TEST_MODE=true
 
-# billing must accept tokens minted by the local issuer container (issuer claim is http://issuer:8080)
+# OpenRails must accept tokens minted by the local issuer container (issuer claim is http://issuer:8080)
 AUTH_ISSUERS='["http://issuer:8080"]'
-AUTH_EXPECTED_AUDIENCE=billing-app
+AUTH_EXPECTED_AUDIENCE=openrails-app
 
 # AuthKit devserver mint secret (used by scripts/mint_jwt.sh)
 AUTHKIT_DEV_MINT_SECRET=change-me
@@ -48,7 +48,7 @@ PROCESSORS_MOBIUS_WEBHOOK_SECRET=...            # HMAC shared secret for webhook
 
 # Cloudflared (deterministic webhook hostname)
 CLOUDFLARED_TUNNEL_TOKEN=...
-CLOUDFLARED_PUBLIC_HOSTNAME=billing-webhooks.example.com
+CLOUDFLARED_PUBLIC_HOSTNAME=openrails-webhooks.example.com
 
 # Sandbox plan id for local seed
 E2E_MOBIUS_PLAN_ID=YOUR_SANDBOX_PLAN_ID

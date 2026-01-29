@@ -29,7 +29,7 @@ new_uuid() {
   date +%s%N
 }
 
-AUD="${AUTHKIT_AUDIENCE:-billing-app}"
+AUD="${AUTHKIT_AUDIENCE:-openrails-app}"
 MINT_URL="${AUTHKIT_MINT_URL:-http://localhost:8080/auth/dev/mint}"
 
 if [ -z "${AUTHKIT_DEV_MINT_SECRET:-}" ]; then
@@ -75,4 +75,3 @@ echo "Example header:"
 echo "  Authorization: Bearer \$E2E_JWT"
 echo "  X-E2E-Run-ID: \$E2E_RUN_ID"
 echo "  X-Idempotency-Key: e2e_\${E2E_RUN_ID}_checkout"
-

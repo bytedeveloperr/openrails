@@ -386,7 +386,7 @@ type RedisConfig struct {
 // Billing is a JWT verifier (not issuer) - it validates tokens issued by your IdP.
 type AuthConfig struct {
 	Issuers          []string `koanf:"issuers"`           // List of expected token issuers (e.g., ["https://issuer.example.com"])
-	ExpectedAudience string   `koanf:"expected_audience"` // Accept token only if it contains this audience (e.g., "billing-app")
+	ExpectedAudience string   `koanf:"expected_audience"` // Accept token only if it contains this audience (e.g., "openrails-app")
 }
 
 type SolanaConfig struct {
@@ -871,7 +871,7 @@ func assembleDBURL(cfg *Config) {
 	if cfg.DB.Password == "admin_password" {
 		warnings = append(warnings, "DB password")
 	}
-	if cfg.DB.Database == "billing_db" {
+	if cfg.DB.Database == "openrails_db" {
 		warnings = append(warnings, "DB database name")
 	}
 
@@ -908,7 +908,7 @@ func GetDefaultBillingConfig() *Config {
 		DB: &DBConfig{
 			Host:     "localhost",
 			Port:     "5432",
-			Database: "billing_db",
+			Database: "openrails_db",
 			Username: "admin",
 			Password: "admin_password",
 			SSLMode:  "disable",
@@ -921,7 +921,7 @@ func GetDefaultBillingConfig() *Config {
 		},
 		Auth: &AuthConfig{
 			Issuers:          []string{"http://localhost:8080"},
-			ExpectedAudience: "billing-app",
+			ExpectedAudience: "openrails-app",
 		},
 		ClickHouse: &ClickHouseConfig{
 			HTTPAddr:   "http://localhost:8123",
@@ -929,7 +929,7 @@ func GetDefaultBillingConfig() *Config {
 			Database:   "analytics",
 			Username:   "analytics_user",     // Match docker-compose CLICKHOUSE_USER
 			Password:   "analytics_password", // Match docker-compose CLICKHOUSE_PASSWORD
-			Cluster:    "billing",            // Match docker-compose cluster name
+			Cluster:    "openrails",          // Match docker-compose cluster name
 		},
 		Logger: &LoggerConfig{
 			Level: "info", // Default to info level (options: debug, info, warn, error, fatal, panic)
@@ -1005,7 +1005,9 @@ func Load(configPath string) (*Config, error) {
 	}
 
 	if configPath == "" {
-		if envPath := strings.TrimSpace(os.Getenv("BILLING_CONFIG")); envPath != "" {
+		if envPath := strings.TrimSpace(os.Getenv("OPENRAILS_CONFIG")); envPath != "" {
+			configPath = envPath
+		} else if envPath := strings.TrimSpace(os.Getenv("BILLING_CONFIG")); envPath != "" {
 			configPath = envPath
 		} else {
 			configPath = "config.yaml"
@@ -1040,14 +1042,14 @@ func Load(configPath string) (*Config, error) {
 			return "api_url"
 		}
 
-		// Special case: API_KEY/BILLING_API_KEY -> api_key (top-level, not api.key)
+		// Special case: API_KEY/OPENRAILS_API_KEY/BILLING_API_KEY -> api_key (top-level, not api.key)
 		// Used for private/service API auth (X-API-KEY header).
-		if s == "api_key" || s == "billing_api_key" {
+		if s == "api_key" || s == "openrails_api_key" || s == "billing_api_key" {
 			return "api_key"
 		}
 
-		// Special case: TEST_MODE/BILLING_TEST_MODE -> test_mode (top-level)
-		if s == "test_mode" || s == "billing_test_mode" {
+		// Special case: TEST_MODE/OPENRAILS_TEST_MODE/BILLING_TEST_MODE -> test_mode (top-level)
+		if s == "test_mode" || s == "openrails_test_mode" || s == "billing_test_mode" {
 			return "test_mode"
 		}
 

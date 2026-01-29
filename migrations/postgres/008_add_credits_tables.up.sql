@@ -84,7 +84,5 @@ CREATE TABLE IF NOT EXISTS billing.credit_holds (
 CREATE INDEX IF NOT EXISTS idx_credit_holds_user_status ON billing.credit_holds(user_id, credit_type_id, status);
 CREATE INDEX IF NOT EXISTS idx_credit_holds_expires ON billing.credit_holds(expires_at);
 
--- Seed API credits type if missing
-INSERT INTO billing.credit_types (name, display_name, unit, decimal_places)
-SELECT 'api_credits', 'API Credits', 'usd', 2
-WHERE NOT EXISTS (SELECT 1 FROM billing.credit_types WHERE name='api_credits');
+-- Note: OpenRails does not seed any credit types in production.
+-- Hosts should define their own credit types (e.g. via app migrations) based on their business logic.

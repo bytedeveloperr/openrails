@@ -24,7 +24,9 @@ func (r *EntitlementRepo) IsEntitled(ctx context.Context, userID, entitlement st
 		Where("ent.entitlement = ?", entitlement).
 		Where("ent.start_at <= ?", at).
 		Where("(ent.end_at IS NULL OR ent.end_at > ?)", at).
-		Where("ent.revoked_at IS NULL")
+		Where("ent.revoked_at IS NULL").
+		// Explicitly exclude soft-deleted rows; don't rely on Bun's optional soft-delete filtering.
+		Where("ent.deleted_at IS NULL")
 	return q.Exists(ctx)
 }
 
@@ -34,7 +36,8 @@ func (r *EntitlementRepo) HasActiveIndefinite(ctx context.Context, userID, entit
 		Where("ent.user_id = ?", userID).
 		Where("ent.entitlement = ?", entitlement).
 		Where("ent.revoked_at IS NULL AND ent.end_at IS NULL").
-		Where("ent.start_at <= ?", at)
+		Where("ent.start_at <= ?", at).
+		Where("ent.deleted_at IS NULL")
 	return q.Exists(ctx)
 }
 
@@ -44,6 +47,7 @@ func (r *EntitlementRepo) GetLatestActive(ctx context.Context, userID, entitleme
 		Model(&ent).
 		Where("ent.user_id = ? AND ent.entitlement = ?", userID, entitlement).
 		Where("ent.revoked_at IS NULL").
+		Where("ent.deleted_at IS NULL").
 		OrderExpr("ent.start_at DESC").
 		Limit(1).
 		Scan(ctx)
@@ -59,6 +63,7 @@ func (r *EntitlementRepo) GetLatestFiniteActive(ctx context.Context, userID, ent
 		Model(&ent).
 		Where("ent.user_id = ? AND ent.entitlement = ?", userID, entitlement).
 		Where("ent.revoked_at IS NULL").
+		Where("ent.deleted_at IS NULL").
 		Where("ent.end_at IS NOT NULL").
 		Where("ent.start_at <= ?", at).
 		Where("ent.end_at > ?", at).
@@ -100,6 +105,7 @@ func (r *EntitlementRepo) ListActiveEntitlements(ctx context.Context, userID str
 		Where("ent.start_at <= ?", at).
 		Where("(ent.end_at IS NULL OR ent.end_at > ?)", at).
 		Where("ent.revoked_at IS NULL").
+		Where("ent.deleted_at IS NULL").
 		Scan(ctx, &out); err != nil {
 		return nil, err
 	}
@@ -112,6 +118,7 @@ func (r *EntitlementRepo) ListActiveRecords(ctx context.Context, userID string, 
 		Model(&ents).
 		Where("ent.user_id = ?", userID).
 		Where("ent.revoked_at IS NULL").
+		Where("ent.deleted_at IS NULL").
 		Where("ent.start_at <= ?", at).
 		Where("(ent.end_at IS NULL OR ent.end_at > ?)", at).
 		OrderExpr("ent.start_at ASC").
@@ -135,6 +142,7 @@ func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscript
 		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
 		Where("ent.source_id = ?", subscriptionID).
 		Where("ent.end_at IS NULL").
+		Where("ent.deleted_at IS NULL").
 		Where("ent.start_at >= ?", endAt).
 		Scan(ctx, &invalidCount)
 	if err != nil {
@@ -150,7 +158,8 @@ func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscript
 		Set("updated_at = ?", now).
 		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
 		Where("ent.source_id = ?", subscriptionID).
-		Where("ent.end_at IS NULL")
+		Where("ent.end_at IS NULL").
+		Where("ent.deleted_at IS NULL")
 
 	// Only set revoked_at and revoke_reason if a reason is provided (immediate revocation)
 	if reason != nil {
@@ -172,6 +181,7 @@ func (r *EntitlementRepo) ResumeBySubscription(ctx context.Context, subscription
 		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
 		Where("ent.source_id = ?", subscriptionID).
 		Where("ent.revoked_at IS NULL").
+		Where("ent.deleted_at IS NULL").
 		Where("ent.end_at IS NOT NULL").
 		Where("ent.end_at > ?", now).
 		Exec(ctx)
@@ -190,6 +200,7 @@ func (r *EntitlementRepo) EndActiveByPayment(ctx context.Context, paymentID uuid
 		Where("ent.source_type = ?", models.EntitlementSourceOneOff).
 		Where("ent.source_id = ?", paymentID).
 		Where("ent.end_at IS NULL").
+		Where("ent.deleted_at IS NULL").
 		Where("ent.start_at >= ?", endAt).
 		Scan(ctx, &invalidCount)
 	if err != nil {
@@ -208,6 +219,7 @@ func (r *EntitlementRepo) EndActiveByPayment(ctx context.Context, paymentID uuid
 		Where("ent.source_type = ?", models.EntitlementSourceOneOff).
 		Where("ent.source_id = ?", paymentID).
 		Where("ent.end_at IS NULL").
+		Where("ent.deleted_at IS NULL").
 		Exec(ctx)
 	return err
 }
@@ -219,6 +231,7 @@ func (r *EntitlementRepo) ExistsBySource(ctx context.Context, sourceType models.
 		Where("ent.source_id = ?", sourceID).
 		Where("ent.entitlement = ?", entitlement).
 		Where("ent.revoked_at IS NULL").
+		Where("ent.deleted_at IS NULL").
 		Exists(ctx)
 }
 
@@ -257,6 +270,7 @@ func (r *EntitlementRepo) RevokeByID(ctx context.Context, id uuid.UUID, now time
 		Set("updated_at = ?", now).
 		Where("ent.id = ?", id).
 		Where("ent.revoked_at IS NULL"). // Only revoke if not already revoked
+		Where("ent.deleted_at IS NULL").
 		Exec(ctx)
 	if err != nil {
 		return err
@@ -284,6 +298,7 @@ func (r *EntitlementRepo) RevokeBySubscriptionAndName(ctx context.Context, subsc
 		Where("ent.source_id = ?", subscriptionID).
 		Where("ent.entitlement = ?", entitlement).
 		Where("ent.revoked_at IS NULL"). // Only revoke if not already revoked
+		Where("ent.deleted_at IS NULL").
 		Exec(ctx)
 	if err != nil {
 		return err

@@ -3,7 +3,7 @@ services:
     image: postgres:17-bookworm
     restart: unless-stopped
     environment:
-      POSTGRES_DB: billing_db
+      POSTGRES_DB: openrails_db
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin_password
     ports:
@@ -33,10 +33,10 @@ services:
       - -c
       - log_min_duration_statement=-1
     networks:
-      - local-billing
+      - local-openrails
     healthcheck:
-      # Verify bootstrap completed by checking the billing schema exists.
-      test: ["CMD-SHELL", "pg_isready -U admin -d billing_db -h localhost && psql -U admin -d billing_db -tAc \"SELECT 1 FROM pg_namespace WHERE nspname='billing'\" | grep -q 1"]
+      # Verify bootstrap completed by checking the billing schema exists (schema name is kept for now).
+      test: ["CMD-SHELL", "pg_isready -U admin -d openrails_db -h localhost && psql -U admin -d openrails_db -tAc \"SELECT 1 FROM pg_namespace WHERE nspname='billing'\" | grep -q 1"]
       interval: 5s
       timeout: 5s
       start_period: 90s
@@ -47,7 +47,7 @@ services:
     volumes:
       - garnet_data:/data
     ports:
-      - "6382:6379"
+      - "6379:6379"
     healthcheck:
       test:
         [
@@ -58,7 +58,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - local-billing
+      - local-openrails
 
   # ClickHouse Keeper for coordination (enables ON CLUSTER DDL)
   clickhouse-keeper:
@@ -70,7 +70,7 @@ services:
     ports:
       - "9181:9181" # Keeper port
     networks:
-      - local-billing
+      - local-openrails
     healthcheck:
       test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "9181"]
       interval: 10s
@@ -104,7 +104,7 @@ services:
       retries: 5
       start_period: 120s
     networks:
-      - local-billing
+      - local-openrails
 
   # Bootstrap DB: create roles/schema/extensions using superuser
   # One-shot job: Bootstrap ClickHouse cluster (create user, database, permissions)
@@ -124,37 +124,37 @@ services:
         # Run bootstrap SQL as default admin user (has all privileges)
         cat <<'SQL_EOF' | sed 's/{CLICKHOUSE_USER}/analytics_user/g' | sed 's/{CLICKHOUSE_PASSWORD}/analytics_password/g' | clickhouse-client --host clickhouse --multiquery
         -- Create database across cluster
-        CREATE DATABASE IF NOT EXISTS analytics ON CLUSTER billing;
+        CREATE DATABASE IF NOT EXISTS analytics ON CLUSTER openrails;
 
         -- Create ClickHouse user with password
-        CREATE USER IF NOT EXISTS {CLICKHOUSE_USER} ON CLUSTER billing
+        CREATE USER IF NOT EXISTS {CLICKHOUSE_USER} ON CLUSTER openrails
           IDENTIFIED WITH plaintext_password BY '{CLICKHOUSE_PASSWORD}'
           HOST ANY;
 
         -- Grant full database access WITH GRANT OPTION so user can run migrations
-        GRANT ON CLUSTER billing ALL ON analytics.* TO {CLICKHOUSE_USER} WITH GRANT OPTION;
+        GRANT ON CLUSTER openrails ALL ON analytics.* TO {CLICKHOUSE_USER} WITH GRANT OPTION;
 
         -- Grant CLUSTER privilege required for ON CLUSTER DDL statements
-        GRANT ON CLUSTER billing CLUSTER ON *.* TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER openrails CLUSTER ON *.* TO {CLICKHOUSE_USER};
 
         -- Grant system table permissions for monitoring and debugging
-        GRANT ON CLUSTER billing SELECT ON system.tables TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER billing SELECT ON system.columns TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER billing SELECT ON system.databases TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER billing SELECT ON system.parts TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER billing SELECT ON system.parts_columns TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER billing SELECT ON system.mutations TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER billing SELECT ON system.merges TO {CLICKHOUSE_USER};
-        GRANT ON CLUSTER billing SELECT ON system.processes TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER openrails SELECT ON system.tables TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER openrails SELECT ON system.columns TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER openrails SELECT ON system.databases TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER openrails SELECT ON system.parts TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER openrails SELECT ON system.parts_columns TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER openrails SELECT ON system.mutations TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER openrails SELECT ON system.merges TO {CLICKHOUSE_USER};
+        GRANT ON CLUSTER openrails SELECT ON system.processes TO {CLICKHOUSE_USER};
         SQL_EOF
 
         echo "✓ ClickHouse bootstrap completed successfully"
     networks:
-      - local-billing
+      - local-openrails
 
-  # App migrations: run embedded migrator in the billing image
+  # App migrations: run embedded migrator in the OpenRails image
   # Uses host.docker.internal so migrations run against the same DB as local development
-  billing-migrate:
+  openrails-migrate:
     build:
       context: .
       dockerfile: Dockerfile
@@ -167,7 +167,7 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       # Database connection via host-exposed ports (same as local dev)
-      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@host.docker.internal:5432/billing_db?sslmode=disable"
+      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@host.docker.internal:5432/openrails_db?sslmode=disable"
       # ClickHouse connection via host-exposed ports
       CLICKHOUSE_HTTP_ADDR: "http://host.docker.internal:8123"
       CLICKHOUSE_CLIENT_ADDR: "host.docker.internal:9002"
@@ -177,11 +177,11 @@ services:
     command: ["migrate", "up"]
     restart: "no"
     networks:
-      - local-billing
+      - local-openrails
 
-  # Billing service (HTTP server only)
-  billing:
-    profiles: ["all", "billing"]
+  # OpenRails service (HTTP server only)
+  openrails:
+    profiles: ["all", "openrails"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -190,7 +190,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      billing-migrate:
+      openrails-migrate:
         condition: service_completed_successfully
       garnet:
         condition: service_healthy
@@ -199,8 +199,8 @@ services:
     ports:
       - "2053:2053"  # API (public endpoints + admin endpoints with JWT auth)
     # Note: Port 8060 (private service API with X-API-Key auth) is exposed internally
-    # via Docker network only - not mapped to host. Other containers in local-billing
-    # network can reach it at billing:8060 for server-to-server calls.
+    # via Docker network only - not mapped to host. Other containers in local-openrails
+    # network can reach it at openrails:8060 for server-to-server calls.
     expose:
       - "8060"  # Private/service API (X-API-KEY auth, internal only)
     environment:
@@ -209,7 +209,7 @@ services:
       TEST_MODE: "${TEST_MODE:-true}"
       API_URL: "${API_URL:-http://localhost:2053}"
       AUTH_ISSUERS: '${AUTH_ISSUERS:-["http://localhost:8080"]}'
-      AUTH_EXPECTED_AUDIENCE: "${AUTH_EXPECTED_AUDIENCE:-billing-app}"
+      AUTH_EXPECTED_AUDIENCE: "${AUTH_EXPECTED_AUDIENCE:-openrails-app}"
 
       # Processor env passthrough (for local sandbox/E2E)
       PROCESSORS_MOBIUS_SECURITY_KEY: "${PROCESSORS_MOBIUS_SECURITY_KEY:-}"
@@ -220,7 +220,7 @@ services:
       PROCESSORS_MOBIUS_TOKENIZATION_URL: "${PROCESSORS_MOBIUS_TOKENIZATION_URL:-}"
 
       # Database connection (admin superuser)
-      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/billing_db?sslmode=disable"
+      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/openrails_db?sslmode=disable"
       # Redis connection
       REDIS_ADDR: "garnet:6379"
       REDIS_PASSWORD: ""
@@ -232,15 +232,15 @@ services:
       CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
       # Private service API key for server-to-server calls (X-API-KEY header)
-      BILLING_API_KEY: "${BILLING_API_KEY:-dev-service-api-key-change-me}"
+      OPENRAILS_API_KEY: "${OPENRAILS_API_KEY:-dev-service-api-key-change-me}"
     command: ["server", "--start-workers"]
     volumes:
-      - billing_spool:/var/lib/openrails-billing/spool
+      - openrails_spool:/var/lib/openrails/spool
 
   # ---------------------------------------------------------------------------
   # E2E SANDBOX: Local AuthKit issuer for minting JWTs (optional)
   # ---------------------------------------------------------------------------
-  # This is used for end-to-end sandbox testing where billing needs a real issuer
+  # This is used for end-to-end sandbox testing where OpenRails needs a real issuer
   # that serves JWKS and can mint JWTs on demand.
   #
   # Start with:
@@ -259,7 +259,7 @@ services:
     volumes:
       - issuer_postgres_data:/var/lib/postgresql/data
     networks:
-      - local-billing
+      - local-openrails
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d authkit_db"]
       interval: 5s
@@ -278,8 +278,8 @@ services:
       ENV: dev
       AUTHKIT_LISTEN_ADDR: ":8080"
       AUTHKIT_ISSUER: "http://issuer:8080"
-      AUTHKIT_ISSUED_AUDIENCES: "billing-app"
-      AUTHKIT_EXPECTED_AUDIENCES: "billing-app"
+      AUTHKIT_ISSUED_AUDIENCES: "openrails-app"
+      AUTHKIT_EXPECTED_AUDIENCES: "openrails-app"
       DB_URL: "postgres://admin:admin_password@issuer-postgres:5432/authkit_db?sslmode=disable"
       AUTHKIT_DEV_MODE: "true"
       AUTHKIT_DEV_MINT_SECRET: "${AUTHKIT_DEV_MINT_SECRET:-change-me}"
@@ -288,7 +288,7 @@ services:
     volumes:
       - issuer_runtime_keys:/.runtime/authkit
     networks:
-      - local-billing
+      - local-openrails
 
 volumes:
   postgres_data:
@@ -299,10 +299,10 @@ volumes:
   clickhouse_data:
   clickhouse_logs:
   clickhouse_keeper_data:
-  billing_spool:
+  openrails_spool:
   issuer_postgres_data:
   issuer_runtime_keys:
 
 networks:
-  local-billing:
-    name: local-billing
+  local-openrails:
+    name: local-openrails

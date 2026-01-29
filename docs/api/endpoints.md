@@ -244,7 +244,7 @@ Returns active entitlements for the user at the current time. Optional query par
 entitlements at a specific time. Response: array of entitlement records.
 
 ### GET /v1/users/{user_id}/credits
-Returns credit balance summary for a user. Optional query param `type` (defaults to `api_credits`).
+Returns credit balance summary for a user. Optional query param `type` (defaults to `api_credits`, which must exist in `billing.credit_types`).
 Response: `{ type, balance, held_balance, permanent_balance, expiring_balance }`.
 
 ### POST /v1/credits/withdraw

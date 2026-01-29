@@ -26,6 +26,7 @@
 - Postgres bootstrap: `migrations/bootstrap/001_postgres_init.sql` is mounted into `/docker-entrypoint-initdb.d` and runs automatically on first initialization.
 - ClickHouse bootstrap: `clickhouse-bootstrap` waits for ClickHouse to be healthy and creates the `analytics` database + user/permissions.
 - Billing migrations: `billing-migrate` applies Postgres + ClickHouse migrations.
+- Note: ClickHouse migrations are tracked/locked via Postgres (`public.migrations` + advisory locks).
 - Billing service connects using built-in defaults that match the compose network/service names.
 
 - Postgres: `postgres://admin:admin_password@postgres:5432/billing_db?sslmode=disable`

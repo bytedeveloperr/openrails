@@ -41,8 +41,8 @@ private_port: 8060     # Internal/service API port (default: 8060)
 # See: docs/cloudflared-webhooks.md and .env.example
 cloudflared:
   # tunnel_token: ""  # secret; prefer env CLOUDFLARED_TUNNEL_TOKEN
-  tunnel_name: "billing-webhooks"
-  public_hostname: "billing-webhooks.example.com"
+  tunnel_name: "openrails-webhooks"
+  public_hostname: "openrails-webhooks.example.com"
 
 # =============================================================================
 # BOTH MODES (standalone + embedded)
@@ -62,8 +62,8 @@ cloudflared:
 #
 api_url: "https://api.example.com"
 
-# Billing API key for private admin routes (header: X-API-KEY)
-# Default is "change-me-in-dev"; override via env BILLING_API_KEY (or API_KEY) for non-dev
+# OpenRails API key for private admin routes (header: X-API-KEY)
+# Default is "change-me-in-dev"; override via env OPENRAILS_API_KEY (or API_KEY) for non-dev
 api_key: "change-me-in-dev"
 
 # CORS origins for frontend access (REQUIRED for browser requests)
@@ -106,7 +106,7 @@ db:
   # Option 2: Atomic parameters (preferred for Kubernetes/Vault)
   host: "localhost"
   port: "5432"
-  database: "billing_db"
+  database: "openrails_db"
   username: "admin"
   # password: set via DB_PASSWORD env var
   sslmode: "disable"
@@ -136,7 +136,7 @@ auth:
   #   - "https://issuer.example.com"
 
   # Expected audience - the expected "aud" claim in incoming JWTs
-  expected_audience: "billing-app"
+  expected_audience: "openrails-app"
 
 # =============================================================================
 # PAYMENT PROCESSORS

@@ -2,6 +2,7 @@ package migrate
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 
 	"github.com/open-rails/migratekit"
@@ -72,8 +73,25 @@ func RunClickHouse(ctx context.Context, cfg *config.Config) error {
 		return nil
 	}
 
+	if cfg.DB == nil {
+		return fmt.Errorf("missing database config (required for ClickHouse migration tracking/locking)")
+	}
+
+	// ClickHouse migrations are tracked/locked via Postgres (public.migrations + advisory locks).
+	database, err := db.NewDB(cfg.DB)
+	if err != nil {
+		return fmt.Errorf("open db for ClickHouse migration tracking/locking: %w", err)
+	}
+	defer func() { _ = database.Close() }()
+
+	bunDB, ok := database.GetDB().(*bun.DB)
+	if !ok {
+		return fmt.Errorf("unexpected db type for ClickHouse migrator")
+	}
+	sqlDB := bunDB.DB
+
 	log.Infof("Running ClickHouse migrations... %v+", cfg.ClickHouse)
-	if err := runClickHouseMigrations(ctx, cfg.ClickHouse); err != nil {
+	if err := runClickHouseMigrations(ctx, sqlDB, cfg.ClickHouse); err != nil {
 		return fmt.Errorf("clickhouse migrations failed: %w", err)
 	}
 
@@ -143,7 +161,7 @@ func runRiverMigrations(ctx context.Context, cfg *config.Config, schema string) 
 }
 
 // runClickHouseMigrations applies ClickHouse migrations using migratekit
-func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) error {
+func runClickHouseMigrations(ctx context.Context, sqlDB *sql.DB, cfg *config.ClickHouseConfig) error {
 	chDB := cfg.Database
 	if chDB == "" {
 		chDB = "analytics"
@@ -166,6 +184,7 @@ func runClickHouseMigrations(ctx context.Context, cfg *config.ClickHouseConfig) 
 		Password:   cfg.Password,
 		App:        "billing",
 		Cluster:    chCluster,
+		PostgresDB: sqlDB,
 	})
 	// ApplyMigrations now calls Setup() automatically within the lock
 	if err := m.ApplyMigrations(ctx, chMigrations); err != nil {

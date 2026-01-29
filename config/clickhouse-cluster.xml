@@ -6,18 +6,18 @@
     <macros>
         <shard>1</shard>
         <replica>replica1</replica>
-        <cluster>billing</cluster>
+        <cluster>openrails</cluster>
     </macros>
 
     <remote_servers>
-        <billing>
+        <openrails>
             <shard>
                 <replica>
                     <host>localhost</host>
                     <port>9000</port>
                 </replica>
             </shard>
-        </billing>
+        </openrails>
     </remote_servers>
 
     <!-- ClickHouse Keeper connection for distributed DDL -->

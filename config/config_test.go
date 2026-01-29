@@ -7,7 +7,15 @@ import (
 )
 
 func TestLoad_APIKeyFromEnv(t *testing.T) {
-	t.Run("loads api_key from BILLING_API_KEY", func(t *testing.T) {
+	t.Run("loads api_key from OPENRAILS_API_KEY", func(t *testing.T) {
+		t.Setenv("OPENRAILS_API_KEY", "test-openrails-api-key")
+
+		cfg, err := Load("nonexistent-config.yaml")
+		assert.NoError(t, err)
+		assert.Equal(t, "test-openrails-api-key", cfg.APIKey)
+	})
+
+	t.Run("loads api_key from BILLING_API_KEY (legacy)", func(t *testing.T) {
 		t.Setenv("BILLING_API_KEY", "test-billing-api-key")
 
 		cfg, err := Load("nonexistent-config.yaml")

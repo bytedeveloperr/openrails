@@ -1,8 +1,8 @@
-# Example `cloudflared` config for exposing billing locally at a stable hostname.
+# Example `cloudflared` config for exposing OpenRails locally at a stable hostname.
 #
 # Usage (example):
-# - Save as: ~/.cloudflared/openrails-billing-webhooks.yaml
-# - Run: cloudflared tunnel --config ~/.cloudflared/openrails-billing-webhooks.yaml run <tunnel-name>
+# - Save as: ~/.cloudflared/openrails-webhooks.yaml
+# - Run: cloudflared tunnel --config ~/.cloudflared/openrails-webhooks.yaml run <tunnel-name>
 #
 # DO NOT COMMIT real tunnel credentials/tokens.
 #
@@ -12,6 +12,6 @@ tunnel: <tunnel-uuid-or-name>
 credentials-file: /path/to/<tunnel-uuid>.json
 
 ingress:
-  - hostname: billing-webhooks-sandbox.<your-domain>
+  - hostname: openrails-webhooks-sandbox.<your-domain>
     service: http://localhost:2053
   - service: http_status:404
