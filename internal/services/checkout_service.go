@@ -115,11 +115,12 @@ func (e *TierChangeError) Error() string {
 
 // CoverageInfo represents the user's current product coverage
 type CoverageInfo struct {
-	HasCoverage  bool       // Whether user has any active coverage
-	IsIndefinite bool       // True if coverage has no end date
-	EndDate      *time.Time // When coverage ends (nil if indefinite)
-	SourceType   string     // "subscription" or "entitlement"
-	SourceID     *uuid.UUID // ID of the subscription or entitlement source
+	HasCoverage     bool       // Whether user has any active coverage
+	IsIndefinite    bool       // True if coverage has no end date
+	EndDate         *time.Time // When coverage ends (nil if indefinite)
+	ExplicitEndDate *time.Time // If set, forces coverage to this end date
+	SourceType      string     // "subscription" or "entitlement"
+	SourceID        *uuid.UUID // ID of the subscription or entitlement source
 }
 
 // EligibilityStatus represents the result of a purchase eligibility check
@@ -1363,7 +1364,7 @@ func (s *CheckoutService) resolveVault(ctx context.Context, req *CheckoutRequest
 	return pm.VaultID, pm, nil
 }
 
-// grantProductEntitlements grants entitlements from product spec after a one-time or subscriptionpurchase
+// grantProductEntitlements grants entitlements from product spec after a one-time or subscription purchase
 func (s *CheckoutService) grantProductEntitlements(
 	ctx context.Context,
 	userID string,
@@ -1381,6 +1382,11 @@ func (s *CheckoutService) grantProductEntitlements(
 	for entitlementName, durationDays := range product.EntitlementsSpec {
 		var startAt time.Time
 		var endAt *time.Time
+
+		// Ensure entitlements last for time specified in end date
+		if coverage.ExplicitEndDate != nil {
+			endAt = coverage.ExplicitEndDate
+		}
 
 		// Determine start time
 		if coverage.HasCoverage && coverage.EndDate != nil {
@@ -1475,7 +1481,7 @@ type RegisterPurchaseRequest struct {
 	Amount         int64      // Amount in smallest unit (cents for usd, lamports for SOL)
 	Currency       string     // "usd", "USDC", "SOL", etc.
 	SubscriptionID *uuid.UUID // Optional: link payment to subscription (for subscription renewals/purchases)
-
+	WalletPurchase bool       // Is this purchase made via on-chain wallet (Solana)?
 	// Optional: when this purchase happened (defaults to now).
 	PurchasedAt *time.Time
 
@@ -1600,6 +1606,11 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 			"subscription_id": req.SubscriptionID,
 		}).Info("registered subscription payment")
 		sourceId = *req.SubscriptionID
+	}
+
+	if req.WalletPurchase {
+		endDate := time.Now().AddDate(0, 1, 0)
+		coverage.ExplicitEndDate = &endDate
 	}
 
 	// Grant entitlements

@@ -290,13 +290,15 @@ func (p *SolanaPayPoller) processConfirmedPayment(ctx context.Context, reference
 
 	// Use the unified RegisterPurchase to record payment and grant entitlements
 	result, err := p.checkoutService.RegisterPurchase(ctx, &RegisterPurchaseRequest{
-		UserID:        pending.UserID,
-		PriceID:       priceID,
-		Processor:     "solana",
-		TransactionID: signature,
-		Amount:        pending.Amount,
-		Currency:      pending.Currency,
+		UserID:         pending.UserID,
+		PriceID:        priceID,
+		Processor:      "solana",
+		TransactionID:  signature,
+		Amount:         pending.Amount,
+		Currency:       pending.Currency,
+		WalletPurchase: true,
 	})
+
 	if err != nil {
 		return err
 	}

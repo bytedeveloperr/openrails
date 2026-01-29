@@ -64,6 +64,26 @@ func Webhook(r *Request) {
 
 	switch provider {
 	case services.ProcessorCCBill:
+		// Log the entire request: headers and body
+		headers := make(map[string][]string)
+		for k, v := range r.Request.Header {
+			headers[k] = v
+		}
+		// Read the body for logging (and restore it for downstream use)
+		var bodyBytes []byte
+		if r.Request.Body != nil {
+			bodyBytes, _ = io.ReadAll(r.Request.Body)
+			// Restore the body for downstream handlers
+			r.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+		}
+		log.WithFields(log.Fields{
+			"client_ip":  clientIP,
+			"processor":  "ccbill",
+			"event_type": r.Query("eventType"),
+			"headers":    headers,
+			"body":       string(bodyBytes),
+		}).Info("CCBill webhook received - full request dump")
+
 		// Check if in test mode - bypass authentication for testing
 		if !isTestMode {
 			// Verify CCBill webhook comes from authorized IP ranges
