@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/processors"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/processors"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 )

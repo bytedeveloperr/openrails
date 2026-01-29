@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/services"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/services"
 )
 
 // TestTierGroupDetection tests that the checkout service correctly detects tier groups

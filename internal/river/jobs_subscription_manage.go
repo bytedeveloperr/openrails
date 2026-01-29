@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/google/uuid"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/services"
 	"github.com/riverqueue/river"
 	log "github.com/sirupsen/logrus"
 )

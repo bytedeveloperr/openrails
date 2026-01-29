@@ -16,10 +16,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
-	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/integrations/nmi"
+	riverjobs "github.com/open-rails/openrails/internal/river"
 )
 
 // NMI Demo Account credentials

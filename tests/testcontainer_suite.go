@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/app"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/migrate"
-	"github.com/doujins-org/doujins-billing/internal/server"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/app"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/migrate"
+	"github.com/open-rails/openrails/internal/server"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"

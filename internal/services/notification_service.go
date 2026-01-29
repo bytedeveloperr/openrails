@@ -7,11 +7,11 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/db/repo"
-	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/db/repo"
+	"github.com/open-rails/openrails/pkg/query"
 )
 
 // NotificationService handles notification storage, retrieval, and delivery.

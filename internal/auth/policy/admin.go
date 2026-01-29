@@ -3,10 +3,10 @@ package policy
 import (
 	"context"
 
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/doujins-org/ginapi/response"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/open-rails/openrails/pkg/authprovider"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 )

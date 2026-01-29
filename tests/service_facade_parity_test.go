@@ -14,10 +14,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/internal/server"
-	billingservice "github.com/doujins-org/doujins-billing/pkg/service"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/server"
+	billingservice "github.com/open-rails/openrails/pkg/service"
 )
 
 func TestServiceFacade_CreditsAndEntitlements_ParityWithServiceHTTP(t *testing.T) {

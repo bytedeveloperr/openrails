@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	riverjobs "github.com/doujins-org/doujins-billing/internal/river"
-	"github.com/doujins-org/doujins-billing/pkg/embedded"
+	riverjobs "github.com/open-rails/openrails/internal/river"
+	"github.com/open-rails/openrails/pkg/embedded"
 )
 
 // TestRuntimeAddBillingWorkersTo tests that billing workers can be added to an external registry

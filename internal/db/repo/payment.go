@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/db/models"
-	"github.com/doujins-org/doujins-billing/pkg/api"
-	"github.com/doujins-org/doujins-billing/pkg/query"
 	"github.com/google/uuid"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/pkg/api"
+	"github.com/open-rails/openrails/pkg/query"
 	"github.com/uptrace/bun"
 )
 

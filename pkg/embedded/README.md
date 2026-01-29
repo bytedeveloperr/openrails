@@ -1,13 +1,13 @@
 # Embedded Billing
 
-The `embedded` package allows you to integrate doujins-billing directly into your Go application instead of running it as a standalone service.
+The `embedded` package allows you to integrate Open Rails Billing directly into your Go application instead of running it as a standalone service.
 
 ## Basic Usage
 
 ```go
 import (
-    "github.com/doujins-org/doujins-billing/config"
-    "github.com/doujins-org/doujins-billing/pkg/embedded"
+    "github.com/open-rails/openrails/config"
+    "github.com/open-rails/openrails/pkg/embedded"
 )
 
 func main() {
@@ -50,7 +50,7 @@ import (
     "github.com/riverqueue/river"
     "github.com/riverqueue/river/riverdriver/riverpgxv5"
 
-    "github.com/doujins-org/doujins-billing/pkg/embedded"
+    "github.com/open-rails/openrails/pkg/embedded"
 )
 
 func setupBillingWithSharedRiver(ctx context.Context, pool *pgxpool.Pool) error {

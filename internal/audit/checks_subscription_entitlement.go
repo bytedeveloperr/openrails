@@ -8,7 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 
-	"github.com/doujins-org/doujins-billing/internal/db/models"
+	"github.com/open-rails/openrails/internal/db/models"
 )
 
 // S-E-1: Active subscription missing entitlements

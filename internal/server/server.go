@@ -5,18 +5,16 @@ import (
 	"fmt"
 	"net/http"
 
-	authgin "github.com/PaulFidika/authkit/adapters/gin"
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/app"
-	"github.com/doujins-org/doujins-billing/internal/handlers"
-	"github.com/doujins-org/doujins-billing/internal/middleware"
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
-	"github.com/doujins-org/doujins-billing/pkg/cache"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/app"
+	"github.com/open-rails/openrails/internal/handlers"
+	"github.com/open-rails/openrails/internal/middleware"
+	"github.com/open-rails/openrails/pkg/authprovider"
+	"github.com/open-rails/openrails/pkg/cache"
 )
 
 type Dependencies struct {
@@ -34,9 +32,6 @@ type Server struct {
 	rdb          *redis.Client
 	authProvider authprovider.Provider
 
-	adminAuth     *authgin.Auth
-	adminAuthPool *pgxpool.Pool
-
 	// publicHandler is the default "full surface" HTTP handler.
 	// It includes health + debug (dev only) + user + admin + webhook routes.
 	publicHandler *gin.Engine
@@ -52,6 +47,9 @@ func New(deps Dependencies) (*Server, error) {
 	}
 	if deps.Runtime == nil {
 		return nil, fmt.Errorf("server runtime is required")
+	}
+	if deps.Runtime.DB == nil {
+		return nil, fmt.Errorf("server runtime DB is required")
 	}
 	if deps.Cache == nil {
 		return nil, fmt.Errorf("server cache is required")
@@ -69,9 +67,6 @@ func New(deps Dependencies) (*Server, error) {
 	}
 
 	s.setupPrivateHandler()
-	if err := s.initAdminAuthKit(); err != nil {
-		return nil, err
-	}
 
 	// Default (standalone-friendly) HTTP surface.
 	// Standalone mode owns service-level health/debug routes.
@@ -147,10 +142,6 @@ func (s *Server) PrivateHandler() http.Handler { return s.privateHandler }
 
 // Close currently does not own underlying resources; callers should close the App.
 func (s *Server) Close(_ context.Context) error {
-	if s.adminAuthPool != nil {
-		s.adminAuthPool.Close()
-		s.adminAuthPool = nil
-	}
 	log.Info("Billing HTTP server shut down")
 	return nil
 }

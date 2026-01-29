@@ -14,10 +14,10 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/pkg/spool"
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/pkg/spool"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -42,7 +42,7 @@ func NewEventLogService(cfg *config.ClickHouseConfig) (*EventLogService, error) 
 	// Feature gate: presence of HTTPAddr indicates intent to use CH
 	if cfg == nil || cfg.HTTPAddr == "" {
 		log.Warn("ClickHouse HTTPAddr not configured - billing events will not be logged")
-		sp, _ := spool.New(defaultSpoolDir())
+		sp, _ := spool.New("")
 		svc := &EventLogService{spool: sp}
 		svc.startBackgroundFlush()
 		return svc, nil
@@ -52,13 +52,13 @@ func NewEventLogService(cfg *config.ClickHouseConfig) (*EventLogService, error) 
 	conn, err := initClickHouseConnection(cfg)
 	if err != nil {
 		log.WithError(err).Warn("ClickHouse unavailable at startup; will retry on use")
-		sp, _ := spool.New(defaultSpoolDir())
+		sp, _ := spool.New("")
 		svc := &EventLogService{clickhouseConn: nil, config: cfg, spool: sp}
 		svc.startBackgroundFlush()
 		return svc, nil
 	}
 
-	sp, _ := spool.New(defaultSpoolDir())
+	sp, _ := spool.New("")
 	svc := &EventLogService{clickhouseConn: conn, config: cfg, spool: sp}
 	svc.startBackgroundFlush()
 	return svc, nil
@@ -117,10 +117,6 @@ func (s *EventLogService) SubscriptionEventExists(ctx context.Context, subscript
 		return false, err
 	}
 	return hasRow, nil
-}
-
-func defaultSpoolDir() string {
-	return "/var/lib/doujins-billing/spool"
 }
 
 func (s *EventLogService) startBackgroundFlush() {

@@ -3,7 +3,7 @@ package server
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/doujins-org/doujins-billing/internal/handlers"
+	"github.com/open-rails/openrails/internal/handlers"
 )
 
 func (s *Server) registerDebugRoutes(e *gin.Engine) {

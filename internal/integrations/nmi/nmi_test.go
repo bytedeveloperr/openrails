@@ -3,7 +3,7 @@ package nmi
 import (
 	"testing"
 
-	"github.com/doujins-org/doujins-billing/config"
+	"github.com/open-rails/openrails/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

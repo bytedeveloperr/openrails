@@ -15,7 +15,7 @@ import (
 	redis "github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/config"
+	"github.com/open-rails/openrails/config"
 )
 
 // RateLimitStore holds in-memory counters as a fallback when Redis is unavailable.

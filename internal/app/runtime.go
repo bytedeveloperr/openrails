@@ -11,15 +11,15 @@ import (
 	"github.com/riverqueue/river"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
-	"github.com/doujins-org/doujins-billing/internal/integrations/fx"
-	"github.com/doujins-org/doujins-billing/internal/integrations/jupiter"
-	"github.com/doujins-org/doujins-billing/internal/integrations/nmi"
-	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
-	"github.com/doujins-org/doujins-billing/internal/services"
 	"github.com/jonboulle/clockwork"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/internal/integrations/ccbill"
+	"github.com/open-rails/openrails/internal/integrations/fx"
+	"github.com/open-rails/openrails/internal/integrations/jupiter"
+	"github.com/open-rails/openrails/internal/integrations/nmi"
+	solana "github.com/open-rails/openrails/internal/integrations/solana"
+	"github.com/open-rails/openrails/internal/services"
 )
 
 // Runtime aggregates infrastructure clients and application services.

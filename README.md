@@ -1,4 +1,4 @@
-### Doujins Billing Service — Operations Manual
+### Open Rails Billing Service — Operations Manual
 
 #### Scope
 - Provides a billing-related API server for the frontend to use (signups, cancellations, etc.), and an admin-API server for the backend to use (admin cancellations).
@@ -6,7 +6,7 @@
 - Runs periodic jobs to update subscriptions / entitlements.
 
 #### Interactions with other services (Intended Contract)
-- Entitlements (app reads from): Billing owns the `billing.entitlements` table and writes premium access windows when memberships start/renew and revokes them on cancel/expiry. The main Doujins app can read this table to decide if a user is “premium” at a given point in time (current time ∈ [start_at, end_at) and `revoked_at IS NULL`).
+- Entitlements (app reads from): Billing owns the `billing.entitlements` table and writes premium access windows when memberships start/renew and revokes them on cancel/expiry. The host application can read this table to decide if a user is “premium” at a given point in time (current time ∈ [start_at, end_at) and `revoked_at IS NULL`).
 
 - Profiles (billing reads from): When emailing users (e.g., subscription started/renewed/ended, payment failures, one‑off receipts), Billing reads the current email address from `profiles.users`. We treat user IDs as UUIDs; the service performs a direct, schema‑qualified lookup: `SELECT username, email, email_verified, is_active FROM profiles.users WHERE id = $1`.
 
@@ -117,7 +117,7 @@ FEATURE_FLAGS_DISABLE_ENTITLEMENT_EXPIRATION=false  # true, false
 
 ## Deployment Modes
 
-Doujins Billing can run in two modes: **standalone** (as its own HTTP server) or **embedded** (inside another Go application).
+Open Rails Billing can run in two modes: **standalone** (as its own HTTP server) or **embedded** (inside another Go application).
 
 ### Standalone Mode
 
@@ -148,8 +148,8 @@ Embed billing directly inside another Go application. This is useful when:
 ```go
 import (
     "github.com/gin-gonic/gin"
-    "github.com/doujins-org/doujins-billing/config"
-    "github.com/doujins-org/doujins-billing/pkg/embedded"
+    "github.com/open-rails/openrails/config"
+    "github.com/open-rails/openrails/pkg/embedded"
 )
 
 func main() {
@@ -620,7 +620,7 @@ Common operations
   1) `task docker-down`
   2) `docker volume rm <project>_clickhouse_data <project>_clickhouse_logs <project>_garnet_data`
   3) `task docker-up`
-  4) (Optional) if you also need a fresh Postgres, reset it from the Doujins backend repository.
+  4) (Optional) if you also need a fresh Postgres, reset it from the host backend repository.
 - Check health: `curl http://localhost:2053/health`
 - Tail logs: `task docker-logs` or `docker-compose logs -f billing`
 
@@ -634,9 +634,9 @@ Troubleshooting
   - Check `clickhouse-bootstrap` logs and then `billing-migrate` logs. Ensure `migrations/clickhouse/*.sql` exist and the database is `analytics`.
 
 Container usage
-- Runtime configs (`config.yaml`, `config.docker.yaml`, etc.) are not baked into the image. Mount the desired file and point the CLI at it, e.g. `docker run -v $(pwd)/config.docker.yaml:/app/config.docker.yaml:ro doujins/billing:latest -c /app/config.docker.yaml server`.
-- The image entrypoint is the billing CLI. To launch workers only, override the command: `docker run ... doujins/billing:latest worker`.
+- Runtime configs (`config.yaml`, `config.docker.yaml`, etc.) are not baked into the image. Mount the desired file and point the CLI at it, e.g. `docker run -v $(pwd)/config.docker.yaml:/app/config.docker.yaml:ro openrails/billing:latest -c /app/config.docker.yaml server`.
+- The image entrypoint is the billing CLI. To launch workers only, override the command: `docker run ... openrails/billing:latest worker`.
 
 Notes
 - This repository manages only the billing service operations. Application-specific integration (e.g., role management in your app DB) is out of scope here.
- - Premium checks in the Doujins app should come from `billing.entitlements` (not from subscription rows). Email addresses should come from `profiles.users` (not denormalized into billing records).
+ - Premium checks in the host app should come from `billing.entitlements` (not from subscription rows). Email addresses should come from `profiles.users` (not denormalized into billing records).

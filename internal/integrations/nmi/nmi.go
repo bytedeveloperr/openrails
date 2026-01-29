@@ -14,7 +14,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/config"
+	"github.com/open-rails/openrails/config"
 )
 
 const (
@@ -726,7 +726,7 @@ func (c *NMIClient) AddRecurringSubscription(data RecurringPaymentData) (*AddSub
 		"security_key":      {c.SecurityKey},
 		"currency":          {data.Currency},
 		"recurring":         {"add_subscription"},
-		"order_description": {"Doujins Subscription"},
+		"order_description": {"Open Rails Subscription"},
 		"first_name":        {data.FirstName},
 		"last_name":         {data.LastName},
 		"address1":          {data.Address1},
@@ -900,7 +900,7 @@ func (c *NMIClient) AttemptManualRebill(params ManualRebillParams) (*ManualRebil
 		"billing_id":        {params.BillingID},
 		"subscription_id":   {params.SubscriptionID},
 		"recurring":         {"rebill_subscription"},
-		"order_description": {"Manual Rebill - Doujins Subscription"},
+		"order_description": {"Manual Rebill - Open Rails Subscription"},
 	}
 
 	response, err := c.sendDirectRequest(values)

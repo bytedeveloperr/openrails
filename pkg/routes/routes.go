@@ -7,10 +7,10 @@ package routes
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/doujins-org/doujins-billing/internal/app"
-	authpolicy "github.com/doujins-org/doujins-billing/internal/auth/policy"
-	"github.com/doujins-org/doujins-billing/internal/handlers"
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
+	"github.com/open-rails/openrails/internal/app"
+	authpolicy "github.com/open-rails/openrails/internal/auth/policy"
+	"github.com/open-rails/openrails/internal/handlers"
+	"github.com/open-rails/openrails/pkg/authprovider"
 )
 
 // Options configures route registration behavior.

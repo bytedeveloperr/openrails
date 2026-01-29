@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/config"
 	solanago "github.com/doujins-org/solana-go"
+	"github.com/open-rails/openrails/config"
 
-	jupiter "github.com/doujins-org/doujins-billing/internal/integrations/jupiter"
-	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/api"
 	"github.com/google/uuid"
+	jupiter "github.com/open-rails/openrails/internal/integrations/jupiter"
+	"github.com/open-rails/openrails/internal/services"
+	"github.com/open-rails/openrails/pkg/api"
 	log "github.com/sirupsen/logrus"
 )
 

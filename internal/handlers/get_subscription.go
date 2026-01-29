@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/open-rails/openrails/internal/services"
+	"github.com/open-rails/openrails/pkg/api"
 )
 
 // GetSubscription retrieves a single subscription by ID

@@ -10,11 +10,11 @@ import (
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/auth"
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
-	"github.com/doujins-org/doujins-billing/pkg/cache"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/auth"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/pkg/authprovider"
+	"github.com/open-rails/openrails/pkg/cache"
 )
 
 // App encapsulates the long-lived dependencies shared across transports.

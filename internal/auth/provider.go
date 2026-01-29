@@ -3,11 +3,11 @@ package auth
 import (
 	"strings"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
 	"github.com/doujins-org/ginapi/response"
 	"github.com/gin-gonic/gin"
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/pkg/authprovider"
 	log "github.com/sirupsen/logrus"
 )
 

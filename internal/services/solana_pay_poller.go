@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/doujins-org/doujins-billing/config"
-	"github.com/doujins-org/doujins-billing/internal/db"
-	solana "github.com/doujins-org/doujins-billing/internal/integrations/solana"
 	"github.com/google/uuid"
+	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db"
+	solana "github.com/open-rails/openrails/internal/integrations/solana"
 	redis "github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 )

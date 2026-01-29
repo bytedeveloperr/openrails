@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/query"
+	"github.com/open-rails/openrails/internal/services"
+	"github.com/open-rails/openrails/pkg/query"
 )
 
 // GetUserPayments retrieves the user's one-off payments

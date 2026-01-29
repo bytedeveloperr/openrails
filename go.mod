@@ -1,12 +1,10 @@
-module github.com/doujins-org/doujins-billing
+module github.com/open-rails/openrails
 
 go 1.25.5
 
 require (
 	github.com/ClickHouse/clickhouse-go/v2 v2.40.3
-	github.com/PaulFidika/authkit v0.2.10
 	github.com/doujins-org/ginapi v0.1.0
-	github.com/doujins-org/migratekit v0.7.11
 	github.com/doujins-org/solana-go v1.13.0
 	github.com/gin-contrib/cors v1.7.6
 	github.com/gin-gonic/gin v1.11.0
@@ -19,6 +17,8 @@ require (
 	github.com/knadh/koanf/providers/file v1.2.0
 	github.com/knadh/koanf/v2 v2.2.2
 	github.com/lib/pq v1.10.9
+	github.com/open-rails/authkit v0.4.1
+	github.com/open-rails/migratekit v0.7.15
 	github.com/redis/go-redis/v9 v9.12.1
 	github.com/riverqueue/river v0.26.0
 	github.com/riverqueue/river/riverdriver/riverpgxv5 v0.26.0
@@ -34,10 +34,17 @@ require (
 )
 
 require (
+	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/gorilla/schema v1.4.1 // indirect
 	github.com/gorilla/securecookie v1.1.1 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
+	github.com/lestrrat-go/blackmagic v1.0.3 // indirect
+	github.com/lestrrat-go/httpcc v1.0.1 // indirect
+	github.com/lestrrat-go/httprc v1.0.6 // indirect
+	github.com/lestrrat-go/iter v1.0.2 // indirect
+	github.com/lestrrat-go/jwx/v2 v2.1.6 // indirect
+	github.com/lestrrat-go/option v1.0.1 // indirect
 	github.com/muhlemmer/gu v0.3.1 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.57.0 // indirect

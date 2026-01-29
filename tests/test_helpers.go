@@ -10,12 +10,12 @@ import (
 	"sync"
 	"testing"
 
-	authtesting "github.com/PaulFidika/authkit/testing"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	authtesting "github.com/open-rails/authkit/testing"
 	"github.com/stretchr/testify/require"
 
-	"github.com/doujins-org/doujins-billing/internal/server"
+	"github.com/open-rails/openrails/internal/server"
 )
 
 var (
@@ -93,7 +93,7 @@ func setupTestSuite(t *testing.T) *TestContainerSuite {
 // The token is signed by the test issuer and will validate against the JWKS endpoint.
 func setupTestServerWithAuth(t *testing.T) (*server.Server, string) {
 	srv := setupTestServer(t)
-	token := getTestIssuer().CreateToken("test-user-billing-12345", "test@billing.doujins.com")
+	token := getTestIssuer().CreateToken("test-user-billing-12345", "test@billing.openrails.com")
 	return srv, token
 }
 
@@ -113,7 +113,7 @@ func setupTestSuiteWithAuth(t *testing.T) (*TestContainerSuite, string, string) 
 // This is the same as setupTestServerWithAuth since all tokens use RS256.
 func setupTestServerWithRSAuth(t *testing.T) (*server.Server, string) {
 	srv := setupTestServer(t)
-	token := getTestIssuer().CreateToken("test-user-billing-rs256", "rs256@billing.doujins.com")
+	token := getTestIssuer().CreateToken("test-user-billing-rs256", "rs256@billing.openrails.com")
 	return srv, token
 }
 

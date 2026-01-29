@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/doujins-org/doujins-billing/internal/db"
-	"github.com/doujins-org/doujins-billing/internal/integrations/ccbill"
+	"github.com/open-rails/openrails/internal/db"
+	"github.com/open-rails/openrails/internal/integrations/ccbill"
 	"github.com/riverqueue/river"
 	log "github.com/sirupsen/logrus"
 )

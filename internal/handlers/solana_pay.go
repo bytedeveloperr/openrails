@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/api"
+	"github.com/open-rails/openrails/internal/services"
+	"github.com/open-rails/openrails/pkg/api"
 )
 
 // SolanaPayGetResponse is the response for GET /v1/checkout/:id/solana-pay

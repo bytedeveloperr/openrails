@@ -12,12 +12,12 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/sirupsen/logrus"
 
-	"github.com/doujins-org/doujins-billing/internal/app"
-	"github.com/doujins-org/doujins-billing/internal/services"
-	"github.com/doujins-org/doujins-billing/pkg/api"
-	"github.com/doujins-org/doujins-billing/pkg/authprovider"
-	"github.com/doujins-org/doujins-billing/pkg/message"
 	"github.com/jonboulle/clockwork"
+	"github.com/open-rails/openrails/internal/app"
+	"github.com/open-rails/openrails/internal/services"
+	"github.com/open-rails/openrails/pkg/api"
+	"github.com/open-rails/openrails/pkg/authprovider"
+	"github.com/open-rails/openrails/pkg/message"
 )
 
 type Request struct {
