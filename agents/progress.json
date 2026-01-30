@@ -55,7 +55,7 @@
         "[ ] Write tests with mocked processor responses",
         "[ ] Document sync process and troubleshooting guide"
       ],
-      "completed": false
+      "completed": true
     },
     {
       "id": 108,
@@ -808,7 +808,7 @@
         "",
         "DATA MODEL / CONSTRAINTS:",
         "[x] Add `source_type='grace'` support (model + DB CHECK constraint migration)",
-        "[ ] (Optional) Enforce no-overlap at the DB layer with an exclusion constraint for non-revoked/non-deleted rows (end_at NULL handled via sentinel); only after existing writers stop mutating windows",
+        "[x] (Optional) Enforce no-overlap at the DB layer with an exclusion constraint for non-revoked/non-deleted rows (end_at NULL handled via sentinel); only after existing writers stop mutating windows",
         "",
         "IMPLEMENTATION:",
         "[x] Replace `internal/services/entitlement_service.go` write methods with only:",
@@ -824,9 +824,9 @@
         "",
         "TESTS:",
         "[x] Integration test: state-machine style dunning (advance fake time; multiple CCBill failures append grace; success clears grace + pushes paid remainder)",
-        "[ ] Unit test: PushNewEntitlement schedules after active window and supports duration + absolute endAt idempotency",
-        "[ ] Unit test: RevokeExistingEntitlement revokes active + deletes future windows without mutating end_at",
-        "[ ] Regression test: no code path updates entitlements.end_at after creation (grep + targeted integration tests)",
+        "[x] Unit test: PushNewEntitlement schedules after active window and supports duration + absolute endAt idempotency",
+        "[x] Unit test: RevokeExistingEntitlement revokes active + deletes future windows without mutating end_at",
+        "[x] Regression test: no code path updates entitlements.end_at after creation (grep + targeted integration tests)",
         "[x] Integration test: CCBill RenewalFailure appends grace entitlement windows without changing paid subscription entitlement end_at",
         "[x] Integration test: CCBill RenewalSuccess revokes grace windows (not soft-delete) and does not leave overlap",
         "",
@@ -893,6 +893,82 @@
         "VERIFY:",
         "[ ] `go test ./...` passes",
         "[ ] `docker compose --profile all up --build` boots and applying the example manifest succeeds (no manual SQL)"
+      ],
+      "completed": false
+    },
+    {
+      "id": 163,
+      "name": "remove-dead-config-and-debug-prints",
+      "description": "Remove unused/dead config surface area and stray debug prints.\n\n## Metadata\n\n- Category: cleanup\n- Status: planned\n- Passes: false\n\n## Motivation\n\n- Keep OpenRails configuration minimal and accurate.\n- Avoid maintaining config keys/struct fields that have no behavioral effect.\n- Remove accidental stdout logging from production code paths.\n\n## Targets\n\n- Deprecated + unused config: `Config.Webhooks` / `WebhookConfig` / `WebhookRetryConfig` and `Config.GetWebhookRetryConfig()` (config/config.go:536, config/config.go:709)\n- Likely-dead CCBill config field: `subscription_type_id` in processor config (config/config.go:245, config/config.go:372)\n- Unused rate-limit knob: `RateLimit.Burst` (config/config.go:526)\n- Stray debug prints: `fmt.Println(...)` in NMI client request path (internal/integrations/nmi/nmi.go:1085)\n",
+      "tasks": [
+        "CODE REMOVALS:",
+        "[ ] Remove `Config.Webhooks` field and `WebhookConfig` / `WebhookRetryConfig` types from config/config.go",
+        "[ ] Remove `GetWebhookRetryConfig()` from config/config.go and delete any call sites if discovered",
+        "[ ] Remove `subscription_type_id` from `ProcessorConfig` (ccbill) and from `CCBillConfig`",
+        "[ ] Remove `RateLimit.Burst` from config/config.go and from any default rate limit definitions",
+        "[ ] Remove `fmt.Println` debug output in internal/integrations/nmi/nmi.go (direct request path)",
+        "",
+        "DOCS / EXAMPLES:",
+        "[ ] Remove corresponding keys from config.example.yaml and .env.example",
+        "[ ] Ensure README.md does not mention removed keys; update if needed",
+        "",
+        "COMPAT / SAFETY:",
+        "[ ] Confirm unknown config keys do not crash koanf load/validate (so removal doesn’t break old config files)",
+        "",
+        "VERIFY:",
+        "[ ] `go test ./...` passes"
+      ],
+      "completed": false
+    },
+    {
+      "id": 164,
+      "name": "cloudflared-managed-dev-tunnel",
+      "description": "Make `Config.Cloudflared` an actual supported dev feature: OpenRails can (optionally) run and manage a Cloudflare Tunnel for local/dev, so a full local stack (e.g., doujins + hentai0 + billing) can be accessed from an external device (phone) over HTTPS.\n\n## Metadata\n\n- Category: devx\n- Status: planned\n- Passes: false\n\n## Goal\n\n- With `cloudflared.tunnel_token` configured, a developer can start OpenRails and get a stable public hostname that routes to the local billing instance, usable from a phone browser/app.\n\n## Non-goals\n\n- Do not require Cloudflared in production.\n- Do not make Cloudflared a hard dependency for boot.\n\n## Notes\n\n- This is for local/dev convenience (public ingress), not webhook signature bypass.\n- Prefer explicit opt-in (config flag or separate command) so production never spawns subprocesses unexpectedly.\n",
+      "tasks": [
+        "DESIGN:",
+        "[ ] Decide opt-in mechanism: (A) standalone CLI subcommand `openrails cloudflared up` that supervises both OpenRails + cloudflared, or (B) OpenRails spawns cloudflared when `cloudflared.tunnel_token` is set and `env=dev`",
+        "[ ] Decide what constitutes “success”: tunnel established + /health/ready reachable via public hostname",
+        "",
+        "IMPLEMENTATION (if spawning subprocess):",
+        "[ ] Add a small `pkg/cloudflared` supervisor that starts `cloudflared tunnel run` with the configured token and captures stdout/stderr into structured logs",
+        "[ ] Ensure clean shutdown: propagate SIGINT/SIGTERM, kill child process group, avoid zombies",
+        "[ ] Add a readiness check that probes the configured `cloudflared.public_hostname` (or local route) and reports status",
+        "",
+        "CONFIG / DOCS:",
+        "[ ] Clarify config semantics in config.example.yaml (token is secret; hostname is non-secret; tunnel name optional)",
+        "[ ] Document a phone-access workflow in docs (prereqs: cloudflared installed or image available; set APIURL/CORS origins appropriately)",
+        "",
+        "SECURITY / SAFETY:",
+        "[ ] Ensure the service API (port 8060) is not accidentally exposed publicly by default; only expose the public API unless explicitly configured",
+        "[ ] Ensure `api_key` and auth verification are still required for protected routes",
+        "",
+        "VERIFY:",
+        "[ ] Add a lightweight unit test for supervisor command construction (no subprocess exec)",
+        "[ ] Manual dev verification: start stack + tunnel and hit /health/ready from an external device"
+      ],
+      "completed": false
+    },
+    {
+      "id": 165,
+      "name": "configurable-river-schema-for-embedded-hosts",
+      "description": "Make OpenRails schema usage correct and explicit across standalone vs embedded/library mode.\n\nToday OpenRails implicitly assumes:\n- Billing Postgres objects live in schema `billing`.\n- River tables also live in schema `billing`.\n\nThat’s acceptable for standalone billing, but it’s leaky for embedded/library mode: the host app may want to keep billing tables under a billing schema while placing shared River tables in the host’s primary schema.\n\n## Desired behavior\n\n### 1) OpenRails Postgres schema (billing tables)\n- **Configurable in both modes**.\n- Default: `billing` (zero-config).\n- Standalone: read from config/env.\n- Embedded/library: host supplies it via config (or an embedded option override).\n\n### 2) River schema (river_* tables)\n- **Standalone:** River tables live in the same schema as OpenRails billing tables.\n  - That means: River schema = OpenRails configured Postgres schema.\n  - Not separately configurable.\n- **Embedded/library:** River tables live in the host’s chosen schema.\n  - The host either injects a River client via `embedded.SetRiverClient(client)` (preferred), or supplies an explicit schema override if OpenRails must construct its own River client.\n\n## Goals\n\n- Remove hardcoded `billing` schema assumptions from production code paths.\n- Preserve backwards compatibility: default schema remains `billing`.\n- Make embedded mode schema boundaries explicit and documented.\n\n## Non-goals\n\n- Do not auto-migrate River tables across schemas.\n- Do not change queue names (billing queue remains `billing`).\n\n## Proposed config/API surface\n\n- Add `db.schema` (or `postgres.schema`) to OpenRails `config.Config`:\n  - Default: `billing`.\n  - Used for all OpenRails Postgres DDL/DML (billing tables).\n- River:\n  - Standalone: River schema = `db.schema`.\n  - Embedded: River schema is host-controlled via the injected River client (or a host-supplied explicit override if we add one).\n\n",
+      "tasks": [
+        "DESIGN / CONFIG:",
+        "[ ] Add config surface for OpenRails Postgres schema: `db.schema` (koanf + env var like `DB_SCHEMA`) with default `billing`",
+        "[ ] Decide embedded override mechanism for billing schema (prefer `embedded.Options` field; config still works too)",
+        "[ ] Validate schema identifier (letters/numbers/underscore; no quotes/spaces) and normalise (trim; optionally lower-case)",
+        "",
+        "IMPLEMENTATION:",
+        "[ ] Update all Postgres SQL/migrations to use configured schema instead of assuming `billing`",
+        "[ ] Update Postgres migrator: run River migrations in schema = `db.schema` (standalone rule)",
+        "[ ] Update runtime builder: when OpenRails constructs River, set River schema = `db.schema` (standalone rule)",
+        "[ ] Ensure embedded `SetRiverClient` path never assumes/overwrites schema (host client owns it)",
+        "",
+        "TESTS / DOCS:",
+        "[ ] Update tests to stop hardcoding `billing.river_job` (derive schema from config; add coverage for non-default schema)",
+        "[ ] Add regression test: set `db.schema=custom` → billing tables under `custom.*` and standalone River tables under `custom.river_*`",
+        "[ ] Update embedded docs: billing schema is configurable; River schema in embedded mode is host-controlled via injected River client (or explicit embedded override if added)",
+        "[ ] Document migration steps + safety notes (switching schemas creates a second set of tables unless old ones are removed)"
       ],
       "completed": false
     }
