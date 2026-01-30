@@ -330,7 +330,7 @@ func reconcileProcessor(ctx context.Context, application *app.App, cfg *config.C
 				Processor:               models.ProcessorCCBill,
 				ProcessorSubscriptionID: &subID,
 				UserEmail:               emailPtr,
-				TransactionID:           "",
+				TransactionID:           fmt.Sprintf("ccbill-cmd-%s", id),
 				Amount:                  price.Amount,
 				Currency:                price.Currency,
 			})
