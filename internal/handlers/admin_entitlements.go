@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/services"
 )
 
 type AdminUserEntitlementsPath struct {
@@ -142,9 +143,22 @@ func GrantAdminEntitlement(r *Request) {
 	var ent *models.Entitlement
 	var err error
 	if req.Days != nil {
-		ent, err = svc.AppendEntitlementDays(r.Request.Context(), path.UserID, req.Entitlement, *req.Days, models.EntitlementSourceAdmin, &adminGrant.ID)
+		d := time.Duration(*req.Days) * 24 * time.Hour
+		ent, err = svc.PushNewEntitlement(r.Request.Context(), services.PushNewEntitlementParams{
+			UserID:      path.UserID,
+			Entitlement: req.Entitlement,
+			Duration:    &d,
+			SourceType:  models.EntitlementSourceAdmin,
+			SourceID:    adminGrant.ID,
+		})
 	} else {
-		ent, err = svc.AppendIndefinite(r.Request.Context(), path.UserID, req.Entitlement, models.EntitlementSourceAdmin, &adminGrant.ID)
+		ent, err = svc.PushNewEntitlement(r.Request.Context(), services.PushNewEntitlementParams{
+			UserID:      path.UserID,
+			Entitlement: req.Entitlement,
+			Indefinite:  true,
+			SourceType:  models.EntitlementSourceAdmin,
+			SourceID:    adminGrant.ID,
+		})
 	}
 	if err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
@@ -186,7 +200,10 @@ func RevokeAdminEntitlement(r *Request) {
 		return
 	}
 
-	if err := svc.RevokeByID(r.Request.Context(), entitlementID, models.EntitlementRevokeAdmin); err != nil {
+	if err := svc.RevokeExistingEntitlement(r.Request.Context(), services.RevokeExistingEntitlementParams{
+		EntitlementID: &entitlementID,
+		Reason:        models.EntitlementRevokeAdmin,
+	}); err != nil {
 		r.ErrorJSON(http.StatusInternalServerError, err.Error())
 		return
 	}

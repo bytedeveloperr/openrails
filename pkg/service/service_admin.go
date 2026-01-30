@@ -391,14 +391,26 @@ func (s *Service) AdminGrantEntitlement(ctx context.Context, adminUserID string,
 	var err error
 
 	if req.EndAt != nil && !req.EndAt.IsZero() {
-		days := int(req.EndAt.Sub(now).Hours() / 24)
-		if days > 0 {
-			ent, err = s.rt.EntitlementService.AppendEntitlementDays(ctx, req.UserID, req.Entitlement, days, models.EntitlementSourceAdmin, &adminGrant.ID)
+		endAt := req.EndAt.UTC()
+		if endAt.After(now) {
+			ent, err = s.rt.EntitlementService.PushNewEntitlement(ctx, services.PushNewEntitlementParams{
+				UserID:      req.UserID,
+				Entitlement: req.Entitlement,
+				EndAt:       &endAt,
+				SourceType:  models.EntitlementSourceAdmin,
+				SourceID:    adminGrant.ID,
+			})
 		} else {
 			return nil, fmt.Errorf("end_at must be in the future")
 		}
 	} else {
-		ent, err = s.rt.EntitlementService.AppendIndefinite(ctx, req.UserID, req.Entitlement, models.EntitlementSourceAdmin, &adminGrant.ID)
+		ent, err = s.rt.EntitlementService.PushNewEntitlement(ctx, services.PushNewEntitlementParams{
+			UserID:      req.UserID,
+			Entitlement: req.Entitlement,
+			Indefinite:  true,
+			SourceType:  models.EntitlementSourceAdmin,
+			SourceID:    adminGrant.ID,
+		})
 	}
 
 	if err != nil {
@@ -431,7 +443,10 @@ func (s *Service) AdminRevokeEntitlement(ctx context.Context, userID string, ent
 		return fmt.Errorf("entitlement does not belong to user")
 	}
 
-	return s.rt.EntitlementService.RevokeByID(ctx, entitlementID, models.EntitlementRevokeAdmin)
+	return s.rt.EntitlementService.RevokeExistingEntitlement(ctx, services.RevokeExistingEntitlementParams{
+		EntitlementID: &entitlementID,
+		Reason:        models.EntitlementRevokeAdmin,
+	})
 }
 
 // -------------------------------- Admin Metrics --------------------------------

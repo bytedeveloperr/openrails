@@ -76,10 +76,26 @@ func runGrantSubscriptionCredits_Idempotent_PerPeriod(t *testing.T) {
 	}).Exec(ctx)
 	require.NoError(t, err)
 
+	priceID := uuid.New()
+	cycle := 30
+	_, err = bunDB.NewInsert().Model(&models.Price{
+		ID:               priceID,
+		ProductID:        productID,
+		DisplayName:      "Test Price",
+		IsActive:         true,
+		Amount:           100,
+		Currency:         "USD",
+		BillingCycleDays: &cycle,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}).Exec(ctx)
+	require.NoError(t, err)
+
 	_, err = bunDB.NewInsert().Model(&models.Subscription{
 		ID:                      subID,
 		UserID:                  userID,
 		ProductID:               productID,
+		PriceID:                 priceID,
 		Status:                  models.StatusActive,
 		Processor:               models.ProcessorStripe,
 		ProcessorSubscriptionID: "sub_test_" + uuid.New().String(),
@@ -221,10 +237,26 @@ func TestGrantSubscriptionCredits_MixedCadence(t *testing.T) {
 	}).Exec(ctx)
 	require.NoError(t, err)
 
+	priceID := uuid.New()
+	cycle := 30
+	_, err = bunDB.NewInsert().Model(&models.Price{
+		ID:               priceID,
+		ProductID:        productID,
+		DisplayName:      "Test Price",
+		IsActive:         true,
+		Amount:           100,
+		Currency:         "USD",
+		BillingCycleDays: &cycle,
+		CreatedAt:        now,
+		UpdatedAt:        now,
+	}).Exec(ctx)
+	require.NoError(t, err)
+
 	_, err = bunDB.NewInsert().Model(&models.Subscription{
 		ID:                      subID,
 		UserID:                  userID,
 		ProductID:               productID,
+		PriceID:                 priceID,
 		Status:                  models.StatusActive,
 		Processor:               models.ProcessorStripe,
 		ProcessorSubscriptionID: "sub_test_" + uuid.New().String(),
@@ -239,6 +271,7 @@ func TestGrantSubscriptionCredits_MixedCadence(t *testing.T) {
 		_, _ = bunDB.NewDelete().Model((*models.CreditTransaction)(nil)).Where("user_id = ?", userID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.UserCreditBalance)(nil)).Where("user_id = ?", userID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.Subscription)(nil)).Where("id = ?", subID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.Price)(nil)).Where("id = ?", priceID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.Product)(nil)).Where("id = ?", productID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.CreditType)(nil)).Where("id IN (?)", bun.In([]uuid.UUID{ctOnceID, ctRenewID})).Exec(ctx)
 	})

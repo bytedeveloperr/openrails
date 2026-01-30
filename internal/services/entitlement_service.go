@@ -2,8 +2,6 @@ package services
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
@@ -12,15 +10,31 @@ import (
 	"github.com/open-rails/openrails/internal/db"
 	"github.com/open-rails/openrails/internal/db/models"
 	"github.com/open-rails/openrails/internal/db/repo"
+	"github.com/uptrace/bun"
 )
 
 type EntitlementService struct {
+	db    *db.DB
 	repo  *repo.EntitlementRepo
 	Clock clockwork.Clock
 }
 
 func NewEntitlementService(db *db.DB) *EntitlementService {
-	return &EntitlementService{repo: repo.NewEntitlementRepo(db)}
+	return &EntitlementService{db: db, repo: repo.NewEntitlementRepo(db)}
+}
+
+func (s *EntitlementService) withTx(ctx context.Context, fn func(ctx context.Context, tx bun.Tx) error) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("entitlement service not initialized")
+	}
+	switch dbi := s.db.GetDB().(type) {
+	case *bun.DB:
+		return dbi.RunInTx(ctx, nil, fn)
+	case bun.Tx:
+		return fn(ctx, dbi)
+	default:
+		return fmt.Errorf("unsupported db type for entitlement transaction")
+	}
 }
 
 // SetClock sets the clock for this service. Used for testing.
@@ -61,33 +75,8 @@ func (s *EntitlementService) ListActiveRecords(ctx context.Context, userID strin
 	return s.repo.ListActiveRecords(ctx, userID, at)
 }
 
-// AppendEntitlementDays appends a finite window of N days right after the latest window's end,
-// unless the user currently has an indefinite window (end_at IS NULL). In that case, it is a no-op.
-func (s *EntitlementService) AppendEntitlementDays(ctx context.Context, userID, entitlement string, days int, sourceType models.EntitlementSourceType, sourceID *uuid.UUID) (*models.Entitlement, error) {
-	if days <= 0 {
-		return nil, fmt.Errorf("days must be > 0")
-	}
-	now := s.now()
-
-	exists, err := s.repo.HasActiveIndefinite(ctx, userID, entitlement, now)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return nil, fmt.Errorf("cannot append entitlement while subscription entitlement is active")
-	}
-
-	var start time.Time = now
-	last, err := s.repo.GetLatestActive(ctx, userID, entitlement)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-	if err == nil && last != nil && last.EndAt != nil {
-		start = *last.EndAt
-	}
-
-	end := start.Add(time.Duration(days) * 24 * time.Hour)
-	return s.GrantWindow(ctx, userID, entitlement, start, &end, sourceType, sourceID)
+func (s *EntitlementService) ListDistinctEntitlementNamesBySource(ctx context.Context, sourceType models.EntitlementSourceType, sourceID uuid.UUID) ([]string, error) {
+	return s.repo.ListDistinctEntitlementNamesBySource(ctx, sourceType, sourceID)
 }
 
 // ListActiveEntitlements returns a de-duplicated list of active entitlement names for a user at a point in time.
@@ -95,89 +84,228 @@ func (s *EntitlementService) ListActiveEntitlements(ctx context.Context, userID 
 	return s.repo.ListActiveEntitlements(ctx, userID, at)
 }
 
-// AppendIndefinite appends an indefinite window right after the latest window's end,
-// unless the user currently has an active indefinite window (end_at IS NULL). In that case, it is an error.
-func (s *EntitlementService) AppendIndefinite(ctx context.Context, userID, entitlement string, sourceType models.EntitlementSourceType, sourceID *uuid.UUID) (*models.Entitlement, error) {
-	now := s.now()
-
-	exists, err := s.repo.HasActiveIndefinite(ctx, userID, entitlement, now)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return nil, fmt.Errorf("cannot append entitlement while an indefinite entitlement is active")
-	}
-
-	var start time.Time = now
-	last, err := s.repo.GetLatestActive(ctx, userID, entitlement)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-	if err == nil && last != nil && last.EndAt != nil {
-		start = *last.EndAt
-	}
-
-	return s.GrantWindow(ctx, userID, entitlement, start, nil, sourceType, sourceID)
-}
-
-// GrantWindow creates a new entitlement window for a user
-func (s *EntitlementService) GrantWindow(ctx context.Context, userID, entitlement string, startAt time.Time, endAt *time.Time, sourceType models.EntitlementSourceType, sourceID *uuid.UUID) (*models.Entitlement, error) {
-	now := s.now()
-	ent := &models.Entitlement{
-		ID:          uuid.New(),
-		UserID:      userID,
-		Entitlement: entitlement,
-		StartAt:     startAt,
-		EndAt:       endAt,
-		SourceType:  sourceType,
-		SourceID:    sourceID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-	if err := s.repo.Insert(ctx, ent); err != nil {
-		return nil, err
-	}
-	return ent, nil
-}
-
-// EndActiveBySubscription ends active entitlements for a subscription at a given time
-func (s *EntitlementService) EndActiveBySubscription(ctx context.Context, subscriptionID uuid.UUID, endAt time.Time, reason *models.EntitlementRevokeReason) error {
-	now := s.now()
-	return s.repo.EndActiveBySubscription(ctx, subscriptionID, endAt, now, reason)
-}
-
-// ExtendActiveBySubscription extends active entitlements for a subscription to endAt.
-// It only extends (never shortens) existing windows.
-func (s *EntitlementService) ExtendActiveBySubscription(ctx context.Context, subscriptionID uuid.UUID, endAt time.Time) error {
-	now := s.now()
-	return s.repo.ExtendActiveBySubscription(ctx, subscriptionID, endAt, now)
-}
-
-// ResumeBySubscription clears scheduled end_at for a subscription's entitlements.
-func (s *EntitlementService) ResumeBySubscription(ctx context.Context, subscriptionID uuid.UUID) error {
-	now := s.now()
-	return s.repo.ResumeBySubscription(ctx, subscriptionID, now)
-}
-
-// EndActiveByPayment ends active entitlements for a one-off payment at a given time
-func (s *EntitlementService) EndActiveByPayment(ctx context.Context, paymentID uuid.UUID, endAt time.Time, reason *models.EntitlementRevokeReason) error {
-	now := s.now()
-	return s.repo.EndActiveByPayment(ctx, paymentID, endAt, now, reason)
-}
-
 // GetByID retrieves an entitlement by its ID
 func (s *EntitlementService) GetByID(ctx context.Context, id uuid.UUID) (*models.Entitlement, error) {
 	return s.repo.GetByID(ctx, id)
 }
 
-// RevokeByID immediately revokes an entitlement by ID (admin action)
-func (s *EntitlementService) RevokeByID(ctx context.Context, id uuid.UUID, reason models.EntitlementRevokeReason) error {
-	now := s.now()
-	return s.repo.RevokeByID(ctx, id, now, reason)
+type PushNewEntitlementParams struct {
+	UserID      string
+	Entitlement string
+
+	// NotBefore allows callers to delay the start of the new window.
+	// The final start_at is max(NotBefore, tail_end, now).
+	NotBefore *time.Time
+
+	// Exactly one of (Indefinite, Duration, EndAt) must be set.
+	Indefinite bool
+	Duration   *time.Duration
+	EndAt      *time.Time
+
+	SourceType models.EntitlementSourceType
+	SourceID   uuid.UUID
 }
 
-// RevokeBySubscriptionAndName revokes a specific entitlement by subscription and name.
-// Used during downgrades to revoke entitlements that the new tier doesn't include.
-func (s *EntitlementService) RevokeBySubscriptionAndName(ctx context.Context, subscriptionID uuid.UUID, entitlement string, revokeAt time.Time, reason models.EntitlementRevokeReason) error {
-	return s.repo.RevokeBySubscriptionAndName(ctx, subscriptionID, entitlement, revokeAt, reason)
+// PushNewEntitlement appends a new entitlement window to the per-(user_id, entitlement) timeline.
+// It does not mutate existing windows (end_at is immutable); it schedules the new window to start
+// after the current tail end (or now), optionally honoring NotBefore.
+//
+// If EndAt is provided and EndAt <= computed start_at, this is a no-op and returns (nil, nil).
+func (s *EntitlementService) PushNewEntitlement(ctx context.Context, p PushNewEntitlementParams) (*models.Entitlement, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("entitlement service not initialized")
+	}
+	if p.UserID == "" || p.Entitlement == "" {
+		return nil, fmt.Errorf("userID and entitlement are required")
+	}
+	if p.SourceID == uuid.Nil {
+		return nil, fmt.Errorf("sourceID is required")
+	}
+	setCount := 0
+	if p.Indefinite {
+		setCount++
+	}
+	if p.Duration != nil {
+		setCount++
+	}
+	if p.EndAt != nil {
+		setCount++
+	}
+	if setCount != 1 {
+		return nil, fmt.Errorf("exactly one of Indefinite, Duration, or EndAt must be set")
+	}
+	if p.Duration != nil && *p.Duration <= 0 {
+		return nil, fmt.Errorf("duration must be > 0")
+	}
+	if p.EndAt != nil && p.EndAt.IsZero() {
+		return nil, fmt.Errorf("endAt must be non-zero")
+	}
+
+	now := s.now().UTC()
+	var created *models.Entitlement
+
+	err := s.withTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		if err := repo.LockEntitlementTimeline(ctx, tx, p.UserID, p.Entitlement); err != nil {
+			return err
+		}
+
+		// If an indefinite entitlement exists, the timeline is terminal.
+		var hasIndefinite bool
+		if err := tx.NewSelect().
+			Model((*models.Entitlement)(nil)).
+			ColumnExpr("COUNT(*) > 0").
+			Where("ent.user_id = ?", p.UserID).
+			Where("ent.entitlement = ?", p.Entitlement).
+			Where("ent.revoked_at IS NULL").
+			Where("ent.deleted_at IS NULL").
+			Where("ent.end_at IS NULL").
+			Scan(ctx, &hasIndefinite); err != nil {
+			return err
+		}
+		if hasIndefinite {
+			return nil
+		}
+
+		var tailEnd *time.Time
+		if err := tx.NewSelect().
+			Model((*models.Entitlement)(nil)).
+			ColumnExpr("MAX(ent.end_at)").
+			Where("ent.user_id = ?", p.UserID).
+			Where("ent.entitlement = ?", p.Entitlement).
+			Where("ent.revoked_at IS NULL").
+			Where("ent.deleted_at IS NULL").
+			Where("ent.end_at IS NOT NULL").
+			Scan(ctx, &tailEnd); err != nil {
+			return err
+		}
+
+		start := now
+		if p.NotBefore != nil {
+			nb := p.NotBefore.UTC()
+			if nb.After(start) {
+				start = nb
+			}
+		}
+		if tailEnd != nil && tailEnd.After(start) {
+			start = *tailEnd
+		}
+
+		var endAt *time.Time
+		switch {
+		case p.Indefinite:
+			endAt = nil
+		case p.Duration != nil:
+			e := start.Add(*p.Duration)
+			endAt = &e
+		case p.EndAt != nil:
+			e := p.EndAt.UTC()
+			if !e.After(start) {
+				return nil
+			}
+			endAt = &e
+		}
+
+		created = &models.Entitlement{
+			ID:          uuid.New(),
+			UserID:      p.UserID,
+			Entitlement: p.Entitlement,
+			StartAt:     start,
+			EndAt:       endAt,
+			SourceType:  p.SourceType,
+			SourceID:    &p.SourceID,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		_, err := tx.NewInsert().Model(created).Exec(ctx)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+type RevokeExistingEntitlementParams struct {
+	// Exactly one of EntitlementID or (UserID+Entitlement) must be provided.
+	EntitlementID *uuid.UUID
+	UserID        string
+	Entitlement   string
+
+	// Optional filters to only affect windows from a specific source.
+	SourceType *models.EntitlementSourceType
+	SourceID   *uuid.UUID
+
+	Reason models.EntitlementRevokeReason
+}
+
+// RevokeExistingEntitlement immediately removes access by:
+// - revoking any active entitlement window(s) at now (revoked_at + revoke_reason)
+// - soft-deleting any future scheduled windows
+//
+// It does not mutate end_at of existing windows (end_at is immutable).
+func (s *EntitlementService) RevokeExistingEntitlement(ctx context.Context, p RevokeExistingEntitlementParams) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("entitlement service not initialized")
+	}
+	if p.EntitlementID == nil && (p.UserID == "" || p.Entitlement == "") {
+		return fmt.Errorf("entitlementID or (userID, entitlement) is required")
+	}
+	if p.EntitlementID != nil && (p.UserID != "" || p.Entitlement != "") {
+		return fmt.Errorf("provide either entitlementID or (userID, entitlement), not both")
+	}
+
+	now := s.now().UTC()
+	return s.withTx(ctx, func(ctx context.Context, tx bun.Tx) error {
+		userID := p.UserID
+		entitlement := p.Entitlement
+		if p.EntitlementID != nil {
+			ent, err := repo.GetEntitlementByIDTx(ctx, tx, *p.EntitlementID)
+			if err != nil {
+				return err
+			}
+			userID = ent.UserID
+			entitlement = ent.Entitlement
+		}
+
+		if err := repo.LockEntitlementTimeline(ctx, tx, userID, entitlement); err != nil {
+			return err
+		}
+
+		active := tx.NewUpdate().
+			Model((*models.Entitlement)(nil)).
+			Set("revoked_at = ?", now).
+			Set("revoke_reason = ?", &p.Reason).
+			Set("updated_at = ?", now).
+			Where("ent.user_id = ?", userID).
+			Where("ent.entitlement = ?", entitlement).
+			Where("ent.revoked_at IS NULL").
+			Where("ent.deleted_at IS NULL").
+			Where("ent.start_at <= ?", now).
+			Where("(ent.end_at IS NULL OR ent.end_at > ?)", now)
+
+		future := tx.NewUpdate().
+			Model((*models.Entitlement)(nil)).
+			Set("deleted_at = ?", now).
+			Set("updated_at = ?", now).
+			Where("ent.user_id = ?", userID).
+			Where("ent.entitlement = ?", entitlement).
+			Where("ent.revoked_at IS NULL").
+			Where("ent.deleted_at IS NULL").
+			Where("ent.start_at > ?", now)
+
+		if p.SourceType != nil {
+			active = active.Where("ent.source_type = ?", *p.SourceType)
+			future = future.Where("ent.source_type = ?", *p.SourceType)
+		}
+		if p.SourceID != nil && *p.SourceID != uuid.Nil {
+			active = active.Where("ent.source_id = ?", *p.SourceID)
+			future = future.Where("ent.source_id = ?", *p.SourceID)
+		}
+
+		if _, err := active.Exec(ctx); err != nil {
+			return err
+		}
+		_, err := future.Exec(ctx)
+		return err
+	})
 }

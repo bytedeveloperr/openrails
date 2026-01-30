@@ -1409,15 +1409,29 @@ func (s *CheckoutService) grantProductEntitlements(
 		if subscription {
 			paymentMode = models.EntitlementSourceSubscription
 		}
-		_, err := s.EntitlementService.GrantWindow(
-			ctx,
-			userID,
-			entitlementName, // "premium", // etc.
-			startAt,
-			endAt,
-			paymentMode,
-			&paymentID,
-		)
+		notBefore := startAt
+		var params PushNewEntitlementParams
+		if endAt == nil {
+			params = PushNewEntitlementParams{
+				UserID:      userID,
+				Entitlement: entitlementName,
+				NotBefore:   &notBefore,
+				Indefinite:  true,
+				SourceType:  paymentMode,
+				SourceID:    paymentID,
+			}
+		} else {
+			e := endAt.UTC()
+			params = PushNewEntitlementParams{
+				UserID:      userID,
+				Entitlement: entitlementName,
+				NotBefore:   &notBefore,
+				EndAt:       &e,
+				SourceType:  paymentMode,
+				SourceID:    paymentID,
+			}
+		}
+		_, err := s.EntitlementService.PushNewEntitlement(ctx, params)
 
 		if err != nil {
 			log.WithError(err).WithFields(log.Fields{
@@ -1888,21 +1902,30 @@ func (s *CheckoutService) processUpgrade(
 	// Step 5: Update entitlements immediately (grant new tier entitlements)
 	if s.EntitlementService != nil && newProduct.EntitlementsSpec != nil {
 		for entitlementName, durationDays := range newProduct.EntitlementsSpec {
-			var endAt *time.Time
+			notBefore := now
+			var params PushNewEntitlementParams
 			if durationDays != nil && *durationDays > 0 {
-				end := now.Add(time.Duration(*durationDays) * 24 * time.Hour)
-				endAt = &end
+				d := time.Duration(*durationDays) * 24 * time.Hour
+				params = PushNewEntitlementParams{
+					UserID:      user.ID,
+					Entitlement: entitlementName,
+					NotBefore:   &notBefore,
+					Duration:    &d,
+					SourceType:  models.EntitlementSourceSubscription,
+					SourceID:    newSubscriptionID,
+				}
+			} else {
+				params = PushNewEntitlementParams{
+					UserID:      user.ID,
+					Entitlement: entitlementName,
+					NotBefore:   &notBefore,
+					Indefinite:  true,
+					SourceType:  models.EntitlementSourceSubscription,
+					SourceID:    newSubscriptionID,
+				}
 			}
 
-			_, err := s.EntitlementService.GrantWindow(
-				ctx,
-				user.ID,
-				entitlementName,
-				now,
-				endAt,
-				models.EntitlementSourceSubscription,
-				&newSubscriptionID,
-			)
+			_, err := s.EntitlementService.PushNewEntitlement(ctx, params)
 			if err != nil {
 				log.WithError(err).WithFields(log.Fields{
 					"user_id":         user.ID,

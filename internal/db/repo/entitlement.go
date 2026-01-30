@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/open-rails/openrails/internal/db"
 	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/uptrace/bun"
 )
 
 type EntitlementRepo struct {
@@ -16,6 +17,10 @@ type EntitlementRepo struct {
 }
 
 func NewEntitlementRepo(d *db.DB) *EntitlementRepo { return &EntitlementRepo{db: d} }
+
+func (r *EntitlementRepo) SetEndAtTx(ctx context.Context, tx bun.Tx, id uuid.UUID, endAt *time.Time, now time.Time) error {
+	return SetEntitlementEndAtTx(ctx, tx, id, endAt, now)
+}
 
 func (r *EntitlementRepo) IsEntitled(ctx context.Context, userID, entitlement string, at time.Time) (bool, error) {
 	q := r.db.GetDB().NewSelect().
@@ -128,6 +133,21 @@ func (r *EntitlementRepo) ListActiveRecords(ctx context.Context, userID string, 
 	return ents, nil
 }
 
+func (r *EntitlementRepo) ListDistinctEntitlementNamesBySource(ctx context.Context, sourceType models.EntitlementSourceType, sourceID uuid.UUID) ([]string, error) {
+	var names []string
+	if err := r.db.GetDB().NewSelect().
+		Model((*models.Entitlement)(nil)).
+		ColumnExpr("DISTINCT ent.entitlement").
+		Where("ent.source_type = ?", sourceType).
+		Where("ent.source_id = ?", sourceID).
+		Where("ent.revoked_at IS NULL").
+		Where("ent.deleted_at IS NULL").
+		Scan(ctx, &names); err != nil {
+		return nil, err
+	}
+	return names, nil
+}
+
 // EndActiveBySubscription ends entitlements for a subscription.
 // If reason is nil, only end_at is set (for period-end expirations).
 // If reason is provided, revoked_at and revoke_reason are also set (for immediate revocations).
@@ -176,36 +196,67 @@ func (r *EntitlementRepo) EndActiveBySubscription(ctx context.Context, subscript
 // ExtendActiveBySubscription extends active entitlements for a subscription to endAt.
 // It only updates rows whose end_at is NULL or before endAt, and will never shorten a window.
 func (r *EntitlementRepo) ExtendActiveBySubscription(ctx context.Context, subscriptionID uuid.UUID, endAt time.Time, now time.Time) error {
-	// Validate: do not produce end_at <= start_at
-	var invalidCount int
-	err := r.db.GetDB().NewSelect().
-		Model((*models.Entitlement)(nil)).
-		ColumnExpr("COUNT(*)").
-		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
-		Where("ent.source_id = ?", subscriptionID).
-		Where("ent.revoked_at IS NULL").
-		Where("ent.deleted_at IS NULL").
-		Where("(ent.end_at IS NULL OR ent.end_at < ?)", endAt).
-		Where("ent.start_at >= ?", endAt).
-		Scan(ctx, &invalidCount)
-	if err != nil {
-		return fmt.Errorf("failed to check entitlement validity: %w", err)
-	}
-	if invalidCount > 0 {
-		return fmt.Errorf("cannot extend end_at to %v: %d entitlement(s) have start_at >= end_at (zero or negative duration)", endAt, invalidCount)
-	}
+	return r.db.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		// Fetch all subscription entitlements that would be extended, then shift any following
+		// scheduled windows forward by the same delta (per user+entitlement) to avoid overlaps.
+		//
+		// This keeps the entitlement timeline gapless for the affected entitlement key and avoids
+		// double-access from overlapping scheduled windows.
+		var ents []models.Entitlement
+		if err := tx.NewSelect().
+			Model(&ents).
+			Where("ent.source_type = ?", models.EntitlementSourceSubscription).
+			Where("ent.source_id = ?", subscriptionID).
+			Where("ent.revoked_at IS NULL").
+			Where("ent.deleted_at IS NULL").
+			Where("ent.end_at IS NOT NULL AND ent.end_at < ?", endAt).
+			For("UPDATE").
+			Scan(ctx); err != nil {
+			return err
+		}
+		if len(ents) == 0 {
+			return nil
+		}
 
-	_, err = r.db.GetDB().NewUpdate().
-		Model((*models.Entitlement)(nil)).
-		Set("end_at = ?", endAt).
-		Set("updated_at = ?", now).
-		Where("ent.source_type = ?", models.EntitlementSourceSubscription).
-		Where("ent.source_id = ?", subscriptionID).
-		Where("ent.revoked_at IS NULL").
-		Where("ent.deleted_at IS NULL").
-		Where("(ent.end_at IS NULL OR ent.end_at < ?)", endAt).
-		Exec(ctx)
-	return err
+		for _, ent := range ents {
+			if ent.EndAt == nil || ent.EndAt.IsZero() {
+				continue
+			}
+			oldEnd := ent.EndAt.UTC()
+			newEnd := endAt.UTC()
+			if !newEnd.After(oldEnd) {
+				continue
+			}
+
+			// Validate: do not produce end_at <= start_at
+			if !newEnd.After(ent.StartAt) {
+				return fmt.Errorf("cannot extend end_at to %v: entitlement start_at=%v would be >= end_at", newEnd, ent.StartAt)
+			}
+
+			if err := LockEntitlementTimeline(ctx, tx, ent.UserID, ent.Entitlement); err != nil {
+				return err
+			}
+
+			// Extend the subscription's entitlement row.
+			if _, err := tx.NewUpdate().
+				Model((*models.Entitlement)(nil)).
+				Set("end_at = ?", newEnd).
+				Set("updated_at = ?", now).
+				Where("ent.id = ?", ent.ID).
+				Where("ent.revoked_at IS NULL").
+				Where("ent.deleted_at IS NULL").
+				Where("ent.end_at = ?", oldEnd).
+				Exec(ctx); err != nil {
+				return err
+			}
+
+			delta := newEnd.Sub(oldEnd)
+			if err := ShiftEntitlementTimeline(ctx, tx, ent.UserID, ent.Entitlement, oldEnd, delta, now, []uuid.UUID{ent.ID}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ResumeBySubscription clears end_at for active entitlements that were scheduled to end.

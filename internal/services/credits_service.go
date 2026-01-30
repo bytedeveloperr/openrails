@@ -190,6 +190,7 @@ func (s *CreditsService) depositTx(ctx context.Context, tx bun.Tx, ct *models.Cr
 	}
 
 	trx := &models.CreditTransaction{
+		ID:              uuid.New(),
 		UserID:          params.UserID,
 		CreditTypeID:    ct.ID,
 		Amount:          params.Amount,
@@ -206,6 +207,7 @@ func (s *CreditsService) depositTx(ctx context.Context, tx bun.Tx, ct *models.Cr
 	}
 	if params.ExpiresAt != nil {
 		batch := &models.CreditExpiryBatch{
+			ID:                  uuid.New(),
 			UserID:              params.UserID,
 			CreditTypeID:        ct.ID,
 			OriginalAmount:      params.Amount,
@@ -302,6 +304,7 @@ func (s *CreditsService) Hold(ctx context.Context, userID string, creditType str
 	}
 
 	hold := &models.CreditHold{
+		ID:           uuid.New(),
 		UserID:       userID,
 		CreditTypeID: ct.ID,
 		Amount:       amount,
@@ -435,6 +438,7 @@ func (s *CreditsService) lockBalance(ctx context.Context, tx bun.Tx, userID stri
 
 	now := s.now()
 	bal = &models.UserCreditBalance{
+		ID:           uuid.New(),
 		UserID:       userID,
 		CreditTypeID: creditTypeID,
 		Balance:      0,
@@ -499,6 +503,7 @@ func (s *CreditsService) withdrawTx(ctx context.Context, tx bun.Tx, creditTypeID
 	}
 
 	trx := &models.CreditTransaction{
+		ID:              uuid.New(),
 		UserID:          params.UserID,
 		CreditTypeID:    creditTypeID,
 		Amount:          -params.Amount,

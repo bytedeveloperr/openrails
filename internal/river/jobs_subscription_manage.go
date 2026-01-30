@@ -199,10 +199,5 @@ func (w ResumeSubscriptionWorker) Work(ctx context.Context, job *river.Job[Resum
 	if err := w.SubscriptionService.Update(ctx, sub); err != nil {
 		return err
 	}
-	if w.EntitlementService != nil {
-		if err := w.EntitlementService.ResumeBySubscription(ctx, sub.ID); err != nil {
-			return err
-		}
-	}
 	return nil
 }

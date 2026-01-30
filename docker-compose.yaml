@@ -208,7 +208,8 @@ services:
       ENV: "${ENV:-development}"
       TEST_MODE: "${TEST_MODE:-true}"
       API_URL: "${API_URL:-http://localhost:2053}"
-      AUTH_ISSUERS: '${AUTH_ISSUERS:-["http://localhost:8080"]}'
+      # For docker-compose E2E sandbox, the default issuer is the in-network `issuer` service (profile: e2e-sandbox).
+      AUTH_ISSUERS: '${AUTH_ISSUERS:-["http://issuer:8080"]}'
       AUTH_EXPECTED_AUDIENCE: "${AUTH_EXPECTED_AUDIENCE:-openrails-app}"
 
       # Processor env passthrough (for local sandbox/E2E)

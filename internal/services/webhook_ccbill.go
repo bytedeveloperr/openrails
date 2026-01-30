@@ -65,8 +65,11 @@ func parseCCBillDate(dateStr string) (time.Time, error) {
 	return time.ParseInLocation("2006-01-02", dateStr, time.UTC)
 }
 
-// parseCCBillDateUsingTimestamp parses date-only fields (e.g., nextRenewalDate/nextRetryDate)
-// and preserves the time-of-day from the event timestamp when available.
+// parseCCBillDateUsingTimestamp parses date-only fields (e.g., nextRenewalDate/nextRetryDate).
+//
+// CCBill sends these as YYYY-MM-DD with no time-of-day. To avoid accidental access gaps due to
+// ambiguity, we interpret the date as the end of that UTC day (23:59:59Z). The webhook timestamp
+// is intentionally ignored for these fields so the policy is deterministic and generous.
 func parseCCBillDateUsingTimestamp(dateStr, tsStr string) (*time.Time, error) {
 	if strings.TrimSpace(dateStr) == "" {
 		return nil, nil
@@ -75,12 +78,9 @@ func parseCCBillDateUsingTimestamp(dateStr, tsStr string) (*time.Time, error) {
 	if err != nil {
 		return nil, err
 	}
-	if ts, err := parseCCBillTimestamp(tsStr); err == nil {
-		combined := time.Date(d.Year(), d.Month(), d.Day(), ts.Hour(), ts.Minute(), ts.Second(), ts.Nanosecond(), time.UTC)
-		return &combined, nil
-	}
-	d = d.UTC()
-	return &d, nil
+	_ = tsStr // kept for backward-compatible signature
+	combined := time.Date(d.Year(), d.Month(), d.Day(), 23, 59, 59, 0, time.UTC)
+	return &combined, nil
 }
 
 // normalizeCurrency extracts and normalizes currency code to lowercase.
@@ -779,7 +779,15 @@ func (s *CCBillWebhookService) updateEntitlementsForUpgrade(
 		if !newEntitlements[oldEnt] {
 			// This entitlement is being removed - revoke only this specific entitlement
 			reason := models.EntitlementRevokeDowngrade
-			if err := entitlementService.RevokeBySubscriptionAndName(ctx, subscription.ID, oldEnt, now, reason); err != nil {
+			st := models.EntitlementSourceSubscription
+			sid := subscription.ID
+			if err := entitlementService.RevokeExistingEntitlement(ctx, RevokeExistingEntitlementParams{
+				UserID:      subscription.UserID,
+				Entitlement: oldEnt,
+				SourceType:  &st,
+				SourceID:    &sid,
+				Reason:      reason,
+			}); err != nil {
 				log.WithContext(ctx).WithError(err).WithField("entitlement", oldEnt).Warn("failed to revoke entitlement during upgrade")
 			} else {
 				log.WithContext(ctx).WithFields(log.Fields{
@@ -804,8 +812,30 @@ func (s *CCBillWebhookService) updateEntitlementsForUpgrade(
 				continue
 			}
 
-			// Grant new indefinite entitlement tied to subscription
-			if _, err := entitlementService.GrantWindow(ctx, subscription.UserID, newEnt, now, nil, models.EntitlementSourceSubscription, &subscription.ID); err != nil {
+			// Grant new entitlement window tied to subscription.
+			notBefore := now.UTC()
+			var params PushNewEntitlementParams
+			if subscription.CurrentPeriodEndsAt != nil && subscription.CurrentPeriodEndsAt.After(now) {
+				endAt := subscription.CurrentPeriodEndsAt.UTC()
+				params = PushNewEntitlementParams{
+					UserID:      subscription.UserID,
+					Entitlement: newEnt,
+					NotBefore:   &notBefore,
+					EndAt:       &endAt,
+					SourceType:  models.EntitlementSourceSubscription,
+					SourceID:    subscription.ID,
+				}
+			} else {
+				params = PushNewEntitlementParams{
+					UserID:      subscription.UserID,
+					Entitlement: newEnt,
+					NotBefore:   &notBefore,
+					Indefinite:  true,
+					SourceType:  models.EntitlementSourceSubscription,
+					SourceID:    subscription.ID,
+				}
+			}
+			if _, err := entitlementService.PushNewEntitlement(ctx, params); err != nil {
 				log.WithContext(ctx).WithError(err).WithField("entitlement", newEnt).Warn("failed to grant entitlement during upgrade")
 			} else {
 				log.WithContext(ctx).WithFields(log.Fields{
@@ -1312,9 +1342,23 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 			}
 
 			// End entitlements for this subscription immediately
-			reason := models.EntitlementRevokeAdmin
-			if err := entSvc.EndActiveBySubscription(ctx, sub.ID, now, &reason); err != nil {
-				log.WithContext(ctx).WithError(err).Error("failed to end entitlements for refunded subscription")
+			names, err := entSvc.ListDistinctEntitlementNamesBySource(ctx, models.EntitlementSourceSubscription, sub.ID)
+			if err != nil {
+				log.WithContext(ctx).WithError(err).Error("failed to list entitlements for refunded subscription")
+			} else {
+				st := models.EntitlementSourceSubscription
+				sid := sub.ID
+				for _, entName := range names {
+					if err := entSvc.RevokeExistingEntitlement(ctx, RevokeExistingEntitlementParams{
+						UserID:      sub.UserID,
+						Entitlement: entName,
+						SourceType:  &st,
+						SourceID:    &sid,
+						Reason:      models.EntitlementRevokeRefund,
+					}); err != nil {
+						log.WithContext(ctx).WithError(err).WithField("entitlement", entName).Error("failed to revoke entitlement for refunded subscription")
+					}
+				}
 			}
 
 			// Add notification to queue for user about account termination due to refund
@@ -1651,9 +1695,23 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 		}
 
 		// Immediately end entitlements for this subscription
-		reason := models.EntitlementRevokeAdmin
-		if err := entSvc.EndActiveBySubscription(ctx, sub.ID, now, &reason); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to end entitlements for chargebacked subscription")
+		names, err := entSvc.ListDistinctEntitlementNamesBySource(ctx, models.EntitlementSourceSubscription, sub.ID)
+		if err != nil {
+			log.WithContext(ctx).WithError(err).Error("failed to list entitlements for chargebacked subscription")
+		} else {
+			st := models.EntitlementSourceSubscription
+			sid := sub.ID
+			for _, entName := range names {
+				if err := entSvc.RevokeExistingEntitlement(ctx, RevokeExistingEntitlementParams{
+					UserID:      sub.UserID,
+					Entitlement: entName,
+					SourceType:  &st,
+					SourceID:    &sid,
+					Reason:      models.EntitlementRevokeChargeback,
+				}); err != nil {
+					log.WithContext(ctx).WithError(err).WithField("entitlement", entName).Error("failed to revoke entitlement for chargebacked subscription")
+				}
+			}
 		}
 
 		log.WithContext(ctx).WithFields(log.Fields{
@@ -1804,6 +1862,9 @@ func (s *CCBillWebhookService) handleRenewalSuccess(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to get subscription for logging: %w", err)
 	}
+
+	// Note: grace window cleanup happens inside RenewMembership (before pushing the next paid window)
+	// to avoid the grace tail interfering with scheduling.
 
 	if s.CreditsService != nil {
 		periodEnd := time.Time{}
@@ -1967,27 +2028,49 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 		paidTermEnd := sub.CurrentPeriodEndsAt
 		sub.GraceEndsAt = nil
 
-		// For CCBill, retry behavior is dictated by the processor. We treat nextRetryAt as the
-		// only grace signal: if CCBill indicates it will retry after the paid term ends, we keep
-		// access until that retry time (and subsequent failures will update it again).
+		// For CCBill, retry behavior is dictated by the processor.
+		// We treat nextRetryAt as the only grace signal and model grace as separate entitlement windows
+		// (source_type='grace'), appended to the user's entitlement timeline.
+		var graceUntil *time.Time
 		if paidTermEnd != nil && nextRetryAt != nil && nextRetryAt.After(*paidTermEnd) {
 			candidate := nextRetryAt.UTC()
 			sub.GraceEndsAt = &candidate
+			graceUntil = &candidate
 		}
 
 		if err := subService.Update(ctx, sub); err != nil {
 			return fmt.Errorf("failed to update subscription during renewal failure: %w", err)
 		}
 
-		// Ensure entitlements are finite and end at the paid term end; optionally extend within grace cap.
-		if paidTermEnd != nil {
-			if err := entSvc.EndActiveBySubscription(ctx, sub.ID, *paidTermEnd, nil); err != nil {
-				return fmt.Errorf("failed to set entitlement end at paid term end: %w", err)
+		// If grace applies, append grace windows for each entitlement granted by the subscription.
+		if graceUntil != nil {
+			var names []string
+			if err := tx.NewSelect().
+				Model((*models.Entitlement)(nil)).
+				ColumnExpr("DISTINCT ent.entitlement").
+				Where("ent.source_type = ?", models.EntitlementSourceSubscription).
+				Where("ent.source_id = ?", sub.ID).
+				Where("ent.revoked_at IS NULL").
+				Where("ent.deleted_at IS NULL").
+				Scan(ctx, &names); err != nil {
+				return err
 			}
-		}
-		if sub.GraceEndsAt != nil {
-			if err := entSvc.ExtendActiveBySubscription(ctx, sub.ID, *sub.GraceEndsAt); err != nil {
-				return fmt.Errorf("failed to extend entitlement grace window: %w", err)
+			for _, entName := range names {
+				endAt := (*graceUntil).UTC()
+				notBefore := s.now().UTC()
+				if paidTermEnd != nil && paidTermEnd.After(notBefore) {
+					notBefore = paidTermEnd.UTC()
+				}
+				if _, err := entSvc.PushNewEntitlement(ctx, PushNewEntitlementParams{
+					UserID:      sub.UserID,
+					Entitlement: entName,
+					NotBefore:   &notBefore,
+					EndAt:       &endAt,
+					SourceType:  models.EntitlementSourceGrace,
+					SourceID:    sub.ID,
+				}); err != nil {
+					return fmt.Errorf("failed to append grace entitlement window: %w", err)
+				}
 			}
 		}
 

@@ -45,10 +45,35 @@ func (s *Server) registerServiceRoutes() {
 
 		credits := v1.Group("/credits")
 		{
+			credits.POST("/deposit", s.wrap(handlers.ServiceDepositCredits))
 			credits.POST("/withdraw", s.wrap(handlers.ServiceWithdrawCredits))
 			credits.POST("/hold", s.wrap(handlers.ServiceHoldCredits))
+			// Aliases: pluralized holds paths (preferred in docs)
+			credits.POST("/holds/:id/capture", s.wrap(handlers.ServiceCaptureHold))
+			credits.POST("/holds/:id/release", s.wrap(handlers.ServiceReleaseHold))
 			credits.POST("/hold/:id/capture", s.wrap(handlers.ServiceCaptureHold))
 			credits.POST("/hold/:id/release", s.wrap(handlers.ServiceReleaseHold))
+			credits.GET("/users/:user_id", s.wrap(handlers.ServiceGetUserCredits))
+		}
+
+		creditTypes := v1.Group("/credit-types")
+		{
+			creditTypes.POST("", s.wrap(handlers.ServiceCreateCreditType))
+			creditTypes.GET("", s.wrap(handlers.ServiceListCreditTypes))
+			creditTypes.PATCH("/:name", s.wrap(handlers.ServiceUpdateCreditType))
+			creditTypes.POST("/:name/deactivate", s.wrap(handlers.ServiceDeactivateCreditType))
+			creditTypes.POST("/:name/activate", s.wrap(handlers.ServiceActivateCreditType))
+		}
+
+		catalog := v1.Group("/catalog")
+		{
+			products := catalog.Group("/products")
+			products.POST("", s.wrap(handlers.ServiceCreateProduct))
+			products.PATCH("/:id", s.wrap(handlers.ServiceUpdateProduct))
+
+			prices := catalog.Group("/prices")
+			prices.POST("", s.wrap(handlers.ServiceCreatePrice))
+			prices.PATCH("/:id", s.wrap(handlers.ServiceUpdatePrice))
 		}
 	}
 

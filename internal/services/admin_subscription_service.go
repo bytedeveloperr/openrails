@@ -231,13 +231,32 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 
 	// End entitlements for this subscription now
 	if s.EntitlementService != nil {
-		reason := models.EntitlementRevokeAdmin
-		if err := s.EntitlementService.EndActiveBySubscription(ctx, subscription.ID, now, &reason); err != nil {
+		names, err := s.EntitlementService.ListDistinctEntitlementNamesBySource(ctx, models.EntitlementSourceSubscription, subscription.ID)
+		if err != nil {
 			log.WithFields(log.Fields{
 				"subscription_id": subscription.ID,
 				"user_id":         subscription.UserID,
 				"error":           err.Error(),
-			}).Error("Failed to end entitlements during admin subscription operation")
+			}).Error("Failed to list entitlements for subscription during admin cancellation")
+		} else {
+			for _, entName := range names {
+				st := models.EntitlementSourceSubscription
+				sid := subscription.ID
+				if err := s.EntitlementService.RevokeExistingEntitlement(ctx, RevokeExistingEntitlementParams{
+					UserID:      subscription.UserID,
+					Entitlement: entName,
+					SourceType:  &st,
+					SourceID:    &sid,
+					Reason:      models.EntitlementRevokeAdmin,
+				}); err != nil {
+					log.WithFields(log.Fields{
+						"subscription_id": subscription.ID,
+						"user_id":         subscription.UserID,
+						"entitlement":     entName,
+						"error":           err.Error(),
+					}).Error("Failed to revoke entitlement during admin subscription cancellation")
+				}
+			}
 		}
 	}
 

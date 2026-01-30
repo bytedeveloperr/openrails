@@ -69,6 +69,7 @@ func (r *SubscriptionRepo) Update(ctx context.Context, s *models.Subscription) e
 			"last_retry_at",
 			"retry_attempts",
 			"next_retry_at",
+			"grace_ends_at",
 			"cancel_feedback",
 			"cancel_type",
 			"cancelled_at",

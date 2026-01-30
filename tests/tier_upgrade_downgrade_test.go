@@ -300,7 +300,15 @@ func TestEntitlementChangesOnTierChange(t *testing.T) {
 		entService := suite.App.Runtime.EntitlementService
 
 		// Grant new "extra" entitlement
-		_, err := entService.GrantWindow(ctx, userID, "extra", now, nil, models.EntitlementSourceSubscription, &sub.ID)
+		notBefore := now.UTC()
+		_, err := entService.PushNewEntitlement(ctx, services.PushNewEntitlementParams{
+			UserID:      userID,
+			Entitlement: "extra",
+			NotBefore:   &notBefore,
+			Indefinite:  true,
+			SourceType:  models.EntitlementSourceSubscription,
+			SourceID:    sub.ID,
+		})
 		require.NoError(t, err, "Should grant extra entitlement")
 
 		// Verify both entitlements now exist
@@ -339,7 +347,15 @@ func TestEntitlementChangesOnTierChange(t *testing.T) {
 		// Revoke "extra" entitlement (simulating downgrade)
 		entService := suite.App.Runtime.EntitlementService
 
-		err := entService.RevokeBySubscriptionAndName(ctx, sub.ID, "extra", now, models.EntitlementRevokeDowngrade)
+		st := models.EntitlementSourceSubscription
+		sid := sub.ID
+		err := entService.RevokeExistingEntitlement(ctx, services.RevokeExistingEntitlementParams{
+			UserID:      userID2,
+			Entitlement: "extra",
+			SourceType:  &st,
+			SourceID:    &sid,
+			Reason:      models.EntitlementRevokeDowngrade,
+		})
 		require.NoError(t, err, "Should revoke extra entitlement")
 
 		// Verify only premium entitlement remains

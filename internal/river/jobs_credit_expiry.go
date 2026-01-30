@@ -117,6 +117,7 @@ func (w CreditExpiryWorker) Work(ctx context.Context, job *river.Job[CreditExpir
 			}
 			if errorsIsNoRows(err) {
 				bal = &models.UserCreditBalance{
+					ID:           uuid.New(),
 					UserID:       k.UserID,
 					CreditTypeID: k.CreditTypeID,
 					Balance:      0,
@@ -145,6 +146,7 @@ func (w CreditExpiryWorker) Work(ctx context.Context, job *river.Job[CreditExpir
 			}
 
 			trx := &models.CreditTransaction{
+				ID:              uuid.New(),
 				UserID:          k.UserID,
 				CreditTypeID:    k.CreditTypeID,
 				Amount:          -amount,

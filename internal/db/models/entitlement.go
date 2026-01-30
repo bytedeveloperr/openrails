@@ -14,6 +14,7 @@ const (
 	EntitlementSourceSubscription EntitlementSourceType = "subscription"
 	EntitlementSourceOneOff       EntitlementSourceType = "one_off"
 	EntitlementSourceAdmin        EntitlementSourceType = "admin"
+	EntitlementSourceGrace        EntitlementSourceType = "grace"
 )
 
 // EntitlementRevokeReason indicates why an entitlement was revoked
@@ -23,6 +24,10 @@ const (
 	EntitlementRevokeAdmin      EntitlementRevokeReason = "admin"
 	EntitlementRevokeDowngrade  EntitlementRevokeReason = "downgrade"
 	EntitlementRevokeChargeback EntitlementRevokeReason = "chargeback"
+	EntitlementRevokeRefund     EntitlementRevokeReason = "refund"
+	EntitlementRevokeFraud      EntitlementRevokeReason = "fraud"
+	EntitlementRevokeDunning    EntitlementRevokeReason = "dunning_failed"
+	EntitlementRevokeSuperseded EntitlementRevokeReason = "superseded"
 )
 
 // Entitlement models a temporal access window to a named entitlement (e.g., "premium")
