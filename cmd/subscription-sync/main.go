@@ -5,7 +5,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"sort"
 	"strings"
@@ -43,6 +42,7 @@ func main() {
 
 	cmd.Flags().String("config", "./config.yaml", "Path to config file")
 	cmd.Flags().String("processor", "mobius", "Processor name to reconcile (e.g., mobius, ccbill)")
+	cmd.Flags().StringSlice("processors", nil, "Processor names to reconcile (repeatable or comma-separated)")
 	cmd.Flags().Int("result-limit", 100, "Max results per page for NMI query.php")
 	cmd.Flags().String("result-order", "reverse", "Result order for NMI query.php")
 	cmd.Flags().Int("max-pages", 0, "Max pages to fetch (0 = unlimited)")
@@ -78,6 +78,7 @@ func loadDotEnv() error {
 func run(cmd *cobra.Command, _ []string) error {
 	configPath := viper.GetString("config")
 	processor := viper.GetString("processor")
+	processors := viper.GetStringSlice("processors")
 	resultLimit := viper.GetInt("result-limit")
 	resultOrder := viper.GetString("result-order")
 	maxPages := viper.GetInt("max-pages")
@@ -101,10 +102,83 @@ func run(cmd *cobra.Command, _ []string) error {
 	defer application.Close(context.Background())
 
 	ctx := context.Background()
-	processorName := strings.TrimSpace(strings.ToLower(processor))
+	processorList := normalizeProcessorList(processors, processor)
+	if len(processorList) == 0 {
+		processorList = []string{"mobius"}
+	}
+
+	for _, name := range processorList {
+		if err := reconcileProcessor(ctx, application, cfg, name, reconcileOptions{
+			resultLimit:   resultLimit,
+			resultOrder:   resultOrder,
+			maxPages:      maxPages,
+			apply:         apply,
+			revokeAccess:  revokeAccess,
+			addRemote:     addRemote,
+			ccbillPriceID: ccbillPriceID,
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func buildNMIClient(cfg *config.Config, processor string) (*nmi.NMIClient, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+	name := strings.TrimSpace(strings.ToLower(processor))
+	if name == "" {
+		name = "mobius"
+	}
+
+	nmiProcessors := cfg.GetNMIProcessors()
+	procConfig, ok := nmiProcessors[name]
+	if !ok || procConfig == nil {
+		return nil, fmt.Errorf("nmi processor '%s' not configured", name)
+	}
+
+	settings := procConfig.ToNMIProviderSettings(name)
+	if strings.TrimSpace(settings.SecurityKey) == "" {
+		return nil, fmt.Errorf("nmi processor '%s' security key is required", name)
+	}
+
+	return nmi.NewClient(name, settings, cfg.IsTestMode())
+}
+
+func fetchCCBillSubscriptions(ctx context.Context, cfg *config.Config) ([]ccbill.CCBillRecord, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+	ccbillProc := cfg.GetCCBillProcessor()
+	if ccbillProc == nil {
+		return nil, fmt.Errorf("ccbill processor not configured")
+	}
+	client := ccbill.NewDataLinkClient(ccbillProc.ToCCBillConfig())
+	if err := client.ValidateConfig(); err != nil {
+		return nil, err
+	}
+	return client.FetchActiveMembers(ctx)
+}
+
+type reconcileOptions struct {
+	resultLimit   int
+	resultOrder   string
+	maxPages      int
+	apply         bool
+	revokeAccess  bool
+	addRemote     bool
+	ccbillPriceID string
+}
+
+func reconcileProcessor(ctx context.Context, application *app.App, cfg *config.Config, processorName string, opts reconcileOptions) error {
+	processorName = strings.TrimSpace(strings.ToLower(processorName))
 	if processorName == "" {
 		processorName = "mobius"
 	}
+
+	fmt.Printf("\n== %s ==\n", processorName)
 
 	remoteIDs := make(map[string]struct{})
 	remoteCount := 0
@@ -116,7 +190,9 @@ func run(cmd *cobra.Command, _ []string) error {
 			return fmt.Errorf("fetch ccbill subscriptions failed: %w", err)
 		}
 		for _, record := range records {
-			log.Printf("Fetched ccbill subscription: %+v\n", record)
+			if record.Status != "Y" {
+				continue
+			}
 			id := fmt.Sprintf("%d", record.SubscriptionID)
 			remoteIDs[id] = struct{}{}
 			ccbillRecords[id] = record
@@ -127,7 +203,7 @@ func run(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return fmt.Errorf("nmi client init failed: %w", err)
 		}
-		remoteIDs, remoteCount, err = fetchRemoteSubscriptions(client, resultLimit, resultOrder, maxPages)
+		remoteIDs, remoteCount, err = fetchRemoteSubscriptions(client, opts.resultLimit, opts.resultOrder, opts.maxPages)
 		if err != nil {
 			return fmt.Errorf("fetch remote subscriptions failed: %w", err)
 		}
@@ -171,7 +247,7 @@ func run(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	if apply && len(localOnly) > 0 {
+	if opts.apply && len(localOnly) > 0 {
 		if application.Runtime == nil || application.Runtime.SubscriptionLifecycleService == nil {
 			return fmt.Errorf("subscription lifecycle service unavailable; cannot apply changes")
 		}
@@ -186,7 +262,7 @@ func run(cmd *cobra.Command, _ []string) error {
 			cancelFeedback := "Cancelled via subscription-sync reconciliation"
 			processorModel := models.Processor(processorName)
 			err = application.Runtime.SubscriptionLifecycleService.CancelMembership(ctx, &services.CancelMembershipParams{
-				RevokeAccess:            revokeAccess,
+				RevokeAccess:            opts.revokeAccess,
 				Processor:               &processorModel,
 				ProcessorSubscriptionID: &id,
 				CancelFeedback:          &cancelFeedback,
@@ -198,18 +274,26 @@ func run(cmd *cobra.Command, _ []string) error {
 				continue
 			}
 
-			fmt.Printf("cancelled local subscription %s (revoke_access=%t)\n", id, revokeAccess)
+			fmt.Printf("cancelled local subscription %s (revoke_access=%t)\n", id, opts.revokeAccess)
 		}
 	}
 
-	if addRemote && processorName == "ccbill" && len(remoteOnly) > 0 {
+	if opts.addRemote && processorName == "ccbill" && len(remoteOnly) > 0 {
 		if application.Runtime == nil || application.Runtime.SubscriptionLifecycleService == nil {
 			return fmt.Errorf("subscription lifecycle service unavailable; cannot add memberships")
 		}
 
-		priceID, err := resolveCCBillPriceID(ctx, application.Runtime.DB, ccbillPriceID)
+		priceID, err := resolveCCBillPriceID(ctx, application.Runtime.DB, opts.ccbillPriceID)
 		if err != nil {
 			return err
+		}
+		priceService := services.NewPriceService(application.Runtime.DB)
+		price, err := priceService.GetByID(ctx, priceID)
+		if err != nil {
+			return fmt.Errorf("load price for ccbill add-remote: %w", err)
+		}
+		if price == nil {
+			return fmt.Errorf("price not found for ccbill add-remote")
 		}
 
 		profileRepo := repo.NewProfileRepo(application.Runtime.DB)
@@ -247,8 +331,8 @@ func run(cmd *cobra.Command, _ []string) error {
 				ProcessorSubscriptionID: &subID,
 				UserEmail:               emailPtr,
 				TransactionID:           "",
-				Amount:                  0,
-				Currency:                "",
+				Amount:                  price.Amount,
+				Currency:                price.Currency,
 			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "failed to add membership for %s: %v\n", id, err)
@@ -261,42 +345,29 @@ func run(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func buildNMIClient(cfg *config.Config, processor string) (*nmi.NMIClient, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("config is required")
-	}
-	name := strings.TrimSpace(strings.ToLower(processor))
-	if name == "" {
-		name = "mobius"
-	}
-
-	nmiProcessors := cfg.GetNMIProcessors()
-	procConfig, ok := nmiProcessors[name]
-	if !ok || procConfig == nil {
-		return nil, fmt.Errorf("nmi processor '%s' not configured", name)
-	}
-
-	settings := procConfig.ToNMIProviderSettings(name)
-	if strings.TrimSpace(settings.SecurityKey) == "" {
-		return nil, fmt.Errorf("nmi processor '%s' security key is required", name)
+func normalizeProcessorList(processors []string, fallback string) []string {
+	out := make([]string, 0)
+	seen := make(map[string]struct{})
+	add := func(value string) {
+		value = strings.TrimSpace(strings.ToLower(value))
+		if value == "" {
+			return
+		}
+		if _, ok := seen[value]; ok {
+			return
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
 	}
 
-	return nmi.NewClient(name, settings, cfg.IsTestMode())
-}
-
-func fetchCCBillSubscriptions(ctx context.Context, cfg *config.Config) ([]ccbill.CCBillRecord, error) {
-	if cfg == nil {
-		return nil, fmt.Errorf("config is required")
+	for _, entry := range processors {
+		parts := strings.Split(entry, ",")
+		for _, part := range parts {
+			add(part)
+		}
 	}
-	ccbillProc := cfg.GetCCBillProcessor()
-	if ccbillProc == nil {
-		return nil, fmt.Errorf("ccbill processor not configured")
-	}
-	client := ccbill.NewDataLinkClient(ccbillProc.ToCCBillConfig())
-	if err := client.ValidateConfig(); err != nil {
-		return nil, err
-	}
-	return client.FetchActiveMembers(ctx)
+	add(fallback)
+	return out
 }
 
 func resolveCCBillPriceID(ctx context.Context, database *db.DB, rawID string) (uuid.UUID, error) {
