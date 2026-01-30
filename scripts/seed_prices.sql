@@ -13,14 +13,23 @@ BEGIN
   END IF;
 END $$;
 
-INSERT INTO billing.products (slug, display_name, description, tier_group, tier_rank, is_active)
-VALUES ('premium_monthly', 'E2E Mobius Plan', 'Local E2E product for Mobius/NMI/CCBill sandbox', 'e2e', 1, true)
+INSERT INTO billing.products (slug, display_name, description, tier_group, tier_rank, is_active, entitlements_spec)
+VALUES (
+  'premium_monthly',
+  'E2E Mobius Plan',
+  'Local E2E product for Mobius/NMI/CCBill sandbox',
+  'e2e',
+  1,
+  true,
+  '{"premium": null, "basic": null}'::jsonb
+)
 ON CONFLICT (slug) DO UPDATE
 SET display_name = EXCLUDED.display_name,
     description = EXCLUDED.description,
     tier_group = EXCLUDED.tier_group,
     tier_rank = EXCLUDED.tier_rank,
     is_active = true,
+    entitlements_spec = EXCLUDED.entitlements_spec,
     updated_at = current_timestamp;
 
 WITH p AS (
