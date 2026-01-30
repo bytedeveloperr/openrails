@@ -76,6 +76,8 @@ func Webhook(r *Request) {
 			// Restore the body for downstream handlers
 			r.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
+
+		// TODO - Remove logging, may expose sensitive data
 		log.WithFields(log.Fields{
 			"client_ip":  clientIP,
 			"processor":  "ccbill",

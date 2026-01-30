@@ -19,6 +19,7 @@ import (
 type DataLinkClient struct {
 	BaseURL      string
 	ClientAccNum string
+	ClientSubAcc string
 	Username     string
 	Password     string
 	HTTPClient   *http.Client
@@ -43,6 +44,7 @@ func NewDataLinkClient(cfg *config.CCBillConfig) *DataLinkClient {
 	return &DataLinkClient{
 		BaseURL:      defaultDataLinkBaseURL,
 		ClientAccNum: cfg.ClientAccNum,
+		ClientSubAcc: cfg.ClientSubAcc,
 		Username:     cfg.DataLinkUsername,
 		Password:     cfg.DataLinkPassword,
 		HTTPClient: &http.Client{
@@ -52,7 +54,7 @@ func NewDataLinkClient(cfg *config.CCBillConfig) *DataLinkClient {
 }
 
 func (c *DataLinkClient) FetchActiveMembers(ctx context.Context) ([]CCBillRecord, error) {
-	// Build URL without credentials - fix the main security issue
+	// Build base URL
 	apiURL := fmt.Sprintf("%s/data/main.cgi", c.BaseURL)
 
 	// Create form data for POST request
@@ -62,6 +64,10 @@ func (c *DataLinkClient) FetchActiveMembers(ctx context.Context) ([]CCBillRecord
 	formData.Set("username", c.Username)
 	formData.Set("password", c.Password)
 
+	if c.ClientSubAcc != "" {
+		formData.Set("clientSubacc", c.ClientSubAcc)
+	}
+
 	var resp *http.Response
 	var err error
 	maxRetries := 5
@@ -70,9 +76,9 @@ func (c *DataLinkClient) FetchActiveMembers(ctx context.Context) ([]CCBillRecord
 		log.WithContext(ctx).WithFields(log.Fields{
 			"try":      tries,
 			"endpoint": apiURL,
-		}).Info("Requesting data from CCBill DataLink API")
+		}).Info("Requesting data from CCBill DataLink API (POST)")
 
-		// Create POST request with form data in body instead of URL
+		// Create POST request with form data in body
 		var req *http.Request
 		req, err = http.NewRequestWithContext(ctx, "POST", apiURL, strings.NewReader(formData.Encode()))
 		if err != nil {
