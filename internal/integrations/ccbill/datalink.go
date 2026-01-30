@@ -70,9 +70,9 @@ func (c *DataLinkClient) FetchActiveMembers(ctx context.Context) ([]CCBillRecord
 		formData.Set("clientSubacc", c.ClientSubAcc)
 	}
 
-	if c.DevMode {
+	/*if c.DevMode {
 		formData.Set("testMode", "1")
-	}
+	}*/
 
 	var resp *http.Response
 	var err error
