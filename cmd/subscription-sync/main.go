@@ -3,14 +3,21 @@ package main
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"log"
 	"os"
 	"sort"
 	"strings"
 
+	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 	"github.com/open-rails/openrails/config"
 	"github.com/open-rails/openrails/internal/app"
+	"github.com/open-rails/openrails/internal/db"
 	"github.com/open-rails/openrails/internal/db/models"
+	"github.com/open-rails/openrails/internal/db/repo"
+	"github.com/open-rails/openrails/internal/integrations/ccbill"
 	"github.com/open-rails/openrails/internal/integrations/nmi"
 	"github.com/open-rails/openrails/internal/services"
 	"github.com/spf13/cobra"
@@ -27,19 +34,27 @@ type nmSubscription struct {
 
 func main() {
 	cmd := &cobra.Command{
-		Use:   "nmi-sync",
-		Short: "Reconcile local subscriptions against Mobius recurring report",
-		RunE:  run,
+		Use:     "subscription-sync",
+		Aliases: []string{"nmi-sync"},
+		Short:   "Reconcile local subscriptions against processor reports",
+		RunE:    run,
 	}
 	cmd.CompletionOptions.DisableDefaultCmd = false
 
 	cmd.Flags().String("config", "./config.yaml", "Path to config file")
-	cmd.Flags().String("processor", "mobius", "NMI processor name to reconcile")
+	cmd.Flags().String("processor", "mobius", "Processor name to reconcile (e.g., mobius, ccbill)")
 	cmd.Flags().Int("result-limit", 100, "Max results per page for NMI query.php")
 	cmd.Flags().String("result-order", "reverse", "Result order for NMI query.php")
 	cmd.Flags().Int("max-pages", 0, "Max pages to fetch (0 = unlimited)")
 	cmd.Flags().Bool("apply", false, "Apply cancellation for local-only subscriptions")
 	cmd.Flags().Bool("revoke-access", false, "Revoke entitlements immediately when applying cancellations")
+	cmd.Flags().Bool("add-remote", false, "Create memberships for remote-only subscriptions (CCBill only)")
+	cmd.Flags().String("ccbill-price-id", "", "Price ID to use when adding remote-only CCBill subscriptions")
+
+	if err := loadDotEnv(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
 	viper.AutomaticEnv()
 	_ = viper.BindPFlags(cmd.Flags())
@@ -50,6 +65,16 @@ func main() {
 	}
 }
 
+func loadDotEnv() error {
+	if err := godotenv.Load(); err != nil {
+		var pathErr *os.PathError
+		if !errors.As(err, &pathErr) {
+			return err
+		}
+	}
+	return nil
+}
+
 func run(cmd *cobra.Command, _ []string) error {
 	configPath := viper.GetString("config")
 	processor := viper.GetString("processor")
@@ -58,6 +83,8 @@ func run(cmd *cobra.Command, _ []string) error {
 	maxPages := viper.GetInt("max-pages")
 	apply := viper.GetBool("apply")
 	revokeAccess := viper.GetBool("revoke-access")
+	addRemote := viper.GetBool("add-remote")
+	ccbillPriceID := viper.GetString("ccbill-price-id")
 
 	cfg, err := config.Load(configPath)
 	if err != nil {
@@ -73,19 +100,41 @@ func run(cmd *cobra.Command, _ []string) error {
 	}
 	defer application.Close(context.Background())
 
-	client, err := buildNMIClient(cfg, processor)
-	if err != nil {
-		return fmt.Errorf("nmi client init failed: %w", err)
+	ctx := context.Background()
+	processorName := strings.TrimSpace(strings.ToLower(processor))
+	if processorName == "" {
+		processorName = "mobius"
 	}
 
-	ctx := context.Background()
-	remoteIDs, remoteCount, err := fetchRemoteSubscriptions(client, resultLimit, resultOrder, maxPages)
-	if err != nil {
-		return fmt.Errorf("fetch remote subscriptions failed: %w", err)
+	remoteIDs := make(map[string]struct{})
+	remoteCount := 0
+	ccbillRecords := map[string]ccbill.CCBillRecord{}
+
+	if processorName == "ccbill" {
+		records, err := fetchCCBillSubscriptions(ctx, cfg)
+		if err != nil {
+			return fmt.Errorf("fetch ccbill subscriptions failed: %w", err)
+		}
+		for _, record := range records {
+			log.Printf("Fetched ccbill subscription: %+v\n", record)
+			id := fmt.Sprintf("%d", record.SubscriptionID)
+			remoteIDs[id] = struct{}{}
+			ccbillRecords[id] = record
+		}
+		remoteCount = len(records)
+	} else {
+		client, err := buildNMIClient(cfg, processorName)
+		if err != nil {
+			return fmt.Errorf("nmi client init failed: %w", err)
+		}
+		remoteIDs, remoteCount, err = fetchRemoteSubscriptions(client, resultLimit, resultOrder, maxPages)
+		if err != nil {
+			return fmt.Errorf("fetch remote subscriptions failed: %w", err)
+		}
 	}
 
 	subService := services.NewSubscriptionService(application.Runtime.DB, nil, nil, nil, nil, nil, nil)
-	localSubs, err := subService.GetActiveSubscriptionsByProcessor(ctx, strings.TrimSpace(processor))
+	localSubs, err := subService.GetActiveSubscriptionsByProcessor(ctx, processorName)
 	if err != nil {
 		return fmt.Errorf("fetch local subscriptions failed: %w", err)
 	}
@@ -128,14 +177,14 @@ func run(cmd *cobra.Command, _ []string) error {
 		}
 
 		for _, id := range localOnly {
-			sub, err := subService.GetByProcessorSubscriptionID(ctx, strings.TrimSpace(processor), "", id)
+			sub, err := subService.GetByProcessorSubscriptionID(ctx, processorName, "", id)
 			if err != nil || sub == nil {
 				fmt.Fprintf(os.Stderr, "skip %s: failed to load subscription: %v\n", id, err)
 				continue
 			}
 
-			cancelFeedback := "Cancelled via nmi-sync reconciliation"
-			processorModel := models.Processor(strings.TrimSpace(processor))
+			cancelFeedback := "Cancelled via subscription-sync reconciliation"
+			processorModel := models.Processor(processorName)
 			err = application.Runtime.SubscriptionLifecycleService.CancelMembership(ctx, &services.CancelMembershipParams{
 				RevokeAccess:            revokeAccess,
 				Processor:               &processorModel,
@@ -150,6 +199,62 @@ func run(cmd *cobra.Command, _ []string) error {
 			}
 
 			fmt.Printf("cancelled local subscription %s (revoke_access=%t)\n", id, revokeAccess)
+		}
+	}
+
+	if addRemote && processorName == "ccbill" && len(remoteOnly) > 0 {
+		if application.Runtime == nil || application.Runtime.SubscriptionLifecycleService == nil {
+			return fmt.Errorf("subscription lifecycle service unavailable; cannot add memberships")
+		}
+
+		priceID, err := resolveCCBillPriceID(ctx, application.Runtime.DB, ccbillPriceID)
+		if err != nil {
+			return err
+		}
+
+		profileRepo := repo.NewProfileRepo(application.Runtime.DB)
+		for _, id := range remoteOnly {
+			record, ok := ccbillRecords[id]
+			if !ok {
+				fmt.Fprintf(os.Stderr, "skip %s: missing CCBill record\n", id)
+				continue
+			}
+
+			username := strings.TrimSpace(record.Username)
+			if username == "" {
+				fmt.Fprintf(os.Stderr, "skip %s: missing username in CCBill record\n", id)
+				continue
+			}
+
+			userID, err := profileRepo.GetUserIDByUsername(ctx, username)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "skip %s: failed to resolve username %s: %v\n", id, username, err)
+				continue
+			}
+
+			email := strings.TrimSpace(record.Email)
+			var emailPtr *string
+			if email != "" {
+				emailCopy := email
+				emailPtr = &emailCopy
+			}
+
+			subID := id
+			_, err = application.Runtime.SubscriptionLifecycleService.CreateMembership(ctx, &services.CreateMembershipParams{
+				UserID:                  userID,
+				PriceID:                 priceID,
+				Processor:               models.ProcessorCCBill,
+				ProcessorSubscriptionID: &subID,
+				UserEmail:               emailPtr,
+				TransactionID:           "",
+				Amount:                  0,
+				Currency:                "",
+			})
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to add membership for %s: %v\n", id, err)
+				continue
+			}
+			fmt.Printf("created membership for remote subscription %s\n", id)
 		}
 	}
 
@@ -177,6 +282,55 @@ func buildNMIClient(cfg *config.Config, processor string) (*nmi.NMIClient, error
 	}
 
 	return nmi.NewClient(name, settings, cfg.IsTestMode())
+}
+
+func fetchCCBillSubscriptions(ctx context.Context, cfg *config.Config) ([]ccbill.CCBillRecord, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("config is required")
+	}
+	ccbillProc := cfg.GetCCBillProcessor()
+	if ccbillProc == nil {
+		return nil, fmt.Errorf("ccbill processor not configured")
+	}
+	client := ccbill.NewDataLinkClient(ccbillProc.ToCCBillConfig())
+	if err := client.ValidateConfig(); err != nil {
+		return nil, err
+	}
+	return client.FetchActiveMembers(ctx)
+}
+
+func resolveCCBillPriceID(ctx context.Context, database *db.DB, rawID string) (uuid.UUID, error) {
+	if database == nil {
+		return uuid.Nil, fmt.Errorf("database is required")
+	}
+	if strings.TrimSpace(rawID) != "" {
+		parsed, err := uuid.Parse(strings.TrimSpace(rawID))
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("invalid ccbill price id: %w", err)
+		}
+		return parsed, nil
+	}
+
+	priceService := services.NewPriceService(database)
+	prices, err := priceService.GetAllActive(ctx)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("load active prices: %w", err)
+	}
+
+	var matches []uuid.UUID
+	for _, price := range prices {
+		if price != nil && price.HasProcessor(models.ProcessorCCBill) {
+			matches = append(matches, price.ID)
+		}
+	}
+
+	if len(matches) == 1 {
+		return matches[0], nil
+	}
+	if len(matches) == 0 {
+		return uuid.Nil, fmt.Errorf("no active CCBill prices found; set --ccbill-price-id")
+	}
+	return uuid.Nil, fmt.Errorf("multiple active CCBill prices found; set --ccbill-price-id")
 }
 
 func fetchRemoteSubscriptions(client *nmi.NMIClient, limit int, order string, maxPages int) (map[string]struct{}, int, error) {
