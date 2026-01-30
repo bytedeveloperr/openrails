@@ -41,7 +41,7 @@ SELECT
   'E2E Mobius Monthly (1 day cadence recommended for rebill tests)',
   999,
   'usd',
-  1,
+  30,
   jsonb_build_object(
     'mobius', jsonb_build_object('plan_id', 'premium_monthly', 'provider', 'mobius'),
     'ccbill', jsonb_build_object('plan_id', 'premium-monthly', 'provider', 'ccbill')
