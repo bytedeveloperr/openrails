@@ -77,14 +77,14 @@ func Webhook(r *Request) {
 			r.Request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 		}
 
-		// TODO - Remove logging, may expose sensitive data
-		log.WithFields(log.Fields{
+		// Remove logging, may expose sensitive data
+		/*log.WithFields(log.Fields{
 			"client_ip":  clientIP,
 			"processor":  "ccbill",
 			"event_type": r.Query("eventType"),
 			"headers":    headers,
 			"body":       string(bodyBytes),
-		}).Info("CCBill webhook received - full request dump")
+		}).Info("CCBill webhook received - full request dump")*/
 
 		// Check if in test mode - bypass authentication for testing
 		if !isTestMode {
