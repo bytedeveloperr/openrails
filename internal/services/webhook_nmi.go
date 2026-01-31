@@ -816,8 +816,8 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 		}).Info("Subscription activated via NMI transaction success")
 
 		processed = true
-	case models.StatusActive:
-		// Do nothing, subscription is already active
+	// case models.StatusActive:
+	// Do nothing, subscription is already active
 	default:
 		log.WithContext(ctx).WithFields(log.Fields{
 			"subscription_id":             subscription.ID,

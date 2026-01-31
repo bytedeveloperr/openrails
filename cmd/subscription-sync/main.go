@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -321,6 +322,46 @@ func reconcileProcessor(ctx context.Context, application *app.App, cfg *config.C
 			if email != "" {
 				emailCopy := email
 				emailPtr = &emailCopy
+			}
+
+			existingSub, err := subService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", id)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				fmt.Fprintf(os.Stderr, "skip %s: failed to load existing subscription: %v\n", id, err)
+				continue
+			}
+
+			if existingSub != nil {
+				if existingSub.Status != models.StatusActive {
+					renewPrice := price
+					if existingSub.PriceID != price.ID {
+						renewPrice, err = priceService.GetByID(ctx, existingSub.PriceID)
+						if err != nil {
+							fmt.Fprintf(os.Stderr, "skip %s: failed to load price for renewal: %v\n", id, err)
+							continue
+						}
+						if renewPrice == nil {
+							fmt.Fprintf(os.Stderr, "skip %s: missing price for renewal\n", id)
+							continue
+						}
+					}
+
+					err = application.Runtime.SubscriptionLifecycleService.RenewMembership(ctx, &services.RenewMembershipParams{
+						Processor:               models.ProcessorCCBill,
+						ProcessorSubscriptionID: id,
+						TransactionID:           fmt.Sprintf("ccbill-cmd-renew-%s", id),
+						Amount:                  renewPrice.Amount,
+						Currency:                renewPrice.Currency,
+					})
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "failed to renew membership for %s: %v\n", id, err)
+						continue
+					}
+					fmt.Printf("renewed membership for remote subscription %s\n", id)
+					continue
+				}
+
+				fmt.Fprintf(os.Stderr, "skip %s: existing subscription already active\n", id)
+				continue
 			}
 
 			subID := id
