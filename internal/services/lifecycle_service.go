@@ -493,11 +493,23 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 
 		subscription, err := subService.GetByProcessorSubscriptionID(ctx, string(params.Processor), provider, params.ProcessorSubscriptionID)
 		if err != nil {
+			// Try fallback: look up by SubscriptionID using ProcessorSubscriptionID as UUID
 			log.WithContext(ctx).WithFields(log.Fields{
 				"processor":                 params.Processor,
 				"processor_subscription_id": params.ProcessorSubscriptionID,
-			}).WithError(err).Error("Failed to load subscription for renewal")
-			return fmt.Errorf("subscription not found: %w", err)
+			}).WithError(err).Warn("GetByProcessorSubscriptionID failed, attempting fallback by SubscriptionID")
+			var subID uuid.UUID
+			if uuidParsed, parseErr := uuid.Parse(params.ProcessorSubscriptionID); parseErr == nil {
+				subID = uuidParsed
+				subscription, err = subService.GetByID(ctx, subID)
+			}
+			if err != nil {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"processor":                 params.Processor,
+					"processor_subscription_id": params.ProcessorSubscriptionID,
+				}).WithError(err).Error("Failed to load subscription for renewal (both lookups)")
+				return fmt.Errorf("subscription not found: %w", err)
+			}
 		}
 
 		// Capture values for Payment creation after transaction
