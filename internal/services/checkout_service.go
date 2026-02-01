@@ -1372,6 +1372,7 @@ func (s *CheckoutService) grantProductEntitlements(
 	coverage *CoverageInfo,
 	subscription bool,
 	walletPurchase bool,
+	billingCycleDays *int,
 ) error {
 	if s.EntitlementService == nil || product.EntitlementsSpec == nil {
 		return nil
@@ -1393,9 +1394,13 @@ func (s *CheckoutService) grantProductEntitlements(
 		}
 
 		// Set entitlements to expire 1 month from purchase for wallet purchases
-		if walletPurchase {
+		if walletPurchase && billingCycleDays == nil {
 			newDate := startAt.AddDate(0, 1, 0)
 			endAt = &newDate
+		} else if billingCycleDays != nil && *billingCycleDays > 0 {
+			// For wallet purchases with known billing cycle, set end date to match billing cycle
+			end := startAt.Add(time.Duration(*billingCycleDays) * 24 * time.Hour)
+			endAt = &end
 		}
 
 		// Determine end time
@@ -1625,7 +1630,7 @@ func (s *CheckoutService) RegisterPurchase(ctx context.Context, req *RegisterPur
 
 	// Grant entitlements
 	var grantedEntitlements []string
-	if err := s.grantProductEntitlements(ctx, req.UserID, product, sourceId, coverage, req.SubscriptionID != nil && req.SubscriptionID.String() != "", req.WalletPurchase); err != nil {
+	if err := s.grantProductEntitlements(ctx, req.UserID, product, sourceId, coverage, req.SubscriptionID != nil && req.SubscriptionID.String() != "", req.WalletPurchase, price.BillingCycleDays); err != nil {
 		log.WithError(err).WithField("payment_id", sourceId).Error("failed to grant entitlements after payment")
 		// Don't fail - payment record was created successfully
 	} else if product.EntitlementsSpec != nil {
