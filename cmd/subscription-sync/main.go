@@ -364,12 +364,11 @@ func reconcileProcessor(ctx context.Context, application *app.App, cfg *config.C
 				continue
 			}
 
-			subID := id
 			_, err = application.Runtime.SubscriptionLifecycleService.CreateMembership(ctx, &services.CreateMembershipParams{
 				UserID:                  userID,
 				PriceID:                 priceID,
 				Processor:               models.ProcessorCCBill,
-				ProcessorSubscriptionID: &subID,
+				ProcessorSubscriptionID: &id,
 				UserEmail:               emailPtr,
 				TransactionID:           fmt.Sprintf("ccbill-cmd-%s", id),
 				Amount:                  price.Amount,
