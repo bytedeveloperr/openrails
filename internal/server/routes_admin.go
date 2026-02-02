@@ -4,7 +4,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/open-rails/openrails/internal/auth/policy"
 	"github.com/open-rails/openrails/internal/handlers"
-	"github.com/open-rails/openrails/pkg/authprovider"
 )
 
 func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
@@ -12,12 +11,6 @@ func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
 	admin := e.Group("/v1/admin")
 	admin.Use(s.authProvider.Required())
 
-	admin.Use(func(c *gin.Context) {
-		if uc, ok := authprovider.UserContextFromGin(c); ok && uc.UserID != "" {
-			c.Set("auth.user_id", uc.UserID)
-		}
-		c.Next()
-	})
 	admin.Use(policy.AdminRequired(s.runtime.DB.GetDB()))
 
 	// Subscription management
@@ -37,6 +30,8 @@ func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
 	admin.GET("/users/:user_id/entitlements", s.wrap(handlers.GetAdminUserEntitlements))
 	admin.GET("/users/:user_id/mobius", s.wrap(handlers.GetAdminUserMobius))
 	admin.GET("/users/:user_id/mobius/metrics", s.wrap(handlers.GetAdminUserMobiusMetrics))
+	admin.GET("/users/:user_id/ccbill", s.wrap(handlers.GetAdminUserCCBill))
+	admin.GET("/users/:user_id/ccbill/metrics", s.wrap(handlers.GetAdminUserCCBillMetrics))
 
 	admin.POST("/users/:user_id/entitlements", s.wrap(handlers.GrantAdminEntitlement))
 	admin.DELETE("/users/:user_id/entitlements/:id", s.wrap(handlers.RevokeAdminEntitlement))
