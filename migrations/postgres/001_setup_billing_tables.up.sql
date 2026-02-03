@@ -3,6 +3,9 @@
 SET lock_timeout = '10s';
 SET statement_timeout = '300s';
 
+-- Ensure the billing schema exists for environments that don't run a separate bootstrap.
+CREATE SCHEMA IF NOT EXISTS billing;
+
 -- Install required extensions
 -- Extensions are created by bootstrap; skip here.
 
