@@ -79,7 +79,7 @@ jobs:
 
   build-arm64:
     name: Build arm64 image
-    runs-on: linux-arm64
+    runs-on: [self-hosted, Linux, ARM64]
     steps:
       - uses: actions/checkout@v4
 
