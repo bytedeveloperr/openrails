@@ -292,6 +292,20 @@ func (s *CCBillWebhookService) handleNewSaleSuccess(ctx context.Context) error {
 		return fmt.Errorf("failed to parse nextRenewalDate '%s': %w", data.NextRenewalDate, err)
 	}
 
+	if s.DB != nil {
+		removed, err := removeCancelledSubscriptionsForActivation(ctx, s.DB, userID, price.ProductID, uuid.Nil)
+		if err != nil {
+			return fmt.Errorf("failed to cleanup cancelled subscriptions before activation: %w", err)
+		}
+		if removed > 0 {
+			log.WithContext(ctx).WithFields(log.Fields{
+				"user_id":     userID,
+				"product_id":  price.ProductID,
+				"removed_cnt": removed,
+			}).Info("Removed cancelled subscriptions before activation (CCBill)")
+		}
+	}
+
 	// CreateMembership now creates the Payment record internally
 	subscription, err := s.SubscriptionLifecycleService.CreateMembership(ctx, &CreateMembershipParams{
 		UserID:                  userID,

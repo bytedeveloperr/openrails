@@ -767,6 +767,20 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 	// Activate or renew subscription based on current status
 	switch subscription.Status {
 	case models.StatusPending:
+		if s.DB != nil {
+			removed, err := removeCancelledSubscriptionsForActivation(ctx, s.DB, subscription.UserID, subscription.ProductID, subscription.ID)
+			if err != nil {
+				return fmt.Errorf("failed to cleanup cancelled subscriptions before activation: %w", err)
+			}
+			if removed > 0 {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"user_id":     subscription.UserID,
+					"product_id":  subscription.ProductID,
+					"removed_cnt": removed,
+				}).Info("Removed cancelled subscriptions before activation (NMI)")
+			}
+		}
+
 		log.WithContext(ctx).WithFields(log.Fields{
 			"subscription_id":             subscription.ID,
 			"processor_subscription_id":   subscription.ProcessorSubscriptionID,
