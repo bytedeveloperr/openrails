@@ -19,7 +19,7 @@ jobs:
 
       - name: Require DockerHub secrets
         run: |
-          DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER }}"
+          DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER || 'openrails' }}"
           DOCKERHUB_TOKEN="${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD }}"
           if [ -z "$DOCKERHUB_USERNAME" ]; then
             echo "Missing Docker Hub username secret. Set DOCKERHUB_USERNAME (preferred) or DOCKERHUB_USER." >&2
@@ -33,7 +33,7 @@ jobs:
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER }}
+          username: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER || 'openrails' }}
           password: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD }}
 
       - name: Set up Docker Buildx
@@ -85,7 +85,7 @@ jobs:
 
       - name: Require DockerHub secrets
         run: |
-          DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER }}"
+          DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER || 'openrails' }}"
           DOCKERHUB_TOKEN="${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD }}"
           if [ -z "$DOCKERHUB_USERNAME" ]; then
             echo "Missing Docker Hub username secret. Set DOCKERHUB_USERNAME (preferred) or DOCKERHUB_USER." >&2
@@ -99,7 +99,7 @@ jobs:
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER }}
+          username: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER || 'openrails' }}
           password: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD }}
 
       - name: Set up Docker Buildx
@@ -150,7 +150,7 @@ jobs:
     steps:
       - name: Require DockerHub secrets
         run: |
-          DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER }}"
+          DOCKERHUB_USERNAME="${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER || 'openrails' }}"
           DOCKERHUB_TOKEN="${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD }}"
           if [ -z "$DOCKERHUB_USERNAME" ]; then
             echo "Missing Docker Hub username secret. Set DOCKERHUB_USERNAME (preferred) or DOCKERHUB_USER." >&2
@@ -164,7 +164,7 @@ jobs:
       - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER }}
+          username: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKERHUB_USER || 'openrails' }}
           password: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD }}
 
       - name: Determine Docker tags
