@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -46,6 +48,58 @@ func TestLoad_APIKeyFromEnv(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"http://a.test", "http://b.test"}, cfg.Auth.Issuers)
 	})
+}
+
+func TestLoad_ConfigFileAndEnvPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	err := os.WriteFile(cfgPath, []byte(`
+db:
+  host: filehost
+  port: "5432"
+  database: filedb
+  username: fileuser
+  password: filepass
+  sslmode: disable
+
+clickhouse:
+  client_addr: clickhouse:9000
+  http_addr: http://clickhouse:8123
+  db: analytics
+  user: analytics_user
+  password: analytics_password
+`), 0o600)
+	assert.NoError(t, err)
+
+	// Env overrides config file values.
+	t.Setenv("DB_USERNAME", "envuser")
+	t.Setenv("DB_PASSWORD", "envpass")
+	t.Setenv("CLICKHOUSE_CLIENT_ADDR", "envclickhouse:9000")
+
+	cfg, err := Load(cfgPath)
+	assert.NoError(t, err)
+
+	// From file (not overridden)
+	assert.Equal(t, "filehost", cfg.DB.Host)
+	assert.Equal(t, "filedb", cfg.DB.Database)
+
+	// Overridden by env
+	assert.Equal(t, "envuser", cfg.DB.Username)
+	assert.Equal(t, "envpass", cfg.DB.Password)
+	assert.Equal(t, "envclickhouse:9000", cfg.ClickHouse.ClientAddr)
+}
+
+func TestLoad_EnvTrimming(t *testing.T) {
+	t.Setenv("DB_HOST", "  example.com  ")
+	t.Setenv("DB_USERNAME", "  user  ")
+	t.Setenv("DB_PASSWORD", "  pass  ")
+
+	cfg, err := Load("nonexistent-config.yaml")
+	assert.NoError(t, err)
+
+	assert.Equal(t, "example.com", cfg.DB.Host)
+	assert.Equal(t, "user", cfg.DB.Username)
+	assert.Equal(t, "pass", cfg.DB.Password)
 }
 
 func TestIsTestMode(t *testing.T) {

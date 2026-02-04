@@ -1159,7 +1159,7 @@ func Load(configPath string) (*Config, error) {
 			return mapped, out
 		}
 
-		return mapped, value
+		return mapped, v
 	}
 
 	if err := k.Load(env.ProviderWithValue("", ".", envCallbackWithValue), nil); err != nil {

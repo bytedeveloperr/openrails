@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE: docker.io/doujins/openrails
+  IMAGE: docker.io/openrails/openrails
 
 jobs:
   build-x86:

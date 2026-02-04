@@ -167,7 +167,12 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       # Database connection via host-exposed ports (same as local dev)
-      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@host.docker.internal:5432/openrails_db?sslmode=disable"
+      DB_HOST: "host.docker.internal"
+      DB_PORT: "5432"
+      DB_DATABASE: "openrails_db"
+      DB_USERNAME: "admin"
+      DB_PASSWORD: "${DB_PASSWORD:-admin_password}"
+      DB_SSLMODE: "disable"
       # ClickHouse connection via host-exposed ports
       CLICKHOUSE_HTTP_ADDR: "http://host.docker.internal:8123"
       CLICKHOUSE_CLIENT_ADDR: "host.docker.internal:9002"
@@ -221,7 +226,12 @@ services:
       PROCESSORS_MOBIUS_TOKENIZATION_URL: "${PROCESSORS_MOBIUS_TOKENIZATION_URL:-}"
 
       # Database connection (admin superuser)
-      DB_URL: "postgres://admin:${POSTGRES_PASSWORD:-admin_password}@postgres:5432/openrails_db?sslmode=disable"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_DATABASE: "openrails_db"
+      DB_USERNAME: "admin"
+      DB_PASSWORD: "${DB_PASSWORD:-admin_password}"
+      DB_SSLMODE: "disable"
       # Redis connection
       REDIS_ADDR: "garnet:6379"
       REDIS_PASSWORD: ""
@@ -251,44 +261,23 @@ services:
   #
   # Then mint tokens:
   #   curl -fsS http://localhost:8080/auth/dev/mint ...
-  issuer-postgres:
-    profiles: ["e2e-sandbox"]
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: authkit_db
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: admin_password
-    volumes:
-      - issuer_postgres_data:/var/lib/postgresql/data
-    networks:
-      - local-openrails
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d authkit_db"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
   issuer:
     profiles: ["e2e-sandbox"]
-    build:
-      context: ../authkit
-      dockerfile: Dockerfile.devserver
-    depends_on:
-      issuer-postgres:
-        condition: service_healthy
+    # Single-container AuthKit dev issuer (includes embedded Postgres for E2E).
+    # Default tag is `latest`, but you can override via AUTHKIT_TEST_ISSUER_TAG
+    # to pin a version (e.g. `v0.8.1`).
+    image: "docker.io/openrails/authkit-test-issuer:${AUTHKIT_TEST_ISSUER_TAG:-latest}"
     environment:
-      ENV: dev
       AUTHKIT_LISTEN_ADDR: ":8080"
       AUTHKIT_ISSUER: "http://issuer:8080"
       AUTHKIT_ISSUED_AUDIENCES: "openrails-app"
       AUTHKIT_EXPECTED_AUDIENCES: "openrails-app"
-      DB_URL: "postgres://admin:admin_password@issuer-postgres:5432/authkit_db?sslmode=disable"
       AUTHKIT_DEV_MODE: "true"
       AUTHKIT_DEV_MINT_SECRET: "${AUTHKIT_DEV_MINT_SECRET:-change-me}"
     ports:
       - "8080:8080"
     volumes:
+      - issuer_postgres_data:/var/lib/postgresql/data
       - issuer_runtime_keys:/.runtime/authkit
     networks:
       - local-openrails
