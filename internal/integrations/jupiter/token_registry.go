@@ -12,19 +12,16 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-const jupiterStrictListURL = "https://token.jup.ag/strict"
+const jupiterVerifiedTagURL = "https://api.jup.ag/tokens/v2/tag"
 
-// JupiterToken represents a token from the Jupiter strict list.
+// JupiterToken represents a token from Jupiter Tokens V2.
 type JupiterToken struct {
-	Address    string `json:"address"`
-	Symbol     string `json:"symbol"`
-	Name       string `json:"name"`
-	Decimals   int    `json:"decimals"`
-	LogoURI    string `json:"logoURI"`
-	Extensions struct {
-		CoingeckoID string `json:"coingeckoId"`
-	} `json:"extensions"`
-	Tags []string `json:"tags"`
+	ID       string   `json:"id"`
+	Symbol   string   `json:"symbol"`
+	Name     string   `json:"name"`
+	Decimals int      `json:"decimals"`
+	Icon     string   `json:"icon"`
+	Tags     []string `json:"tags"`
 }
 
 // ResolvedToken represents a fully resolved token with all metadata.
@@ -35,7 +32,7 @@ type ResolvedToken struct {
 	MainnetMint string // Mainnet mint address
 	DevnetMint  string // Devnet mint address (if known)
 	LogoURI     string // Logo URL
-	IsVerified  bool   // Whether token is from Jupiter strict list
+	IsVerified  bool   // Whether token is from Jupiter verified list
 }
 
 // TokenRegistry holds resolved token metadata.
@@ -52,28 +49,37 @@ func NewTokenRegistry() *TokenRegistry {
 	}
 }
 
-// fetchJupiterStrictList fetches all tokens from Jupiter strict list.
-func fetchJupiterStrictList(ctx context.Context) ([]JupiterToken, error) {
+// fetchJupiterVerifiedList fetches verified tokens from Jupiter Tokens V2.
+func fetchJupiterVerifiedList(ctx context.Context, apiKey string) ([]JupiterToken, error) {
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, fmt.Errorf("jupiter api key is required")
+	}
+
 	client := &http.Client{Timeout: 30 * time.Second}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jupiterStrictListURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, jupiterVerifiedTagURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
+	query := req.URL.Query()
+	query.Set("query", "verified")
+	req.URL.RawQuery = query.Encode()
+	req.Header.Set("x-api-key", apiKey)
+
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch Jupiter strict list: %w", err)
+		return nil, fmt.Errorf("failed to fetch Jupiter verified tokens: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Jupiter strict list returned status %d", resp.StatusCode)
+		return nil, fmt.Errorf("Jupiter verified tokens returned status %d", resp.StatusCode)
 	}
 
 	var tokens []JupiterToken
 	if err := json.NewDecoder(resp.Body).Decode(&tokens); err != nil {
-		return nil, fmt.Errorf("failed to decode Jupiter strict list: %w", err)
+		return nil, fmt.Errorf("failed to decode Jupiter verified tokens: %w", err)
 	}
 
 	return tokens, nil
@@ -91,18 +97,18 @@ var wellKnownDevnetMints = map[string]string{
 // defaultEnabledTokens is the default list of tokens when none are specified.
 var defaultEnabledTokens = []string{"SOL", "USDC", "PYUSD"}
 
-// LoadFromJupiter fetches tokens from Jupiter strict list and resolves the enabled tokens.
+// LoadFromJupiter fetches verified tokens from Jupiter Tokens V2 and resolves the enabled tokens.
 // This should be called once at startup. Returns error if any enabled token cannot be resolved.
-func (r *TokenRegistry) LoadFromJupiter(ctx context.Context, enabledTokens []string) error {
+func (r *TokenRegistry) LoadFromJupiter(ctx context.Context, apiKey string, enabledTokens []string) error {
 	if len(enabledTokens) == 0 {
 		enabledTokens = defaultEnabledTokens
 		log.WithField("tokens", enabledTokens).Info("Using default enabled tokens")
 	}
 
-	// Fetch Jupiter strict list
-	jupiterTokens, err := fetchJupiterStrictList(ctx)
+	// Fetch Jupiter verified tokens
+	jupiterTokens, err := fetchJupiterVerifiedList(ctx, apiKey)
 	if err != nil {
-		return fmt.Errorf("failed to fetch Jupiter strict list: %w", err)
+		return fmt.Errorf("failed to fetch Jupiter verified tokens: %w", err)
 	}
 
 	// Build symbol -> JupiterToken lookup (case-insensitive)
@@ -115,7 +121,7 @@ func (r *TokenRegistry) LoadFromJupiter(ctx context.Context, enabledTokens []str
 		}
 	}
 
-	log.WithField("count", len(jupiterTokens)).Info("Loaded Jupiter strict list")
+	log.WithField("count", len(jupiterTokens)).Info("Loaded Jupiter verified token list")
 
 	// Resolve each enabled token
 	r.mu.Lock()
@@ -130,7 +136,7 @@ func (r *TokenRegistry) LoadFromJupiter(ctx context.Context, enabledTokens []str
 			continue
 		}
 
-		// Look up in Jupiter strict list
+		// Look up in Jupiter verified list
 		jupToken, found := jupiterBySymbol[symbolUpper]
 		if !found {
 			failedTokens = append(failedTokens, symbol)
@@ -144,22 +150,22 @@ func (r *TokenRegistry) LoadFromJupiter(ctx context.Context, enabledTokens []str
 			Symbol:      jupToken.Symbol,
 			Name:        jupToken.Name,
 			Decimals:    jupToken.Decimals,
-			MainnetMint: jupToken.Address,
+			MainnetMint: jupToken.ID,
 			DevnetMint:  devnetMint,
-			LogoURI:     jupToken.LogoURI,
+			LogoURI:     jupToken.Icon,
 			IsVerified:  true,
 		}
 
 		log.WithFields(log.Fields{
 			"symbol":   jupToken.Symbol,
 			"name":     jupToken.Name,
-			"mint":     jupToken.Address,
+			"mint":     jupToken.ID,
 			"decimals": jupToken.Decimals,
 		}).Debug("Resolved token from Jupiter")
 	}
 
 	if len(failedTokens) > 0 {
-		return fmt.Errorf("failed to resolve tokens from Jupiter strict list: %v (tokens must be verified on Jupiter)", failedTokens)
+		return fmt.Errorf("failed to resolve tokens from Jupiter verified list: %v (tokens must be verified on Jupiter)", failedTokens)
 	}
 
 	r.tokens = resolved
