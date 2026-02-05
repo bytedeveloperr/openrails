@@ -123,6 +123,7 @@ type Config struct {
 	ClickHouse   *ClickHouseConfig `koanf:"clickhouse,omitempty"`
 	Logger       *LoggerConfig     `koanf:"logger,omitempty"`
 	SendGrid     *SendGridConfig   `koanf:"sendgrid,omitempty"`
+	Jupiter      *JupiterConfig    `koanf:"jupiter,omitempty"`
 	CorsOrigins  []string          `koanf:"cors_origins,omitempty"`
 	RateLimits   *RateLimitsConfig `koanf:"rate_limits,omitempty"`
 	FeatureFlags *FeatureFlags     `koanf:"feature_flags,omitempty"`
@@ -405,9 +406,13 @@ type SolanaConfig struct {
 	SupportedTokens map[string]TokenConfig `koanf:"supported_tokens,omitempty"`
 
 	// EnabledTokens is a simplified token configuration (alternative to SupportedTokens).
-	// Use symbol strings for verified tokens (Jupiter lookup): ["SOL", "USDC", "BONK"]
+	// Use symbol strings for verified tokens from Jupiter Tokens V2: ["SOL", "USDC", "BONK"].
 	// If not set, defaults to ["SOL", "USDC", "PYUSD"].
 	EnabledTokens []string `koanf:"enabled_tokens,omitempty"`
+}
+
+type JupiterConfig struct {
+	APIKey string `koanf:"api_key"`
 }
 
 type CloudflaredConfig struct {
@@ -759,6 +764,14 @@ func (cfg *Config) GetSolanaProcessor() *ProcessorConfig {
 		return proc
 	}
 	return nil
+}
+
+// GetJupiterAPIKey returns the configured Jupiter API key, if any.
+func (cfg *Config) GetJupiterAPIKey() string {
+	if cfg == nil || cfg.Jupiter == nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Jupiter.APIKey)
 }
 
 // GetProcessor returns a processor config by name from the Processors map.
