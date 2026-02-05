@@ -77,7 +77,7 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_processor_subscription ON billing.s
 CREATE INDEX IF NOT EXISTS idx_subscriptions_next_retry_at ON billing.subscriptions(next_retry_at) WHERE next_retry_at IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_user_active ON billing.subscriptions(user_id) WHERE status = 'active';
 
-COMMENT ON INDEX billing.idx_subscriptions_user_active IS 'Ensures each user can have only one active subscription at a time';
+-- COMMENT ON INDEX billing.idx_subscriptions_user_active IS 'Ensures each user can have only one active subscription at a time';
 COMMENT ON COLUMN billing.subscriptions.product_id IS 'Denormalized product ID for efficient user+product lookups without joining prices';
 COMMENT ON COLUMN billing.subscriptions.scheduled_price_id IS 'Price ID for scheduled tier change (downgrade). Applied at end of current billing period during renewal.';
 
