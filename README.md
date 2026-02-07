@@ -188,22 +188,22 @@ Pick and choose which route groups to expose:
 // 1. User routes - frontend billing UI
 //    Products, prices, checkout, subscriptions, payments, payment methods,
 //    notifications, credits
-billing.RegisterUserRoutes(router.Group("/v1"), embedded.RouteOptions{})
+billing.RegisterUserRoutes(router.Group("/billing/v1"), embedded.RouteOptions{})
 
 // 2. Admin routes - admin dashboard
 //    Subscription management, payment management, user management, metrics
 //    Requires admin role in JWT
-billing.RegisterAdminRoutes(router.Group("/v1/admin"), embedded.RouteOptions{})
+billing.RegisterAdminRoutes(router.Group("/billing/v1/admin"), embedded.RouteOptions{})
 
 // 3. Webhook routes - payment processor callbacks
 //    Required if using Stripe, CCBill, or NMI webhooks
-billing.RegisterWebhookRoutes(router.Group("/v1/webhooks"))
+billing.RegisterWebhookRoutes(router.Group("/billing/v1/webhooks"))
 ```
 
 The `RouteOptions{}` uses the `AuthProvider` from `embedded.New()` by default. Override per-group if needed:
 
 ```go
-billing.RegisterUserRoutes(router.Group("/v1"), embedded.RouteOptions{
+billing.RegisterUserRoutes(router.Group("/billing/v1"), embedded.RouteOptions{
     AuthProvider: differentAuthProvider,
 })
 ```
@@ -227,28 +227,31 @@ subscriptions, _ := svc.GetSubscriptions(ctx, userID, service.GetSubscriptionsOp
 metrics, _ := svc.AdminGetMetricsSummary(ctx, service.MetricsOptions{...})
 _ = svc.AdminRefundPayment(ctx, paymentID, service.RefundPaymentRequest{...})
 
-// Credits operations (for usage-based billing)
-hold, _ := svc.HoldCredits(ctx, service.HoldCreditsRequest{
-    UserID:     userID,
-    CreditType: "api_credits",
-    Amount:     100,
-    Source:     "api_call",
-    SourceID:   requestID,
-    ExpiresAt:  time.Now().Add(5 * time.Minute),
-})
-tx, _ := svc.CaptureHold(ctx, service.CaptureHoldRequest{
-    HoldID: hold.ID,
-    Amount: 100,
-})
-_ = svc.ReleaseHold(ctx, holdID) // if operation failed
+	// Credits operations (for usage-based billing)
+	// HoldCredits returns a durable hold ID (backed by `billing.credit_transactions`).
+	// Use that ID to later capture or release the same hold. Retries with the same
+	// (CreditType, Source, SourceID) are idempotent and will return the existing hold.
+	hold, _ := svc.HoldCredits(ctx, service.HoldCreditsRequest{
+	    UserID:     userID,
+	    CreditType: "api_credits",
+	    Amount:     100,
+	    Source:     "api_call",
+	    SourceID:   requestID,
+	    ExpiresAt:  time.Now().Add(5 * time.Minute),
+	})
+	tx, _ := svc.CaptureHold(ctx, service.CaptureHoldRequest{
+	    HoldID: hold.ID,
+	    Amount: 100,
+	})
+	_ = svc.ReleaseHold(ctx, hold.ID) // if operation failed
 
-// Direct credit withdrawal (no hold)
-tx, _ := svc.WithdrawCredits(ctx, service.WithdrawCreditsRequest{
-    UserID:     userID,
-    CreditType: "api_credits",
-    Amount:     50,
-    Source:     "image_generation",
-})
+	// Direct credit withdrawal (no hold)
+	tx, _ := svc.WithdrawCredits(ctx, service.WithdrawCreditsRequest{
+	    UserID:     userID,
+	    CreditType: "api_credits",
+	    Amount:     50,
+	    Source:     "image_generation",
+	})
 
 // Entitlements
 entitlements, _ := svc.ListActiveEntitlements(ctx, userID, time.Now())

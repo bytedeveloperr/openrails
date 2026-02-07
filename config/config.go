@@ -88,13 +88,13 @@ type Config struct {
 	// Note: This is orthogonal to Env - Env controls logging/debug, TestMode controls payments.
 	TestMode *bool `koanf:"test_mode,omitempty"`
 
-	// APIURL is the base URL where billing's /v1/* routes are mounted.
+	// APIURL is the base URL where billing's versioned routes are mounted.
 	// Used for generating URLs (e.g., Solana Pay transaction_request URLs).
 	//
 	// Standalone mode: "https://api.mysite.com" (routes at /v1/*)
 	// Embedded mode:   "https://api.mysite.com/billing" (routes at /billing/v1/*)
 	//
-	// Formula: generated_url = APIURL + "/v1/checkout/:id/solana-pay"
+	// Formula: generated_url = APIURL + {version_path} + "/checkout/:id/solana-pay"
 	APIURL string       `koanf:"api_url,omitempty"`
 	Store  *StoreConfig `koanf:"store,omitempty"`
 

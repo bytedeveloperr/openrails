@@ -971,6 +971,46 @@
         "[ ] Document migration steps + safety notes (switching schemas creates a second set of tables unless old ones are removed)"
       ],
       "completed": false
+    },
+    {
+      "id": 203,
+      "name": "credit-transaction-lifecycle (merge credit_holds + credit_transactions)",
+      "description": "Unify credit \"authorization\" (hold) and credit \"ledger\" (withdrawal) into a single root transaction record that has a lifecycle over time.\n\nToday we have two separate concepts:\n- `billing.credit_holds`: state machine (active/captured/released/expired)\n- `billing.credit_transactions`: append-only ledger entries for deposits/withdrawals/expiry\n\nFor api-credits usage, we want **one stable ID per request** that starts as a hold and later transitions to captured/released/expired. That root record should also carry the final captured amount and be the primary audit trail for usage.\n\n## Metadata\n\n- Category: credits\n- Status: in_progress (race tests pending)\n- Passes: true\n\n## Goals\n\n- Single root table for usage lifecycle: create (hold) -> capture/release/expire.\n- Strong idempotency: (user_id, credit_type, source, source_id) should map to a single root transaction.\n- Keep accounting correct and race-safe with concurrent withdrawals/holds.\n- Preserve/replace current reporting surface (\"transactions\" list) with an equivalent or better query.\n\n## Non-goals (initially)\n\n- Do not redesign pricing/metering here (this is about recording and enforcing spends).\n- Do not require negative balances (no clawbacks) unless explicitly added.\n\n## Design sketch\n\n### Option A (recommended): keep an append-only ledger, but rename it\n- New stateful table: `billing.credit_transactions` (lifecycle)\n- Rename old ledger table to: `billing.credit_ledger_entries` (append-only)\n\n### Option B: make credit_transactions fully stateful and drop the ledger concept\n- One table stores both \"pending hold\" rows and \"finalized withdrawal/deposit\" rows.\n- Pros: fewer tables.\n- Cons: harder to audit balance deltas and to reason about invariants.\n\n### Interaction with credit_blocks\n- Spending should decrement `billing.credit_blocks.remaining_amount` and update `billing.user_credit_balances` in the same DB transaction.\n- The lifecycle record should reference the blocks consumed (either via a join table or by deriving via queries).\n\n## Tasks\n\n- [x] Decide schema approach (Option A vs Option B) and exact naming\n- [x] Add migration(s): new lifecycle table, statuses, indices, and unique idempotency key\n- [x] Backfill/migrate existing `credit_holds` into lifecycle rows\n- [x] Update CreditsService:\n  - [x] Hold creates lifecycle record + reserves held_balance\n  - [x] Capture transitions record + decrements blocks + decrements balance + releases held_balance\n  - [x] Release transitions record + releases held_balance\n- [x] Update hold expiry worker to expire lifecycle records and release held_balance\n- [x] Update user-facing \"transactions\" endpoints to use the new model\n- [x] Add integration tests for retry/idempotency and lifecycle transitions (hold->capture, hold->release, hold->expire)",
+      "tasks": [
+        "DESIGN:",
+        "[x] Choose table naming: lifecycle table vs ledger table naming (avoid ambiguity with current `credit_transactions` name)",
+        "[x] Define statuses (e.g., pending/held/captured/released/expired) and required fields per status",
+        "[x] Decide whether deposits/expiry are also modeled as lifecycle rows, or remain as ledger-only events",
+        "[x] Eliminate `billing.subscription_credit_grants`: use a deterministic grant ID (UUIDv5) derived from (subscription_id, credit_type_id, period_end) and rely on deposit idempotency",
+        "",
+        "MIGRATIONS:",
+        "[x] Add new tables/columns + constraints (including idempotency unique index)",
+        "[x] Add a partial unique index for deposit idempotency: (user_id, credit_type_id, source, source_id) WHERE transaction_type='deposit' AND source_id IS NOT NULL",
+        "[x] Drop `billing.subscription_credit_grants` after switching to deterministic grant IDs",
+        "[x] Data migration/backfill from `billing.credit_holds` and existing `billing.credit_transactions` if needed",
+        "[x] Keep backwards-compat views (optional) or provide a clean cutover plan",
+        "",
+        "IMPLEMENTATION:",
+        "[x] Refactor `internal/services/credits_service.go` to use the new lifecycle transaction record",
+        "[x] Update `GrantSubscriptionCredits` to compute the deterministic grant ID and pass it as the deposit `SourceID` (no extra idempotency table)",
+        "[x] Ensure invariants: balance >= held_balance, no double-capture, no capture after release/expire",
+        "[x] Ensure concurrency safety with row locks (`FOR UPDATE`) on lifecycle + balances",
+        "",
+        "WORKERS:",
+        "[x] Update hold-expiry logic to expire lifecycle records",
+        "[x] Update credit expiry logic as needed (still block-based)",
+        "",
+        "API / UX:",
+        "[x] Update list transactions endpoint(s) to show lifecycle transactions (per API request)",
+        "[x] Consider adding GET by (source, source_id) for direct lookup",
+        "",
+        "TESTS:",
+        "[x] Idempotent hold creation under retry (same source/source_id)",
+        "[x] Hold->capture with partial capture, and ensure unused amount is released",
+        "[x] Hold->release, Hold->expire",
+        "[ ] Race tests: capture vs release, capture vs expiry worker"
+      ],
+      "completed": false
     }
   ]
 }

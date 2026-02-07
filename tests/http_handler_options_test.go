@@ -20,7 +20,7 @@ func TestHTTPHandlerOptions_WebhooksOnly(t *testing.T) {
 
 	// Webhook route should exist.
 	{
-		req := httptest.NewRequest(http.MethodPost, "/v1/webhooks/stripe", nil)
+		req := httptest.NewRequest(http.MethodPost, "/billing/v1/webhooks/stripe", nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		require.NotEqual(t, http.StatusNotFound, w.Code)
@@ -28,7 +28,7 @@ func TestHTTPHandlerOptions_WebhooksOnly(t *testing.T) {
 
 	// User routes should be excluded.
 	{
-		req := httptest.NewRequest(http.MethodGet, "/v1/products", nil)
+		req := httptest.NewRequest(http.MethodGet, "/billing/v1/products", nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		require.Equal(t, http.StatusNotFound, w.Code)
@@ -36,7 +36,7 @@ func TestHTTPHandlerOptions_WebhooksOnly(t *testing.T) {
 
 	// Admin routes should be excluded.
 	{
-		req := httptest.NewRequest(http.MethodGet, "/v1/admin/metrics/summary", nil)
+		req := httptest.NewRequest(http.MethodGet, "/billing/v1/admin/metrics/summary", nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 		require.Equal(t, http.StatusNotFound, w.Code)

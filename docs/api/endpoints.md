@@ -234,7 +234,7 @@ Notes:
 Returns the credit balance for a single credit type (e.g. `api_credits`).
 
 ### GET /v1/me/credits/{type}/transactions
-Lists credit ledger entries for the credit type. Query params: `limit`, `offset`.
+Lists credit transactions for the credit type (including hold lifecycle rows). Query params: `limit`, `offset`.
 
 ### POST /v1/me/portal
 Creates a Stripe customer portal session. Response `{ redirect_url }`.
@@ -264,13 +264,28 @@ Returns a `CreditTransaction`. On insufficient credits, returns 402 with `insuff
 
 ### POST /v1/credits/hold
 Reserve credits for long-running jobs. Body: `{ user_id, credit_type, amount, source, source_id, expires_at }` (epoch seconds).
-Returns a `CreditHold`. On insufficient credits, returns 402.
+Returns a `CreditTransaction` with `transaction_type='hold'` and `status='active'`. The returned `id` is the durable identifier you later use to capture or release the hold. On insufficient credits, returns 402.
+
+Idempotency:
+- Hold creation is idempotent per `(user_id, credit_type, source, source_id)`; retries return the existing hold transaction.
 
 ### POST /v1/credits/holds/{id}/capture
-Capture a hold: `{ amount }` (amount <= hold). Returns a `CreditTransaction`.
+Capture a hold: `{ amount }` (amount <= hold). Updates the same `CreditTransaction` row to `status='captured'`, setting `captured_amount` and `amount` (negative).
 
 ### POST /v1/credits/holds/{id}/release
 Release a hold without spending credits. Response `{ ok: true }`.
+
+### GET /v1/credits/transactions/lookup
+Lookup a single credit transaction by its idempotency key.
+
+Query params:
+- `user_id` (required)
+- `credit_type` (required)
+- `source` (required)
+- `source_id` (required)
+- `transaction_type` (optional; defaults to `hold`)
+
+Returns a `CreditTransaction` or 404.
 
 ### Credit types (definition surface)
 
@@ -328,7 +343,7 @@ Renewal semantics:
 - `cadence=per_renewal` is granted on confirmed renewal/rebill success (Stripe invoice paid; Mobius/NMI rebill success; CCBill RenewalSuccess).
 
 Idempotency / webhook replay safety:
-- Recurring grants are idempotent per `(subscription_id, credit_type_id, period_end)` using `billing.subscription_credit_grants`.
+- Recurring grants are idempotent per `(subscription_id, credit_type_id, period_end)` by using a deterministic deposit `source_id` derived from those fields (no dedicated idempotency table).
 - Duplicate webhooks for the same period do not double-grant.
 
 Host policy defaults (current behavior):

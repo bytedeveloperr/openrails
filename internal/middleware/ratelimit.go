@@ -184,6 +184,21 @@ func resolveRateLimitPolicy(cfg *config.RateLimitsConfig, req *http.Request) (*c
 }
 
 func classifyBucket(path, method string) string {
+	// Normalize embedded/standalone prefixes into a stable matcher.
+	// Examples:
+	// - /v1/webhooks/...      -> /v1/webhooks/...
+	// - /billing/v1/webhooks/ -> /v1/webhooks/...
+	// - /billing/v1/...      -> /v1/...
+	if strings.HasPrefix(path, "/billing") {
+		path = strings.TrimPrefix(path, "/billing")
+		if path == "" {
+			path = "/"
+		}
+	}
+	if strings.HasPrefix(path, "/v/1") {
+		path = "/v1" + strings.TrimPrefix(path, "/v/1")
+	}
+
 	method = strings.ToUpper(method)
 	switch {
 	case strings.HasPrefix(path, "/v1/webhooks"):

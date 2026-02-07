@@ -73,9 +73,14 @@ func New(deps Dependencies) (*Server, error) {
 	s.publicHandler = s.newPublicEngine()
 	s.registerStandaloneMetaRoutes(s.publicHandler)
 	s.registerDebugRoutes(s.publicHandler)
+	// Canonical: /v1/*
 	s.registerUserRoutes(s.publicHandler)
 	s.registerAdminRoutesOn(s.publicHandler)
 	s.registerWebhookRoutes(s.publicHandler)
+	// Legacy alias: /v/1/*
+	s.registerUserRoutesAt(s.publicHandler, LegacyV1Prefix)
+	s.registerAdminRoutesAt(s.publicHandler, LegacyV1Prefix)
+	s.registerWebhookRoutesAt(s.publicHandler, LegacyV1Prefix)
 
 	// Private/service API surface.
 	s.registerServiceRoutes()
@@ -107,22 +112,30 @@ func (s *Server) newHTTPHandlerEngine(opts HTTPHandlerOptions) *gin.Engine {
 	e := s.newPublicEngine()
 
 	if opts.IncludeUser {
-		s.registerUserRoutes(e)
+		// Canonical embedded contract: /billing/v1/*
+		s.registerUserRoutesAt(e, EmbeddedV1Prefix)
+		// Compatibility: allow mounting at /billing with http.StripPrefix("/billing", ...) (legacy).
+		// This results in requests to the embedded handler being routed as /v1/*.
+		s.registerUserRoutesAt(e, StandaloneV1Prefix)
 	}
 	if opts.IncludeAdmin {
-		s.registerAdminRoutesOn(e)
+		s.registerAdminRoutesAt(e, EmbeddedV1Prefix)
+		s.registerAdminRoutesAt(e, StandaloneV1Prefix)
 	}
 	if opts.IncludeWebhooks {
-		s.registerWebhookRoutes(e)
+		s.registerWebhookRoutesAt(e, EmbeddedV1Prefix)
+		s.registerWebhookRoutesAt(e, StandaloneV1Prefix)
 	}
 	return e
 }
 
 // NewHTTPHandler returns a single mountable `http.Handler` for the selected route groups.
 //
-// Intended for embedded hosts. Mount via an outer mux and `http.StripPrefix`, e.g.:
+// Intended for embedded hosts.
 //
-//	mux.Handle("/billing/", http.StripPrefix("/billing", handler))
+// Canonical embedded contract: routes live under `/billing/v1/*`.
+// Backwards compatibility: this handler also accepts `/v1/*` for hosts that still use
+// `http.StripPrefix("/billing", ...)`.
 func (s *Server) NewHTTPHandler(opts HTTPHandlerOptions) http.Handler {
 	return s.newHTTPHandlerEngine(opts)
 }

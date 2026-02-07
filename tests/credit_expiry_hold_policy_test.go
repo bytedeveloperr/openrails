@@ -29,13 +29,13 @@ func TestCreditExpiryWorker_HoldsDoNotReserveLots_CaptureCanFailAfterExpiry(t *t
 	hold := suite.createTestCreditHold(userID, creditType.ID, 80, "active", time.Now().Add(1*time.Hour).UTC())
 
 	expiredAt := time.Now().Add(-1 * time.Hour).UTC()
-	batch := &models.CreditExpiryBatch{
+	batch := &models.CreditBlock{
 		ID:              uuid.New(),
 		UserID:          userID,
 		CreditTypeID:    creditType.ID,
 		OriginalAmount:  100,
 		RemainingAmount: 100,
-		ExpiresAt:       expiredAt,
+		ExpiresAt:       &expiredAt,
 		CreatedAt:       expiredAt.Add(-1 * time.Minute),
 	}
 	_, err := suite.BunDB.NewInsert().Model(batch).Exec(ctx)

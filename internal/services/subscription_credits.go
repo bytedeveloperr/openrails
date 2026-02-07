@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/open-rails/openrails/internal/db/models"
-	"github.com/open-rails/openrails/internal/db/repo"
 	log "github.com/sirupsen/logrus"
 	"github.com/uptrace/bun"
 )
@@ -43,7 +42,8 @@ func validateCreditGrantSpec(creditTypeName string, spec models.CreditGrantSpec)
 }
 
 // GrantSubscriptionCredits grants credits defined in product.credits_spec for a subscription event.
-// It is idempotent per (subscription_id, credit_type_id, period_end).
+// It is idempotent per (subscription_id, credit_type_id, period_end) by using a deterministic
+// SourceID for the underlying deposit transaction.
 func (s *CreditsService) GrantSubscriptionCredits(ctx context.Context, params GrantSubscriptionCreditsParams) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("credits service not initialized")
@@ -94,8 +94,6 @@ func (s *CreditsService) GrantSubscriptionCredits(ctx context.Context, params Gr
 		return nil
 	}
 
-	grantRepo := repo.NewSubscriptionCreditGrantRepo(s.db)
-
 	for creditTypeName, spec := range prod.CreditsSpec {
 		creditTypeName = strings.TrimSpace(creditTypeName)
 		if err := validateCreditGrantSpec(creditTypeName, spec); err != nil {
@@ -121,27 +119,13 @@ func (s *CreditsService) GrantSubscriptionCredits(ctx context.Context, params Gr
 			return ErrCreditTypeInactive
 		}
 
-		grant := &models.SubscriptionCreditGrant{
-			ID:             uuid.New(),
-			SubscriptionID: sub.ID,
-			CreditTypeID:   ct.ID,
-			PeriodEnd:      params.PeriodEnd.UTC(),
-			CreatedAt:      now,
-		}
-
-		inserted, err := grantRepo.InsertIfNotExists(ctx, tx, grant)
-		if err != nil {
-			return err
-		}
-		if !inserted {
-			log.WithContext(ctx).WithFields(log.Fields{
-				"subscription_id": sub.ID,
-				"period_end":      params.PeriodEnd.UTC(),
-				"credit_type":     creditTypeName,
-				"cadence":         cadence,
-			}).Info("subscription credit grant skipped (already granted)")
-			continue
-		}
+		// Deterministic idempotency key for this grant:
+		// (subscription_id, credit_type_id, period_end) -> UUID.
+		// This allows us to avoid a dedicated idempotency table.
+		grantID := uuid.NewSHA1(
+			uuid.NameSpaceOID,
+			[]byte(fmt.Sprintf("openrails:sub_credit_grant:%s:%s:%s", sub.ID, ct.ID, params.PeriodEnd.UTC().Format(time.RFC3339Nano))),
+		)
 
 		var expiresAt *time.Time
 		if spec.ExpiresDays != nil && *spec.ExpiresDays > 0 {
@@ -154,7 +138,7 @@ func (s *CreditsService) GrantSubscriptionCredits(ctx context.Context, params Gr
 			CreditType: creditTypeName,
 			Amount:     spec.Amount,
 			Source:     params.Source,
-			SourceID:   &grant.ID,
+			SourceID:   &grantID,
 			ExpiresAt:  expiresAt,
 		}); err != nil {
 			return err
@@ -167,7 +151,7 @@ func (s *CreditsService) GrantSubscriptionCredits(ctx context.Context, params Gr
 			"amount":          spec.Amount,
 			"expires_days":    spec.ExpiresDays,
 			"cadence":         cadence,
-			"grant_id":        grant.ID,
+			"grant_id":        grantID,
 		}).Info("subscription credit grant applied")
 	}
 

@@ -195,6 +195,7 @@ func (rs *ReplayService) replayWebhookEvent(ctx context.Context, filePath string
 	if provider == "nmi" {
 		provider = "mobius"
 	}
+	// Canonical standalone webhook path: /v1/webhooks/:provider
 	webhookURL, err := url.JoinPath(rs.TargetEndpoint, "v1", "webhooks", provider)
 	if err != nil {
 		result.Error = fmt.Sprintf("Failed to build webhook URL: %v", err)

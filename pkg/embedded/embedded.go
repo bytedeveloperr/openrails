@@ -99,7 +99,9 @@ type HTTPHandlerOptions struct {
 
 // NewHTTPHandler returns a single mountable `http.Handler` for the selected route groups.
 //
-// Mount it under a prefix via `http.StripPrefix`, e.g. `/billing`.
+// Canonical embedded contract: routes live under `/billing/v1/*`.
+// Backwards compatibility: the handler also accepts `/v1/*` for hosts that still mount under `/billing`
+// via `http.StripPrefix`.
 func (e *Embedded) NewHTTPHandler(opts HTTPHandlerOptions) http.Handler {
 	if e == nil || e.server == nil {
 		return nil
@@ -150,7 +152,7 @@ type RouteOptions struct {
 // Example:
 //
 //	router := gin.Default()
-//	api := router.Group("/v1")
+//	api := router.Group("/billing/v1")
 //	billing.RegisterUserRoutes(api, embedded.RouteOptions{})
 func (e *Embedded) RegisterUserRoutes(group *gin.RouterGroup, opts RouteOptions) {
 	if e == nil || e.app == nil {
@@ -172,7 +174,7 @@ func (e *Embedded) RegisterUserRoutes(group *gin.RouterGroup, opts RouteOptions)
 // Example:
 //
 //	router := gin.Default()
-//	admin := router.Group("/v1/admin")
+//	admin := router.Group("/billing/v1/admin")
 //	billing.RegisterAdminRoutes(admin, embedded.RouteOptions{})
 func (e *Embedded) RegisterAdminRoutes(group *gin.RouterGroup, opts RouteOptions) {
 	if e == nil || e.app == nil {
@@ -193,7 +195,7 @@ func (e *Embedded) RegisterAdminRoutes(group *gin.RouterGroup, opts RouteOptions
 // Example:
 //
 //	router := gin.Default()
-//	webhooks := router.Group("/v1/webhooks")
+//	webhooks := router.Group("/billing/v1/webhooks")
 //	billing.RegisterWebhookRoutes(webhooks)
 func (e *Embedded) RegisterWebhookRoutes(group *gin.RouterGroup) {
 	if e == nil || e.app == nil {

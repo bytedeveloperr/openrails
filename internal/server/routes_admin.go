@@ -6,9 +6,9 @@ import (
 	"github.com/open-rails/openrails/internal/handlers"
 )
 
-func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
+func (s *Server) registerAdminRoutesAt(e *gin.Engine, apiPrefix string) {
 	// Admin routes are protected by JWT authentication + admin role requirement.
-	admin := e.Group("/v1/admin")
+	admin := e.Group(apiPrefix + "/admin")
 	admin.Use(s.authProvider.Required())
 
 	admin.Use(policy.AdminRequired(s.runtime.DB.GetDB()))
@@ -42,4 +42,8 @@ func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
 	admin.GET("/metrics/subscriptions", s.wrap(handlers.GetAdminMetricsSubscriptions))
 	admin.GET("/metrics/processors", s.wrap(handlers.GetAdminMetricsProcessors))
 	admin.GET("/metrics/churn", s.wrap(handlers.GetAdminMetricsChurn))
+}
+
+func (s *Server) registerAdminRoutesOn(e *gin.Engine) {
+	s.registerAdminRoutesAt(e, StandaloneV1Prefix)
 }

@@ -8,8 +8,8 @@ import (
 	"github.com/open-rails/openrails/internal/handlers"
 )
 
-func (s *Server) registerUserRoutes(e *gin.Engine) {
-	api := e.Group("/v1")
+func (s *Server) registerUserRoutesAt(e *gin.Engine, apiPrefix string) {
+	api := e.Group(apiPrefix)
 
 	// Products and Prices - public catalog endpoints
 	api.GET("/products", s.authProvider.Optional(), s.wrap(handlers.GetProducts))
@@ -58,10 +58,18 @@ func (s *Server) registerUserRoutes(e *gin.Engine) {
 	stripe.POST("/portal", s.wrap(handlers.CreatePortalSession))
 }
 
-func (s *Server) registerWebhookRoutes(e *gin.Engine) {
-	api := e.Group("/v1")
+func (s *Server) registerUserRoutes(e *gin.Engine) {
+	s.registerUserRoutesAt(e, StandaloneV1Prefix)
+}
+
+func (s *Server) registerWebhookRoutesAt(e *gin.Engine, apiPrefix string) {
+	api := e.Group(apiPrefix)
 	webhooks := api.Group("/webhooks")
 	webhooks.POST("/:provider", s.wrap(handlers.Webhook))
+}
+
+func (s *Server) registerWebhookRoutes(e *gin.Engine) {
+	s.registerWebhookRoutesAt(e, StandaloneV1Prefix)
 }
 
 // registerStandaloneMetaRoutes registers banner/health endpoints that are appropriate for the
@@ -72,7 +80,7 @@ func (s *Server) registerStandaloneMetaRoutes(e *gin.Engine) {
 		c.JSON(http.StatusOK, gin.H{
 			"service":   "billing",
 			"status":    "ok",
-			"endpoints": []string{"/health/live", "/health/ready", "/v1"},
+			"endpoints": []string{"/health/live", "/health/ready", StandaloneV1Prefix},
 		})
 	})
 
