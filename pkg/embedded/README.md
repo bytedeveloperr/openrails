@@ -27,8 +27,8 @@ func main() {
 
     // Mount billing routes on your router
     router := gin.Default()
-    billing.RegisterUserRoutes(router.Group("/billing"), embedded.RouteOptions{})
-    billing.RegisterWebhookRoutes(router.Group("/webhooks"))
+    billing.RegisterUserRoutes(router.Group("/billing/v1"), embedded.RouteOptions{})
+    billing.RegisterWebhookRoutes(router.Group("/billing/v1/webhooks"))
 }
 ```
 
@@ -166,7 +166,10 @@ go func() {
 
 ## Handlers
 
-The embedded instance provides HTTP handlers suitable for mounting under a prefix (e.g. `/billing`) via `http.StripPrefix`.
+The embedded instance provides HTTP handlers suitable for mounting into your host app.
+
+Canonical embedded contract: routes live under `/billing/v1/*`.
+For backwards compatibility, the handler also accepts `/v1/*` (useful if your host still mounts it under `/billing` via `http.StripPrefix`).
 
 ```go
 // Full public billing API (health + user + admin + webhooks; debug routes in dev only)
@@ -197,11 +200,24 @@ if err != nil {
 entitled, err := svc.CheckEntitlement(ctx, userID, "feature_name")
 
 // Withdraw credits
-err = svc.WithdrawCredits(ctx, userID, "api_dollars", 100, "api_call", requestID)
+trx, err := svc.WithdrawCredits(ctx, service.WithdrawCreditsRequest{
+	UserID:     userID,
+	CreditType: "api_dollars",
+	Amount:     100,
+	Source:     "api_call",
+})
 
 // Hold credits for long-running job
-hold, err := svc.HoldCredits(ctx, userID, "gpu_minutes", 6000, "gpu_job", jobID, expiry)
+// HoldCredits returns a durable hold ID (backed by `billing.credit_transactions`).
+hold, err := svc.HoldCredits(ctx, service.HoldCreditsRequest{
+	UserID:     userID,
+	CreditType: "gpu_minutes",
+	Amount:     6000,
+	Source:     "gpu_job",
+	SourceID:   jobID,
+	ExpiresAt:  expiry,
+})
 
 // Capture actual usage
-err = svc.CaptureHold(ctx, hold.ID, actualAmount)
+trx, err = svc.CaptureHold(ctx, service.CaptureHoldRequest{HoldID: hold.ID, Amount: actualAmount})
 ```

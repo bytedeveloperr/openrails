@@ -38,52 +38,30 @@ type CreditTransaction struct {
 	UserID          string     `bun:"user_id,notnull" json:"user_id"`
 	CreditTypeID    uuid.UUID  `bun:"credit_type_id,notnull" json:"credit_type_id"`
 	Amount          int64      `bun:"amount,notnull" json:"amount"`
-	BalanceAfter    int64      `bun:"balance_after,notnull" json:"balance_after"`
+	BalanceAfter    *int64     `bun:"balance_after,nullzero" json:"balance_after,omitempty"`
 	TransactionType string     `bun:"transaction_type,notnull" json:"transaction_type"`
+	Status          string     `bun:"status,notnull" json:"status"`
+	Authorized      *int64     `bun:"authorized_amount,nullzero" json:"authorized_amount,omitempty"`
+	Captured        *int64     `bun:"captured_amount,nullzero" json:"captured_amount,omitempty"`
 	Source          string     `bun:"source,notnull" json:"source"`
-	SourceID        *uuid.UUID `bun:"source_id,type:uuid,nullzero" json:"source_id,omitempty"`
+	SourceID        *string    `bun:"source_id,nullzero" json:"source_id,omitempty"`
 	ExpiresAt       *time.Time `bun:"expires_at,nullzero" json:"expires_at,omitempty"`
 	Description     *string    `bun:"description,nullzero" json:"description,omitempty"`
 	CreatedAt       time.Time  `bun:"created_at,notnull" json:"created_at"`
+	UpdatedAt       time.Time  `bun:"updated_at,notnull" json:"updated_at"`
 }
 
-type CreditExpiryBatch struct {
-	bun.BaseModel `bun:"table:billing.credit_expiry_batches,alias:ceb"`
+type CreditBlock struct {
+	bun.BaseModel `bun:"table:billing.credit_blocks,alias:cb"`
 
 	ID                  uuid.UUID  `bun:"id,pk,type:uuid" json:"id"`
 	UserID              string     `bun:"user_id,notnull" json:"user_id"`
 	CreditTypeID        uuid.UUID  `bun:"credit_type_id,notnull" json:"credit_type_id"`
 	OriginalAmount      int64      `bun:"original_amount,notnull" json:"original_amount"`
 	RemainingAmount     int64      `bun:"remaining_amount,notnull" json:"remaining_amount"`
-	ExpiresAt           time.Time  `bun:"expires_at,notnull" json:"expires_at"`
+	ExpiresAt           *time.Time `bun:"expires_at,nullzero" json:"expires_at,omitempty"`
 	SourceTransactionID *uuid.UUID `bun:"source_transaction_id,type:uuid,nullzero" json:"source_transaction_id,omitempty"`
 	CreatedAt           time.Time  `bun:"created_at,notnull" json:"created_at"`
 }
 
-type CreditHold struct {
-	bun.BaseModel `bun:"table:billing.credit_holds,alias:ch"`
-
-	ID           uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
-	UserID       string    `bun:"user_id,notnull" json:"user_id"`
-	CreditTypeID uuid.UUID `bun:"credit_type_id,notnull" json:"credit_type_id"`
-	Amount       int64     `bun:"amount,notnull" json:"amount"`
-	Source       string    `bun:"source,notnull" json:"source"`
-	SourceID     string    `bun:"source_id,notnull" json:"source_id"`
-	Status       string    `bun:"status,notnull" json:"status"`
-	ExpiresAt    time.Time `bun:"expires_at,notnull" json:"expires_at"`
-	Captured     *int64    `bun:"captured_amount,nullzero" json:"captured_amount,omitempty"`
-	CreatedAt    time.Time `bun:"created_at,notnull" json:"created_at"`
-	UpdatedAt    time.Time `bun:"updated_at,notnull" json:"updated_at"`
-}
-
-// SubscriptionCreditGrant is an idempotency record for subscription-driven credit grants
-// (e.g., recurring monthly stipends).
-type SubscriptionCreditGrant struct {
-	bun.BaseModel `bun:"table:billing.subscription_credit_grants,alias:scg"`
-
-	ID             uuid.UUID `bun:"id,pk,type:uuid" json:"id"`
-	SubscriptionID uuid.UUID `bun:"subscription_id,notnull" json:"subscription_id"`
-	CreditTypeID   uuid.UUID `bun:"credit_type_id,notnull" json:"credit_type_id"`
-	PeriodEnd      time.Time `bun:"period_end,notnull" json:"period_end"`
-	CreatedAt      time.Time `bun:"created_at,notnull" json:"created_at"`
-}
+// Note: subscription_credit_grants table was removed in favor of deterministic deposit SourceIDs.

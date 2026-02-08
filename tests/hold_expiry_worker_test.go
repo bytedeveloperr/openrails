@@ -54,20 +54,28 @@ func (suite *TestContainerSuite) createTestCreditBalance(userID string, creditTy
 	return bal
 }
 
-// createTestCreditHold creates a credit hold for testing
-func (suite *TestContainerSuite) createTestCreditHold(userID string, creditTypeID uuid.UUID, amount int64, status string, expiresAt time.Time) *models.CreditHold {
+// createTestCreditHold creates a credit hold for testing.
+// Holds are stored as billing.credit_transactions rows with transaction_type='hold'.
+func (suite *TestContainerSuite) createTestCreditHold(userID string, creditTypeID uuid.UUID, amount int64, status string, expiresAt time.Time) *models.CreditTransaction {
 	now := time.Now()
-	hold := &models.CreditHold{
-		ID:           uuid.New(),
-		UserID:       userID,
-		CreditTypeID: creditTypeID,
-		Amount:       amount,
-		Source:       "test",
-		SourceID:     uuid.New().String(),
-		Status:       status,
-		ExpiresAt:    expiresAt,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+	auth := amount
+	sid := uuid.New().String()
+	hold := &models.CreditTransaction{
+		ID:              uuid.New(),
+		UserID:          userID,
+		CreditTypeID:    creditTypeID,
+		Amount:          0,
+		BalanceAfter:    nil,
+		TransactionType: "hold",
+		Status:          status,
+		Authorized:      &auth,
+		Captured:        nil,
+		Source:          "test",
+		SourceID:        &sid,
+		ExpiresAt:       &expiresAt,
+		Description:     nil,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	_, err := suite.BunDB.NewInsert().Model(hold).Exec(context.Background())
 	if err != nil {
@@ -77,8 +85,8 @@ func (suite *TestContainerSuite) createTestCreditHold(userID string, creditTypeI
 }
 
 // getCreditHold retrieves a credit hold by ID
-func (suite *TestContainerSuite) getCreditHold(id uuid.UUID) *models.CreditHold {
-	hold := new(models.CreditHold)
+func (suite *TestContainerSuite) getCreditHold(id uuid.UUID) *models.CreditTransaction {
+	hold := new(models.CreditTransaction)
 	err := suite.BunDB.NewSelect().Model(hold).Where("id = ?", id).Scan(context.Background())
 	if err != nil {
 		panic(err)
@@ -229,7 +237,7 @@ func TestHoldExpiryWorkerMultipleUserHolds(t *testing.T) {
 	type testUser struct {
 		userID  string
 		balance *models.UserCreditBalance
-		hold    *models.CreditHold
+		hold    *models.CreditTransaction
 		holdAmt int64
 		heldAmt int64
 	}
@@ -294,7 +302,7 @@ func TestHoldExpiryWorkerBatching(t *testing.T) {
 	pastTime := now.Add(-1 * time.Hour)
 
 	// Create multiple expired holds
-	var holds []*models.CreditHold
+	var holds []*models.CreditTransaction
 	for i := 0; i < totalHolds; i++ {
 		hold := suite.createTestCreditHold(userID, creditType.ID, holdAmount, "active", pastTime)
 		holds = append(holds, hold)

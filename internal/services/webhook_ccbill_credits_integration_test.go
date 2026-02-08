@@ -33,10 +33,10 @@ func TestCCBillRenewalSuccess_GrantsCreditsOnce(t *testing.T) {
 
 	var exists bool
 	require.NoError(t, bunDB.NewSelect().
-		ColumnExpr("EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='billing' AND table_name='subscription_credit_grants')").
+		ColumnExpr("EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='billing' AND table_name='credit_blocks')").
 		Scan(ctx, &exists))
 	if !exists {
-		t.Skip("billing.subscription_credit_grants not found; run migrations before integration tests")
+		t.Skip("billing.credit_blocks not found; run migrations before integration tests")
 	}
 
 	dbi, err := db.NewWithBun(bunDB)
@@ -110,8 +110,7 @@ func TestCCBillRenewalSuccess_GrantsCreditsOnce(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = bunDB.NewDelete().Model((*models.SubscriptionCreditGrant)(nil)).Where("subscription_id = ?", subID).Exec(ctx)
-		_, _ = bunDB.NewDelete().Model((*models.CreditExpiryBatch)(nil)).Where("user_id = ?", userID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.CreditBlock)(nil)).Where("user_id = ?", userID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.CreditTransaction)(nil)).Where("user_id = ?", userID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.UserCreditBalance)(nil)).Where("user_id = ?", userID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.Payment)(nil)).Where("subscription_id = ?", subID).Exec(ctx)

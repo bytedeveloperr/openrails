@@ -66,11 +66,11 @@ func (w HoldExpiryWorker) Work(ctx context.Context, job *river.Job[HoldExpiryArg
 			return err
 		}
 
-		// Find expired active holds
-		var holds []models.CreditHold
+		// Find expired active holds (stored as credit_transactions rows with transaction_type='hold')
+		var holds []models.CreditTransaction
 		if err := tx.NewSelect().
 			Model(&holds).
-			Where("status = ? AND expires_at <= ?", "active", now).
+			Where("transaction_type = ? AND status = ? AND expires_at IS NOT NULL AND expires_at <= ?", "hold", "active", now).
 			OrderExpr("expires_at ASC").
 			Limit(batchSize).
 			For("UPDATE SKIP LOCKED").
@@ -95,8 +95,11 @@ func (w HoldExpiryWorker) Work(ctx context.Context, job *river.Job[HoldExpiryArg
 
 		for i := range holds {
 			hold := &holds[i]
+			if hold.Authorized == nil || *hold.Authorized <= 0 {
+				continue
+			}
 			k := key{UserID: hold.UserID, CreditTypeID: hold.CreditTypeID}
-			releasedTotals[k] += hold.Amount
+			releasedTotals[k] += *hold.Authorized
 
 			// Mark hold as expired
 			hold.Status = "expired"

@@ -115,6 +115,39 @@
         "[ ] Define auth + admin/operator access model"
       ],
       "completed": false
+    },
+    {
+      "id": 202,
+      "name": "admin-credit-blocks (manual grant + revoke by block)",
+      "description": "Add a minimal admin surface for managing user credits as immutable \"blocks\":\n\n- Admin can **create** a credit block (grant credits, optional expiry)\n- Admin can **delete** a credit block (revoke the remaining credits from that specific grant)\n\nThis intentionally avoids a full taxonomy (refund/admin_adjust/etc.). The goal is a small, safe API that maps to support workflows.\n\n## Metadata\n\n- Category: admin\n- Status: future\n- Passes: false\n\n## Goals\n\n- Minimal mutation surface: create block, delete block.\n- Revocation is scoped to a specific block/grant, not \"take N credits from the user\".\n- Strong consistency under concurrency (holds, captures, withdrawals, and block revocation).\n- Clear auditability: who/what/when/why for every admin mutation.\n\n## Non-goals (initially)\n\n- Editing blocks (no partial edits or amount changes).\n- Automatically interpreting payment refunds as credit revocations.\n- Allowing negative balances (clawbacks) unless explicitly added later.\n\n## Design sketch\n\n### Data model\n\nToday, revocation-by-block is hard because only expiring deposits create `billing.credit_expiry_batches`, and withdrawals consume FIFO by `expires_at`.\n\nIntroduce an explicit \"block\" record so we can revoke remaining credits precisely:\n\n- New table: `billing.credit_blocks`\n  - {id, user_id, credit_type_id, original_amount, remaining_amount, expires_at NULL, source, source_id UUID NULL, created_by, revoke_reason, revoked_at, created_at, updated_at}\n  - Unique/indexes: (user_id, credit_type_id, expires_at), (user_id, credit_type_id, revoked_at IS NULL)\n\nConsumption rule:\n- On withdrawal/capture, decrement `credit_blocks.remaining_amount` in deterministic order:\n  - Prefer earliest `expires_at` first, then oldest created.\n  - Treat NULL expires as \"never\", ordered last.\n\nBalances rule:\n- Keep `billing.user_credit_balances` as the fast denormalized read.\n- All mutations that affect blocks also update `balance` in the same DB transaction.\n\n### APIs\n\nPrivate admin/service routes (X-API-KEY):\n- `POST /v1/admin/credit-blocks` create a block\n- `DELETE /v1/admin/credit-blocks/:id` revoke remaining credits from that block\n- (Optional but likely needed) `GET /v1/admin/credit-blocks?user_id=&type=` list blocks for a user\n\n### Semantics for delete/revoke\n\n- Default: revoke only the block's `remaining_amount` at time of deletion.\n- If the block has been partially spent, deletion still succeeds and just removes what remains.\n- Guardrail: do not allow revocation that would make `balance < held_balance`.\n  - Return 409 with guidance to release/expire holds first.\n\n## Integration points\n\n- `internal/services/credits_service.go`:\n  - Add a block-backed accounting path for deposits/withdrawals/captures.\n  - Keep existing ledger writes to `billing.credit_transactions` for observability.\n- `internal/river/jobs_credit_expiry.go`:\n  - If blocks have expiries, expiry worker should zero `remaining_amount` and reduce balance (analogous to existing batches).\n  - Or keep expiry as a direct block operation without `credit_expiry_batches`.\n\n## Exit Criteria\n\n- Admin can grant credits with optional expiry as blocks.\n- Admin can delete a block and the system removes only the remaining credits from that grant.\n- All operations are race-safe with holds/capture/withdrawal.\n- Tests cover concurrency and edge cases (partial spend + revoke, holds present, expiry).",
+      "tasks": [
+        "DATA MODEL:",
+        "[ ] Add migration for billing.credit_blocks table + indexes",
+        "[ ] Decide how to map existing credit_expiry_batches (keep, migrate, or deprecate)",
+        "",
+        "SERVICE METHODS:",
+        "[ ] Add CreateCreditBlock(user_id, type, amount, expires_at?, reason, source?)",
+        "[ ] Add RevokeCreditBlock(block_id, reason) that removes remaining_amount and marks revoked_at",
+        "[ ] Update withdrawal/capture logic to consume from blocks deterministically (expiry first)",
+        "[ ] Enforce guardrail: prevent balance dropping below held_balance on revoke/expiry",
+        "",
+        "HTTP API:",
+        "[ ] Add private admin endpoints under /v1/admin (create/delete/list blocks)",
+        "[ ] Return stable IDs for blocks and expose remaining/expiry info",
+        "",
+        "WORKERS:",
+        "[ ] Implement expiry worker for credit_blocks (or adapt existing credit expiry worker)",
+        "",
+        "AUDITABILITY:",
+        "[ ] Plumb through actor + reason fields from admin requests",
+        "[ ] Add structured audit log event per mutation (optional table if not already present)",
+        "",
+        "TESTS:",
+        "[ ] Integration tests: create block -> spend -> revoke -> verify balances and remaining",
+        "[ ] Integration tests: revoke blocked by holds (balance < held_balance)",
+        "[ ] Concurrency test: withdrawal and revoke racing (no double spend, no negative remaining)"
+      ],
+      "completed": false
     }
   ]
 }

@@ -32,7 +32,7 @@ func wrapHandler(rt *app.Runtime, fn func(r *handlers.Request)) gin.HandlerFunc 
 // Example usage for embedded hosts:
 //
 //	router := gin.Default()
-//	api := router.Group("/v1")
+//	api := router.Group("/billing/v1")
 //	routes.RegisterUserRoutes(api, runtime, routes.Options{
 //	    AuthProvider: myAuthProvider,
 //	})
@@ -90,7 +90,7 @@ func RegisterUserRoutes(group *gin.RouterGroup, rt *app.Runtime, opts Options) {
 // Example usage for embedded hosts:
 //
 //	router := gin.Default()
-//	admin := router.Group("/v1/admin")
+//	admin := router.Group("/billing/v1/admin")
 //	routes.RegisterAdminRoutes(admin, runtime, routes.Options{
 //	    AuthProvider: myAuthProvider,
 //	})
@@ -139,7 +139,7 @@ func RegisterAdminRoutes(group *gin.RouterGroup, rt *app.Runtime, opts Options) 
 // Example usage for embedded hosts:
 //
 //	router := gin.Default()
-//	webhooks := router.Group("/v1/webhooks")
+//	webhooks := router.Group("/billing/v1/webhooks")
 //	routes.RegisterWebhookRoutes(webhooks, runtime)
 func RegisterWebhookRoutes(group *gin.RouterGroup, rt *app.Runtime) {
 	wrap := func(fn func(r *handlers.Request)) gin.HandlerFunc {
@@ -156,7 +156,7 @@ func RegisterWebhookRoutes(group *gin.RouterGroup, rt *app.Runtime) {
 // Example usage:
 //
 //	router := gin.Default()
-//	svc := router.Group("/v1")
+//	svc := router.Group("/billing/v1")
 //	routes.RegisterServiceRoutes(svc, runtime, apiKeyMiddleware)
 func RegisterServiceRoutes(group *gin.RouterGroup, rt *app.Runtime, authMiddleware gin.HandlerFunc) {
 	wrap := func(fn func(r *handlers.Request)) gin.HandlerFunc {
@@ -175,6 +175,7 @@ func RegisterServiceRoutes(group *gin.RouterGroup, rt *app.Runtime, authMiddlewa
 	credits.POST("/hold", wrap(handlers.ServiceHoldCredits))
 	credits.POST("/holds/:id/capture", wrap(handlers.ServiceCaptureHold))
 	credits.POST("/holds/:id/release", wrap(handlers.ServiceReleaseHold))
+	credits.GET("/transactions/lookup", wrap(handlers.ServiceLookupCreditTransaction))
 	credits.GET("/users/:user_id", wrap(handlers.ServiceGetUserCredits))
 
 	// Credit type definitions (host-configurable)

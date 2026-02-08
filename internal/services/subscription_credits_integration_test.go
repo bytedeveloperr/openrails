@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -33,10 +34,10 @@ func runGrantSubscriptionCredits_Idempotent_PerPeriod(t *testing.T) {
 	// Ensure migration table exists; if not, fail fast with a helpful message.
 	var exists bool
 	require.NoError(t, bunDB.NewSelect().
-		ColumnExpr("EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='billing' AND table_name='subscription_credit_grants')").
+		ColumnExpr("EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='billing' AND table_name='credit_blocks')").
 		Scan(ctx, &exists))
 	if !exists {
-		t.Skip("billing.subscription_credit_grants not found; run migrations before integration tests")
+		t.Skip("billing.credit_blocks not found; run migrations before integration tests")
 	}
 
 	dbi, err := db.NewWithBun(bunDB)
@@ -106,8 +107,7 @@ func runGrantSubscriptionCredits_Idempotent_PerPeriod(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = bunDB.NewDelete().Model((*models.SubscriptionCreditGrant)(nil)).Where("subscription_id = ?", subID).Exec(ctx)
-		_, _ = bunDB.NewDelete().Model((*models.CreditExpiryBatch)(nil)).Where("user_id = ?", userID).Exec(ctx)
+		_, _ = bunDB.NewDelete().Model((*models.CreditBlock)(nil)).Where("user_id = ?", userID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.CreditTransaction)(nil)).Where("user_id = ?", userID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.UserCreditBalance)(nil)).Where("user_id = ?", userID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.Subscription)(nil)).Where("id = ?", subID).Exec(ctx)
@@ -131,13 +131,6 @@ func runGrantSubscriptionCredits_Idempotent_PerPeriod(t *testing.T) {
 		Source:         "subscription_renewal",
 	}))
 
-	grantCount, err := bunDB.NewSelect().
-		Model((*models.SubscriptionCreditGrant)(nil)).
-		Where("subscription_id = ?", subID).
-		Count(ctx)
-	require.NoError(t, err)
-	require.Equal(t, 1, grantCount)
-
 	depositCount, err := bunDB.NewSelect().
 		Model((*models.CreditTransaction)(nil)).
 		Where("user_id = ? AND credit_type_id = ?", userID, creditTypeID).
@@ -145,6 +138,21 @@ func runGrantSubscriptionCredits_Idempotent_PerPeriod(t *testing.T) {
 		Count(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 1, depositCount)
+
+	expectedGrantID := uuid.NewSHA1(
+		uuid.NameSpaceOID,
+		[]byte(fmt.Sprintf("openrails:sub_credit_grant:%s:%s:%s", subID, creditTypeID, periodEnd.UTC().Format(time.RFC3339Nano))),
+	)
+
+	dep := new(models.CreditTransaction)
+	require.NoError(t, bunDB.NewSelect().
+		Model(dep).
+		Where("user_id = ? AND credit_type_id = ?", userID, creditTypeID).
+		Where("transaction_type = 'deposit' AND source = 'subscription_renewal'").
+		Limit(1).
+		Scan(ctx))
+	require.NotNil(t, dep.SourceID)
+	require.Equal(t, expectedGrantID.String(), *dep.SourceID)
 
 	bal := new(models.UserCreditBalance)
 	require.NoError(t, bunDB.NewSelect().
@@ -181,10 +189,10 @@ func TestGrantSubscriptionCredits_MixedCadence(t *testing.T) {
 
 	var exists bool
 	require.NoError(t, bunDB.NewSelect().
-		ColumnExpr("EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='billing' AND table_name='subscription_credit_grants')").
+		ColumnExpr("EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='billing' AND table_name='credit_blocks')").
 		Scan(ctx, &exists))
 	if !exists {
-		t.Skip("billing.subscription_credit_grants not found; run migrations before integration tests")
+		t.Skip("billing.credit_blocks not found; run migrations before integration tests")
 	}
 
 	dbi, err := db.NewWithBun(bunDB)
@@ -267,7 +275,6 @@ func TestGrantSubscriptionCredits_MixedCadence(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
-		_, _ = bunDB.NewDelete().Model((*models.SubscriptionCreditGrant)(nil)).Where("subscription_id = ?", subID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.CreditTransaction)(nil)).Where("user_id = ?", userID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.UserCreditBalance)(nil)).Where("user_id = ?", userID).Exec(ctx)
 		_, _ = bunDB.NewDelete().Model((*models.Subscription)(nil)).Where("id = ?", subID).Exec(ctx)

@@ -719,10 +719,17 @@ func (s *CheckoutSessionService) sessionToResponse(session *models.CheckoutSessi
 		}
 		// Build solana_pay_url for transaction_request flow
 		if flow, ok := session.ProcessorState["flow"].(string); ok && flow == "transaction_request" {
-			// Construct the Solana Pay URL: solana:{api_url}/v1/checkout/:id/solana-pay
+			// Construct the Solana Pay URL:
+			// - standalone: solana:{api_url}/v1/checkout/:id/solana-pay
+			// - embedded:   solana:{api_url}/v1/checkout/:id/solana-pay (api_url typically ends with /billing)
 			baseURL := s.getAPIBaseURL()
 			if baseURL != "" {
-				resp.Payment.SolanaPayURL = fmt.Sprintf("solana:%s/v1/checkout/%s/solana-pay", baseURL, api.FormatCheckoutSessionID(session.ID))
+				resp.Payment.SolanaPayURL = fmt.Sprintf(
+					"solana:%s%s/checkout/%s/solana-pay",
+					baseURL,
+					s.getExternalV1Path(baseURL),
+					api.FormatCheckoutSessionID(session.ID),
+				)
 			}
 		}
 		if val, ok := session.ProcessorState["redirect_url"].(string); ok && strings.TrimSpace(val) != "" {
@@ -821,17 +828,37 @@ func (s *CheckoutSessionService) buildNextAction(resp *CheckoutSessionResponse) 
 // Standalone: "https://api.mysite.com" → routes at /v1/*
 // Embedded:   "https://api.mysite.com/billing" → routes at /billing/v1/*
 //
-// Generated URLs follow the pattern: APIURL + "/v1/checkout/:id/solana-pay"
+// Generated URLs follow the pattern: APIURL + {v1Path} + "/checkout/:id/solana-pay"
 func (s *CheckoutSessionService) getAPIBaseURL() string {
 	if s.config == nil {
 		return ""
 	}
 	apiURL := strings.TrimSpace(s.config.APIURL)
 	if apiURL == "" {
+		// Fallback for older configs/tests that set Host as a full URL.
+		// Only accept values that look like a URL to avoid accidentally emitting
+		// unusable links like "0.0.0.0".
+		if strings.Contains(s.config.Host, "://") {
+			apiURL = strings.TrimSpace(s.config.Host)
+		}
+	}
+	if apiURL == "" {
 		return ""
 	}
-	// Ensure it doesn't end with a slash (we add /v1/... later)
+	// Ensure it doesn't end with a slash (we add the version path later)
 	return strings.TrimSuffix(apiURL, "/")
+}
+
+// getExternalV1Path decides which version path to append to APIURL for externally visible URLs.
+//
+// Embedded hosts typically mount billing under "/billing", so APIURL ends with "/billing"
+// and the external contract becomes "/billing/v1/*".
+func (s *CheckoutSessionService) getExternalV1Path(baseURL string) string {
+	baseURL = strings.TrimSuffix(strings.TrimSpace(baseURL), "/")
+	if strings.HasSuffix(strings.ToLower(baseURL), "/billing") {
+		return "/v1"
+	}
+	return "/v/1"
 }
 
 func (s *CheckoutSessionService) confirmSolanaSession(ctx context.Context, session *models.CheckoutSession, req *CheckoutSessionConfirmRequest, user *UserIdentity) (*CheckoutSessionResponse, error) {

@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"database/sql"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -334,6 +336,46 @@ func ServiceGetUserCredits(r *Request) {
 		"balance":      bal.Balance,
 		"held_balance": bal.HeldBalance,
 	})
+}
+
+// ServiceLookupCreditTransaction looks up a single credit transaction by its idempotency key.
+// GET /v1/credits/transactions/lookup?user_id=...&credit_type=...&source=...&source_id=...&transaction_type=hold
+func ServiceLookupCreditTransaction(r *Request) {
+	userID := strings.TrimSpace(r.Request.URL.Query().Get("user_id"))
+	if userID == "" {
+		r.ErrorJSON(http.StatusBadRequest, "user_id required")
+		return
+	}
+	creditType := strings.TrimSpace(r.Request.URL.Query().Get("credit_type"))
+	if creditType == "" {
+		r.ErrorJSON(http.StatusBadRequest, "credit_type required")
+		return
+	}
+	source := strings.TrimSpace(r.Request.URL.Query().Get("source"))
+	if source == "" {
+		r.ErrorJSON(http.StatusBadRequest, "source required")
+		return
+	}
+	sourceID := strings.TrimSpace(r.Request.URL.Query().Get("source_id"))
+	if sourceID == "" {
+		r.ErrorJSON(http.StatusBadRequest, "source_id required")
+		return
+	}
+	transactionType := strings.TrimSpace(r.Request.URL.Query().Get("transaction_type"))
+	if transactionType == "" {
+		transactionType = "hold"
+	}
+
+	trx, err := r.State.CreditsService.GetTransactionBySource(r.Request.Context(), userID, creditType, transactionType, source, sourceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			r.ErrorJSON(http.StatusNotFound, "not found")
+			return
+		}
+		r.ErrorJSON(http.StatusBadRequest, err.Error())
+		return
+	}
+	r.SuccessJSON(trx)
 }
 
 func derefInt64(v *int64) int64 {

@@ -21,7 +21,7 @@ type CreditExpiryArgs struct{}
 
 func (CreditExpiryArgs) Kind() string { return KindCreditExpiry }
 
-// CreditExpiryWorker expires credit batches that have passed their expiration date.
+// CreditExpiryWorker expires credit blocks that have passed their expiration date.
 // Controlled by config.FeatureFlags.DisableEntitlementExpiration - when true, skips expiration.
 type CreditExpiryWorker struct {
 	river.WorkerDefaults[CreditExpiryArgs]
@@ -62,10 +62,10 @@ func (w CreditExpiryWorker) Work(ctx context.Context, job *river.Job[CreditExpir
 		if err != nil {
 			return err
 		}
-		var batches []models.CreditExpiryBatch
+		var blocks []models.CreditBlock
 		if err := tx.NewSelect().
-			Model(&batches).
-			Where("remaining_amount > 0 AND expires_at <= ?", now).
+			Model(&blocks).
+			Where("remaining_amount > 0 AND expires_at IS NOT NULL AND expires_at <= ?", now).
 			OrderExpr("expires_at ASC").
 			Limit(batchSize).
 			For("UPDATE SKIP LOCKED").
@@ -73,7 +73,7 @@ func (w CreditExpiryWorker) Work(ctx context.Context, job *river.Job[CreditExpir
 			_ = tx.Rollback()
 			return err
 		}
-		if len(batches) == 0 {
+		if len(blocks) == 0 {
 			if err := tx.Commit(); err != nil {
 				return err
 			}
@@ -85,14 +85,14 @@ func (w CreditExpiryWorker) Work(ctx context.Context, job *river.Job[CreditExpir
 			CreditTypeID uuid.UUID
 		}
 		expiredTotals := make(map[key]int64)
-		for i := range batches {
-			if batches[i].RemainingAmount <= 0 {
+		for i := range blocks {
+			if blocks[i].RemainingAmount <= 0 {
 				continue
 			}
-			k := key{UserID: batches[i].UserID, CreditTypeID: batches[i].CreditTypeID}
-			expiredTotals[k] += batches[i].RemainingAmount
-			batches[i].RemainingAmount = 0
-			if _, err := tx.NewUpdate().Model(&batches[i]).
+			k := key{UserID: blocks[i].UserID, CreditTypeID: blocks[i].CreditTypeID}
+			expiredTotals[k] += blocks[i].RemainingAmount
+			blocks[i].RemainingAmount = 0
+			if _, err := tx.NewUpdate().Model(&blocks[i]).
 				Column("remaining_amount").
 				WherePK().
 				Exec(ctx); err != nil {
@@ -150,11 +150,13 @@ func (w CreditExpiryWorker) Work(ctx context.Context, job *river.Job[CreditExpir
 				UserID:          k.UserID,
 				CreditTypeID:    k.CreditTypeID,
 				Amount:          -amount,
-				BalanceAfter:    newBalance,
+				BalanceAfter:    &newBalance,
 				TransactionType: "expiry",
+				Status:          "posted",
 				Source:          "expiry_job",
 				ExpiresAt:       &now,
 				CreatedAt:       now,
+				UpdatedAt:       now,
 			}
 			if _, err := tx.NewInsert().Model(trx).Exec(ctx); err != nil {
 				_ = tx.Rollback()
@@ -165,8 +167,8 @@ func (w CreditExpiryWorker) Work(ctx context.Context, job *river.Job[CreditExpir
 		if err := tx.Commit(); err != nil {
 			return err
 		}
-		logger.WithField("expired_batches", len(batches)).Info("expired credit batches")
-		if len(batches) < batchSize {
+		logger.WithField("expired_blocks", len(blocks)).Info("expired credit blocks")
+		if len(blocks) < batchSize {
 			break
 		}
 	}

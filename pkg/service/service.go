@@ -90,14 +90,26 @@ func (s *Service) HoldCredits(ctx context.Context, req HoldCreditsRequest) (*Cre
 	if err != nil {
 		return nil, err
 	}
+	amount := int64(0)
+	if hold.Authorized != nil {
+		amount = *hold.Authorized
+	}
+	expiresAt := time.Time{}
+	if hold.ExpiresAt != nil {
+		expiresAt = hold.ExpiresAt.UTC()
+	}
+	srcID := ""
+	if hold.SourceID != nil {
+		srcID = *hold.SourceID
+	}
 	return &CreditHold{
 		ID:        hold.ID,
 		UserID:    hold.UserID,
-		Amount:    hold.Amount,
+		Amount:    amount,
 		Source:    hold.Source,
-		SourceID:  hold.SourceID,
+		SourceID:  srcID,
 		Status:    hold.Status,
-		ExpiresAt: hold.ExpiresAt,
+		ExpiresAt: expiresAt,
 		Captured:  hold.Captured,
 		CreatedAt: hold.CreatedAt,
 		UpdatedAt: hold.UpdatedAt,
@@ -112,13 +124,19 @@ type CaptureHoldRequest struct {
 type CreditTransaction struct {
 	ID              uuid.UUID
 	UserID          string
+	CreditTypeID    uuid.UUID
 	Amount          int64
+	BalanceAfter    *int64
 	TransactionType string
+	Status          string
+	Authorized      *int64
+	Captured        *int64
 	Source          string
-	SourceID        *uuid.UUID
+	SourceID        *string
 	ExpiresAt       *time.Time
 	Description     *string
 	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 type WithdrawCreditsRequest struct {
@@ -161,13 +179,19 @@ func (s *Service) WithdrawCredits(ctx context.Context, req WithdrawCreditsReques
 	return &CreditTransaction{
 		ID:              trx.ID,
 		UserID:          trx.UserID,
+		CreditTypeID:    trx.CreditTypeID,
 		Amount:          trx.Amount,
+		BalanceAfter:    trx.BalanceAfter,
 		TransactionType: trx.TransactionType,
+		Status:          trx.Status,
+		Authorized:      trx.Authorized,
+		Captured:        trx.Captured,
 		Source:          trx.Source,
 		SourceID:        trx.SourceID,
 		ExpiresAt:       trx.ExpiresAt,
 		Description:     trx.Description,
 		CreatedAt:       trx.CreatedAt,
+		UpdatedAt:       trx.UpdatedAt,
 	}, nil
 }
 
@@ -215,13 +239,19 @@ func (s *Service) DepositCredits(ctx context.Context, req DepositCreditsRequest)
 	return &CreditTransaction{
 		ID:              trx.ID,
 		UserID:          trx.UserID,
+		CreditTypeID:    trx.CreditTypeID,
 		Amount:          trx.Amount,
+		BalanceAfter:    trx.BalanceAfter,
 		TransactionType: trx.TransactionType,
+		Status:          trx.Status,
+		Authorized:      trx.Authorized,
+		Captured:        trx.Captured,
 		Source:          trx.Source,
 		SourceID:        trx.SourceID,
 		ExpiresAt:       trx.ExpiresAt,
 		Description:     trx.Description,
 		CreatedAt:       trx.CreatedAt,
+		UpdatedAt:       trx.UpdatedAt,
 	}, nil
 }
 
@@ -242,13 +272,19 @@ func (s *Service) CaptureHold(ctx context.Context, req CaptureHoldRequest) (*Cre
 	return &CreditTransaction{
 		ID:              trx.ID,
 		UserID:          trx.UserID,
+		CreditTypeID:    trx.CreditTypeID,
 		Amount:          trx.Amount,
+		BalanceAfter:    trx.BalanceAfter,
 		TransactionType: trx.TransactionType,
+		Status:          trx.Status,
+		Authorized:      trx.Authorized,
+		Captured:        trx.Captured,
 		Source:          trx.Source,
 		SourceID:        trx.SourceID,
 		ExpiresAt:       trx.ExpiresAt,
 		Description:     trx.Description,
 		CreatedAt:       trx.CreatedAt,
+		UpdatedAt:       trx.UpdatedAt,
 	}, nil
 }
 
