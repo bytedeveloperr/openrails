@@ -48,6 +48,7 @@ func TestLoad_APIKeyFromEnv(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"http://a.test", "http://b.test"}, cfg.Auth.Issuers)
 	})
+
 }
 
 func TestLoad_ConfigFileAndEnvPrecedence(t *testing.T) {

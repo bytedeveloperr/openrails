@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
-	"strconv"
+	"math/big"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/open-rails/openrails/internal/db/models"
 
@@ -118,9 +118,9 @@ func transactionSubscriptionID(body *NMITransactionEventBody) string {
 	if body.Subscription != nil {
 		candidates = append(candidates, body.Subscription.SubscriptionID.Trimmed())
 	}
-	/*if body.TransactionDetail != nil && body.TransactionDetail.Subscription != nil {
+	if body.TransactionDetail != nil && body.TransactionDetail.Subscription != nil && !body.TransactionDetail.Subscription.SubscriptionID.IsEmpty() {
 		candidates = append(candidates, body.TransactionDetail.Subscription.SubscriptionID.Trimmed())
-	}*/
+	}
 	candidates = append(candidates, body.OrderID.Trimmed())
 	if body.TransactionDetail != nil {
 		candidates = append(candidates, body.TransactionDetail.OrderID.Trimmed())
@@ -136,13 +136,37 @@ func transactionSubscriptionID(body *NMITransactionEventBody) string {
 		}*/
 
 	for _, candidate := range candidates {
-		log.Println("[DEBUG] Checking candidate ID:", candidate)
-		if candidate != "" {
-			return candidate
+		if strings.TrimSpace(candidate) != "" {
+			return strings.TrimSpace(candidate)
 		}
 	}
 
 	return ""
+}
+
+func (s *NMIWebhookService) resolveSubscriptionFromReference(ctx context.Context, provider, reference string) (*models.Subscription, error) {
+	if s.SubscriptionService == nil {
+		return nil, fmt.Errorf("subscription service is required")
+	}
+	ref := strings.TrimSpace(reference)
+	if ref == "" {
+		return nil, sql.ErrNoRows
+	}
+
+	// Primary lookup: provider/external subscription ID as sent by NMI.
+	subscription, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, s.Processor, provider, ref)
+	if err == nil {
+		return subscription, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("load subscription by processor subscription ID: %w", err)
+	}
+
+	// Fallback lookup: UUID if the reference is a local subscription ID.
+	subID, parseErr := uuid.Parse(ref)
+	if parseErr != nil {
+		return nil, sql.ErrNoRows
+	}
+	return s.SubscriptionService.GetByID(ctx, subID)
 }
 
 func transactionActionSource(body *NMITransactionEventBody) string {
@@ -180,19 +204,28 @@ func transactionPlanID(body *NMITransactionEventBody) string {
 	return ""
 }
 
-func transactionAmount(body *NMITransactionEventBody) (float64, error) {
+func transactionAmountRaw(body *NMITransactionEventBody) (string, error) {
 	if body == nil {
-		return 0, fmt.Errorf("transaction body is nil")
+		return "", fmt.Errorf("transaction body is nil")
 	}
-	if amt, err := body.Amount.Float64(); err == nil {
-		return amt, nil
-	}
+	candidates := []string{body.Amount.Trimmed()}
 	if body.TransactionDetail != nil {
-		if amt, err := body.TransactionDetail.Amount.Float64(); err == nil {
-			return amt, nil
+		candidates = append(candidates, body.TransactionDetail.Amount.Trimmed())
+	}
+	if body.Action != nil {
+		candidates = append(candidates, body.Action.Amount.Trimmed())
+	}
+	if body.TransactionDetail != nil && body.TransactionDetail.Action != nil {
+		candidates = append(candidates, body.TransactionDetail.Action.Amount.Trimmed())
+	}
+
+	for _, value := range candidates {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value), nil
 		}
 	}
-	return 0, fmt.Errorf("amount not provided")
+
+	return "", fmt.Errorf("amount not provided")
 }
 
 func transactionCurrency(body *NMITransactionEventBody) string {
@@ -208,27 +241,80 @@ func transactionCurrency(body *NMITransactionEventBody) string {
 	return ""
 }
 
-func parseTransactionAmount(body *NMITransactionEventBody) (float64, error) {
-	if body == nil {
-		return 0, fmt.Errorf("nil transaction body")
+func normalizeNMICurrencyValue(primary string, fallbacks ...string) string {
+	allValues := append([]string{primary}, fallbacks...)
+	for _, value := range allValues {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized != "" {
+			return normalized
+		}
 	}
-	amountStr := body.Amount.Trimmed()
-	if amountStr == "" && body.TransactionDetail != nil {
-		amountStr = body.TransactionDetail.Amount.Trimmed()
+	return "usd"
+}
+
+func getOriginalTransactionID(body *NMITransactionEventBody) string {
+	if body == nil || body.TransactionDetail == nil {
+		return ""
+	}
+	return strings.TrimSpace(body.TransactionDetail.TransactionID.Trimmed())
+}
+
+func parseAmountToCentsExact(raw string) (int64, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return 0, fmt.Errorf("amount is empty")
 	}
 
-	if amountStr == "" && body.Action != nil {
-		amountStr = body.Action.Amount.Trimmed()
-	}
-	if amountStr == "" {
-		return 0, fmt.Errorf("no amount in transaction body")
+	parsed, ok := new(big.Rat).SetString(trimmed)
+	if !ok {
+		return 0, fmt.Errorf("invalid decimal amount %q", trimmed)
 	}
 
-	var amount float64
-	if _, err := fmt.Sscanf(amountStr, "%f", &amount); err != nil {
-		return 0, fmt.Errorf("failed to parse amount '%s': %w", amountStr, err)
+	scaled := new(big.Rat).Mul(parsed, big.NewRat(100, 1))
+	return roundRatHalfAwayFromZero(scaled)
+}
+
+func roundRatHalfAwayFromZero(value *big.Rat) (int64, error) {
+	if value == nil {
+		return 0, fmt.Errorf("value is nil")
 	}
-	return amount, nil
+	if value.Sign() == 0 {
+		return 0, nil
+	}
+
+	sign := value.Sign()
+	num := new(big.Int).Abs(value.Num())
+	den := new(big.Int).Set(value.Denom())
+
+	quotient, remainder := new(big.Int), new(big.Int)
+	quotient.QuoRem(num, den, remainder)
+
+	twiceRemainder := new(big.Int).Lsh(remainder, 1)
+	if twiceRemainder.Cmp(den) >= 0 {
+		quotient.Add(quotient, big.NewInt(1))
+	}
+
+	if !quotient.IsInt64() {
+		return 0, fmt.Errorf("amount is out of int64 range")
+	}
+
+	rounded := quotient.Int64()
+	if sign < 0 {
+		rounded = -rounded
+	}
+	return rounded, nil
+}
+
+func transactionAmountCents(body *NMITransactionEventBody) (int64, error) {
+	raw, err := transactionAmountRaw(body)
+	if err != nil {
+		return 0, err
+	}
+	return parseAmountToCentsExact(raw)
+}
+
+func amountFloatFromCents(cents int64) float64 {
+	return float64(cents) / 100.0
 }
 
 type NMIBillingError struct {
@@ -471,14 +557,14 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 
 	// Get amount from plan (in dollars as string, e.g., "19.00")
 	if body.Plan != nil && body.Plan.Amount.Trimmed() != "" {
-		amountFloat, err := strconv.ParseFloat(body.Plan.Amount.Trimmed(), 64)
-		if err != nil {
+		parsedAmountCents, amountErr := parseAmountToCentsExact(body.Plan.Amount.Trimmed())
+		if amountErr != nil {
 			log.WithContext(ctx).
-				WithError(err).
+				WithError(amountErr).
 				WithField("plan_amount", body.Plan.Amount.Trimmed()).
 				Warn("Failed to parse plan amount; falling back to price amount")
 		} else {
-			amountCents = int64(amountFloat * 100)
+			amountCents = parsedAmountCents
 		}
 	}
 
@@ -712,16 +798,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 	}*/
 	actionSource := ""
 
-	subID, err := uuid.Parse(nmiSubID)
-	if err != nil {
-		log.WithContext(ctx).WithFields(log.Fields{
-			"subscription_reference": nmiSubID,
-			"provider":               provider,
-		}).WithError(err).Error("Failed to parse subscription ID as UUID")
-		return fmt.Errorf("failed to parse subscription ID '%s' as UUID: %w", nmiSubID, err)
-	}
-
-	subscription, err := s.SubscriptionService.GetByID(ctx, subID)
+	subscription, err := s.resolveSubscriptionFromReference(ctx, provider, nmiSubID)
 	if err != nil {
 		log.WithContext(ctx).WithFields(log.Fields{
 			"subscription_reference": nmiSubID,
@@ -731,7 +808,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 	}
 	prevStatus := subscription.Status
 
-	amount, amountErr := transactionAmount(body)
+	parsedAmountCents, amountErr := transactionAmountCents(body)
 	currency := transactionCurrency(body)
 	txnID := body.TransactionID.Trimmed()
 	if txnID == "" && body.TransactionDetail != nil {
@@ -749,18 +826,14 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			amountCents = subscription.Price.Amount
 		}
 	} else {
-		amountCents = int64(amount * 100) // Convert dollars to cents
+		amountCents = parsedAmountCents
 	}
 
-	// Normalize currency
-	currencyValue := strings.ToLower(strings.TrimSpace(currency))
-	if currencyValue == "" {
-		if subscription.Price != nil && strings.TrimSpace(subscription.Price.Currency) != "" {
-			currencyValue = subscription.Price.Currency
-		} else {
-			currencyValue = "usd"
-		}
+	fallbackCurrency := ""
+	if subscription.Price != nil {
+		fallbackCurrency = subscription.Price.Currency
 	}
+	currencyValue := normalizeNMICurrencyValue(currency, fallbackCurrency)
 
 	processed := false
 
@@ -935,7 +1008,8 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 
 		var amountPtr *float64
 		if amountErr == nil {
-			amountPtr = &amount
+			amountValue := amountFloatFromCents(parsedAmountCents)
+			amountPtr = &amountValue
 		}
 
 		paymentEvent := PaymentEventData{
@@ -945,7 +1019,7 @@ func (s *NMIWebhookService) handleTransactionSaleSuccess(ctx context.Context) er
 			EventType:      PaymentEventChargeSuccess,
 			Processor:      s.Processor,
 			Amount:         amountPtr,
-			Currency:       currency,
+			Currency:       currencyValue,
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{}),
 			WebhookSource:  "webhook",
 			Metadata:       CreateMetadataJSON(metadata),
@@ -985,15 +1059,6 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		return newNMIBillingError(ErrorTypeNMIValidation, "Missing subscription reference", map[string]interface{}{}, nil)
 	}
 
-	subID, err := uuid.Parse(nmiSubID)
-	if err != nil {
-		log.WithContext(ctx).WithFields(log.Fields{
-			"subscription_reference": nmiSubID,
-			"provider":               provider,
-		}).WithError(err).Error("Failed to parse subscription ID as UUID")
-		return fmt.Errorf("failed to parse subscription ID '%s' as UUID: %w", nmiSubID, err)
-	}
-
 	//actionSource := "" //transactionActionSource(body)
 	/*if !isRecurringSource(actionSource) {
 		log.WithContext(ctx).
@@ -1011,7 +1076,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 	)
 
 	if s.SubscriptionService != nil {
-		subscription, fetchErr = s.SubscriptionService.GetByID(ctx, subID)
+		subscription, fetchErr = s.resolveSubscriptionFromReference(ctx, provider, nmiSubID)
 		if fetchErr != nil && !errors.Is(fetchErr, sql.ErrNoRows) {
 			log.WithContext(ctx).WithFields(log.Fields{
 				"processor_subscription_id": nmiSubID,
@@ -1074,7 +1139,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 				return fmt.Errorf("failed to mark payment as failed: %w", err)
 			}
 		} else {
-			amount, amountErr := transactionAmount(body)
+			parsedAmountCents, amountErr := transactionAmountCents(body)
 			currency := transactionCurrency(body)
 
 			var amountCents int64
@@ -1083,17 +1148,14 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 					amountCents = subscription.Price.Amount
 				}
 			} else {
-				amountCents = int64(amount * 100)
+				amountCents = parsedAmountCents
 			}
 
-			currencyValue := strings.ToLower(strings.TrimSpace(currency))
-			if currencyValue == "" {
-				if subscription.Price != nil && strings.TrimSpace(subscription.Price.Currency) != "" {
-					currencyValue = subscription.Price.Currency
-				} else {
-					currencyValue = "usd"
-				}
+			fallbackCurrency := ""
+			if subscription.Price != nil {
+				fallbackCurrency = subscription.Price.Currency
 			}
+			currencyValue := normalizeNMICurrencyValue(currency, fallbackCurrency)
 
 			listAmount := amountCents
 			if subscription.Price != nil && subscription.Price.Amount > 0 {
@@ -1136,7 +1198,7 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		log.WithContext(ctx).WithField("processor_subscription_id", nmiSubID).Info("Subscription marked as failed for NMI transaction failure")
 	}
 	if s.EventLogService != nil && subscription != nil {
-		if updated, err := s.SubscriptionService.GetByID(ctx, subID); err == nil && updated != nil {
+		if updated, err := s.SubscriptionService.GetByID(ctx, subscription.ID); err == nil && updated != nil {
 			subscription = updated
 		} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			log.WithContext(ctx).WithError(err).WithField("processor_subscription_id", nmiSubID).
@@ -1159,11 +1221,16 @@ func (s *NMIWebhookService) handleTransactionSaleFailure(ctx context.Context) er
 		}
 
 		var amountPtr *float64
-		if amt, amtErr := transactionAmount(body); amtErr == nil {
+		if amtCents, amtErr := transactionAmountCents(body); amtErr == nil {
+			amt := amountFloatFromCents(amtCents)
 			amountPtr = &amt
 		}
 
-		currency := transactionCurrency(body)
+		fallbackCurrency := ""
+		if subscription.Price != nil {
+			fallbackCurrency = subscription.Price.Currency
+		}
+		currency := normalizeNMICurrencyValue(transactionCurrency(body), fallbackCurrency)
 		paymentEvent := PaymentEventData{
 			EventID:        uuid.New(),
 			SubscriptionID: &subscription.ID,
@@ -1233,10 +1300,179 @@ func (s *NMIWebhookService) handleACUEvent(ctx context.Context) error {
 	return nil
 }
 
+type nmiChargebackMatch struct {
+	PaymentID               uuid.UUID
+	PaymentTransactionID    string
+	SubscriptionID          uuid.UUID
+	ProcessorSubscriptionID string
+	UserID                  string
+	AmountCents             int64
+	Currency                string
+	PurchasedAt             time.Time
+	CardLast4               string
+}
+
+func normalizeNMIChargebackLast4(raw string) string {
+	digits := strings.Builder{}
+	for _, r := range raw {
+		if unicode.IsDigit(r) {
+			digits.WriteRune(r)
+		}
+	}
+	value := digits.String()
+	if len(value) < 4 {
+		return ""
+	}
+	return value[len(value)-4:]
+}
+
+func parseNMIChargebackAmountCents(raw string) (int64, error) {
+	amountCents, err := parseAmountToCentsExact(raw)
+	if err != nil {
+		return 0, err
+	}
+	if amountCents <= 0 {
+		return 0, fmt.Errorf("amount must be positive")
+	}
+	return amountCents, nil
+}
+
+func parseNMIChargebackDate(raw string) (time.Time, bool) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		"2006-01-02",
+		"2006/01/02",
+		"20060102",
+		"1/2/2006",
+		"01/02/2006",
+		"1-2-2006",
+		"01-02-2006",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05Z07:00",
+		time.RFC3339,
+	}
+	for _, layout := range layouts {
+		if ts, err := time.Parse(layout, trimmed); err == nil {
+			return ts.UTC(), true
+		}
+	}
+	return time.Time{}, false
+}
+
+func splitNMIChargebackReason(rawReason, rawReasonCode string) (string, string) {
+	reasonCode := strings.TrimSpace(rawReasonCode)
+	reason := strings.TrimSpace(rawReason)
+
+	if reasonCode == "" {
+		if idx := strings.Index(reason, ":"); idx > 0 {
+			candidate := strings.TrimSpace(reason[:idx])
+			allDigits := candidate != ""
+			for _, r := range candidate {
+				if !unicode.IsDigit(r) {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits {
+				reasonCode = candidate
+				reason = strings.TrimSpace(reason[idx+1:])
+			}
+		}
+	}
+
+	return reasonCode, reason
+}
+
+func (s *NMIWebhookService) reconcileNMIChargebackEntry(ctx context.Context, processor string, cb NMIChargebackEntry) (*nmiChargebackMatch, map[string]interface{}, error) {
+	meta := map[string]interface{}{
+		"reconciliation_status": "unmatched",
+	}
+	if s == nil || s.DB == nil || s.DB.GetDB() == nil {
+		meta["reconciliation_error"] = "database unavailable"
+		return nil, meta, nil
+	}
+
+	last4 := normalizeNMIChargebackLast4(cb.CCNumber)
+	if last4 != "" {
+		meta["cc_last4_normalized"] = last4
+	}
+
+	var (
+		amountCents int64
+		amountErr   error
+	)
+	if amountCents, amountErr = parseNMIChargebackAmountCents(cb.Amount); amountErr == nil {
+		meta["amount_cents"] = amountCents
+	} else {
+		meta["amount_parse_error"] = amountErr.Error()
+	}
+
+	targetTs, dateParsed := parseNMIChargebackDate(cb.Date)
+	if dateParsed {
+		meta["chargeback_date_parsed"] = targetTs.Format(time.RFC3339)
+	} else {
+		meta["chargeback_date_parse_error"] = cb.Date
+	}
+
+	query := s.DB.GetDB().
+		NewSelect().
+		TableExpr("billing.payments AS p").
+		ColumnExpr("p.id AS payment_id").
+		ColumnExpr("p.transaction_id AS payment_transaction_id").
+		ColumnExpr("p.subscription_id AS subscription_id").
+		ColumnExpr("sub.processor_subscription_id AS processor_subscription_id").
+		ColumnExpr("p.user_id AS user_id").
+		ColumnExpr("p.amount AS amount_cents").
+		ColumnExpr("p.currency AS currency").
+		ColumnExpr("p.purchased_at AS purchased_at").
+		ColumnExpr("pm.last_four AS card_last4").
+		Join("JOIN billing.subscriptions AS sub ON sub.id = p.subscription_id").
+		Join("LEFT JOIN billing.payment_methods AS pm ON pm.id = sub.payment_method_id").
+		Where("p.subscription_id IS NOT NULL").
+		Where("p.processor = ?", models.Processor(processor)).
+		Where("sub.processor = ?", models.Processor(processor)).
+		Where("p.amount > 0").
+		Limit(1)
+
+	if amountErr == nil {
+		query = query.Where("p.amount = ?", amountCents)
+	}
+	if last4 != "" {
+		query = query.Where("RIGHT(regexp_replace(COALESCE(pm.last_four, ''), '[^0-9]', '', 'g'), 4) = ?", last4)
+	}
+	if dateParsed {
+		query = query.OrderExpr("ABS(EXTRACT(EPOCH FROM (p.purchased_at - ?::timestamptz))) ASC", targetTs)
+	}
+
+	query = query.OrderExpr("p.purchased_at DESC")
+
+	match := new(nmiChargebackMatch)
+	if err := query.Scan(ctx, match); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, meta, nil
+		}
+		return nil, meta, err
+	}
+
+	meta["reconciliation_status"] = "matched"
+	meta["matched_payment_id"] = match.PaymentID.String()
+	meta["matched_transaction_id"] = match.PaymentTransactionID
+	meta["matched_subscription_id"] = match.SubscriptionID.String()
+	meta["matched_processor_subscription_id"] = match.ProcessorSubscriptionID
+	meta["matched_user_id"] = match.UserID
+	meta["matched_payment_purchased_at"] = match.PurchasedAt.Format(time.RFC3339)
+	meta["matched_amount_cents"] = match.AmountCents
+	if strings.TrimSpace(match.CardLast4) != "" {
+		meta["matched_card_last4"] = strings.TrimSpace(match.CardLast4)
+	}
+
+	return match, meta, nil
+}
+
 func (s *NMIWebhookService) handleChargebackComplete(ctx context.Context) error {
-	// NMI chargeback events are batch operations containing multiple disputes
-	// IMPORTANT: NMI chargebacks do NOT include transaction_id or subscription info,
-	// so automatic subscription termination is not possible. Manual intervention required.
 	log.WithContext(ctx).
 		WithField("eventType", s.Data.EventType).
 		Info("Processing NMI chargeback batch notification")
@@ -1264,81 +1500,167 @@ func (s *NMIWebhookService) handleChargebackComplete(ctx context.Context) error 
 
 	now := s.now()
 	batchID := s.Data.EventID
+	processor := strings.TrimSpace(strings.ToLower(s.Processor))
+	if processor == "" {
+		processor = "mobius"
+	}
 
-	// Log batch-level summary first
-	if s.EventLogService != nil {
-		var totalAmount string
-		var chargebackCount int
-		if body.Batch != nil {
-			totalAmount = body.Batch.TotalAmount
-			chargebackCount = body.Batch.Count
+	chargebackCount := len(body.Chargebacks)
+	if body.Batch != nil && body.Batch.Count > 0 {
+		chargebackCount = body.Batch.Count
+	} else if body.Count > 0 {
+		chargebackCount = body.Count
+	}
+
+	var (
+		reconciledCount  int
+		cancelledCount   int
+		unmatchedCount   int
+		reconcileErrors  int
+		alreadyCancelled int
+	)
+	processedSubs := make(map[uuid.UUID]struct{})
+
+	for i, cb := range body.Chargebacks {
+		cbMetadata := map[string]interface{}{
+			"batch_id":      batchID,
+			"batch_index":   i,
+			"chargeback_id": cb.ID.Trimmed(),
+			"date":          cb.Date,
+			"customer_name": cb.CustomerName,
+			"cc_last4":      cb.CCNumber,
+		}
+		reasonCode, reasonText := splitNMIChargebackReason(cb.Reason, cb.ReasonCode)
+		if reasonCode != "" {
+			cbMetadata["reason_code"] = reasonCode
+		}
+		cbMetadata["reason"] = reasonText
+
+		var amountPtr *float64
+		if cbAmountCents, err := parseNMIChargebackAmountCents(cb.Amount); err == nil {
+			cbAmount := amountFloatFromCents(cbAmountCents)
+			amountPtr = &cbAmount
+		}
+
+		match, reconcileMeta, reconcileErr := s.reconcileNMIChargebackEntry(ctx, processor, cb)
+		if reconcileErr != nil {
+			reconcileErrors++
+			cbMetadata["reconciliation_status"] = "error"
+			cbMetadata["reconciliation_error"] = reconcileErr.Error()
 		} else {
-			chargebackCount = len(body.Chargebacks)
+			for key, value := range reconcileMeta {
+				cbMetadata[key] = value
+			}
 		}
 
-		batchMetadata := map[string]interface{}{
-			"batch_type":       "chargeback",
-			"event_source":     s.Processor,
-			"batch_status":     "completed",
-			"chargeback_count": chargebackCount,
-		}
-		if totalAmount != "" {
-			batchMetadata["total_amount"] = totalAmount
-		}
-		if body.Processor != nil {
-			batchMetadata["processor_id"] = body.Processor.ID.Trimmed()
-			batchMetadata["processor_name"] = body.Processor.Name.Trimmed()
+		cbStatus := "received"
+		var (
+			subscriptionID         *uuid.UUID
+			userID                 *string
+			processorTransactionID *string
+		)
+
+		if reconcileErr == nil && match == nil {
+			unmatchedCount++
+			cbMetadata["requires_manual_review"] = true
 		}
 
-		chargebackEventData := ChargebackEventData{
-			EventID:   uuid.New(),
-			EventType: PaymentEventBatchProcessed,
-			Processor: s.Processor,
-			BatchID:   batchID,
-			Status:    "completed",
-			Metadata:  CreateMetadataJSON(batchMetadata),
-			Timestamp: now,
-		}
-
-		if err := s.EventLogService.LogChargebackEvent(ctx, chargebackEventData); err != nil {
-			log.WithError(err).Error("Failed to log chargeback batch event to ClickHouse")
-		}
-
-		// Log each individual chargeback for audit purposes
-		for i, cb := range body.Chargebacks {
-			cbMetadata := map[string]interface{}{
-				"batch_id":      batchID,
-				"chargeback_id": cb.ID.Trimmed(),
-				"date":          cb.Date,
-				"customer_name": cb.CustomerName,
-				"cc_last4":      cb.CCNumber, // Already masked by NMI
-				"reason_code":   cb.ReasonCode,
-				"reason":        cb.Reason,
-				"batch_index":   i,
-				// Note: No transaction_id or subscription_id available from NMI
-				"requires_manual_review": true,
+		if reconcileErr == nil && match != nil {
+			reconciledCount++
+			cbMetadata["requires_manual_review"] = false
+			subscriptionID = &match.SubscriptionID
+			if match.UserID != "" {
+				uid := match.UserID
+				userID = &uid
+			}
+			if match.PaymentTransactionID != "" {
+				txn := match.PaymentTransactionID
+				processorTransactionID = &txn
 			}
 
-			// Parse amount if available
-			var amountPtr *float64
-			if cb.Amount != "" {
-				var amt float64
-				if _, parseErr := fmt.Sscanf(cb.Amount, "%f", &amt); parseErr == nil {
-					amountPtr = &amt
+			if _, seen := processedSubs[match.SubscriptionID]; seen {
+				cbMetadata["termination_status"] = "already_processed_in_batch"
+			} else {
+				processedSubs[match.SubscriptionID] = struct{}{}
+				if s.SubscriptionLifecycleService == nil {
+					reconcileErrors++
+					cbMetadata["termination_status"] = "failed"
+					cbMetadata["termination_error"] = "subscription lifecycle service unavailable"
+				} else if s.SubscriptionService == nil {
+					reconcileErrors++
+					cbMetadata["termination_status"] = "failed"
+					cbMetadata["termination_error"] = "subscription service unavailable"
+				} else {
+
+					subscription, subErr := s.SubscriptionService.GetByID(ctx, match.SubscriptionID)
+					if subErr != nil {
+						reconcileErrors++
+						cbMetadata["termination_status"] = "failed"
+						cbMetadata["termination_error"] = fmt.Sprintf("failed to load subscription: %v", subErr)
+					} else {
+						reasonCodeDisplay := reasonCode
+						if reasonCodeDisplay == "" {
+							reasonCodeDisplay = "unknown"
+						}
+						reasonDisplay := reasonText
+						if reasonDisplay == "" {
+							reasonDisplay = strings.TrimSpace(cb.Reason)
+						}
+						feedback := fmt.Sprintf(
+							"CHARGEBACK: %s (Code: %s, Dispute: %s)",
+							reasonDisplay,
+							reasonCodeDisplay,
+							strings.TrimSpace(cb.ID.Trimmed()),
+						)
+						proc := models.Processor(processor)
+						subProcID := strings.TrimSpace(match.ProcessorSubscriptionID)
+						params := &CancelMembershipParams{
+							RevokeAccess:   true,
+							Processor:      &proc,
+							SubscriptionID: &match.SubscriptionID,
+							CancelType:     models.CancelTypeChargeback,
+							CancelFeedback: &feedback,
+						}
+						if subProcID != "" {
+							params.ProcessorSubscriptionID = &subProcID
+						}
+						if err := s.SubscriptionLifecycleService.CancelMembership(ctx, params); err != nil {
+							reconcileErrors++
+							cbMetadata["termination_status"] = "failed"
+							cbMetadata["termination_error"] = err.Error()
+						} else {
+							if subscription.Status == models.StatusCancelled {
+								alreadyCancelled++
+								cbMetadata["termination_status"] = "already_cancelled"
+							} else {
+								cancelledCount++
+								cbMetadata["termination_status"] = "cancelled_immediate"
+							}
+							cbStatus = "completed"
+						}
+					}
 				}
 			}
+		}
 
+		if s.EventLogService != nil {
 			cbEventData := ChargebackEventData{
-				EventID:   uuid.New(),
-				EventType: PaymentEventChargeback,
-				Processor: s.Processor,
-				BatchID:   batchID,
-				Status:    "received",
-				Amount:    amountPtr,
-				Metadata:  CreateMetadataJSON(cbMetadata),
-				Timestamp: now,
+				EventID:                uuid.New(),
+				ChargebackID:           cb.ID.Trimmed(),
+				BatchID:                batchID,
+				SubscriptionID:         subscriptionID,
+				UserID:                 userID,
+				EventType:              PaymentEventChargeback,
+				Processor:              s.Processor,
+				ProcessorTransactionID: processorTransactionID,
+				Amount:                 amountPtr,
+				Currency:               "",
+				ChargebackType:         "chargeback",
+				Reason:                 reasonText,
+				Status:                 cbStatus,
+				Metadata:               CreateMetadataJSON(cbMetadata),
+				Timestamp:              now,
 			}
-
 			if err := s.EventLogService.LogChargebackEvent(ctx, cbEventData); err != nil {
 				log.WithContext(ctx).
 					WithError(err).
@@ -1348,16 +1670,51 @@ func (s *NMIWebhookService) handleChargebackComplete(ctx context.Context) error 
 		}
 	}
 
-	chargebackCount := len(body.Chargebacks)
-	if body.Batch != nil {
-		chargebackCount = body.Batch.Count
+	if s.EventLogService != nil {
+		batchMetadata := map[string]interface{}{
+			"batch_type":         "chargeback",
+			"event_source":       s.Processor,
+			"batch_status":       "completed",
+			"chargeback_count":   chargebackCount,
+			"reconciled_count":   reconciledCount,
+			"cancelled_count":    cancelledCount,
+			"already_cancelled":  alreadyCancelled,
+			"unmatched_count":    unmatchedCount,
+			"reconcile_failures": reconcileErrors,
+		}
+		if body.Batch != nil && strings.TrimSpace(body.Batch.TotalAmount) != "" {
+			batchMetadata["total_amount"] = body.Batch.TotalAmount
+		} else if strings.TrimSpace(body.ChargebackAmount) != "" {
+			batchMetadata["total_amount"] = strings.TrimSpace(body.ChargebackAmount)
+		}
+		if body.Processor != nil {
+			batchMetadata["processor_id"] = body.Processor.ID.Trimmed()
+			batchMetadata["processor_name"] = body.Processor.Name.Trimmed()
+		}
+		chargebackEventData := ChargebackEventData{
+			EventID:   uuid.New(),
+			EventType: PaymentEventBatchProcessed,
+			Processor: s.Processor,
+			BatchID:   batchID,
+			Status:    "completed",
+			Metadata:  CreateMetadataJSON(batchMetadata),
+			Timestamp: now,
+		}
+		if err := s.EventLogService.LogChargebackEvent(ctx, chargebackEventData); err != nil {
+			log.WithError(err).Error("Failed to log chargeback batch event to ClickHouse")
+		}
 	}
 
 	log.WithContext(ctx).WithFields(log.Fields{
-		"eventID":          s.Data.EventID,
-		"eventType":        s.Data.EventType,
-		"chargeback_count": chargebackCount,
-	}).Warn("NMI chargeback batch processed - manual review required for subscription termination")
+		"eventID":            s.Data.EventID,
+		"eventType":          s.Data.EventType,
+		"chargeback_count":   chargebackCount,
+		"reconciled_count":   reconciledCount,
+		"cancelled_count":    cancelledCount,
+		"already_cancelled":  alreadyCancelled,
+		"unmatched_count":    unmatchedCount,
+		"reconcile_failures": reconcileErrors,
+	}).Warn("NMI chargeback batch processed with automated reconciliation")
 
 	return nil
 }
@@ -1376,13 +1733,18 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 
 	txnID := body.TransactionID.Trimmed()
 	nmiSubID := transactionSubscriptionID(body)
+	originalTxnID := getOriginalTransactionID(body)
 
-	// Parse refund amount
-	refundAmount, err := parseTransactionAmount(body)
+	// Parse refund amount exactly in cents (avoid float drift), then derive display float.
+	refundAmountCents, err := transactionAmountCents(body)
 	if err != nil {
 		log.WithContext(ctx).WithError(err).Warn("Failed to parse refund amount")
-		refundAmount = 0
+		refundAmountCents = 0
 	}
+	if refundAmountCents < 0 {
+		refundAmountCents = -refundAmountCents
+	}
+	refundAmount := amountFloatFromCents(refundAmountCents)
 
 	provider := strings.TrimSpace(strings.ToLower(s.Processor))
 	if provider == "" {
@@ -1418,10 +1780,70 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 	// Determine if we should terminate subscription based on refund amount
 	shouldTerminate := false
 	if subscription != nil && subscription.Price != nil && subscription.Price.Amount > 0 {
-		refundAmountCents := int64(math.Abs(refundAmount) * 100)
 		refundPercentage := (refundAmountCents * 100) / subscription.Price.Amount
 		if refundPercentage >= 80 {
 			shouldTerminate = true
+		}
+	}
+
+	// Persist refund in the payments ledger as a negative payment linked to the original payment.
+	// This complements analytics/event logging and keeps reconciliation/auditing consistent.
+	if s.PaymentService != nil && subscription != nil && txnID != "" && refundAmountCents > 0 {
+		processor := models.Processor(s.Processor)
+		existingRefund, lookupErr := s.PaymentService.GetByTransactionID(ctx, processor, txnID)
+		switch {
+		case lookupErr == nil && existingRefund != nil:
+			log.WithContext(ctx).WithFields(log.Fields{
+				"refund_transaction_id": txnID,
+				"payment_id":            existingRefund.ID,
+			}).Info("Refund payment already exists; skipping duplicate ledger insert")
+		case lookupErr != nil && !errors.Is(lookupErr, sql.ErrNoRows):
+			log.WithContext(ctx).WithError(lookupErr).WithField("refund_transaction_id", txnID).
+				Warn("Failed to check existing refund payment by transaction ID")
+		default:
+			var originalPayment *models.Payment
+			var originalLookupErr error
+
+			if originalTxnID != "" && originalTxnID != txnID {
+				originalPayment, originalLookupErr = s.PaymentService.GetByTransactionID(ctx, processor, originalTxnID)
+				if originalLookupErr != nil && !errors.Is(originalLookupErr, sql.ErrNoRows) {
+					log.WithContext(ctx).WithError(originalLookupErr).WithField("original_transaction_id", originalTxnID).
+						Warn("Failed to resolve original payment by transaction ID for refund")
+					originalPayment = nil
+				}
+			}
+
+			if originalPayment == nil {
+				originalPayment, originalLookupErr = s.PaymentService.GetLatestChargeBySubscriptionID(ctx, subscription.ID)
+				if originalLookupErr != nil && !errors.Is(originalLookupErr, sql.ErrNoRows) {
+					log.WithContext(ctx).WithError(originalLookupErr).WithField("subscription_id", subscription.ID).
+						Warn("Failed to resolve original payment by subscription fallback for refund")
+					originalPayment = nil
+				}
+			}
+
+			if originalPayment == nil {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"refund_transaction_id": txnID,
+					"subscription_id":       subscription.ID,
+				}).Warn("Unable to resolve original payment for refund ledger linkage; skipping payment insert")
+			} else {
+				if _, refundErr := s.PaymentService.Refund(ctx, originalPayment.ID, txnID, refundAmountCents); refundErr != nil {
+					log.WithContext(ctx).WithError(refundErr).WithFields(log.Fields{
+						"refund_transaction_id":   txnID,
+						"original_payment_id":     originalPayment.ID,
+						"original_transaction_id": originalTxnID,
+						"refund_amount_cents":     refundAmountCents,
+					}).Warn("Failed to persist refund payment record")
+				} else {
+					log.WithContext(ctx).WithFields(log.Fields{
+						"refund_transaction_id": txnID,
+						"original_payment_id":   originalPayment.ID,
+						"subscription_id":       subscription.ID,
+						"refund_amount_cents":   refundAmountCents,
+					}).Info("Persisted refund payment record")
+				}
+			}
 		}
 	}
 
@@ -1437,7 +1859,8 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 		// Use lifecycle service to cancel membership with immediate revocation
 		processor := models.Processor(s.Processor)
 		cancelReason := "Refund processed"
-		if subscription != nil {
+
+		if s.SubscriptionLifecycleService != nil {
 			if err := s.SubscriptionLifecycleService.CancelMembership(ctx, &CancelMembershipParams{
 				Processor:               &processor,
 				ProcessorSubscriptionID: &nmiSubID,
@@ -1472,6 +1895,11 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 
 	// Log refund event to ClickHouse
 	if s.EventLogService != nil && subscription != nil {
+		fallbackCurrency := ""
+		if subscription.Price != nil {
+			fallbackCurrency = subscription.Price.Currency
+		}
+		currencyValue := normalizeNMICurrencyValue(transactionCurrency(body), fallbackCurrency)
 		metadata := map[string]interface{}{
 			"transaction_id":          txnID,
 			"processor":               s.Processor,
@@ -1488,7 +1916,7 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 			EventType:      PaymentEventRefund,
 			Processor:      s.Processor,
 			Amount:         &negativeAmount,
-			Currency:       transactionCurrency(body),
+			Currency:       currencyValue,
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{"refund": true}),
 			WebhookSource:  "webhook",
 			Metadata:       CreateMetadataJSON(metadata),
