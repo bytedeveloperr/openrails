@@ -23,9 +23,11 @@ const (
 	// Redis keys
 	pendingSolanaPaymentsKey = "pending_solana_payments"
 	solanaPayKeyPrefix       = "solana_pay:"
+	solanaPayConsumedPrefix  = "solana_pay_consumed:"
 
 	// TTL for pending payments
 	pendingPaymentTTL = 15 * time.Minute
+	consumedRefTTL    = 24 * time.Hour
 )
 
 // PendingSolanaPayment represents a pending Solana payment stored in Redis
@@ -44,13 +46,21 @@ type PendingSolanaPayment struct {
 
 // SolanaPayResult is returned when creating a new Solana Pay URL
 type SolanaPayResult struct {
-	URL         string
-	Reference   string
-	Amount      int64 // cents
-	Currency    string
-	TokenAmount string // formatted token amount (e.g., "9.99")
-	Token       string
-	ExpiresAt   time.Time
+	URL            string
+	Reference      string
+	Amount         int64 // cents
+	Currency       string
+	TokenAmount    string // formatted token amount (e.g., "9.99")
+	TokenUnits     uint64 // token amount in base units
+	TokenMint      string // token mint used for this quote/payment
+	Recipient      string // merchant wallet for this quote/payment
+	TokenPriceUSD  float64
+	FXRate         float64
+	FXCurrency     string
+	QuotedAt       time.Time
+	QuoteExpiresAt time.Time
+	Token          string
+	ExpiresAt      time.Time
 }
 
 // SolanaPayService handles Solana Pay Transfer Request flow
@@ -155,6 +165,9 @@ func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, p
 		return nil, fmt.Errorf("failed to calculate token quote: %w", err)
 	}
 	tokenUnits := quote.Units
+	if tokenUnits == 0 {
+		return nil, fmt.Errorf("calculated token amount is zero")
+	}
 
 	// Generate reference for Solana Pay
 	reference, err := solana.GenerateReference()
@@ -201,13 +214,21 @@ func (s *SolanaPayService) GeneratePayment(ctx context.Context, userID string, p
 	url := s.buildTransferRequestURL(recipient, tokenUnits, tokenMint, tokenSymbol, reference)
 
 	return &SolanaPayResult{
-		URL:         url,
-		Reference:   reference,
-		Amount:      price.Amount,
-		Currency:    price.Currency,
-		TokenAmount: formatTokenAmount(tokenUnits, tokenCfg.Decimals),
-		Token:       tokenSymbol,
-		ExpiresAt:   expiresAt,
+		URL:            url,
+		Reference:      reference,
+		Amount:         price.Amount,
+		Currency:       price.Currency,
+		TokenAmount:    formatTokenAmount(tokenUnits, tokenCfg.Decimals),
+		TokenUnits:     tokenUnits,
+		TokenMint:      tokenMint,
+		Recipient:      recipient,
+		TokenPriceUSD:  quote.TokenPriceUSD,
+		FXRate:         quote.FXRate,
+		FXCurrency:     quote.FXCurrency,
+		QuotedAt:       quote.QuotedAt,
+		QuoteExpiresAt: expiresAt,
+		Token:          tokenSymbol,
+		ExpiresAt:      expiresAt,
 	}, nil
 }
 
@@ -325,17 +346,89 @@ func (s *SolanaPayService) RemovePendingPayment(ctx context.Context, reference s
 	if s.redis == nil {
 		return nil
 	}
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return nil
+	}
 
 	key := solanaPayKeyPrefix + reference
+	var removeErr error
 
 	// Remove from set
 	if err := s.redis.SRem(ctx, pendingSolanaPaymentsKey, reference).Err(); err != nil {
-		log.WithError(err).WithField("reference", reference).Warn("Failed to remove from pending set")
+		removeErr = fmt.Errorf("failed to remove from pending set: %w", err)
 	}
 
 	// Delete the key
 	if err := s.redis.Del(ctx, key).Err(); err != nil {
-		log.WithError(err).WithField("reference", reference).Warn("Failed to delete pending payment key")
+		if removeErr != nil {
+			removeErr = fmt.Errorf("%v; failed to delete pending payment key: %w", removeErr, err)
+		} else {
+			removeErr = fmt.Errorf("failed to delete pending payment key: %w", err)
+		}
+	}
+
+	if removeErr != nil {
+		log.WithError(removeErr).WithField("reference", reference).Warn("Failed to remove pending Solana payment")
+		return removeErr
+	}
+
+	return nil
+}
+
+func (s *SolanaPayService) IsReferenceConsumed(ctx context.Context, reference string) (bool, error) {
+	if s.redis == nil {
+		return false, nil
+	}
+
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return false, nil
+	}
+
+	count, err := s.redis.Exists(ctx, solanaPayConsumedPrefix+reference).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed checking consumed reference: %w", err)
+	}
+
+	return count > 0, nil
+}
+
+func (s *SolanaPayService) MarkReferenceConsumed(ctx context.Context, reference, transactionID string) (bool, error) {
+	if s.redis == nil {
+		return false, fmt.Errorf("redis not configured")
+	}
+
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return false, fmt.Errorf("reference is required")
+	}
+
+	value := strings.TrimSpace(transactionID)
+	if value == "" {
+		value = "consumed"
+	}
+
+	claimed, err := s.redis.SetNX(ctx, solanaPayConsumedPrefix+reference, value, consumedRefTTL).Result()
+	if err != nil {
+		return false, fmt.Errorf("failed to mark reference consumed: %w", err)
+	}
+
+	return claimed, nil
+}
+
+func (s *SolanaPayService) ConsumeAndRemovePending(ctx context.Context, reference, transactionID string) error {
+	reference = strings.TrimSpace(reference)
+	if reference == "" {
+		return nil
+	}
+
+	if _, err := s.MarkReferenceConsumed(ctx, reference, transactionID); err != nil {
+		return err
+	}
+
+	if err := s.RemovePendingPayment(ctx, reference); err != nil {
+		return err
 	}
 
 	return nil

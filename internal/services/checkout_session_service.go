@@ -326,6 +326,11 @@ func (s *CheckoutSessionService) ConfirmSession(ctx context.Context, sessionID u
 
 	if s.isTerminal(session.Status) {
 		if session.Status == models.CheckoutSessionStatusSucceeded {
+			transactionID := ""
+			if session.TransactionID != nil {
+				transactionID = strings.TrimSpace(*session.TransactionID)
+			}
+			_ = s.finalizeSolanaTransferReference(ctx, session, transactionID)
 			return s.sessionToResponse(session), nil
 		}
 		if session.Status != models.CheckoutSessionStatusExpired {
@@ -504,19 +509,18 @@ func (s *CheckoutSessionService) initializeSolanaSession(ctx context.Context, se
 		session.ProcessorState["transaction_url"] = result.URL
 		session.ProcessorState["flow"] = flow
 		session.ProcessorState["token_symbol"] = tokenSymbol
-		session.ProcessorState["token_mint"] = tokenMint
-		if quote, err := CalculateTokenQuote(ctx, tokenCfg, session.Amount, session.Currency, s.fxProvider); err == nil {
-			session.ProcessorState["token_amount"] = quote.Units
-			session.ProcessorState["token_price_usd"] = quote.TokenPriceUSD
-			session.ProcessorState["fx_rate"] = quote.FXRate
-			session.ProcessorState["fx_currency"] = quote.FXCurrency
-			session.ProcessorState["quoted_at"] = quote.QuotedAt.Format(time.RFC3339)
-			// Quote expires when the checkout session expires
-			if session.ExpiresAt != nil {
-				session.ProcessorState["quote_expires_at"] = session.ExpiresAt.Format(time.RFC3339)
-			} else {
-				session.ProcessorState["quote_expires_at"] = quote.QuotedAt.Add(defaultCheckoutSessionTTL).Format(time.RFC3339)
-			}
+		tokenMintValue := strings.TrimSpace(result.TokenMint)
+		if tokenMintValue == "" {
+			tokenMintValue = tokenMint
+		}
+		recipient := strings.TrimSpace(result.Recipient)
+		if recipient == "" {
+			return fmt.Errorf("%w: recipient missing from payment quote", ErrCheckoutSessionValidation)
+		}
+		session.ProcessorState["token_mint"] = tokenMintValue
+		session.ProcessorState["recipient"] = recipient
+		if err := setSolanaQuoteState(session.ProcessorState, result.TokenUnits, result.TokenPriceUSD, result.FXRate, result.FXCurrency, result.QuotedAt, result.QuoteExpiresAt); err != nil {
+			return err
 		}
 	case "transaction_request":
 		// Transaction Request flow per Solana Pay spec:
@@ -529,21 +533,23 @@ func (s *CheckoutSessionService) initializeSolanaSession(ctx context.Context, se
 		session.Status = models.CheckoutSessionStatusRequiresAction
 		expiresAt := s.now().Add(defaultCheckoutSessionTTL)
 		session.ExpiresAt = &expiresAt
+		recipient := strings.TrimSpace(solanaProc.RecipientWallet)
+		if recipient == "" {
+			return fmt.Errorf("%w: recipient wallet not configured", ErrCheckoutSessionValidation)
+		}
 		if session.ProcessorState == nil {
 			session.ProcessorState = map[string]any{}
 		}
 		session.ProcessorState["flow"] = flow
 		session.ProcessorState["token_symbol"] = tokenSymbol
 		session.ProcessorState["token_mint"] = tokenMint
-		session.ProcessorState["recipient"] = strings.TrimSpace(solanaProc.RecipientWallet)
-		// Calculate quote for display purposes
-		if quote, err := CalculateTokenQuote(ctx, tokenCfg, session.Amount, session.Currency, s.fxProvider); err == nil {
-			session.ProcessorState["token_amount"] = quote.Units
-			session.ProcessorState["token_price_usd"] = quote.TokenPriceUSD
-			session.ProcessorState["fx_rate"] = quote.FXRate
-			session.ProcessorState["fx_currency"] = quote.FXCurrency
-			session.ProcessorState["quoted_at"] = quote.QuotedAt.Format(time.RFC3339)
-			session.ProcessorState["quote_expires_at"] = expiresAt.Format(time.RFC3339)
+		session.ProcessorState["recipient"] = recipient
+		quote, err := CalculateTokenQuote(ctx, tokenCfg, session.Amount, session.Currency, s.fxProvider)
+		if err != nil {
+			return fmt.Errorf("%w: failed to calculate solana token quote: %v", ErrCheckoutSessionValidation, err)
+		}
+		if err := setSolanaQuoteState(session.ProcessorState, quote.Units, quote.TokenPriceUSD, quote.FXRate, quote.FXCurrency, quote.QuotedAt, expiresAt); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("%w: unsupported solana flow", ErrCheckoutSessionValidation)
@@ -890,9 +896,22 @@ func (s *CheckoutSessionService) confirmSolanaSession(ctx context.Context, sessi
 	if strings.EqualFold(solanaProc.Network, "mainnet") && tokenCfg.MainnetMint != "" {
 		tokenMint = tokenCfg.MainnetMint
 	}
+	storedTokenMint := getStringField(session.ProcessorState, "token_mint")
+	if storedTokenMint == "" {
+		return nil, fmt.Errorf("%w: token_mint missing", ErrCheckoutSessionValidation)
+	}
+	if !strings.EqualFold(storedTokenMint, tokenMint) {
+		return nil, fmt.Errorf("%w: token_mint mismatch", ErrCheckoutSessionValidation)
+	}
 
 	expectedAmount := getUint64Field(session.ProcessorState, "token_amount")
-	expectedRecipient := strings.TrimSpace(solanaProc.RecipientWallet)
+	if expectedAmount == 0 {
+		return nil, fmt.Errorf("%w: token_amount missing or invalid", ErrCheckoutSessionValidation)
+	}
+	expectedRecipient := getStringField(session.ProcessorState, "recipient")
+	if expectedRecipient == "" {
+		return nil, fmt.Errorf("%w: recipient missing", ErrCheckoutSessionValidation)
+	}
 	// Get payer from ProcessorState (set by BuildSolanaPayTransaction)
 	expectedPayer := strings.TrimSpace(getStringField(session.ProcessorState, "payer"))
 	if reqWallet := strings.TrimSpace(req.Payment.Wallet); reqWallet != "" {
@@ -903,14 +922,18 @@ func (s *CheckoutSessionService) confirmSolanaSession(ctx context.Context, sessi
 			expectedPayer = reqWallet
 		}
 	}
-	reference := session.Reference
+	if session.Reference == nil || strings.TrimSpace(*session.Reference) == "" {
+		return nil, fmt.Errorf("%w: reference missing", ErrCheckoutSessionValidation)
+	}
+	referenceValue := strings.TrimSpace(*session.Reference)
+	reference := &referenceValue
 
 	if err := s.solanaTransactionService.VerifyTransactionWithContent(
 		ctx,
 		strings.TrimSpace(req.Payment.Signature),
 		expectedAmount,
 		expectedRecipient,
-		tokenMint,
+		storedTokenMint,
 		expectedPayer,
 		reference,
 	); err != nil {
@@ -930,6 +953,9 @@ func (s *CheckoutSessionService) confirmSolanaSession(ctx context.Context, sessi
 	}
 
 	if err := s.MarkSucceeded(ctx, session.ID, result.PaymentID, strings.TrimSpace(req.Payment.Signature)); err != nil {
+		return nil, err
+	}
+	if err := s.finalizeSolanaTransferReference(ctx, session, strings.TrimSpace(req.Payment.Signature)); err != nil {
 		return nil, err
 	}
 
@@ -1115,6 +1141,67 @@ func getUint64Field(fields map[string]any, key string) uint64 {
 		}
 	}
 	return 0
+}
+
+func isSolanaTransferRequestFlow(session *models.CheckoutSession) bool {
+	if session == nil {
+		return false
+	}
+	flow := strings.ToLower(strings.TrimSpace(getStringField(session.ProcessorState, "flow")))
+	if flow == "" {
+		// Legacy default for Solana checkout sessions.
+		return true
+	}
+	return flow == "transfer_request"
+}
+
+func (s *CheckoutSessionService) finalizeSolanaTransferReference(ctx context.Context, session *models.CheckoutSession, transactionID string) error {
+	if session == nil || session.Processor != models.ProcessorSolana {
+		return nil
+	}
+	if !isSolanaTransferRequestFlow(session) {
+		return nil
+	}
+	if session.Reference == nil {
+		return nil
+	}
+	reference := strings.TrimSpace(*session.Reference)
+	if reference == "" {
+		return nil
+	}
+	if s.solanaPayService == nil {
+		return nil
+	}
+
+	if err := s.solanaPayService.ConsumeAndRemovePending(ctx, reference, strings.TrimSpace(transactionID)); err != nil {
+		return fmt.Errorf("failed to finalize solana reference %s: %w", reference, err)
+	}
+
+	return nil
+}
+
+func setSolanaQuoteState(processorState map[string]any, tokenAmount uint64, tokenPriceUSD, fxRate float64, fxCurrency string, quotedAt, quoteExpiresAt time.Time) error {
+	if processorState == nil {
+		return fmt.Errorf("%w: processor_state unavailable", ErrCheckoutSessionValidation)
+	}
+	if tokenAmount == 0 {
+		return fmt.Errorf("%w: token_amount must be greater than 0", ErrCheckoutSessionValidation)
+	}
+	if quotedAt.IsZero() {
+		return fmt.Errorf("%w: quote timestamp missing", ErrCheckoutSessionValidation)
+	}
+	if quoteExpiresAt.IsZero() {
+		return fmt.Errorf("%w: quote expiry missing", ErrCheckoutSessionValidation)
+	}
+
+	processorState["token_amount"] = tokenAmount
+	processorState["token_price_usd"] = tokenPriceUSD
+	processorState["fx_rate"] = fxRate
+	processorState["fx_currency"] = strings.TrimSpace(fxCurrency)
+	processorState["quoted_at"] = quotedAt.UTC().Format(time.RFC3339)
+	processorState["quote_expires_at"] = quoteExpiresAt.UTC().Format(time.RFC3339)
+
+	return nil
 }
 
 func timePtr(t time.Time) *time.Time {

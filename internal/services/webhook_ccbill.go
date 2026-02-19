@@ -2,11 +2,12 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -84,14 +85,31 @@ func parseCCBillDateUsingTimestamp(dateStr, tsStr string) (*time.Time, error) {
 	return &combined, nil
 }
 
-// normalizeCurrency extracts and normalizes currency code to lowercase.
-// Falls back to "usd" if no currency is provided (with warning log).
-func normalizeCurrency(currencyCode Stringish) string {
-	if curr := strings.ToLower(currencyCode.Trimmed()); curr != "" {
-		return curr
+func parseCCBillPositiveAmountCents(rawAmount, parseFieldName, invalidFieldName string) (int64, error) {
+	amountCents, err := parseAmountToCentsExact(rawAmount)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse %s '%s': %w", parseFieldName, rawAmount, err)
 	}
-	log.Warn("CCBill webhook missing currency code, defaulting to 'usd'")
-	return "usd"
+
+	if amountCents <= 0 {
+		return 0, fmt.Errorf("invalid %s: %d cents - must be greater than 0", invalidFieldName, amountCents)
+	}
+
+	return amountCents, nil
+}
+
+func requireCCBillCurrency(currencyCode Stringish, fieldName string) (string, error) {
+	normalized := strings.ToLower(currencyCode.Trimmed())
+	if normalized == "" {
+		return "", newBillingError(
+			ErrorTypeValidation,
+			"missing required currency code",
+			map[string]interface{}{"field": fieldName},
+			nil,
+		)
+	}
+
+	return normalized, nil
 }
 
 func (s *CCBillWebhookService) ensureFlexFormMatches(price *models.Price, flexID, formName string) error {
@@ -127,6 +145,44 @@ func (s *CCBillWebhookService) paymentService() *PaymentService {
 		return NewPaymentService(s.DB)
 	}
 	return nil
+}
+
+func ccbillPayloadStringField(payload map[string]interface{}, key string) string {
+	if payload == nil {
+		return ""
+	}
+	value, ok := payload[key]
+	if !ok || value == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func (s *CCBillWebhookService) stableDedupeEventKey() string {
+	body := json.RawMessage(s.Data.EventBody)
+	if len(body) == 0 {
+		sum := sha256.Sum256([]byte(strings.TrimSpace(string(s.Data.EventType))))
+		return "ccbill:empty:" + hex.EncodeToString(sum[:8])
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		sum := sha256.Sum256(body)
+		return "ccbill:raw:" + hex.EncodeToString(sum[:8])
+	}
+
+	if txID := ccbillPayloadStringField(payload, "transactionId"); txID != "" {
+		return "tx:" + txID
+	}
+
+	canonical, err := json.Marshal(payload)
+	if err != nil {
+		sum := sha256.Sum256(body)
+		return "ccbill:raw:" + hex.EncodeToString(sum[:8])
+	}
+
+	sum := sha256.Sum256(canonical)
+	return "ccbill:event:" + hex.EncodeToString(sum[:8])
 }
 
 type CCBillWebhookEventType = string
@@ -301,14 +357,11 @@ func (s *CCBillWebhookService) handleNewSaleSuccessInternal(ctx context.Context,
 	transactionID := data.TransactionID
 	billedAmountStr := data.BilledInitialPrice
 
-	billedAmount, err := strconv.ParseFloat(billedAmountStr, 64)
+	billedAmountCents, err := parseCCBillPositiveAmountCents(billedAmountStr, "billedInitialPrice", "billedAmount")
 	if err != nil {
-		return fmt.Errorf("failed to parse billedInitialPrice '%s': %w", data.BilledInitialPrice, err)
+		return err
 	}
-
-	if billedAmount <= 0 {
-		return fmt.Errorf("invalid billedAmount: %f - must be greater than 0", billedAmount)
-	}
+	billedAmount := amountFloatFromCents(billedAmountCents)
 
 	// Get price information
 	price, err := s.PriceService.GetByCCBillPriceID(ctx, data.FlexID)
@@ -319,9 +372,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccessInternal(ctx context.Context,
 		return err
 	}
 
-	// Validate amount - convert billedAmount (dollars) to cents for comparison
-	// Note: price.Amount is already in cents (int64), billedAmount is in dollars (float64)
-	billedAmountCents := int64(billedAmount * 100)
+	// Validate amount against expected cents from catalog price.
 	expectedAmountCents := price.Amount
 	tolerance := int64(float64(expectedAmountCents) * 0.02) // 2% tolerance
 	if billedAmountCents < (expectedAmountCents-tolerance) || billedAmountCents > (expectedAmountCents+tolerance) {
@@ -349,7 +400,10 @@ func (s *CCBillWebhookService) handleNewSaleSuccessInternal(ctx context.Context,
 		emailPtr = &emailCopy
 	}
 
-	currencyValue := normalizeCurrency(data.BilledCurrencyCode)
+	currencyValue, err := requireCCBillCurrency(data.BilledCurrencyCode, "billedCurrencyCode")
+	if err != nil {
+		return err
+	}
 	paidTermEnd, err := parseCCBillDateUsingTimestamp(data.NextRenewalDate, data.Timestamp)
 	if err != nil {
 		return fmt.Errorf("failed to parse nextRenewalDate '%s': %w", data.NextRenewalDate, err)
@@ -475,7 +529,7 @@ func (s *CCBillWebhookService) handleNewSaleSuccessInternal(ctx context.Context,
 			EventType:      PaymentEventChargeSuccess,
 			Processor:      "ccbill",
 			Amount:         &billedAmount,
-			Currency:       normalizeCurrency(data.BilledCurrencyCode),
+			Currency:       currencyValue,
 			WebhookSource:  "webhook",
 			BillingInfo:    CreateMetadataJSON(billingInfo),
 			Metadata:       CreateMetadataJSON(metadata),
@@ -507,6 +561,10 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 	transactionID := data.TransactionID
 	failureReason := data.FailureReason
 	price, priceLookupErr := s.PriceService.GetByCCBillPriceID(ctx, data.FlexID)
+	currencyValue, err := requireCCBillCurrency(data.BilledCurrencyCode, "billedCurrencyCode")
+	if err != nil {
+		return err
+	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		userID, err := s.resolveUserID(ctx, data.Username)
@@ -543,7 +601,7 @@ func (s *CCBillWebhookService) handleNewSaleFailure(ctx context.Context) error {
 				UserID:        userID,
 				EventType:     PaymentEventChargeFailure,
 				Processor:     "ccbill",
-				Currency:      normalizeCurrency(data.BilledCurrencyCode),
+				Currency:      currencyValue,
 				BillingInfo:   CreateMetadataJSON(map[string]interface{}{"initial_signup": true}),
 				WebhookSource: "webhook",
 				Metadata:      CreateMetadataJSON(metadata),
@@ -625,10 +683,11 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		return fmt.Errorf("missing required field: billedInitialPrice")
 	}
 
-	billedAmount, err := strconv.ParseFloat(billedAmountStr, 64)
+	billedAmountCents, err := parseCCBillPositiveAmountCents(billedAmountStr, "billedInitialPrice", "billedAmount")
 	if err != nil {
-		return fmt.Errorf("failed to parse billedInitialPrice '%s': %w", data.BilledInitialPrice, err)
+		return err
 	}
+	billedAmount := amountFloatFromCents(billedAmountCents)
 
 	if strings.TrimSpace(ccBillSubID) == "" {
 		return fmt.Errorf("missing required field: subscriptionId")
@@ -642,8 +701,9 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 		return fmt.Errorf("missing required field: transactionId")
 	}
 
-	if billedAmount <= 0 {
-		return fmt.Errorf("invalid billedAmount: %f - must be greater than 0", billedAmount)
+	currencyValue, err := requireCCBillCurrency(data.BilledCurrencyCode, "billedCurrencyCode")
+	if err != nil {
+		return err
 	}
 
 	paymentService := s.paymentService()
@@ -690,9 +750,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 			return err
 		}
 
-		// Validate the billed amount matches the new price - convert dollars to cents
-		// Note: newPrice.Amount is already in cents (int64), billedAmount is in dollars (float64)
-		billedAmountCents := int64(billedAmount * 100)
+		// Validate the billed amount matches the new price.
 		expectedAmountCents := newPrice.Amount
 		tolerance := int64(float64(expectedAmountCents) * 0.02) // 2% tolerance
 		if billedAmountCents < (expectedAmountCents-tolerance) || billedAmountCents > (expectedAmountCents+tolerance) {
@@ -725,7 +783,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 			TransactionID:  transactionID,
 			Amount:         billedAmountCents,
 			ListAmount:     newPrice.Amount,
-			Currency:       normalizeCurrency(data.BilledCurrencyCode),
+			Currency:       currencyValue,
 			PurchasedAt:    now,
 			CreatedAt:      now,
 		}
@@ -819,7 +877,7 @@ func (s *CCBillWebhookService) handleUpgradeSuccess(ctx context.Context) error {
 				EventType:      PaymentEventChargeSuccess,
 				Processor:      "ccbill",
 				Amount:         &billedAmount,
-				Currency:       normalizeCurrency(data.BilledCurrencyCode),
+				Currency:       currencyValue,
 				BillingInfo:    CreateMetadataJSON(billingInfo),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
@@ -1013,6 +1071,10 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 	failureCode := data.FailureCode
 	failureReason := data.FailureReason
 	originalSubscriptionID := data.OriginalSubscriptionID
+	currencyValue, err := requireCCBillCurrency(data.BilledCurrencyCode, "billedCurrencyCode")
+	if err != nil {
+		return err
+	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
 		userID, err := s.resolveUserID(ctx, data.Username)
@@ -1043,7 +1105,7 @@ func (s *CCBillWebhookService) handleUpgradeFailure(ctx context.Context) error {
 				UserID:        userID,
 				EventType:     PaymentEventChargeFailure,
 				Processor:     "ccbill",
-				Currency:      normalizeCurrency(data.BilledCurrencyCode),
+				Currency:      currencyValue,
 				BillingInfo:   CreateMetadataJSON(map[string]interface{}{"upgrade_failure": true}),
 				WebhookSource: "webhook",
 				Metadata:      CreateMetadataJSON(metadata),
@@ -1283,16 +1345,6 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 		return fmt.Errorf("subscription lifecycle service not configured")
 	}
 
-	if s.DeduplicationService != nil {
-		isDupe, err := s.DeduplicationService.IsDuplicate(ctx, "ccbill", transactionID)
-		if err != nil {
-			log.WithContext(ctx).WithError(err).Warn("deduplication check failed, proceeding with webhook")
-		} else if isDupe {
-			log.WithContext(ctx).WithField("transaction_id", transactionID).Info("Duplicate CCBill UserReactivation webhook, skipping")
-			return nil
-		}
-	}
-
 	renewalDate, err := parseCCBillDateUsingTimestamp(nextRenewalDate, "")
 	if err != nil {
 		return fmt.Errorf("failed to parse nextRenewalDate '%s': %w", nextRenewalDate, err)
@@ -1404,15 +1456,14 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 	refundAmountStr := data.Amount
 	refundTransactionID := data.TransactionID // Use TransactionID as the refund transaction ID
 	refundReason := data.Reason
-
-	// Parse the refund amount
-	refundAmount, err := strconv.ParseFloat(refundAmountStr, 64)
+	refundAmountCents, err := parseCCBillPositiveAmountCents(refundAmountStr, "refund amount", "amount")
 	if err != nil {
-		return fmt.Errorf("failed to parse refund amount '%s': %w", refundAmountStr, err)
+		return err
 	}
-
-	if refundAmount <= 0 {
-		return fmt.Errorf("invalid amount: %f - must be greater than 0", refundAmount)
+	refundAmount := amountFloatFromCents(refundAmountCents)
+	currencyValue, err := requireCCBillCurrency(data.CurrencyCode, "currencyCode")
+	if err != nil {
+		return err
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
@@ -1437,9 +1488,6 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 		// Determine if we should terminate the subscription based on refund amount
 		// If refund amount is significant relative to the subscription price, terminate
 		if sub.Price != nil && sub.Price.Amount > 0 {
-			// refundAmount is float64 (dollars from CCBill), sub.Price.Amount is int64 (cents)
-			// Convert refundAmount to cents for comparison
-			refundAmountCents := int64(refundAmount * 100)
 			// Use integer math: percentage = (refundCents * 100) / priceAmount
 			refundPercentage := (refundAmountCents * 100) / sub.Price.Amount
 			if refundPercentage >= 80 { // If refund is 80%+ of price, terminate
@@ -1531,7 +1579,7 @@ func (s *CCBillWebhookService) handleRefund(ctx context.Context) error {
 				EventType:      PaymentEventRefund,
 				Processor:      "ccbill",
 				Amount:         &negativeAmount,
-				Currency:       normalizeCurrency(data.AccountingCurrencyCode),
+				Currency:       currencyValue,
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"refund": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
@@ -1574,15 +1622,14 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 	voidAmountStr := data.Amount
 	voidTransactionID := data.TransactionID // Use TransactionID as the void transaction ID
 	voidReason := data.Reason
-
-	// Parse the void amount
-	voidAmount, err := strconv.ParseFloat(voidAmountStr, 64)
+	voidAmountCents, err := parseCCBillPositiveAmountCents(voidAmountStr, "void amount", "amount")
 	if err != nil {
-		return fmt.Errorf("failed to parse void amount '%s': %w", voidAmountStr, err)
+		return err
 	}
-
-	if voidAmount <= 0 {
-		return fmt.Errorf("invalid amount: %f - must be greater than 0", voidAmount)
+	voidAmount := amountFloatFromCents(voidAmountCents)
+	currencyValue, err := requireCCBillCurrency(data.CurrencyCode, "currencyCode")
+	if err != nil {
+		return err
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
@@ -1625,7 +1672,7 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 						EventType:     PaymentEventVoid,
 						Processor:     "ccbill",
 						Amount:        &negativeAmount,
-						Currency:      normalizeCurrency(data.AccountingCurrencyCode),
+						Currency:      currencyValue,
 						BillingInfo:   CreateMetadataJSON(map[string]interface{}{"void": true}),
 						WebhookSource: "webhook",
 						Metadata:      CreateMetadataJSON(metadata),
@@ -1674,7 +1721,7 @@ func (s *CCBillWebhookService) handleVoid(ctx context.Context) error {
 				EventType:      PaymentEventVoid,
 				Processor:      "ccbill",
 				Amount:         &negativeAmount,
-				Currency:       normalizeCurrency(data.AccountingCurrencyCode),
+				Currency:       currencyValue,
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"void": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
@@ -1718,15 +1765,14 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 	chargebackAmountStr := data.Amount
 	chargebackTransactionID := data.TransactionID // Use TransactionID as the chargeback transaction ID
 	chargebackReason := data.Reason
-
-	// Parse the chargeback amount
-	chargebackAmount, err := strconv.ParseFloat(chargebackAmountStr, 64)
+	chargebackAmountCents, err := parseCCBillPositiveAmountCents(chargebackAmountStr, "chargeback amount", "amount")
 	if err != nil {
-		return fmt.Errorf("failed to parse chargeback amount '%s': %w", chargebackAmountStr, err)
+		return err
 	}
-
-	if chargebackAmount <= 0 {
-		return fmt.Errorf("invalid amount: %f - must be greater than 0", chargebackAmount)
+	chargebackAmount := amountFloatFromCents(chargebackAmountCents)
+	currencyValue, err := requireCCBillCurrency(data.CurrencyCode, "currencyCode")
+	if err != nil {
+		return err
 	}
 
 	if err := s.DB.GetDB().RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
@@ -1774,7 +1820,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 						EventType:     PaymentEventChargeback,
 						Processor:     "ccbill",
 						Amount:        &negativeAmount,
-						Currency:      normalizeCurrency(data.AccountingCurrencyCode),
+						Currency:      currencyValue,
 						BillingInfo:   CreateMetadataJSON(map[string]interface{}{"chargeback": true, "fraud_flag": true}),
 						WebhookSource: "webhook",
 						Metadata:      CreateMetadataJSON(metadata),
@@ -1873,7 +1919,7 @@ func (s *CCBillWebhookService) handleChargeback(ctx context.Context) error {
 				EventType:      PaymentEventChargeback,
 				Processor:      "ccbill",
 				Amount:         &negativeAmount,
-				Currency:       normalizeCurrency(data.AccountingCurrencyCode),
+				Currency:       currencyValue,
 				BillingInfo:    CreateMetadataJSON(map[string]interface{}{"chargeback": true, "fraud_flag": true}),
 				WebhookSource:  "webhook",
 				Metadata:       CreateMetadataJSON(metadata),
@@ -1951,18 +1997,16 @@ func (s *CCBillWebhookService) handleRenewalSuccessInternal(ctx context.Context,
 	transactionID := data.TransactionID
 	billedAmountStr := data.BilledAmount
 
-	billedAmount, err := strconv.ParseFloat(billedAmountStr, 64)
+	billedAmountCents, err := parseCCBillPositiveAmountCents(billedAmountStr, "billedAmount", "billedAmount")
 	if err != nil {
-		return fmt.Errorf("failed to parse billedAmount '%s': %w", data.BilledAmount, err)
+		return err
 	}
+	billedAmount := amountFloatFromCents(billedAmountCents)
 
-	if billedAmount <= 0 {
-		return fmt.Errorf("invalid billedAmount: %f - must be greater than 0", billedAmount)
+	currencyValue, err := requireCCBillCurrency(data.BilledCurrencyCode, "billedCurrencyCode")
+	if err != nil {
+		return err
 	}
-
-	// Convert billed amount to cents for payment record
-	billedAmountCents := int64(billedAmount * 100)
-	currencyValue := normalizeCurrency(data.BilledCurrencyCode)
 
 	prevSub, err := s.SubscriptionService.GetByProcessorSubscriptionID(ctx, string(models.ProcessorCCBill), "", ccBillSubID)
 	if err != nil {
@@ -2052,7 +2096,7 @@ func (s *CCBillWebhookService) handleRenewalSuccessInternal(ctx context.Context,
 			EventType:      PaymentEventChargeSuccess,
 			Processor:      "ccbill",
 			Amount:         &billedAmount,
-			Currency:       normalizeCurrency(data.BilledCurrencyCode),
+			Currency:       currencyValue,
 			BillingInfo:    CreateMetadataJSON(billingInfo),
 			WebhookSource:  "webhook",
 			Metadata:       CreateMetadataJSON(metadata),
@@ -2229,6 +2273,13 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 
 	// Log renewal failure event to ClickHouse - standardized with NMI/Mobius
 	if s.EventLogService != nil {
+		failureCurrency := "usd"
+		if subscription.Price != nil {
+			if curr := strings.ToLower(strings.TrimSpace(subscription.Price.Currency)); curr != "" {
+				failureCurrency = curr
+			}
+		}
+
 		metadata := map[string]interface{}{
 			"transaction_id":            transactionID,
 			"processor":                 "ccbill",
@@ -2248,7 +2299,7 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 			UserID:         subscription.UserID,
 			EventType:      PaymentEventChargeFailure,
 			Processor:      "ccbill",
-			Currency:       "usd", // RenewalFailure event doesn't include currency - defaults to usd
+			Currency:       failureCurrency,
 			BillingInfo:    CreateMetadataJSON(map[string]interface{}{"renewal_failure": true}),
 			WebhookSource:  "webhook",
 			Metadata:       CreateMetadataJSON(metadata),
