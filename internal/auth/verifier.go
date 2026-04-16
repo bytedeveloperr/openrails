@@ -3,70 +3,45 @@ package auth
 import (
 	"errors"
 	"strings"
-	"time"
 
-	jwt "github.com/golang-jwt/jwt/v5"
 	authhttp "github.com/open-rails/authkit/adapters/http"
-	"github.com/open-rails/authkit/core"
 
 	"github.com/open-rails/openrails/config"
 )
 
 // Verifier validates bearer tokens against configured issuers/JWKS.
 type Verifier interface {
-	Verify(token string) (jwt.MapClaims, error)
-}
-
-// BuildAcceptConfig returns an authkit AcceptConfig based on billing auth config.
-// Supports multiple issuers to accept tokens from multiple IdPs/environments.
-func BuildAcceptConfig(cfg *config.AuthConfig) (core.AcceptConfig, error) {
-	if cfg == nil {
-		return core.AcceptConfig{}, errors.New("auth config is required")
-	}
-
-	if len(cfg.Issuers) == 0 {
-		return core.AcceptConfig{}, errors.New("at least one auth issuer is required")
-	}
-
-	expectedAudience := strings.TrimSpace(cfg.ExpectedAudience)
-
-	// Build IssuerAccept config for each issuer
-	issuerAccepts := make([]core.IssuerAccept, 0, len(cfg.Issuers))
-	for _, issuer := range cfg.Issuers {
-		issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
-		if issuer == "" {
-			continue
-		}
-
-		issCfg := core.IssuerAccept{Issuer: issuer}
-		if expectedAudience != "" {
-			issCfg.Audiences = []string{expectedAudience}
-		}
-
-		issuerAccepts = append(issuerAccepts, issCfg)
-	}
-
-	if len(issuerAccepts) == 0 {
-		return core.AcceptConfig{}, errors.New("no valid issuers configured")
-	}
-
-	accept := core.AcceptConfig{
-		Issuers:    issuerAccepts,
-		Algorithms: []string{"RS256"},
-		Skew:       60 * time.Second,
-	}
-
-	return accept, nil
+	Verify(token string) (authhttp.Claims, error)
 }
 
 // NewVerifier builds an authkit-backed verifier using billing auth config.
 // Supports multiple issuers to accept tokens from multiple IdPs/environments.
 func NewVerifier(cfg *config.AuthConfig) (Verifier, error) {
-	accept, err := BuildAcceptConfig(cfg)
-	if err != nil {
-		return nil, err
+	if cfg == nil {
+		return nil, errors.New("auth config is required")
 	}
-	return authhttp.NewVerifier(accept), nil
+	if len(cfg.Issuers) == 0 {
+		return nil, errors.New("at least one auth issuer is required")
+	}
+
+	expectedAudience := strings.TrimSpace(cfg.ExpectedAudience)
+	v := authhttp.NewVerifier()
+
+	for _, issuer := range cfg.Issuers {
+		issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
+		if issuer == "" {
+			continue
+		}
+		var audiences []string
+		if expectedAudience != "" {
+			audiences = []string{expectedAudience}
+		}
+		_ = v.AddIssuer(issuer, audiences, authhttp.IssuerOptions{
+			JWKSURL: issuer + "/.well-known/jwks.json",
+		})
+	}
+
+	return v, nil
 }
 
 // FormatVerifierError normalises verifier error messages for HTTP responses.

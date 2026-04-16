@@ -3,27 +3,20 @@ package auth
 import (
 	"testing"
 
-	jwt "github.com/golang-jwt/jwt/v5"
+	authhttp "github.com/open-rails/authkit/adapters/http"
 	"github.com/stretchr/testify/require"
 )
 
-func TestUserContextFromMapUsesSIDOnly(t *testing.T) {
+func TestUserContextFromClaimsMapsFields(t *testing.T) {
 	t.Parallel()
 
-	uc := userContextFromMap(jwt.MapClaims{
-		"sid":        "session-from-sid",
-		"session_id": "legacy-session",
+	uc := userContextFromClaims(authhttp.Claims{
+		UserID:    "user-1",
+		Email:     "test@example.com",
+		SessionID: "session-1",
 	})
 
-	require.Equal(t, "session-from-sid", uc.SessionID)
-}
-
-func TestUserContextFromMapIgnoresLegacySessionID(t *testing.T) {
-	t.Parallel()
-
-	uc := userContextFromMap(jwt.MapClaims{
-		"session_id": "legacy-session",
-	})
-
-	require.Empty(t, uc.SessionID)
+	require.Equal(t, "user-1", uc.UserID)
+	require.Equal(t, "test@example.com", uc.Email)
+	require.Equal(t, "session-1", uc.SessionID)
 }

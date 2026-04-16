@@ -5,7 +5,7 @@ import (
 
 	"github.com/doujins-org/ginapi/response"
 	"github.com/gin-gonic/gin"
-	jwt "github.com/golang-jwt/jwt/v5"
+	authhttp "github.com/open-rails/authkit/adapters/http"
 	"github.com/open-rails/openrails/config"
 	"github.com/open-rails/openrails/pkg/authprovider"
 	log "github.com/sirupsen/logrus"
@@ -47,7 +47,7 @@ func (p *authKitProvider) Required() gin.HandlerFunc {
 			return
 		}
 
-		uc := userContextFromMap(raw)
+		uc := userContextFromClaims(raw)
 		c.Set("billing.user_context", uc)
 		c.Request = c.Request.WithContext(authprovider.SetUserContext(c.Request.Context(), uc))
 		c.Next()
@@ -74,7 +74,7 @@ func (p *authKitProvider) Optional() gin.HandlerFunc {
 			return
 		}
 
-		uc := userContextFromMap(raw)
+		uc := userContextFromClaims(raw)
 		c.Set("billing.user_context", uc)
 		c.Request = c.Request.WithContext(authprovider.SetUserContext(c.Request.Context(), uc))
 		c.Next()
@@ -93,53 +93,15 @@ func bearerToken(header string) string {
 	return strings.TrimSpace(header[len(prefix):])
 }
 
-func userContextFromMap(raw jwt.MapClaims) authprovider.UserContext {
-	var uc authprovider.UserContext
-	if raw == nil {
-		return uc
-	}
-
-	if v, _ := raw["sub"].(string); v != "" {
-		uc.UserID = v
-	}
-	if v, _ := raw["email"].(string); v != "" {
-		uc.Email = v
-	}
-	if v, ok := raw["email_verified"].(bool); ok {
-		uc.EmailVerified = v
-	}
-	if v, _ := raw["username"].(string); v != "" {
-		uc.Username = v
-	}
-	if v, _ := raw["preferred_username"].(string); v != "" && uc.Username == "" {
-		uc.Username = v
-	}
-	if v, _ := raw["discord_username"].(string); v != "" {
-		uc.DiscordUsername = v
-	}
-
-	if v, _ := raw["sid"].(string); v != "" {
-		uc.SessionID = v
-	}
-
-	uc.Roles = toStringSlice(raw["roles"])
-	uc.Entitlements = toStringSlice(raw["entitlements"])
-	return uc
-}
-
-func toStringSlice(v any) []string {
-	switch t := v.(type) {
-	case []string:
-		return t
-	case []any:
-		out := make([]string, 0, len(t))
-		for _, el := range t {
-			if s, ok := el.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	default:
-		return nil
+func userContextFromClaims(cl authhttp.Claims) authprovider.UserContext {
+	return authprovider.UserContext{
+		UserID:          cl.UserID,
+		Email:           cl.Email,
+		EmailVerified:   cl.EmailVerified,
+		Username:        cl.Username,
+		DiscordUsername: cl.DiscordUsername,
+		SessionID:       cl.SessionID,
+		Roles:           cl.Roles,
+		Entitlements:    cl.Entitlements,
 	}
 }
