@@ -54,43 +54,35 @@ func (s *Server) registerStandaloneMetaRoutes(e *gin.Engine) {
 
 func (s *Server) readyHandler(c *gin.Context) {
 	ctx := c.Request.Context()
-	checks := gin.H{
-		"db":      "ok",
-		"redis":   "ok",
-		"authkit": "ok",
-	}
 
 	// Check database (critical)
 	var one int
 	if s.runtime != nil && s.runtime.DB != nil {
 		if err := s.runtime.DB.GetDB().NewSelect().ColumnExpr("1").Scan(ctx, &one); err != nil {
-			checks["db"] = "down"
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
 			return
 		}
 	} else {
-		checks["db"] = "missing"
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
 		return
 	}
 
 	// Check Redis (critical for billing operations)
 	if s.runtime != nil && s.runtime.RedisClient != nil {
 		if _, err := s.runtime.RedisClient.Ping(ctx).Result(); err != nil {
-			checks["redis"] = "down"
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
 			return
 		}
 	} else {
-		checks["redis"] = "missing"
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
+		return
 	}
 
 	// Check AuthKit verifier (critical for authentication)
 	if s.authProvider == nil {
-		checks["authkit"] = "not_initialized"
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "checks": checks})
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ready", "checks": checks})
+	c.JSON(http.StatusOK, gin.H{"status": "ready"})
 }

@@ -29,6 +29,7 @@ type Payment struct {
 	Amount     int64  `bun:"amount,notnull" json:"amount"`
 	ListAmount int64  `bun:"list_amount,notnull" json:"list_amount"`
 	Currency   string `bun:"currency,notnull,default:'usd'" json:"currency"`
+	Status     string `bun:"status,notnull,default:'completed',nullzero" json:"status"`
 
 	DiscountCode     *string        `bun:"discount_code,nullzero" json:"discount_code,omitempty"`
 	DiscountReason   *string        `bun:"discount_reason,nullzero" json:"discount_reason,omitempty"`

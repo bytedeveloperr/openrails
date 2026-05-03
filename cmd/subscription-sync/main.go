@@ -27,6 +27,10 @@ import (
 )
 
 type nmResponse struct {
+	Response      string           `xml:"response"`
+	ResponseText  string           `xml:"responsetext"`
+	Error         string           `xml:"error"`
+	ErrorResponse string           `xml:"error_response"`
 	Subscriptions []nmSubscription `xml:"subscription"`
 }
 
@@ -155,7 +159,9 @@ func fetchCCBillSubscriptions(ctx context.Context, cfg *config.Config) ([]ccbill
 	if ccbillProc == nil {
 		return nil, fmt.Errorf("ccbill processor not configured")
 	}
-	client := ccbill.NewDataLinkClient(ccbillProc.ToCCBillConfig())
+	ccbillConfig := ccbillProc.ToCCBillConfig()
+	ccbillConfig.TestMode = cfg.IsTestMode()
+	client := ccbill.NewDataLinkClient(ccbillConfig)
 	if err := client.ValidateConfig(); err != nil {
 		return nil, err
 	}
@@ -249,6 +255,10 @@ func reconcileProcessor(ctx context.Context, application *app.App, cfg *config.C
 	}
 
 	if opts.apply && len(localOnly) > 0 {
+		if processorName != "ccbill" && remoteCount == 0 {
+			return fmt.Errorf("refusing to apply NMI reconciliation: remote report returned zero subscriptions while %d local active subscriptions exist", len(localOnly))
+		}
+
 		if application.Runtime.SubscriptionLifecycleService == nil {
 			return fmt.Errorf("subscription lifecycle service unavailable; cannot apply changes")
 		}
@@ -345,9 +355,6 @@ func reconcileProcessor(ctx context.Context, application *app.App, cfg *config.C
 					err = application.Runtime.SubscriptionLifecycleService.RenewMembership(ctx, &subscriptions.RenewMembershipParams{
 						Processor:                 models.ProcessorCCBill,
 						ProcessorSubscriptionID:   id,
-						TransactionID:             fmt.Sprintf("ccbill-cmd-renew-%s", id),
-						Amount:                    renewPrice.Amount,
-						Currency:                  renewPrice.Currency,
 						AllowTerminalReactivation: opts.allowTerminalReactivation,
 					})
 					if err != nil {
@@ -368,9 +375,6 @@ func reconcileProcessor(ctx context.Context, application *app.App, cfg *config.C
 				Processor:               models.ProcessorCCBill,
 				ProcessorSubscriptionID: &id,
 				UserEmail:               emailPtr,
-				TransactionID:           fmt.Sprintf("ccbill-cmd-%s", id),
-				Amount:                  price.Amount,
-				Currency:                price.Currency,
 			})
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "failed to add membership for %s: %v\n", id, err)
@@ -404,7 +408,9 @@ func normalizeProcessorList(processors []string, fallback string) []string {
 			add(part)
 		}
 	}
-	add(fallback)
+	if len(out) == 0 {
+		add(fallback)
+	}
 	return out
 }
 
@@ -486,6 +492,9 @@ func parseRecurringSubscriptions(payload string) ([]string, error) {
 	if err := xml.Unmarshal([]byte(payload), &resp); err != nil {
 		return nil, fmt.Errorf("parse xml: %w", err)
 	}
+	if err := validateNMIQueryResponse(resp); err != nil {
+		return nil, err
+	}
 
 	result := make([]string, 0, len(resp.Subscriptions))
 	for _, sub := range resp.Subscriptions {
@@ -495,6 +504,32 @@ func parseRecurringSubscriptions(payload string) ([]string, error) {
 		}
 	}
 	return result, nil
+}
+
+func validateNMIQueryResponse(resp nmResponse) error {
+	status := strings.TrimSpace(resp.Response)
+	if status != "" && status != "1" && !strings.EqualFold(status, "success") {
+		message := strings.TrimSpace(resp.ResponseText)
+		if message == "" {
+			message = strings.TrimSpace(resp.Error)
+		}
+		if message == "" {
+			message = strings.TrimSpace(resp.ErrorResponse)
+		}
+		if message == "" {
+			message = "unknown NMI query error"
+		}
+		return fmt.Errorf("nmi query failed: response=%q: %s", status, message)
+	}
+
+	message := strings.TrimSpace(resp.Error)
+	if message == "" {
+		message = strings.TrimSpace(resp.ErrorResponse)
+	}
+	if message != "" {
+		return fmt.Errorf("nmi query failed: %s", message)
+	}
+	return nil
 }
 
 func diffKeys(a, b map[string]struct{}) []string {

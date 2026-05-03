@@ -36,6 +36,7 @@ type AdminSubscriptionService struct {
 	NotificationService NotificationStore
 	PaymentService      *payments.PaymentService
 	NMIClients          map[string]*nmi.NMIClient
+	StripeService       *StripeService
 	EventLogService     AdminCancellationLogger
 	Clock               clockwork.Clock
 	// No user directory enrichment; IdP subject is stored on subscription
@@ -207,13 +208,23 @@ func (s *AdminSubscriptionService) CancelSubscription(ctx context.Context, subsc
 		return fmt.Errorf("subscription is not active")
 	}
 
-	if !processors.IsNMIBackedProcessor(subscription.Processor) {
+	if !processors.IsNMIBackedProcessor(subscription.Processor) && subscription.Processor != models.ProcessorStripe {
 		return fmt.Errorf("cancel operation not supported for processor '%s'", subscription.Processor)
 	}
 
-	// Cancel with payment processor first (NMI)
-	if err := s.cancelWithNMI(subscription); err != nil {
-		return err
+	// Cancel with payment processor first.
+	switch {
+	case processors.IsNMIBackedProcessor(subscription.Processor):
+		if err := s.cancelWithNMI(subscription); err != nil {
+			return err
+		}
+	case subscription.Processor == models.ProcessorStripe:
+		if s.StripeService == nil {
+			return fmt.Errorf("stripe cancellation service unavailable")
+		}
+		if err := s.StripeService.CancelSubscription(ctx, subscription.ProcessorSubscriptionID); err != nil {
+			return fmt.Errorf("failed to cancel subscription with Stripe: %w", err)
+		}
 	}
 
 	now := s.now()

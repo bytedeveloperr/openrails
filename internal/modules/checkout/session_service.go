@@ -201,7 +201,7 @@ func (s *CheckoutSessionService) createSessionWithValidation(ctx context.Context
 	}
 
 	if err := s.validatePayment(ctx, processor, &req.Payment, user); err != nil {
-		return nil, fmt.Errorf("error validating payment: %s", err)
+		return nil, fmt.Errorf("error validating payment: %w", err)
 	}
 
 	now := s.now()
@@ -538,7 +538,9 @@ func (s *CheckoutSessionService) initializeCheckoutSession(ctx context.Context, 
 	}
 
 	if session.IdempotencyKey != nil {
-		req.IdempotencyKey = strings.TrimSpace(*session.IdempotencyKey)
+		if key := strings.TrimSpace(*session.IdempotencyKey); key != "" {
+			req.IdempotencyKey = fmt.Sprintf("checkout_session:%s:%s", session.ID, key)
+		}
 	}
 	if session.Processor == models.ProcessorStripe {
 		req.CheckoutSessionID = api.FormatCheckoutSessionID(session.ID)

@@ -7,7 +7,7 @@ SET statement_timeout = '300s';
 CREATE SCHEMA IF NOT EXISTS billing;
 
 -- Install required extensions
--- Extensions are created by bootstrap; skip here.
+CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 -- ============================================================================
 -- SECTION 1: CORE SUBSCRIPTION TABLES
@@ -28,7 +28,7 @@ END$$;
 -- 1.3: Create subscriptions table
 CREATE TABLE IF NOT EXISTS billing.subscriptions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL, -- AuthKit user ID (UUID)
+    user_id TEXT NOT NULL, -- AuthKit/OIDC subject
     price_id UUID, -- References prices table (created later)
     product_id UUID NOT NULL, -- Denormalized for efficient user+product lookups (references products table)
     status billing.subscription_status NOT NULL DEFAULT 'pending',
@@ -167,7 +167,7 @@ END$$;
 
 CREATE TABLE IF NOT EXISTS billing.entitlements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
+    user_id TEXT NOT NULL,
     entitlement TEXT NOT NULL,
     start_at TIMESTAMPTZ NOT NULL,
     end_at TIMESTAMPTZ,
@@ -191,10 +191,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_entitlements_active ON billing.entitlemen
 WHERE revoked_at IS NULL AND end_at IS NULL;
 
 -- Prevent overlapping entitlement windows per (user_id, entitlement) for non-deleted rows.
--- Simplified approach using a partial unique index instead of complex exclusion constraint
-CREATE UNIQUE INDEX IF NOT EXISTS idx_entitlements_no_overlap
-ON billing.entitlements(user_id, entitlement, start_at)
-WHERE revoked_at IS NULL AND deleted_at IS NULL;
+DO $$BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'entitlements_no_overlap'
+          AND connamespace = 'billing'::regnamespace
+    ) THEN
+        ALTER TABLE billing.entitlements
+        ADD CONSTRAINT entitlements_no_overlap
+        EXCLUDE USING gist (user_id WITH =, entitlement WITH =, period WITH &&)
+        WHERE (revoked_at IS NULL AND deleted_at IS NULL);
+    END IF;
+END$$;
 
 -- Backfill cleanup for older schemas: drop the former generated column if it exists
 ALTER TABLE billing.entitlements DROP COLUMN IF EXISTS active;
@@ -250,7 +258,7 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_payment_method_id ON billing.subscr
 
 -- 4.2: Create processor and purchase status enums
 DROP TYPE IF EXISTS billing.processor_type CASCADE;
-CREATE TYPE billing.processor_type AS ENUM ('paypal', 'solana', 'mobius', 'ccbill');
+CREATE TYPE billing.processor_type AS ENUM ('paypal', 'solana', 'mobius', 'ccbill', 'stripe');
 
 DROP TYPE IF EXISTS billing.purchase_status CASCADE;
 CREATE TYPE billing.purchase_status AS ENUM ('pending', 'completed', 'failed', 'refunded');
@@ -258,7 +266,7 @@ CREATE TYPE billing.purchase_status AS ENUM ('pending', 'completed', 'failed', '
 -- 4.3: Create payments table (formerly purchases)
 CREATE TABLE IF NOT EXISTS billing.payments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL, -- AuthKit user ID (UUID)
+    user_id TEXT NOT NULL, -- AuthKit/OIDC subject
     price_id UUID NOT NULL REFERENCES billing.prices(id),
     processor billing.processor_type NOT NULL, -- flattened processor (mobius, ccbill, solana, paypal, etc.)
     transaction_id TEXT NOT NULL,
@@ -290,7 +298,7 @@ COMMENT ON COLUMN billing.payments.subscription_id IS 'Links a payment to the su
 
 CREATE TABLE IF NOT EXISTS billing.notification_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL, -- AuthKit user ID (UUID)
+    user_id TEXT NOT NULL, -- AuthKit/OIDC subject
     event_type TEXT NOT NULL, -- premium_started, payment_failed, etc.
     data JSONB NOT NULL,
     seen BOOLEAN NOT NULL DEFAULT false,

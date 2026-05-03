@@ -191,6 +191,14 @@ func (r *Request) GetClientIP() string {
 	return ip
 }
 
+func (r *Request) GetRemoteIP() string {
+	ip, _, err := net.SplitHostPort(r.GinCtx.Request.RemoteAddr)
+	if err != nil {
+		return r.GinCtx.Request.RemoteAddr
+	}
+	return ip
+}
+
 func (r *Request) Redirect(code int, location string) {
 	r.GinCtx.Redirect(code, location)
 }

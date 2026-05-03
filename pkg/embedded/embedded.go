@@ -100,6 +100,12 @@ func (e *Embedded) ServiceHandler() http.Handler {
 	return e.server.PrivateHandler()
 }
 
+// PrivateHandler returns the internal service-to-service HTTP API.
+// Deprecated: use ServiceHandler.
+func (e *Embedded) PrivateHandler() http.Handler {
+	return e.ServiceHandler()
+}
+
 // Service returns the in-process billing API for embedded hosts.
 func (e *Embedded) Service() (*service.Service, error) {
 	if e == nil || e.app == nil {

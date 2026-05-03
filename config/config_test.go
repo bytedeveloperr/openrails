@@ -25,6 +25,22 @@ func TestLoad_APIKeyFromEnv(t *testing.T) {
 		assert.Equal(t, "test-api-key", cfg.APIKey)
 	})
 
+	t.Run("loads api_key from legacy BILLING_API_KEY", func(t *testing.T) {
+		t.Setenv("BILLING_API_KEY", "test-billing-api-key")
+
+		cfg, err := Load("nonexistent-config.yaml")
+		assert.NoError(t, err)
+		assert.Equal(t, "test-billing-api-key", cfg.APIKey)
+	})
+
+	t.Run("loads api_key from legacy BILLING_INTERNAL_API_KEY", func(t *testing.T) {
+		t.Setenv("BILLING_INTERNAL_API_KEY", "test-internal-api-key")
+
+		cfg, err := Load("nonexistent-config.yaml")
+		assert.NoError(t, err)
+		assert.Equal(t, "test-internal-api-key", cfg.APIKey)
+	})
+
 	t.Run("loads nested keys via single underscore (db.url)", func(t *testing.T) {
 		t.Setenv("DB_URL", "postgres://u:p@localhost:5432/db?sslmode=disable")
 
@@ -33,12 +49,30 @@ func TestLoad_APIKeyFromEnv(t *testing.T) {
 		assert.Equal(t, "postgres://u:p@localhost:5432/db?sslmode=disable", cfg.DB.URL)
 	})
 
+	t.Run("loads legacy DATABASE_URL as db.url", func(t *testing.T) {
+		t.Setenv("DATABASE_URL", "postgres://legacy:p@localhost:5432/db?sslmode=disable")
+
+		cfg, err := Load("nonexistent-config.yaml")
+		assert.NoError(t, err)
+		assert.Equal(t, "postgres://legacy:p@localhost:5432/db?sslmode=disable", cfg.DB.URL)
+	})
+
 	t.Run("loads JSON arrays for slices (auth.issuers)", func(t *testing.T) {
 		t.Setenv("AUTH_ISSUERS", `["http://a.test","http://b.test"]`)
 
 		cfg, err := Load("nonexistent-config.yaml")
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"http://a.test", "http://b.test"}, cfg.Auth.Issuers)
+	})
+
+	t.Run("loads legacy JWT issuer variables", func(t *testing.T) {
+		t.Setenv("JWT_ISSUER", "http://legacy-issuer.test")
+		t.Setenv("JWT_AUDIENCE", "legacy-audience")
+
+		cfg, err := Load("nonexistent-config.yaml")
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"http://legacy-issuer.test"}, cfg.Auth.Issuers)
+		assert.Equal(t, "legacy-audience", cfg.Auth.ExpectedAudience)
 	})
 
 }
@@ -87,14 +121,22 @@ func TestLoad_RequiresExplicitTypeForCustomProcessors(t *testing.T) {
 	cfgPath := filepath.Join(dir, "config.yaml")
 	err := os.WriteFile(cfgPath, []byte(`
 processors:
-  mobius:
+  acme:
     security_key: test-key
 `), 0o600)
 	assert.NoError(t, err)
 
 	_, err = Load(cfgPath)
 	assert.Error(t, err)
-	assert.ErrorContains(t, err, "processor 'mobius' must declare a type")
+	assert.ErrorContains(t, err, "processor 'acme' must declare a type")
+}
+
+func TestLoad_DefaultsLegacyMobiusProcessorToNMI(t *testing.T) {
+	t.Setenv("PROCESSORS_MOBIUS_SECURITY_KEY", "test-key")
+
+	cfg, err := Load("nonexistent-config.yaml")
+	assert.NoError(t, err)
+	assert.Equal(t, ProcessorTypeNMI, cfg.Processors["mobius"].Type)
 }
 
 func TestLoad_EnvTrimming(t *testing.T) {
@@ -162,26 +204,59 @@ func TestIsDev(t *testing.T) {
 	})
 }
 
-func TestTestModeOrthogonality(t *testing.T) {
-	// Test that env and test_mode are independent settings
-	t.Run("prod env can have test_mode true", func(t *testing.T) {
+func TestProductionTestModeValidation(t *testing.T) {
+	t.Run("prod env rejects test_mode true", func(t *testing.T) {
 		trueBool := true
-		cfg := &Config{
-			Env:      "prod",
-			TestMode: &trueBool,
-		}
+		cfg := GetDefaultBillingConfig()
+		cfg.Env = "prod"
+		cfg.TestMode = &trueBool
+		assembleDBURL(cfg)
 		assert.False(t, cfg.IsDev(), "env=prod should not be dev")
-		assert.True(t, cfg.IsTestMode(), "test_mode=true should be in test mode")
+		assert.ErrorContains(t, Validate(cfg), "test_mode=true is not allowed outside development")
+	})
+
+	t.Run("prod env requires explicit test_mode false", func(t *testing.T) {
+		cfg := GetDefaultBillingConfig()
+		cfg.Env = "prod"
+		cfg.TestMode = nil
+		assembleDBURL(cfg)
+		assert.ErrorContains(t, Validate(cfg), "test_mode must be explicitly set to false outside development")
 	})
 
 	t.Run("dev env can have test_mode false", func(t *testing.T) {
 		falseBool := false
-		cfg := &Config{
-			Env:      "dev",
-			TestMode: &falseBool,
-		}
+		cfg := GetDefaultBillingConfig()
+		cfg.Env = "dev"
+		cfg.TestMode = &falseBool
+		assembleDBURL(cfg)
 		assert.True(t, cfg.IsDev(), "env=dev should be dev")
 		assert.False(t, cfg.IsTestMode(), "test_mode=false should not be in test mode")
+		assert.NoError(t, Validate(cfg))
+	})
+
+	t.Run("prod env accepts explicit test_mode false", func(t *testing.T) {
+		falseBool := false
+		cfg := GetDefaultBillingConfig()
+		cfg.Env = "prod"
+		cfg.TestMode = &falseBool
+		cfg.APIKey = "production-service-key"
+		cfg.DB.Username = "billing_app"
+		cfg.DB.Password = "production-db-password"
+		cfg.Auth.Issuers = []string{"https://issuer.example.com"}
+		cfg.ClickHouse.Username = "prod_analytics"
+		cfg.ClickHouse.Password = "production-clickhouse-password"
+		assembleDBURL(cfg)
+		assert.NoError(t, Validate(cfg))
+	})
+
+	t.Run("prod env rejects default api key", func(t *testing.T) {
+		falseBool := false
+		cfg := GetDefaultBillingConfig()
+		cfg.Env = "prod"
+		cfg.TestMode = &falseBool
+		cfg.APIKey = "dev-service-api-key-change-me"
+		assembleDBURL(cfg)
+		assert.ErrorContains(t, Validate(cfg), "default service api_key is not allowed outside development")
 	})
 }
 

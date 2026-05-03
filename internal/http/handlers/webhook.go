@@ -20,8 +20,12 @@ import (
 
 func Webhook(r *httprequest.Request) {
 	provider := webhookutil.CanonicalProvider(r.Param("provider"))
-	clientIP := r.GetClientIP()
+	clientIP := r.GetRemoteIP()
 	log.WithFields(log.Fields{"provider": provider, "client_ip": clientIP}).Debug("Received webhook")
+	if r.State == nil || r.State.Config == nil {
+		r.ErrorJSON(http.StatusServiceUnavailable, "Webhook processing is not configured")
+		return
+	}
 	isTestMode := r.State.Config.IsTestMode()
 	if processors.IsNMIBacked(provider) {
 		if enqueueNMIWebhook(r, provider, clientIP) {

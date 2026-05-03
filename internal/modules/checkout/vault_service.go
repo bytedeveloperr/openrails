@@ -39,6 +39,9 @@ func (s *CheckoutVaultService) ResolveVault(ctx context.Context, req *CheckoutRe
 		if !processors.IsNMIBackedProcessor(pm.Processor) {
 			return "", nil, errors.New("payment method is not compatible with card payments")
 		}
+		if !processors.SameProcessor(pm.Processor, models.Processor(provider)) {
+			return "", nil, errors.New("payment method belongs to a different payment provider")
+		}
 
 		return pm.VaultID, nil, nil
 	}

@@ -135,7 +135,7 @@ func runGrantSubscriptionCredits_Idempotent_PerPeriod(t *testing.T) {
 	depositCount, err := bunDB.NewSelect().
 		Model((*models.CreditTransaction)(nil)).
 		Where("user_id = ? AND credit_type_id = ?", userID, creditTypeID).
-		Where("transaction_type = 'deposit' AND source = 'subscription_renewal'").
+		Where("transaction_type = 'deposit' AND source = 'subscription_credit_grant'").
 		Count(ctx)
 	require.NoError(t, err)
 	require.Equal(t, 1, depositCount)
@@ -149,7 +149,7 @@ func runGrantSubscriptionCredits_Idempotent_PerPeriod(t *testing.T) {
 	require.NoError(t, bunDB.NewSelect().
 		Model(dep).
 		Where("user_id = ? AND credit_type_id = ?", userID, creditTypeID).
-		Where("transaction_type = 'deposit' AND source = 'subscription_renewal'").
+		Where("transaction_type = 'deposit' AND source = 'subscription_credit_grant'").
 		Limit(1).
 		Scan(ctx))
 	require.NotNil(t, dep.SourceID)

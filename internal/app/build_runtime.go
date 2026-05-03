@@ -522,6 +522,7 @@ func createServices(database *db.DB, cfg *config.Config, ccbillRESTClient *ccbil
 		purchaseService,
 		nmiClients,
 	)
+	adminSubscriptionService.StripeService = &subscriptions.StripeService{Config: cfg}
 
 	deduplicationService := webhooks.NewDeduplicationService(idempotencyService)
 	webhookDispatcher := &webhooks.WebhookDispatcher{

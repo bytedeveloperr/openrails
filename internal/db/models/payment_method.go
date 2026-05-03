@@ -17,9 +17,9 @@ type PaymentMethod struct {
 	Processor Processor `bun:"processor,notnull" json:"processor"` // Processor: mobius, ccbill, solana
 
 	// Processor-specific vault/payment method identifiers
-	VaultID              string  `bun:"vault_id,notnull" json:"vault_id"`                             // Primary identifier in processor's system
-	BillingID            *string `bun:"billing_id,nullzero" json:"billing_id"`                        // Secondary identifier (e.g., subscription ID)
-	InitialTransactionID string  `bun:"initial_transaction_id,notnull" json:"initial_transaction_id"` // Transaction that created this vault
+	VaultID              string  `bun:"vault_id,notnull" json:"-"`               // Primary identifier in processor's system
+	BillingID            *string `bun:"billing_id,nullzero" json:"-"`            // Secondary identifier (e.g., subscription ID)
+	InitialTransactionID string  `bun:"initial_transaction_id,notnull" json:"-"` // Transaction that created this vault
 
 	// Payment method metadata
 	LastFour      *string        `bun:"last_four,nullzero" json:"last_four"`           // Last 4 digits of card

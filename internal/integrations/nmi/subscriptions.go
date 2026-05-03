@@ -52,6 +52,8 @@ type ManualRebillParams struct {
 	VaultID        string
 	BillingID      string
 	SubscriptionID string
+	OrderID        string
+	PONumber       string
 }
 
 type ManualRebillResponse struct {
@@ -251,6 +253,12 @@ func (c *NMIClient) AttemptManualRebill(params ManualRebillParams) (*ManualRebil
 		"subscription_id":   {params.SubscriptionID},
 		"recurring":         {"rebill_subscription"},
 		"order_description": {"Manual Rebill - Open Rails Subscription"},
+	}
+	if trimmed := strings.TrimSpace(params.OrderID); trimmed != "" {
+		values.Set("orderid", trimmed)
+	}
+	if trimmed := strings.TrimSpace(params.PONumber); trimmed != "" {
+		values.Set("ponumber", trimmed)
 	}
 
 	response, err := c.sendDirectRequest(values)

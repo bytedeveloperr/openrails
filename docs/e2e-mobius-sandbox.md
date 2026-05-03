@@ -33,8 +33,8 @@ TEST_MODE=true
 AUTH_ISSUERS='["http://issuer:8080"]'
 AUTH_EXPECTED_AUDIENCE=openrails-app
 
-# AuthKit devserver mint secret (used by scripts/mint_jwt.sh)
-AUTHKIT_DEV_MINT_SECRET=change-me
+# AuthKit devserver mint secret (used by scripts/mint_jwt.sh); choose a local-only random value
+AUTHKIT_DEV_MINT_SECRET=$(openssl rand -hex 32)
 
 # Mobius/NMI keys
 PROCESSORS_MOBIUS_SECURITY_KEY=...

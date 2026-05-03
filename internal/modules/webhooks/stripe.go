@@ -146,7 +146,10 @@ func (s *StripeWebhookService) handleInvoicePaid(ctx context.Context, obj json.R
 	}
 	paymentTransactionID := normalize.FirstNonEmpty(inv.Charge, inv.PaymentIntent)
 	if paymentTransactionID == "" {
-		return fmt.Errorf("stripe invoice missing refundable transaction id (charge/payment_intent)")
+		if inv.AmountPaid != 0 || strings.TrimSpace(inv.ID) == "" {
+			return fmt.Errorf("stripe invoice missing refundable transaction id (charge/payment_intent)")
+		}
+		paymentTransactionID = strings.TrimSpace(inv.ID)
 	}
 	paymentMetadata := stripeInvoicePaymentMetadata(inv)
 
@@ -330,7 +333,10 @@ func (s *StripeWebhookService) handleCheckoutSessionCompleted(ctx context.Contex
 	}
 	paymentTransactionID := normalize.FirstNonEmpty("", sess.PaymentIntent)
 	if paymentTransactionID == "" {
-		return fmt.Errorf("stripe checkout session missing payment_intent")
+		if sess.AmountTotal != 0 || strings.TrimSpace(sess.ID) == "" {
+			return fmt.Errorf("stripe checkout session missing payment_intent")
+		}
+		paymentTransactionID = strings.TrimSpace(sess.ID)
 	}
 
 	result, err := s.PurchaseRegistrar.RegisterPurchase(ctx, &payments.RegisterPurchaseRequest{

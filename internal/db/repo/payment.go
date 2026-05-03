@@ -296,6 +296,7 @@ func (r *PaymentRepo) CountByUserAndProcessor(ctx context.Context, userID string
 		Where("purch.user_id = ?", userID).
 		Where("purch.processor = ?", processor).
 		Where("purch.amount > 0").
+		Where("COALESCE(purch.status::text, 'completed') = ?", "completed").
 		Count(ctx)
 	if err != nil {
 		return
@@ -307,7 +308,7 @@ func (r *PaymentRepo) CountByUserAndProcessor(ctx context.Context, userID string
 		Model((*models.Payment)(nil)).
 		Where("purch.user_id = ?", userID).
 		Where("purch.processor = ?", processor).
-		Where("purch.amount <= 0").
+		Where("COALESCE(purch.status::text, 'completed') = ?", "failed").
 		Count(ctx)
 	if err != nil {
 		return

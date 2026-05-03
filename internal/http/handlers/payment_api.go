@@ -31,13 +31,25 @@ func PaymentToAPI(p *models.Payment, refunds []*models.Payment) api.PaymentObjec
 		refundObjects = append(refundObjects, PaymentToAPI(r, nil))
 	}
 	status := "succeeded"
-	refunded := amountRefunded >= p.Amount && p.Amount > 0
-	if refunded {
+	if p.Status == "failed" {
+		status = "failed"
+	} else if p.Status == "refunded" {
 		status = "refunded"
-	} else if amountRefunded > 0 {
+	}
+	object := "charge"
+	captured := true
+	if p.RefundedPaymentID != nil || p.Amount < 0 {
+		status = "succeeded"
+		object = "refund"
+		captured = false
+	}
+	refunded := amountRefunded >= p.Amount && p.Amount > 0
+	if object == "charge" && status != "failed" && refunded {
+		status = "refunded"
+	} else if object == "charge" && status != "failed" && amountRefunded > 0 {
 		status = "partially_refunded"
 	}
-	payment := api.PaymentObject{ID: api.FormatPaymentID(p.ID), Object: "charge", Status: status, Amount: p.Amount, AmountRefunded: amountRefunded, Currency: p.Currency, User: api.FormatUserID(p.UserID), Subscription: subID, Processor: string(p.Processor), TransactionID: p.TransactionID, Refunded: refunded, Captured: true, Created: api.ToUnix(p.CreatedAt)}
+	payment := api.PaymentObject{ID: api.FormatPaymentID(p.ID), Object: object, Status: status, Amount: p.Amount, AmountRefunded: amountRefunded, Currency: p.Currency, User: api.FormatUserID(p.UserID), Subscription: subID, Processor: string(p.Processor), TransactionID: p.TransactionID, Refunded: refunded, Captured: captured, Created: api.ToUnix(p.CreatedAt)}
 	if refunds != nil {
 		if refundObjects == nil {
 			refundObjects = []api.PaymentObject{}

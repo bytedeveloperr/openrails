@@ -169,10 +169,10 @@ func (c *DBConfig) GetConnectionString() string {
 		// Add query parameters
 		params := []string{}
 
-		// Default to sslmode=disable if not specified
+		// Default to TLS when sslmode is omitted. Local compose sets disable explicitly.
 		sslMode := c.SSLMode
 		if sslMode == "" {
-			sslMode = "disable"
+			sslMode = "require"
 		}
 		params = append(params, fmt.Sprintf("sslmode=%s", sslMode))
 
@@ -527,6 +527,37 @@ type RateLimit struct {
 func Validate(cfg *Config) error {
 	// Skip strict validation in development environments
 	isDev := cfg.Env == "development" || cfg.Env == "dev" || cfg.Env == ""
+	if !isDev {
+		if cfg.TestMode == nil {
+			return fmt.Errorf("test_mode must be explicitly set to false outside development")
+		}
+		if *cfg.TestMode {
+			return fmt.Errorf("test_mode=true is not allowed outside development")
+		}
+		apiKey := strings.TrimSpace(cfg.APIKey)
+		if apiKey == "change-me-in-dev" || apiKey == "dev-service-api-key-change-me" {
+			return fmt.Errorf("default service api_key is not allowed outside development")
+		}
+		if cfg.DB != nil {
+			if strings.TrimSpace(cfg.DB.Username) == "admin" || strings.TrimSpace(cfg.DB.Password) == "admin_password" {
+				return fmt.Errorf("default database credentials are not allowed outside development")
+			}
+		}
+		if cfg.ClickHouse != nil {
+			if strings.TrimSpace(cfg.ClickHouse.Username) == "analytics_user" || strings.TrimSpace(cfg.ClickHouse.Password) == "analytics_password" {
+				return fmt.Errorf("default ClickHouse credentials are not allowed outside development")
+			}
+		}
+		if cfg.Auth == nil || len(cfg.Auth.Issuers) == 0 {
+			return fmt.Errorf("auth issuers must be configured outside development")
+		}
+		for _, issuer := range cfg.Auth.Issuers {
+			issuer = strings.TrimRight(strings.TrimSpace(issuer), "/")
+			if issuer == "" || issuer == "http://localhost:8080" || issuer == "http://api:2052" || issuer == "http://issuer:8080" {
+				return fmt.Errorf("default auth issuer is not allowed outside development")
+			}
+		}
+	}
 
 	// Validate Processors map
 	if len(cfg.Processors) > 0 {
@@ -829,17 +860,10 @@ func assembleDBURL(cfg *Config) {
 		return
 	}
 
-	// Assemble URL from atomic parameters
-	// All parameters have defaults from GetDefaultBillingConfig(), so they should all be present
-	connStr := fmt.Sprintf(
-		"postgresql://%s:%s@%s:%s/%s?sslmode=%s",
-		cfg.DB.Username,
-		cfg.DB.Password,
-		cfg.DB.Host,
-		cfg.DB.Port,
-		cfg.DB.Database,
-		cfg.DB.SSLMode,
-	)
+	connStr := cfg.DB.GetConnectionString()
+	if connStr == "" {
+		return
+	}
 
 	cfg.DB.URL = connStr
 
@@ -859,10 +883,9 @@ func assembleDBURL(cfg *Config) {
 	}
 
 	if len(warnings) > 0 {
-		log.Warnf("Using default values for: %s. Assembled DB URL: %s",
-			strings.Join(warnings, ", "), connStr)
+		log.Warnf("Using default values for: %s. Assembled DB URL configured", strings.Join(warnings, ", "))
 	} else {
-		log.Debugf("Assembled DB URL from configured parameters: %s", connStr)
+		log.Debug("Assembled DB URL from configured parameters")
 	}
 }
 
@@ -1024,16 +1047,27 @@ func Load(configPath string) (*Config, error) {
 		if s == "api_url" {
 			return "api_url"
 		}
+		if s == "database_url" {
+			return "db.url"
+		}
 
 		// Special case: API_KEY/OPENRAILS_API_KEY -> api_key (top-level, not api.key)
 		// Used for private/service API auth (X-API-KEY header).
-		if s == "api_key" || s == "openrails_api_key" {
+		if s == "api_key" || s == "openrails_api_key" || s == "billing_api_key" || s == "billing_internal_api_key" {
 			return "api_key"
 		}
 
-		// Special case: TEST_MODE/OPENRAILS_TEST_MODE -> test_mode (top-level)
-		if s == "test_mode" || s == "openrails_test_mode" {
+		// Special case: TEST_MODE/OPENRAILS_TEST_MODE/BILLING_TEST_MODE -> test_mode (top-level)
+		if s == "test_mode" || s == "openrails_test_mode" || s == "billing_test_mode" {
 			return "test_mode"
+		}
+
+		// Back-compat for legacy JWT_* variables and singular AUTH_ISSUER.
+		if s == "auth_issuer" || s == "jwt_issuer" || s == "jwt_issuers" {
+			return "auth.issuers"
+		}
+		if s == "jwt_expected_audience" || s == "jwt_audience" || s == "auth_audience" {
+			return "auth.expected_audience"
 		}
 
 		// Special case: PRIVATE_PORT -> private_port (top-level, not private.port)
@@ -1087,6 +1121,17 @@ func Load(configPath string) (*Config, error) {
 
 		// Convenience: allow comma-separated lists for common slice env vars.
 		if mapped == "cors_origins" && strings.Contains(v, ",") {
+			parts := strings.Split(v, ",")
+			out := make([]string, 0, len(parts))
+			for _, p := range parts {
+				p = strings.TrimSpace(p)
+				if p != "" {
+					out = append(out, p)
+				}
+			}
+			return mapped, out
+		}
+		if mapped == "auth.issuers" {
 			parts := strings.Split(v, ",")
 			out := make([]string, 0, len(parts))
 			for _, p := range parts {
@@ -1152,6 +1197,11 @@ func Load(configPath string) (*Config, error) {
 
 			if existing, exists := normalized[key]; exists && existing != nil {
 				log.Warnf("duplicate processor configuration detected for key '%s'; overriding previous value", key)
+			}
+
+			// Preserve legacy/env-only Mobius configuration as the default NMI processor.
+			if key == "mobius" && strings.TrimSpace(proc.Type) == "" {
+				proc.Type = ProcessorTypeNMI
 			}
 
 			// Non-reserved processor names must declare an explicit type.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/jonboulle/clockwork"
@@ -150,9 +151,9 @@ func (s *VaultService) CreateVault(ctx context.Context, userID string, req *Crea
 		InitialTransactionID: "",
 		CreatedAt:            s.now(),
 		UpdatedAt:            s.now(),
-		LastFour:             &req.LastFour,
-		ExpiryDate:           &req.ExpiryDate,
-		CardType:             &req.CardType,
+		LastFour:             stringPtrOrNil(sanitizeLastFour(req.LastFour)),
+		ExpiryDate:           stringPtrOrNil(sanitizeExpiryDate(req.ExpiryDate)),
+		CardType:             stringPtrOrNil(sanitizeCardType(req.CardType)),
 		Metadata:             req.Metadata,
 	}
 
@@ -165,6 +166,56 @@ func (s *VaultService) CreateVault(ctx context.Context, userID string, req *Crea
 
 	log.WithFields(log.Fields{"user_id": userID, "vault_id": pm.VaultID}).Info("Successfully created payment vault")
 	return pm, nil
+}
+
+func sanitizeLastFour(value string) string {
+	digits := strings.Builder{}
+	for _, r := range value {
+		if unicode.IsDigit(r) {
+			digits.WriteRune(r)
+		}
+	}
+	out := digits.String()
+	if len(out) > 4 {
+		out = out[len(out)-4:]
+	}
+	if len(out) != 4 {
+		return ""
+	}
+	return out
+}
+
+func sanitizeCardType(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 30 {
+		return ""
+	}
+	for _, r := range value {
+		if !unicode.IsLetter(r) && r != ' ' && r != '-' {
+			return ""
+		}
+	}
+	return value
+}
+
+func sanitizeExpiryDate(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 7 {
+		return ""
+	}
+	for _, r := range value {
+		if !unicode.IsDigit(r) && r != '/' && r != '-' {
+			return ""
+		}
+	}
+	return value
+}
+
+func stringPtrOrNil(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // UpdateVault updates vault in NMI and updates local record timestamp

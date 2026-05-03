@@ -62,7 +62,11 @@ func (p Prepared) QueueArgs(clientIP string) riverjobs.WebhookProcessArgs {
 }
 
 func CanonicalProvider(provider string) string {
-	return strings.Trim(strings.ToLower(provider), " /")
+	provider = strings.Trim(strings.ToLower(provider), " /")
+	if provider == "nmi" {
+		return "mobius"
+	}
+	return provider
 }
 
 func PrepareCCBill(body []byte, eventType string) (Prepared, error) {
@@ -238,6 +242,15 @@ func VerifyNMISignature(secret, header string, body []byte) error {
 	timestamp, signature, err := ParseNMISignatureHeader(header)
 	if err != nil {
 		return err
+	}
+	tsInt, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid webhook signature timestamp")
+	}
+	now := time.Now().Unix()
+	const nmiSignatureTolerance = int64(5 * 60)
+	if now-tsInt > nmiSignatureTolerance || tsInt-now > nmiSignatureTolerance {
+		return fmt.Errorf("webhook signature timestamp outside tolerance")
 	}
 
 	mac := hmac.New(sha256.New, []byte(secret))

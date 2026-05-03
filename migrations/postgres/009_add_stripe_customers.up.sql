@@ -29,7 +29,7 @@ END$$;
 
 CREATE TABLE IF NOT EXISTS billing.processor_customers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
+    user_id TEXT NOT NULL,
     processor TEXT NOT NULL,
     customer_id TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT current_timestamp,

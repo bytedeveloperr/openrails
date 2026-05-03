@@ -14,6 +14,7 @@ import (
 	"github.com/open-rails/openrails/internal/app"
 	"github.com/open-rails/openrails/internal/bootstrap"
 	"github.com/open-rails/openrails/internal/db/models"
+	server "github.com/open-rails/openrails/internal/http"
 	"github.com/open-rails/openrails/internal/migrate"
 
 	"github.com/google/uuid"

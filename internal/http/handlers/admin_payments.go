@@ -62,6 +62,10 @@ func AdminRefundPayment(r *httprequest.Request) {
 		r.ErrorJSON(http.StatusNotFound, "payment not found")
 		return
 	}
+	if err := r.State.PaymentService.ValidateRefund(ctx, payment, req.Amount); err != nil {
+		r.ErrorJSON(http.StatusBadRequest, err.Error())
+		return
+	}
 	var refundTransactionID string
 	switch {
 	case payment.Processor == models.ProcessorCCBill:
@@ -106,7 +110,7 @@ func AdminRefundPayment(r *httprequest.Request) {
 }
 
 func GetAdminPayments(r *httprequest.Request) {
-	queryOpts := query.QueryOptions[payments.GetPaymentsFilters]{}
+	queryOpts := query.QueryOptions[payments.GetPaymentsFilters]{Limit: 50, Offset: 0}
 	if err := r.Inner().ShouldBindQuery(&queryOpts); err != nil {
 		r.ErrorJSON(http.StatusBadRequest, err.Error())
 		return

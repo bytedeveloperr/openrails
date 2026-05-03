@@ -83,24 +83,11 @@ func (s *PaymentService) Refund(ctx context.Context, originalPaymentID uuid.UUID
 	if err != nil {
 		return nil, err
 	}
-	if amount <= 0 {
-		return nil, errors.New("refund amount must be > 0")
+	if err := s.ValidateRefund(ctx, orig, amount); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(refundTransactionID) == "" {
 		return nil, errors.New("refund transaction id is required")
-	}
-
-	refundedTotal, err := s.repo.GetRefundTotalByPaymentID(ctx, originalPaymentID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to calculate refunded total: %w", err)
-	}
-	if amount > orig.Amount {
-		return nil, errors.New("refund amount cannot exceed original payment amount")
-	}
-	if refundedTotal > 0 {
-		if amount+refundedTotal > orig.Amount {
-			return nil, fmt.Errorf("refund total would exceed original payment (refunded %d of %d)", refundedTotal, orig.Amount)
-		}
 	}
 
 	refund := &models.Payment{
@@ -124,6 +111,35 @@ func (s *PaymentService) Refund(ctx context.Context, originalPaymentID uuid.UUID
 		return nil, err
 	}
 	return refund, nil
+}
+
+func (s *PaymentService) ValidateRefund(ctx context.Context, orig *models.Payment, amount int64) error {
+	if orig == nil {
+		return errors.New("original payment is required")
+	}
+	if amount <= 0 {
+		return errors.New("refund amount must be > 0")
+	}
+	if orig.Amount <= 0 || orig.RefundedPaymentID != nil {
+		return errors.New("only successful charge payments can be refunded")
+	}
+	if strings.HasPrefix(strings.TrimSpace(orig.TransactionID), "sub:") {
+		return errors.New("synthetic subscription references are not refundable")
+	}
+
+	refundedTotal, err := s.repo.GetRefundTotalByPaymentID(ctx, orig.ID)
+	if err != nil {
+		return fmt.Errorf("failed to calculate refunded total: %w", err)
+	}
+	if amount > orig.Amount {
+		return errors.New("refund amount cannot exceed original payment amount")
+	}
+	if refundedTotal > 0 {
+		if amount+refundedTotal > orig.Amount {
+			return fmt.Errorf("refund total would exceed original payment (refunded %d of %d)", refundedTotal, orig.Amount)
+		}
+	}
+	return nil
 }
 
 func (s *PaymentService) GetPaginatedByUserID(ctx context.Context, userID string, page, pageSize int) ([]*models.Payment, int, error) {

@@ -87,6 +87,20 @@ func parseCCBillDateUsingTimestamp(dateStr string) (*time.Time, error) {
 	return &combined, nil
 }
 
+func capCCBillRetryAt(nextRetryAt, paidTermEnd *time.Time) *time.Time {
+	if nextRetryAt == nil {
+		return nil
+	}
+	candidate := nextRetryAt.UTC()
+	if paidTermEnd != nil {
+		maxGraceEnd := paidTermEnd.UTC().Add(subscriptions.DunningInterval)
+		if candidate.After(maxGraceEnd) {
+			candidate = maxGraceEnd
+		}
+	}
+	return &candidate
+}
+
 func parseCCBillPositiveAmountCents(rawAmount, parseFieldName, invalidFieldName string) (int64, error) {
 	amountCents, err := moneyutil.ParseDecimalToCents(rawAmount)
 	if err != nil {
@@ -98,6 +112,28 @@ func parseCCBillPositiveAmountCents(rawAmount, parseFieldName, invalidFieldName 
 	}
 
 	return amountCents, nil
+}
+
+func validateCCBillBilledAmount(ctx context.Context, svc *CCBillWebhookService, billedAmountCents, expectedAmountCents int64, contextFields map[string]interface{}, logFields log.Fields) error {
+	tolerance := int64(float64(expectedAmountCents) * 0.02) // 2% tolerance.
+	if billedAmountCents >= expectedAmountCents-tolerance && billedAmountCents <= expectedAmountCents+tolerance {
+		return nil
+	}
+
+	billingErr := newBillingError(ErrorTypeAmount,
+		"Billed amount does not match expected price",
+		map[string]interface{}{
+			"expected_amount_cents": expectedAmountCents,
+			"billed_amount_cents":   billedAmountCents,
+			"tolerance_cents":       tolerance,
+		}, nil)
+	for key, value := range contextFields {
+		billingErr.Context[key] = value
+	}
+	if svc != nil {
+		svc.logBillingError(ctx, billingErr, logFields)
+	}
+	return billingErr
 }
 
 func requireCCBillCurrency(currencyCode Stringish, fieldName string) (string, error) {
@@ -375,23 +411,13 @@ func (s *CCBillWebhookService) handleNewSaleSuccessInternal(ctx context.Context,
 	}
 
 	// Validate amount against expected cents from catalog price.
-	expectedAmountCents := price.Amount
-	tolerance := int64(float64(expectedAmountCents) * 0.02) // 2% tolerance
-	if billedAmountCents < (expectedAmountCents-tolerance) || billedAmountCents > (expectedAmountCents+tolerance) {
-		billingErr := newBillingError(ErrorTypeAmount,
-			"Billed amount does not match expected price",
-			map[string]interface{}{
-				"expected_amount_cents": expectedAmountCents,
-				"billed_amount_cents":   billedAmountCents,
-				"tolerance_cents":       tolerance,
-				"price_id":              price.ID.String(),
-				"ccbill_price_id":       data.FlexID,
-			}, nil)
-
-		s.logBillingError(ctx, billingErr, log.Fields{
-			"transaction_id": transactionID,
-		})
-		return billingErr
+	if err := validateCCBillBilledAmount(ctx, s, billedAmountCents, price.Amount, map[string]interface{}{
+		"price_id":        price.ID.String(),
+		"ccbill_price_id": data.FlexID,
+	}, log.Fields{
+		"transaction_id": transactionID,
+	}); err != nil {
+		return err
 	}
 
 	// Use SubscriptionLifecycleService to create membership
@@ -1337,6 +1363,9 @@ func (s *CCBillWebhookService) handleUserReactivation(ctx context.Context) error
 	if err != nil {
 		return fmt.Errorf("failed to parse nextRenewalDate '%s': %w", nextRenewalDate, err)
 	}
+	if renewalDate == nil || !renewalDate.After(s.now().UTC()) {
+		return fmt.Errorf("reactivation requires future nextRenewalDate")
+	}
 
 	sub, err := s.SubscriptionLifecycleService.ReactivateMembership(ctx, &subscriptions.ReactivateMembershipParams{
 		Processor:               models.ProcessorCCBill,
@@ -2026,6 +2055,22 @@ func (s *CCBillWebhookService) handleRenewalSuccessInternal(ctx context.Context,
 		return fmt.Errorf("failed to get subscription for renewal: %w", err)
 	}
 	prevStatus := prevSub.Status
+	if prevSub.Price == nil {
+		return fmt.Errorf("subscription price is required for CCBill renewal amount validation")
+	}
+	if err := validateCCBillBilledAmount(ctx, s, billedAmountCents, prevSub.Price.Amount, map[string]interface{}{
+		"price_id":                     prevSub.Price.ID.String(),
+		"processor_subscription_id":    ccBillSubID,
+		"subscription_id":              prevSub.ID.String(),
+		"subscription_status":          string(prevStatus),
+		"subscription_expected_amount": prevSub.Price.Amount,
+	}, log.Fields{
+		"transaction_id":            transactionID,
+		"processor_subscription_id": ccBillSubID,
+		"subscription_id":           prevSub.ID,
+	}); err != nil {
+		return err
+	}
 
 	paidTermEnd, err := parseCCBillDateUsingTimestamp(data.NextRenewalDate)
 	if err != nil {
@@ -2212,13 +2257,14 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 			return fmt.Errorf("subscription not found: %w", err)
 		}
 
+		paidTermEnd := sub.CurrentPeriodEndsAt
+		nextRetryAt = capCCBillRetryAt(nextRetryAt, paidTermEnd)
+
 		// Mark subscription as past_due using CCBill's retry schedule.
 		sub.Status = models.StatusPastDue
 		sub.NextRetryAt = nextRetryAt
 		sub.LastRetryAt = nil
 		sub.RetryAttempts = nil
-
-		paidTermEnd := sub.CurrentPeriodEndsAt
 		sub.GraceEndsAt = nil
 
 		// For CCBill, retry behavior is dictated by the processor.
@@ -2237,16 +2283,25 @@ func (s *CCBillWebhookService) handleRenewalFailure(ctx context.Context) error {
 
 		// If grace applies, append grace windows for each entitlement granted by the subscription.
 		if graceUntil != nil {
-			var names []string
-			if err := tx.NewSelect().
-				Model((*models.Entitlement)(nil)).
-				ColumnExpr("DISTINCT ent.entitlement").
-				Where("ent.source_type = ?", models.EntitlementSourceSubscription).
-				Where("ent.source_id = ?", sub.ID).
-				Where("ent.revoked_at IS NULL").
-				Where("ent.deleted_at IS NULL").
-				Scan(ctx, &names); err != nil {
-				return err
+			subPrice := sub.Price
+			if subPrice == nil {
+				loadedPrice, err := priceService.GetByID(ctx, sub.PriceID)
+				if err != nil {
+					return fmt.Errorf("failed to load subscription price for grace entitlements: %w", err)
+				}
+				subPrice = loadedPrice
+			}
+			product, err := productService.GetByID(ctx, subPrice.ProductID)
+			if err != nil {
+				return fmt.Errorf("failed to load subscription product for grace entitlements: %w", err)
+			}
+
+			names := make([]string, 0, len(product.EntitlementsSpec))
+			for entName := range product.EntitlementsSpec {
+				names = append(names, entName)
+			}
+			if len(names) == 0 {
+				names = append(names, "premium")
 			}
 			for _, entName := range names {
 				endAt := (*graceUntil).UTC()
@@ -2417,26 +2472,6 @@ func (s *CCBillWebhookService) handleCancel(ctx context.Context) error {
 		return fmt.Errorf("failed to cancel membership: %w", err)
 	}
 
-	// Add notification to queue for user and send immediate email
-	if s.NotificationService != nil {
-		reasonMarker := subscriptions.PremiumEndReasonProcessor
-		if cancelType == models.CancelTypeExpired {
-			reasonMarker = subscriptions.PremiumEndReasonExpired
-		} else if cancelType == models.CancelTypeUser {
-			reasonMarker = subscriptions.PremiumEndReasonUserCancel
-		}
-
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    subscription.UserID,
-			EventType: models.NotificationPremiumEnded,
-			Data:      map[string]any{"reason": string(reasonMarker)},
-		}
-		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership ended notification")
-		}
-	}
-
 	// Log subscription cancellation event to ClickHouse
 	if s.EventLogService != nil {
 		metadata := map[string]interface{}{
@@ -2507,20 +2542,6 @@ func (s *CCBillWebhookService) handleExpiration(ctx context.Context) error {
 	// Use SubscriptionLifecycleService to expire membership
 	if err := s.SubscriptionLifecycleService.ExpireMembership(ctx, subscription.ID); err != nil {
 		return fmt.Errorf("failed to expire membership: %w", err)
-	}
-
-	// Add notification to queue for user and send immediate email
-	if s.NotificationService != nil {
-		notification := &models.NotificationQueue{
-			ID:        uuid.New(),
-			UserID:    subscription.UserID,
-			EventType: models.NotificationPremiumEnded,
-			Data:      map[string]any{"reason": string(subscriptions.PremiumEndReasonExpired)},
-		}
-
-		if err := s.NotificationService.CreateAndDeliver(ctx, notification); err != nil {
-			log.WithContext(ctx).WithError(err).Error("failed to create and deliver membership expired notification")
-		}
 	}
 
 	// Log subscription expiration event to ClickHouse

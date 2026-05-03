@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS billing.credit_types (
 -- Per-user balances (denormalized for fast reads)
 CREATE TABLE IF NOT EXISTS billing.user_credit_balances (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
+    user_id TEXT NOT NULL,
     credit_type_id UUID NOT NULL REFERENCES billing.credit_types(id),
     balance BIGINT NOT NULL DEFAULT 0,          -- total (permanent + expiring - held)
     held_balance BIGINT NOT NULL DEFAULT 0,     -- reserved for holds
@@ -38,7 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_user_credit_balances_user ON billing.user_credit_
 -- Ledger (append-only)
 CREATE TABLE IF NOT EXISTS billing.credit_transactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
+    user_id TEXT NOT NULL,
     credit_type_id UUID NOT NULL REFERENCES billing.credit_types(id),
     amount BIGINT NOT NULL,          -- positive = deposit, negative = withdrawal
     balance_after BIGINT NOT NULL,   -- balance after this transaction
@@ -55,7 +55,7 @@ CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_created ON billing.credi
 -- Expiry batches for FIFO consumption
 CREATE TABLE IF NOT EXISTS billing.credit_expiry_batches (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
+    user_id TEXT NOT NULL,
     credit_type_id UUID NOT NULL REFERENCES billing.credit_types(id),
     original_amount BIGINT NOT NULL,
     remaining_amount BIGINT NOT NULL,
@@ -69,7 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_credit_expiry_batches_user_expires ON billing.cre
 -- Holds for long-running jobs
 CREATE TABLE IF NOT EXISTS billing.credit_holds (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL,
+    user_id TEXT NOT NULL,
     credit_type_id UUID NOT NULL REFERENCES billing.credit_types(id),
     amount BIGINT NOT NULL,
     source TEXT NOT NULL,

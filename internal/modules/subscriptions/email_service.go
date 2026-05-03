@@ -442,21 +442,9 @@ func (s *EmailService) getEmailData(ctx context.Context, userID string) (*Subscr
 		}
 	}
 
-	var (
-		username string
-		email    string
-	)
-
-	if subscription.UserEmail != nil && strings.TrimSpace(*subscription.UserEmail) != "" {
-		email = strings.TrimSpace(*subscription.UserEmail)
-	}
-
-	if email == "" {
-		var err error
-		username, email, err = s.getUserEmail(ctx, userID)
-		if err != nil {
-			return nil, err
-		}
+	username, email, err := s.getUserEmail(ctx, userID)
+	if err != nil {
+		return nil, err
 	}
 
 	if email == "" {

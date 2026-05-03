@@ -2,7 +2,6 @@ package iputil
 
 import (
 	"net"
-	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -34,12 +33,6 @@ func init() {
 func IsValidCCBillIP(clientIP string) bool {
 	if clientIP == "" {
 		return false
-	}
-
-	// Handle potential proxy headers format like "ip1, ip2"
-	// Take the first IP if comma-separated
-	if strings.Contains(clientIP, ",") {
-		clientIP = strings.TrimSpace(strings.Split(clientIP, ",")[0])
 	}
 
 	// Parse the client IP

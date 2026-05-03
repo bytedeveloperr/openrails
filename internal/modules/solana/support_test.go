@@ -4,8 +4,11 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/open-rails/openrails/config"
+	"github.com/open-rails/openrails/internal/db/models"
 	"github.com/open-rails/openrails/internal/integrations/fx"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCalculateTokenQuote_USDPrice(t *testing.T) {
@@ -215,4 +218,37 @@ func TestNormalizeStablecoinPrice(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCurrencyMinorUnits(t *testing.T) {
+	require.Equal(t, 2, currencyMinorUnits("usd"))
+	require.Equal(t, 0, currencyMinorUnits("JPY"))
+	require.Equal(t, 3, currencyMinorUnits("kwd"))
+}
+
+func TestSolanaPaymentMatchesPendingRequiresSameReferenceAndSession(t *testing.T) {
+	priceID := uuid.New()
+	pending := &PendingSolanaPayment{
+		UserID:    "user_123",
+		PriceID:   priceID.String(),
+		SessionID: "session_123",
+		Amount:    1000,
+		Currency:  "usd",
+	}
+	payment := &models.Payment{
+		UserID:   "user_123",
+		PriceID:  priceID,
+		Amount:   1000,
+		Currency: "USD",
+		Metadata: map[string]any{
+			"solana_reference":    "reference_123",
+			"checkout_session_id": "session_123",
+		},
+	}
+
+	require.True(t, solanaPaymentMatchesPending(payment, "reference_123", pending))
+	require.False(t, solanaPaymentMatchesPending(payment, "other_reference", pending))
+
+	payment.Metadata["checkout_session_id"] = "other_session"
+	require.False(t, solanaPaymentMatchesPending(payment, "reference_123", pending))
 }

@@ -112,10 +112,13 @@ func (r *PriceRepo) ListPaginated(ctx context.Context, filter PriceFilter, limit
 func (r *PriceRepo) GetByNMIPlan(ctx context.Context, provider, nmiPlanID string) (*models.Price, error) {
 	price := new(models.Price)
 
-	// The provider parameter determines which processor key to look up directly (e.g., "mobius", "acme").
 	query := r.db.GetDB().NewSelect().Model(price).
-		Where("price.processors->'"+provider+"'->>'plan_id' = ?", nmiPlanID).
 		Where("price.is_active = ?", true)
+	if provider == "nmi" {
+		query = query.Where("price.processors -> ? ->> ? = ?", provider, "plan_id", nmiPlanID)
+	} else {
+		query = query.Where("(price.processors -> ? ->> ? = ? OR price.processors -> ? ->> ? = ?)", provider, "plan_id", nmiPlanID, "nmi", "plan_id", nmiPlanID)
+	}
 
 	if err := query.Scan(ctx); err != nil {
 		return nil, err

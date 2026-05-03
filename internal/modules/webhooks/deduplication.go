@@ -126,6 +126,14 @@ func (s *DeduplicationService) ProcessWebhook(ctx context.Context, eventID, even
 				}).Info("Webhook already processed successfully, skipping")
 				return nil
 			}
+			if alreadyExists && rec.Status == idempotency.IdempotencyStatusPending {
+				log.WithContext(ctx).WithFields(log.Fields{
+					"eventID":   trimmedEventID,
+					"eventType": eventType,
+					"processor": processor,
+				}).Info("Webhook already in progress, skipping concurrent duplicate")
+				return nil
+			}
 			shouldRecordOutcome = rec == nil || rec.Status != idempotency.IdempotencyStatusSuccess
 		}
 	}

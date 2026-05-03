@@ -26,6 +26,7 @@ const (
 	devCCBillProductName       = "Basic"
 	devCCBillProductDesc       = "Local dev basic monthly subscription"
 	devCCBillPriceName         = "basic-monthly"
+	devCCBillFormName          = "basic"
 	devCCBillFlexID            = "681cb38f-afb9-4665-931f-2b896072178a"
 	devCCBillAmountCents int64 = 999
 	devMobiusAmountCents int64 = 999
@@ -85,8 +86,9 @@ func seedDevCatalog(cmd *cobra.Command, _ []string) error {
 		CycleDays:   devCCBillCycleDays,
 		Processors: map[string]map[string]string{
 			"ccbill": {
-				models.ProcessorKeyCCBillFlexID:  devCCBillFlexID,
-				models.ProcessorKeyStripePriceID: devCCBillFlexID,
+				models.ProcessorKeyCCBillFormName: devCCBillFormName,
+				models.ProcessorKeyCCBillFlexID:   devCCBillFlexID,
+				models.ProcessorKeyStripePriceID:  devCCBillFlexID,
 			},
 		},
 		Lookup: func(ctx context.Context) (*models.Price, error) {

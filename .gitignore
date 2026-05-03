@@ -61,6 +61,7 @@ config.docker.yaml
 # Environment files
 .env
 .env.*
+*.env*
 !.env.example
 
 # Logs

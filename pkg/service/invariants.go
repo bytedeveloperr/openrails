@@ -16,135 +16,220 @@ import (
 )
 
 func (s *Service) creditsService() *credits.CreditsService {
+	if s == nil || s.rt == nil {
+		return nil
+	}
 	return s.rt.CreditsService
 }
 
 func (s *Service) entitlementService() *entitlements.EntitlementService {
+	if s == nil || s.rt == nil {
+		return nil
+	}
 	return s.rt.EntitlementService
 }
 
+func (s *Service) runtime() (*app.Runtime, error) {
+	if s == nil || s.rt == nil {
+		return nil, fmt.Errorf("billing service: not initialized")
+	}
+	return s.rt, nil
+}
+
 func (s *Service) requireCreditTypeService() (*credits.CreditTypeService, error) {
-	if s.rt.CreditTypeService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.CreditTypeService == nil {
 		return nil, fmt.Errorf("billing service: credit type service unavailable")
 	}
-	return s.rt.CreditTypeService, nil
+	return rt.CreditTypeService, nil
 }
 
 func (s *Service) requireProductService() (*catalog.ProductService, error) {
-	if s.rt.ProductService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.ProductService == nil {
 		return nil, fmt.Errorf("billing service: product service unavailable")
 	}
-	return s.rt.ProductService, nil
+	return rt.ProductService, nil
 }
 
 func (s *Service) requireCatalogServices() (*catalog.ProductService, *catalog.PriceService, error) {
-	if s.rt.ProductService == nil || s.rt.PriceService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, nil, err
+	}
+	if rt.ProductService == nil || rt.PriceService == nil {
 		return nil, nil, fmt.Errorf("billing service: price/product service unavailable")
 	}
-	return s.rt.ProductService, s.rt.PriceService, nil
+	return rt.ProductService, rt.PriceService, nil
 }
 
 func (s *Service) requirePriceService() (*catalog.PriceService, error) {
-	if s.rt.PriceService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.PriceService == nil {
 		return nil, fmt.Errorf("billing service: price service unavailable")
 	}
-	return s.rt.PriceService, nil
+	return rt.PriceService, nil
 }
 
 func (s *Service) requirePublicSubscriptionService() (*catalog.PublicSubscriptionService, error) {
-	if s.rt.PublicSubscriptionService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.PublicSubscriptionService == nil {
 		return nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.PublicSubscriptionService, nil
+	return rt.PublicSubscriptionService, nil
 }
 
 func (s *Service) requireCheckoutSessionService() (*checkout.CheckoutSessionService, error) {
-	if s.rt.CheckoutSessionService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.CheckoutSessionService == nil {
 		return nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.CheckoutSessionService, nil
+	return rt.CheckoutSessionService, nil
 }
 
 func (s *Service) requireUserSubscriptionService() (*subscriptions.UserSubscriptionService, error) {
-	if s.rt.UserSubscriptionService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.UserSubscriptionService == nil {
 		return nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.UserSubscriptionService, nil
+	return rt.UserSubscriptionService, nil
 }
 
 func (s *Service) requireSubscriptionAndPaymentMethodServices() (*subscriptions.SubscriptionService, *vault.PaymentMethodService, error) {
-	if s.rt.SubscriptionService == nil || s.rt.PaymentMethodService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, nil, err
+	}
+	if rt.SubscriptionService == nil || rt.PaymentMethodService == nil {
 		return nil, nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.SubscriptionService, s.rt.PaymentMethodService, nil
+	return rt.SubscriptionService, rt.PaymentMethodService, nil
 }
 
 func (s *Service) requirePaymentMethodService() (*vault.PaymentMethodService, error) {
-	if s.rt.PaymentMethodService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.PaymentMethodService == nil {
 		return nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.PaymentMethodService, nil
+	return rt.PaymentMethodService, nil
 }
 
 func (s *Service) requireVaultService() (*vault.VaultService, error) {
-	if s.rt.VaultService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.VaultService == nil {
 		return nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.VaultService, nil
+	return rt.VaultService, nil
 }
 
 func (s *Service) requireVaultAndPaymentMethodServices() (*vault.VaultService, *vault.PaymentMethodService, error) {
-	if s.rt.VaultService == nil || s.rt.PaymentMethodService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, nil, err
+	}
+	if rt.VaultService == nil || rt.PaymentMethodService == nil {
 		return nil, nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.VaultService, s.rt.PaymentMethodService, nil
+	return rt.VaultService, rt.PaymentMethodService, nil
 }
 
 func (s *Service) requireDB() (*db.DB, error) {
-	if s.rt.DB == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.DB == nil {
 		return nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.DB, nil
+	return rt.DB, nil
 }
 
 func (s *Service) requireConfig() (*config.Config, error) {
-	if s.rt.Config == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.Config == nil {
 		return nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.Config, nil
+	return rt.Config, nil
 }
 
 func (s *Service) requireProcessorCustomerAndConfig() (*payments.ProcessorCustomerService, *config.Config, error) {
-	if s.rt.ProcessorCustomerService == nil || s.rt.Config == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, nil, err
+	}
+	if rt.ProcessorCustomerService == nil || rt.Config == nil {
 		return nil, nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.ProcessorCustomerService, s.rt.Config, nil
+	return rt.ProcessorCustomerService, rt.Config, nil
 }
 
 func (s *Service) requireAdminSubscriptionService() (*subscriptions.AdminSubscriptionService, error) {
-	if s.rt.AdminSubscriptionService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.AdminSubscriptionService == nil {
 		return nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.AdminSubscriptionService, nil
+	return rt.AdminSubscriptionService, nil
 }
 
 func (s *Service) requirePaymentService() (*payments.PaymentService, error) {
-	if s.rt.PaymentService == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.PaymentService == nil {
 		return nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.PaymentService, nil
+	return rt.PaymentService, nil
 }
 
 func (s *Service) requireAdminMetricsConfig() (*config.Config, error) {
-	if s.rt.Config == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.Config == nil {
 		return nil, fmt.Errorf("billing service: not initialized")
 	}
-	return s.rt.Config, nil
+	return rt.Config, nil
 }
 
 func (s *Service) requireWebhookRuntime() (*app.Runtime, error) {
-	if s.rt.RiverProducer == nil {
+	rt, err := s.runtime()
+	if err != nil {
+		return nil, err
+	}
+	if rt.RiverProducer == nil {
 		return nil, fmt.Errorf("job queue unavailable")
 	}
-	return s.rt, nil
+	return rt, nil
 }

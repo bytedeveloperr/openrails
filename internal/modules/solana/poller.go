@@ -253,29 +253,6 @@ func (p *SolanaPayPoller) checkPayment(ctx context.Context, reference string) {
 			return
 		}
 
-		// Idempotency short-circuit: if this signature is already recorded, stop polling this reference.
-		if p.purchaseRegistrar != nil && p.paymentLookup != nil {
-			existingPayment, getErr := p.paymentLookup.GetByTransactionID(ctx, models.ProcessorSolana, sig.Signature)
-			if getErr == nil && existingPayment != nil {
-				log.WithFields(log.Fields{
-					"reference":  reference,
-					"payment_id": existingPayment.ID,
-				}).Info("Solana reference already has a recorded payment; removing pending payment")
-				p.markCheckoutSessionSucceeded(ctx, pending, existingPayment.ID, sig.Signature)
-				if err := p.finalizeProcessedReference(ctx, reference, sig.Signature); err != nil {
-					log.WithError(err).WithField("reference", reference).Warn("Failed to finalize existing Solana payment reference")
-					p.deferRetry(reference, err)
-					return
-				}
-				return
-			}
-			if getErr != nil && !errors.Is(getErr, sql.ErrNoRows) {
-				log.WithError(getErr).WithFields(log.Fields{
-					"reference": reference,
-				}).Warn("Failed to check existing payment by signature")
-			}
-		}
-
 		// Verify the transaction matches our expected payment
 		if p.verifyPayment(ctx, reference, sig.Signature, pending) {
 			log.WithFields(log.Fields{
@@ -411,6 +388,13 @@ func (p *SolanaPayPoller) processConfirmedPayment(ctx context.Context, reference
 		return fmt.Errorf("failed checking existing payment by transaction id: %w", err)
 	}
 	if err == nil {
+		if !solanaPaymentMatchesPending(existingPayment, reference, pending) {
+			log.WithFields(log.Fields{
+				"payment_id": existingPayment.ID,
+				"reference":  reference,
+			}).Warn("Solana signature already belongs to a different pending payment; not marking checkout succeeded")
+			return nil
+		}
 		log.WithFields(log.Fields{
 			"payment_id": existingPayment.ID,
 			"reference":  reference,
@@ -428,6 +412,10 @@ func (p *SolanaPayPoller) processConfirmedPayment(ctx context.Context, reference
 		Amount:         pending.Amount,
 		Currency:       pending.Currency,
 		WalletPurchase: true,
+		Metadata: map[string]any{
+			"solana_reference":    reference,
+			"checkout_session_id": strings.TrimSpace(pending.SessionID),
+		},
 	})
 
 	if err != nil {
@@ -435,6 +423,13 @@ func (p *SolanaPayPoller) processConfirmedPayment(ctx context.Context, reference
 		if isDuplicatePaymentTransactionIDError(err) {
 			existingPayment, getErr := p.paymentLookup.GetByTransactionID(ctx, models.ProcessorSolana, signature)
 			if getErr == nil {
+				if !solanaPaymentMatchesPending(existingPayment, reference, pending) {
+					log.WithFields(log.Fields{
+						"payment_id": existingPayment.ID,
+						"reference":  reference,
+					}).Warn("Concurrent Solana duplicate belongs to a different pending payment; not marking checkout succeeded")
+					return nil
+				}
 				log.WithFields(log.Fields{
 					"payment_id": existingPayment.ID,
 					"reference":  reference,
@@ -458,6 +453,26 @@ func (p *SolanaPayPoller) processConfirmedPayment(ctx context.Context, reference
 	p.markCheckoutSessionSucceeded(ctx, pending, result.PaymentID, signature)
 
 	return nil
+}
+
+func solanaPaymentMatchesPending(payment *models.Payment, reference string, pending *PendingSolanaPayment) bool {
+	if payment == nil || pending == nil {
+		return false
+	}
+	priceID, err := uuid.Parse(strings.TrimSpace(pending.PriceID))
+	if err != nil {
+		return false
+	}
+	if payment.UserID != pending.UserID || payment.PriceID != priceID || payment.Amount != pending.Amount || !strings.EqualFold(payment.Currency, pending.Currency) {
+		return false
+	}
+	if strings.TrimSpace(fmt.Sprint(payment.Metadata["solana_reference"])) != strings.TrimSpace(reference) {
+		return false
+	}
+	if pending.SessionID != "" && strings.TrimSpace(fmt.Sprint(payment.Metadata["checkout_session_id"])) != strings.TrimSpace(pending.SessionID) {
+		return false
+	}
+	return true
 }
 
 func (p *SolanaPayPoller) markCheckoutSessionSucceeded(ctx context.Context, pending *PendingSolanaPayment, paymentID uuid.UUID, signature string) {

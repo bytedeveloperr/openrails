@@ -86,8 +86,8 @@ services:
       clickhouse-keeper:
         condition: service_healthy
     ports:
-      - "8123:8123"  # HTTP interface
-      - "9002:9000"  # Native client (avoiding conflict with MinIO)
+      - "127.0.0.1:8123:8123"  # HTTP interface
+      - "127.0.0.1:9002:9000"  # Native client (avoiding conflict with MinIO)
     volumes:
       # Mount configs as config.d fragments so they merge with default config.xml
       - ./config/clickhouse.yaml:/etc/clickhouse-server/config.d/local.yaml:ro
@@ -114,6 +114,9 @@ services:
       clickhouse:
         condition: service_healthy
     restart: "no"
+    environment:
+      CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
+      CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
     entrypoint: ["/bin/sh"]
     command:
       - "-c"
@@ -122,7 +125,7 @@ services:
         sleep 5
 
         # Run bootstrap SQL as default admin user (has all privileges)
-        cat <<'SQL_EOF' | sed 's/{CLICKHOUSE_USER}/analytics_user/g' | sed 's/{CLICKHOUSE_PASSWORD}/analytics_password/g' | clickhouse-client --host clickhouse --multiquery
+        cat <<'SQL_EOF' | sed "s/{CLICKHOUSE_USER}/$${CLICKHOUSE_USER}/g" | sed "s/{CLICKHOUSE_PASSWORD}/$${CLICKHOUSE_PASSWORD}/g" | clickhouse-client --host clickhouse --multiquery
         -- Create database across cluster
         CREATE DATABASE IF NOT EXISTS analytics ON CLUSTER openrails;
 
@@ -218,6 +221,7 @@ services:
       AUTH_EXPECTED_AUDIENCE: "${AUTH_EXPECTED_AUDIENCE:-openrails-app}"
 
       # Processor env passthrough (for local sandbox/E2E)
+      PROCESSORS_MOBIUS_TYPE: "nmi"
       PROCESSORS_MOBIUS_SECURITY_KEY: "${PROCESSORS_MOBIUS_SECURITY_KEY:-dev-test-security-key}"
       PROCESSORS_MOBIUS_WEBHOOK_SECRET: "${PROCESSORS_MOBIUS_WEBHOOK_SECRET:-}"
       PROCESSORS_MOBIUS_DIRECT_POST_URL: "${PROCESSORS_MOBIUS_DIRECT_POST_URL:-}"
@@ -243,7 +247,7 @@ services:
       CLICKHOUSE_USER: "${CLICKHOUSE_USER:-analytics_user}"
       CLICKHOUSE_PASSWORD: "${CLICKHOUSE_PASSWORD:-analytics_password}"
       # Private service API key for server-to-server calls (X-API-KEY header)
-      OPENRAILS_API_KEY: "${OPENRAILS_API_KEY:-dev-service-api-key-change-me}"
+      OPENRAILS_API_KEY: "${OPENRAILS_API_KEY:-${BILLING_API_KEY:-dev-service-api-key-change-me}}"
     command: ["server", "--start-workers"]
     volumes:
       - openrails_spool:/var/lib/openrails/spool
@@ -273,7 +277,7 @@ services:
       AUTHKIT_ISSUED_AUDIENCES: "openrails-app"
       AUTHKIT_EXPECTED_AUDIENCES: "openrails-app"
       AUTHKIT_DEV_MODE: "true"
-      AUTHKIT_DEV_MINT_SECRET: "${AUTHKIT_DEV_MINT_SECRET:-change-me}"
+      AUTHKIT_DEV_MINT_SECRET: "${AUTHKIT_DEV_MINT_SECRET:-dev-mint-secret-localhost-only}"
     ports:
       - "8080:8080"
     volumes:

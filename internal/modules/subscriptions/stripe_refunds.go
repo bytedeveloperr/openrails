@@ -39,6 +39,9 @@ type RefundResult struct {
 }
 
 func (s *StripeRefundService) CreateRefund(ctx context.Context, params RefundParams) (*RefundResult, error) {
+	if s == nil {
+		return nil, fmt.Errorf("stripe refund service is not initialized")
+	}
 	_, secretKey, err := RequireStripeSecretKey(s.Config)
 	if err != nil {
 		return nil, err
@@ -132,6 +135,9 @@ func metadataStringValue(metadata map[string]any, key string) string {
 }
 
 func (s *StripeRefundService) GetRefund(ctx context.Context, refundID string) (*RefundResult, error) {
+	if s == nil {
+		return nil, fmt.Errorf("stripe refund service is not initialized")
+	}
 	_, secretKey, err := RequireStripeSecretKey(s.Config)
 	if err != nil {
 		return nil, err

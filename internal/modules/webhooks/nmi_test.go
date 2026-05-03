@@ -110,6 +110,17 @@ func TestNormalizeNMIChargebackLast4(t *testing.T) {
 	require.Equal(t, "", normalizeNMIChargebackLast4("****"))
 }
 
+func TestTransactionAmountCentsFallsBackAfterMalformedAmount(t *testing.T) {
+	amount, err := transactionAmountCents(&NMITransactionEventBody{
+		Amount: Stringish("not-a-number"),
+		TransactionDetail: &NMITransactionDetail{
+			Amount: Stringish("12.34"),
+		},
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, 1234, amount)
+}
+
 func TestSplitNMIChargebackReason(t *testing.T) {
 	code, reason := splitNMIChargebackReason("101: Introductory chargeback", "")
 	require.Equal(t, "101", code)

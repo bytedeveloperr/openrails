@@ -90,7 +90,13 @@ func RunClickHouse(ctx context.Context, cfg *config.Config) error {
 	}
 	sqlDB := bunDB.DB
 
-	log.Infof("Running ClickHouse migrations... %v+", cfg.ClickHouse)
+	log.WithFields(log.Fields{
+		"http_addr":   cfg.ClickHouse.HTTPAddr,
+		"client_addr": cfg.ClickHouse.ClientAddr,
+		"database":    cfg.ClickHouse.Database,
+		"username":    cfg.ClickHouse.Username,
+		"cluster":     cfg.ClickHouse.Cluster,
+	}).Info("Running ClickHouse migrations")
 	if err := runClickHouseMigrations(ctx, sqlDB, cfg.ClickHouse); err != nil {
 		return fmt.Errorf("clickhouse migrations failed: %w", err)
 	}

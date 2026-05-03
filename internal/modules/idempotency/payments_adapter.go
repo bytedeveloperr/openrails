@@ -39,6 +39,8 @@ func (a *PaymentsIdempotencyAdapter) Complete(ctx context.Context, operation, ke
 	switch payload := result.(type) {
 	case json.RawMessage:
 		return a.service.Complete(ctx, operation, key, payload)
+	case []byte:
+		return a.service.Complete(ctx, operation, key, json.RawMessage(payload))
 	default:
 		encoded, err := json.Marshal(result)
 		if err != nil {

@@ -30,6 +30,8 @@ import (
 const (
 	QueueBilling = "billing"
 	KindDunning  = "billing.dunning"
+
+	dunningAttemptLease = 15 * time.Minute
 )
 
 // DunningArgs triggers a dunning run that processes all due past_due subscriptions.
@@ -196,10 +198,24 @@ func (w *DunningWorker) processSubscription(
 			case idempotency.IdempotencyStatusFailed:
 				// Previous attempt failed, allow retry
 				logEntry.Info("Dunning: previous rebill attempt failed, retrying")
+				idemClaimed = true
 			}
 		} else {
 			idemClaimed = true
 		}
+	}
+
+	claimed, err := w.claimDunningAttempt(ctx, sub, w.now())
+	if err != nil {
+		logEntry.WithError(err).Warn("Dunning: failed to claim subscription for rebill")
+		if idemClaimed && w.IdempotencyService != nil {
+			_ = w.IdempotencyService.Fail(ctx, idemOp, idemKey, err)
+		}
+		return false
+	}
+	if !claimed {
+		logEntry.Info("Dunning: subscription was already claimed or no longer due")
+		return false
 	}
 
 	// Validate payment method
@@ -224,6 +240,8 @@ func (w *DunningWorker) processSubscription(
 		VaultID:        pm.VaultID,
 		BillingID:      *pm.BillingID,
 		SubscriptionID: sub.ProcessorSubscriptionID,
+		OrderID:        rebillOrderReference(sub),
+		PONumber:       rebillOrderReference(sub),
 	})
 	if err != nil {
 		msg := fmt.Sprintf("manual rebill request failed: %v", err)
@@ -314,6 +332,46 @@ func (w *DunningWorker) processSubscription(
 
 	logEntry.Info("Dunning: rebill successful")
 	return true
+}
+
+func (w *DunningWorker) claimDunningAttempt(ctx context.Context, sub *models.Subscription, now time.Time) (bool, error) {
+	if w == nil || w.DB == nil || sub == nil {
+		return false, errors.New("dunning worker database and subscription are required")
+	}
+
+	claimedAt := now.UTC()
+	leaseUntil := claimedAt.Add(dunningAttemptLease)
+	res, err := w.DB.GetDB().NewUpdate().
+		Model((*models.Subscription)(nil)).
+		Set("next_retry_at = ?", leaseUntil).
+		Set("last_retry_at = ?", claimedAt).
+		Set("updated_at = ?", claimedAt).
+		Where("id = ?", sub.ID).
+		Where("status = ?", models.StatusPastDue).
+		Where("next_retry_at IS NOT NULL AND next_retry_at <= ?", claimedAt).
+		Exec(ctx)
+	if err != nil {
+		return false, fmt.Errorf("claim dunning attempt: %w", err)
+	}
+
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("read dunning claim result: %w", err)
+	}
+	if rowsAffected == 0 {
+		return false, nil
+	}
+
+	sub.LastRetryAt = &claimedAt
+	sub.NextRetryAt = &leaseUntil
+	return true, nil
+}
+
+func rebillOrderReference(sub *models.Subscription) string {
+	if sub == nil || sub.CurrentPeriodEndsAt == nil {
+		return ""
+	}
+	return fmt.Sprintf("rebill-%s-%d", sub.ID, sub.CurrentPeriodEndsAt.UTC().Unix())
 }
 
 func resolveSubscriptionProcessor(sub *models.Subscription) string {

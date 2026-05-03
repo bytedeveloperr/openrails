@@ -38,3 +38,6 @@ CREATE INDEX IF NOT EXISTS checkout_sessions_user_status_idx
 
 CREATE INDEX IF NOT EXISTS checkout_sessions_expires_at_idx
     ON billing.checkout_sessions (expires_at);
+
+ALTER TABLE billing.checkout_sessions
+    ADD COLUMN IF NOT EXISTS metadata JSONB;

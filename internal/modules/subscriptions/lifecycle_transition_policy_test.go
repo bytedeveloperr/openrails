@@ -3,6 +3,7 @@ package subscriptions
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/open-rails/openrails/internal/db/models"
@@ -19,6 +20,21 @@ func TestAssertActiveTransitionAllowed_BlocksChargebackCancelType(t *testing.T) 
 	err := svc.assertActiveTransitionAllowed(context.Background(), sub, "renewal", false)
 	require.Error(t, err)
 	require.True(t, IsTerminalTransitionBlocked(err))
+}
+
+func TestReactivateMembership_RequiresFuturePaidThroughDate(t *testing.T) {
+	t.Parallel()
+
+	svc := &SubscriptionLifecycleService{}
+	past := time.Now().UTC().Add(-time.Hour)
+
+	_, err := svc.ReactivateMembership(context.Background(), &ReactivateMembershipParams{
+		Processor:               models.ProcessorCCBill,
+		ProcessorSubscriptionID: "sub_123",
+		CurrentPeriodEndsAt:     &past,
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "reactivation requires a future paid-through period end")
 }
 
 func TestAssertActiveTransitionAllowed_BlocksLegacyChargebackFeedback(t *testing.T) {

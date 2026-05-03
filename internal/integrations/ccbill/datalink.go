@@ -22,6 +22,7 @@ type DataLinkClient struct {
 	ClientSubAcc string
 	Username     string
 	Password     string
+	DevMode      bool
 	HTTPClient   *http.Client
 }
 
@@ -48,6 +49,7 @@ func NewDataLinkClient(cfg *config.CCBillConfig) *DataLinkClient {
 		ClientSubAcc: cfg.ClientSubAcc,
 		Username:     cfg.DataLinkUsername,
 		Password:     cfg.DataLinkPassword,
+		DevMode:      cfg.TestMode,
 		HTTPClient: &http.Client{
 			Timeout: 15 * time.Minute,
 		},
@@ -67,6 +69,9 @@ func (c *DataLinkClient) FetchActiveMembers(ctx context.Context) ([]CCBillRecord
 
 	if c.ClientSubAcc != "" {
 		formData.Set("clientSubacc", c.ClientSubAcc)
+	}
+	if c.DevMode {
+		formData.Set("testMode", "1")
 	}
 
 	var resp *http.Response

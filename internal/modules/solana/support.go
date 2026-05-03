@@ -47,7 +47,7 @@ func CalculateTokenQuote(ctx context.Context, tokenCfg config.SolanaToken, amoun
 	}
 
 	quotedAt := time.Now()
-	amountInCurrency := float64(amountCents) / 100.0
+	amountInCurrency := float64(amountCents) / math.Pow10(currencyMinorUnits(currency))
 
 	var amountUSD float64
 	var fxRate float64
@@ -99,6 +99,17 @@ func CalculateTokenQuote(ctx context.Context, tokenCfg config.SolanaToken, amoun
 		AmountUSD:     amountUSD,
 		QuotedAt:      quotedAt,
 	}, nil
+}
+
+func currencyMinorUnits(currency string) int {
+	switch strings.ToLower(strings.TrimSpace(currency)) {
+	case "bhd", "jod", "kwd", "omr", "tnd":
+		return 3
+	case "bif", "clp", "djf", "gnf", "isk", "jpy", "kmf", "krw", "pyg", "rwf", "ugx", "vnd", "vuv", "xaf", "xof", "xpf":
+		return 0
+	default:
+		return 2
+	}
 }
 
 var stablecoinSymbols = map[string]bool{

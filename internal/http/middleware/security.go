@@ -173,21 +173,14 @@ func SecurityHeaders() gin.HandlerFunc {
 	}
 }
 
-// getClientIP extracts the real client IP from the request
+// getClientIP extracts the socket peer IP. Do not trust forwarded headers unless
+// a trusted proxy middleware has already normalized RemoteAddr.
 func getClientIP(c *gin.Context) string {
-	// Check X-Forwarded-For header (from load balancers)
-	if xForwardedFor := c.GetHeader("X-Forwarded-For"); xForwardedFor != "" {
-		ips := strings.Split(xForwardedFor, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
-		}
+	if c == nil || c.Request == nil {
+		return ""
 	}
-
-	// Check X-Real-IP header (from reverse proxies)
-	if xRealIP := c.GetHeader("X-Real-IP"); xRealIP != "" {
-		return xRealIP
+	if host, _, err := net.SplitHostPort(c.Request.RemoteAddr); err == nil {
+		return host
 	}
-
-	// Fallback to connection remote address
-	return c.ClientIP()
+	return c.Request.RemoteAddr
 }

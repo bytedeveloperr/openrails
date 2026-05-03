@@ -47,7 +47,8 @@ type Product struct {
 // credit type's base units (unit-agnostic), not USD cents.
 type CreditsSpec map[string]CreditGrantSpec
 
-// UnmarshalJSON decodes the current map-based credits_spec schema.
+// UnmarshalJSON decodes the current map-based credits_spec schema and the
+// legacy promo_amount_cents shape documented for older deployments.
 func (c *CreditsSpec) UnmarshalJSON(b []byte) error {
 	if len(b) == 0 || string(b) == "null" {
 		*c = nil
@@ -55,10 +56,36 @@ func (c *CreditsSpec) UnmarshalJSON(b []byte) error {
 	}
 
 	var v2 map[string]CreditGrantSpec
-	if err := json.Unmarshal(b, &v2); err != nil {
+	if err := json.Unmarshal(b, &v2); err == nil {
+		*c = v2
+		return nil
+	}
+
+	var legacy struct {
+		PromoAmountCents int64  `json:"promo_amount_cents"`
+		PromoExpiresDays *int   `json:"promo_expires_days"`
+		GrantOn          string `json:"grant_on"`
+	}
+	if err := json.Unmarshal(b, &legacy); err != nil {
 		return err
 	}
-	*c = v2
+	if legacy.PromoAmountCents <= 0 {
+		*c = nil
+		return nil
+	}
+
+	cadence := CreditGrantCadenceOnce
+	switch normalize.Lower(legacy.GrantOn) {
+	case "renewal", "per_renewal", "recurring":
+		cadence = CreditGrantCadencePerRenewal
+	}
+	*c = CreditsSpec{
+		"api_credits": {
+			Amount:      legacy.PromoAmountCents,
+			ExpiresDays: legacy.PromoExpiresDays,
+			Cadence:     cadence,
+		},
+	}
 	return nil
 }
 
@@ -159,6 +186,9 @@ func (p *Price) GetCCBillFlexForm() (formName, flexID string, ok bool) {
 	}
 	formName = strings.TrimSpace(config[ProcessorKeyCCBillFormName])
 	flexID = strings.TrimSpace(config[ProcessorKeyCCBillFlexID])
+	if flexID == "" {
+		flexID = strings.TrimSpace(config[ProcessorKeyStripePriceID])
+	}
 	if formName == "" || flexID == "" {
 		return "", "", false
 	}

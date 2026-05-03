@@ -98,6 +98,10 @@ func UpdateSubscriptionPaymentMethod(r *httprequest.Request) {
 		r.ErrorJSON(http.StatusBadRequest, "Only NMI-backed payment methods can be used")
 		return
 	}
+	if !processors.SameProcessor(paymentMethod.Processor, subscription.Processor) {
+		r.ErrorJSON(http.StatusBadRequest, "Payment method belongs to a different payment provider")
+		return
+	}
 
 	processorName := string(subscription.Processor)
 	nmiClient, ok := r.State.NMIClients[processorName]

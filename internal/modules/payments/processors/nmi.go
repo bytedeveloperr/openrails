@@ -56,6 +56,13 @@ func IsNMIBackedProcessor(processor models.Processor) bool {
 	return IsNMIBacked(string(processor))
 }
 
+// SameProcessor reports whether two processor identifiers name the same configured provider.
+func SameProcessor(a, b models.Processor) bool {
+	left := normalize.Lower(string(a))
+	right := normalize.Lower(string(b))
+	return left != "" && left == right
+}
+
 // GetNMIBackedProcessorsList returns a slice of all NMI-backed processor names.
 // Useful for database queries that need to filter by NMI-backed processors.
 func GetNMIBackedProcessorsList() []string {

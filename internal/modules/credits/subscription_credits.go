@@ -137,7 +137,7 @@ func (s *CreditsService) GrantSubscriptionCredits(ctx context.Context, params Gr
 			UserID:     sub.UserID,
 			CreditType: creditTypeName,
 			Amount:     spec.Amount,
-			Source:     params.Source,
+			Source:     "subscription_credit_grant",
 			SourceID:   &grantID,
 			ExpiresAt:  expiresAt,
 		}); err != nil {

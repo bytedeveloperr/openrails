@@ -8,9 +8,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/open-rails/openrails/internal/db"
 	"github.com/open-rails/openrails/internal/db/models"
-	"github.com/uptrace/bun"
 )
 
+// RemoveCancelledSubscriptionsForActivation preserves cancelled subscriptions for later
+// refund/chargeback correlation while marking them as superseded by the new activation.
 func RemoveCancelledSubscriptionsForActivation(ctx context.Context, dbb *db.DB, userID string, productID uuid.UUID, excludeID uuid.UUID) (int, error) {
 	if dbb == nil {
 		return 0, fmt.Errorf("database handle is required")
@@ -22,41 +23,29 @@ func RemoveCancelledSubscriptionsForActivation(ctx context.Context, dbb *db.DB, 
 		return 0, fmt.Errorf("productID is required")
 	}
 
-	subIDs := make([]uuid.UUID, 0, 1)
-	query := dbb.GetDB().NewSelect().
+	var supersededBy interface{}
+	if excludeID != uuid.Nil {
+		supersededBy = excludeID.String()
+	}
+
+	query := dbb.GetDB().NewUpdate().
 		TableExpr("billing.subscriptions").
-		Column("id").
+		Set("gateway_response = CASE WHEN jsonb_typeof(gateway_response) = 'object' THEN gateway_response || jsonb_build_object('superseded_at', current_timestamp, 'superseded_by_subscription_id', ?) ELSE jsonb_build_object('previous_gateway_response', gateway_response, 'superseded_at', current_timestamp, 'superseded_by_subscription_id', ?) END", supersededBy, supersededBy).
+		Set("updated_at = current_timestamp").
 		Where("user_id = ?", userID).
 		Where("product_id = ?", productID).
 		Where("status = ?", models.StatusCancelled)
 	if excludeID != uuid.Nil {
 		query = query.Where("id != ?", excludeID)
 	}
-	if err := query.Scan(ctx, &subIDs); err != nil {
-		return 0, err
-	}
-	if len(subIDs) == 0 {
-		return 0, nil
-	}
 
-	if _, err := dbb.GetDB().NewUpdate().
-		TableExpr("billing.checkout_sessions").
-		Set("subscription_id = NULL").
-		Where("subscription_id IN (?)", bun.In(subIDs)).
-		Exec(ctx); err != nil {
-		return 0, err
-	}
-
-	res, err := dbb.GetDB().NewDelete().
-		TableExpr("billing.subscriptions").
-		Where("id IN (?)", bun.In(subIDs)).
-		Exec(ctx)
+	res, err := query.Exec(ctx)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("mark cancelled subscriptions superseded: %w", err)
 	}
 	rows, err := res.RowsAffected()
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("read superseded subscription count: %w", err)
 	}
 	return int(rows), nil
 }

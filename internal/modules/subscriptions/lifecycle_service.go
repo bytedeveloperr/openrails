@@ -479,6 +479,9 @@ func (s *SubscriptionLifecycleService) RenewMembership(ctx context.Context, para
 			if uuidParsed, parseErr := uuid.Parse(params.ProcessorSubscriptionID); parseErr == nil {
 				subID = uuidParsed
 				subscription, err = subService.GetByID(ctx, subID)
+				if err == nil && (subscription.Processor != params.Processor || subscription.Status != models.StatusPending) {
+					return fmt.Errorf("subscription UUID fallback is only allowed for pending subscriptions on the same processor")
+				}
 			}
 			if err != nil {
 				log.WithContext(ctx).WithFields(log.Fields{
@@ -771,6 +774,11 @@ func (s *SubscriptionLifecycleService) ReactivateMembership(ctx context.Context,
 		return nil, fmt.Errorf("processor subscription id is required")
 	}
 
+	now := s.now().UTC()
+	if params.CurrentPeriodEndsAt == nil || params.CurrentPeriodEndsAt.IsZero() || !params.CurrentPeriodEndsAt.After(now) {
+		return nil, fmt.Errorf("reactivation requires a future paid-through period end")
+	}
+
 	log.WithContext(ctx).WithFields(log.Fields{
 		"processor":                 params.Processor,
 		"processor_subscription_id": processorSubID,
@@ -807,16 +815,8 @@ func (s *SubscriptionLifecycleService) ReactivateMembership(ctx context.Context,
 			return fmt.Errorf("failed to load subscription product: %w", err)
 		}
 
-		now := s.now().UTC()
 		periodStartsAt := now
-		var periodEndsAt time.Time
-		if params.CurrentPeriodEndsAt != nil && !params.CurrentPeriodEndsAt.IsZero() && params.CurrentPeriodEndsAt.After(periodStartsAt) {
-			periodEndsAt = params.CurrentPeriodEndsAt.UTC()
-		} else if price.BillingCycleDays != nil && *price.BillingCycleDays > 0 {
-			periodEndsAt = now.Add(time.Duration(*price.BillingCycleDays) * 24 * time.Hour)
-		} else {
-			periodEndsAt = now.Add(30 * 24 * time.Hour)
-		}
+		periodEndsAt := params.CurrentPeriodEndsAt.UTC()
 
 		subscription.Status = models.StatusActive
 		subscription.CurrentPeriodStartsAt = &periodStartsAt

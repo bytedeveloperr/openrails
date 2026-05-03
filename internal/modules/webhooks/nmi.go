@@ -222,6 +222,20 @@ func transactionAmountRaw(body *NMITransactionEventBody) (string, error) {
 	if body == nil {
 		return "", fmt.Errorf("transaction body is nil")
 	}
+	candidates := transactionAmountCandidates(body)
+	for _, value := range candidates {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value), nil
+		}
+	}
+
+	return "", fmt.Errorf("amount not provided")
+}
+
+func transactionAmountCandidates(body *NMITransactionEventBody) []string {
+	if body == nil {
+		return nil
+	}
 	candidates := []string{body.Amount.Trimmed()}
 	if body.TransactionDetail != nil {
 		candidates = append(candidates, body.TransactionDetail.Amount.Trimmed())
@@ -232,14 +246,7 @@ func transactionAmountRaw(body *NMITransactionEventBody) (string, error) {
 	if body.TransactionDetail != nil && body.TransactionDetail.Action != nil {
 		candidates = append(candidates, body.TransactionDetail.Action.Amount.Trimmed())
 	}
-
-	for _, value := range candidates {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value), nil
-		}
-	}
-
-	return "", fmt.Errorf("amount not provided")
+	return candidates
 }
 
 func transactionCurrency(body *NMITransactionEventBody) string {
@@ -274,11 +281,27 @@ func getOriginalTransactionID(body *NMITransactionEventBody) string {
 }
 
 func transactionAmountCents(body *NMITransactionEventBody) (int64, error) {
-	raw, err := transactionAmountRaw(body)
-	if err != nil {
-		return 0, err
+	if body == nil {
+		return 0, fmt.Errorf("transaction body is nil")
 	}
-	return moneyutil.ParseDecimalToCents(raw)
+	var firstErr error
+	for _, raw := range transactionAmountCandidates(body) {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		amount, err := moneyutil.ParseDecimalToCents(raw)
+		if err == nil {
+			return amount, nil
+		}
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if firstErr != nil {
+		return 0, firstErr
+	}
+	return 0, fmt.Errorf("amount not provided")
 }
 
 type NMIBillingError struct {
@@ -555,8 +578,8 @@ func (s *NMIWebhookService) handleAddSubscription(ctx context.Context) error {
 
 	// Note: NMI subscription add events don't include a transaction ID.
 	// The initial transaction will come separately via transaction.sale.success webhook.
-	// We use the subscription ID as a reference for tracking.
-	transactionRef := nmiSubID //"sub:" + nmiSubID
+	// Namespace synthetic references so they cannot be mistaken for refundable NMI transaction IDs.
+	transactionRef := "sub:" + nmiSubID
 
 	log.WithContext(ctx).WithFields(log.Fields{
 		"subscription_id":             subscription.ID,
@@ -1409,6 +1432,10 @@ func (s *NMIWebhookService) reconcileNMIChargebackEntry(ctx context.Context, pro
 	} else {
 		meta["chargeback_date_parse_error"] = cb.Date
 	}
+	if amountErr != nil || last4 == "" || !dateParsed {
+		meta["reconciliation_status"] = "insufficient_identifiers"
+		return nil, meta, nil
+	}
 
 	query := s.DB.GetDB().
 		NewSelect().
@@ -1428,27 +1455,31 @@ func (s *NMIWebhookService) reconcileNMIChargebackEntry(ctx context.Context, pro
 		Where("p.processor = ?", models.Processor(processor)).
 		Where("sub.processor = ?", models.Processor(processor)).
 		Where("p.amount > 0").
-		Limit(1)
-
-	if amountErr == nil {
-		query = query.Where("p.amount = ?", amountCents)
-	}
-	if last4 != "" {
-		query = query.Where("RIGHT(regexp_replace(COALESCE(pm.last_four, ''), '[^0-9]', '', 'g'), 4) = ?", last4)
-	}
-	if dateParsed {
-		query = query.OrderExpr("ABS(EXTRACT(EPOCH FROM (p.purchased_at - ?::timestamptz))) ASC", targetTs)
-	}
+		Where("p.amount = ?", amountCents).
+		Where("RIGHT(regexp_replace(COALESCE(pm.last_four, ''), '[^0-9]', '', 'g'), 4) = ?", last4).
+		Where("p.purchased_at >= ?", targetTs.Add(-7*24*time.Hour)).
+		Where("p.purchased_at <= ?", targetTs.Add(7*24*time.Hour)).
+		OrderExpr("ABS(EXTRACT(EPOCH FROM (p.purchased_at - ?::timestamptz))) ASC", targetTs).
+		Limit(2)
 
 	query = query.OrderExpr("p.purchased_at DESC")
 
-	match := new(nmiChargebackMatch)
-	if err := query.Scan(ctx, match); err != nil {
+	matches := make([]nmiChargebackMatch, 0, 2)
+	if err := query.Scan(ctx, &matches); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, meta, nil
 		}
 		return nil, meta, err
 	}
+	if len(matches) == 0 {
+		return nil, meta, nil
+	}
+	if len(matches) > 1 {
+		meta["reconciliation_status"] = "ambiguous"
+		meta["candidate_count"] = len(matches)
+		return nil, meta, nil
+	}
+	match := &matches[0]
 
 	meta["reconciliation_status"] = "matched"
 	meta["matched_payment_id"] = match.PaymentID.String()
@@ -1792,6 +1823,7 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 		case lookupErr != nil && !errors.Is(lookupErr, sql.ErrNoRows):
 			log.WithContext(ctx).WithError(lookupErr).WithField("refund_transaction_id", txnID).
 				Warn("Failed to check existing refund payment by transaction ID")
+			return fmt.Errorf("check existing refund payment: %w", lookupErr)
 		default:
 			var originalPayment *models.Payment
 			var originalLookupErr error
@@ -1801,7 +1833,7 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 				if originalLookupErr != nil && !errors.Is(originalLookupErr, sql.ErrNoRows) {
 					log.WithContext(ctx).WithError(originalLookupErr).WithField("original_transaction_id", originalTxnID).
 						Warn("Failed to resolve original payment by transaction ID for refund")
-					originalPayment = nil
+					return fmt.Errorf("resolve original payment by transaction ID: %w", originalLookupErr)
 				}
 			}
 
@@ -1810,7 +1842,7 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 				if originalLookupErr != nil && !errors.Is(originalLookupErr, sql.ErrNoRows) {
 					log.WithContext(ctx).WithError(originalLookupErr).WithField("subscription_id", subscription.ID).
 						Warn("Failed to resolve original payment by subscription fallback for refund")
-					originalPayment = nil
+					return fmt.Errorf("resolve original payment by subscription fallback: %w", originalLookupErr)
 				}
 			}
 
@@ -1827,6 +1859,7 @@ func (s *NMIWebhookService) handleRefundSuccess(ctx context.Context) error {
 						"original_transaction_id": originalTxnID,
 						"refund_amount_cents":     refundAmountCents,
 					}).Warn("Failed to persist refund payment record")
+					return fmt.Errorf("persist refund payment record: %w", refundErr)
 				} else {
 					log.WithContext(ctx).WithFields(log.Fields{
 						"refund_transaction_id": txnID,

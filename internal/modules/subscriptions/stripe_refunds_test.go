@@ -18,6 +18,11 @@ func TestStripeRefundService_CreateRefund_Success(t *testing.T) {
 }
 
 func TestStripeRefundService_CreateRefund_ValidationErrors(t *testing.T) {
+	var nilSvc *StripeRefundService
+	_, err := nilSvc.CreateRefund(context.Background(), RefundParams{ChargeID: "ch_123"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stripe refund service is not initialized")
+
 	tests := []struct {
 		name      string
 		config    *config.Config
@@ -69,6 +74,11 @@ func TestStripeRefundService_CreateRefund_ValidationErrors(t *testing.T) {
 }
 
 func TestStripeRefundService_GetRefund_ValidationErrors(t *testing.T) {
+	var nilSvc *StripeRefundService
+	_, err := nilSvc.GetRefund(context.Background(), "re_123")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "stripe refund service is not initialized")
+
 	tests := []struct {
 		name      string
 		config    *config.Config

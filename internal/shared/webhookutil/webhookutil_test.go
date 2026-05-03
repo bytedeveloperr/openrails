@@ -16,6 +16,7 @@ import (
 
 func TestCanonicalProvider(t *testing.T) {
 	require.Equal(t, "mobius", CanonicalProvider(" Mobius "))
+	require.Equal(t, "mobius", CanonicalProvider("nmi"))
 	require.Equal(t, "stripe", CanonicalProvider("/stripe/"))
 }
 
@@ -62,15 +63,25 @@ func TestVerifyNMISignature(t *testing.T) {
 	body := []byte(`{"event_id":"evt_123","event_type":"transaction.sale.success"}`)
 
 	t.Run("accepts valid signature", func(t *testing.T) {
-		ts := "1700000000"
+		ts := fmt.Sprintf("%d", time.Now().Unix())
 		header := fmt.Sprintf("t=%s,s=%s", ts, signNMIHeader(secret, ts, body))
 		require.NoError(t, VerifyNMISignature(secret, header, body))
 	})
 
-	t.Run("accepts opaque nonce format", func(t *testing.T) {
+	t.Run("rejects opaque nonce format", func(t *testing.T) {
 		ts := "nonce-value-not-a-timestamp"
 		header := fmt.Sprintf("s=%s,t=%s", signNMIHeader(secret, ts, body), ts)
-		require.NoError(t, VerifyNMISignature(secret, header, body))
+		err := VerifyNMISignature(secret, header, body)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "invalid webhook signature timestamp")
+	})
+
+	t.Run("rejects stale timestamp", func(t *testing.T) {
+		ts := "1700000000"
+		header := fmt.Sprintf("s=%s,t=%s", signNMIHeader(secret, ts, body), ts)
+		err := VerifyNMISignature(secret, header, body)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "timestamp outside tolerance")
 	})
 
 	t.Run("rejects malformed signature header", func(t *testing.T) {
@@ -80,7 +91,8 @@ func TestVerifyNMISignature(t *testing.T) {
 	})
 
 	t.Run("rejects invalid signature", func(t *testing.T) {
-		err := VerifyNMISignature(secret, "t=1700000000,s=invalid-signature", body)
+		ts := fmt.Sprintf("%d", time.Now().Unix())
+		err := VerifyNMISignature(secret, fmt.Sprintf("t=%s,s=invalid-signature", ts), body)
 		require.Error(t, err)
 		require.ErrorContains(t, err, "invalid webhook signature")
 	})
@@ -91,7 +103,7 @@ func TestValidateNMISignature(t *testing.T) {
 	body := []byte(`{"event_id":"evt_123"}`)
 
 	t.Run("uses php signature when present", func(t *testing.T) {
-		ts := "1700000000"
+		ts := fmt.Sprintf("%d", time.Now().Unix())
 		phpSig := fmt.Sprintf("t=%s,s=%s", ts, signNMIHeader(secret, ts, body))
 
 		sig, err := ValidateNMISignature(secret, body, phpSig)
@@ -101,7 +113,7 @@ func TestValidateNMISignature(t *testing.T) {
 	})
 
 	t.Run("accepts uppercase quoted signature", func(t *testing.T) {
-		ts := "1700000000"
+		ts := fmt.Sprintf("%d", time.Now().Unix())
 		phpSig := fmt.Sprintf(`t="%s",s="%s"`, ts, strings.ToUpper(signNMIHeader(secret, ts, body)))
 
 		sig, err := ValidateNMISignature(secret, body, phpSig)
@@ -111,7 +123,8 @@ func TestValidateNMISignature(t *testing.T) {
 	})
 
 	t.Run("rejects invalid php signature", func(t *testing.T) {
-		_, err := ValidateNMISignature(secret, body, "t=1700000000,s=invalid")
+		ts := fmt.Sprintf("%d", time.Now().Unix())
+		_, err := ValidateNMISignature(secret, body, fmt.Sprintf("t=%s,s=invalid", ts))
 
 		require.Error(t, err)
 		require.ErrorIs(t, err, ErrNMIWebhookSignatureInvalid)
@@ -175,7 +188,7 @@ func TestPrepareStripe(t *testing.T) {
 func TestPrepareNMI(t *testing.T) {
 	secret := "test-secret"
 	body := []byte(`{"event_id":"evt_123","event_type":"transaction.sale.success"}`)
-	ts := "1700000000"
+	ts := fmt.Sprintf("%d", time.Now().Unix())
 	header := fmt.Sprintf("t=%s,s=%s", ts, signNMIHeader(secret, ts, body))
 
 	prepared, err := PrepareNMI(" Mobius ", body, secret, header)

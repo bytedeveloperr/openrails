@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS payment_events {{ON_CLUSTER}} (
     event_type LowCardinality(String),
     processor LowCardinality(String),
     processor_transaction_id Nullable(String),
-    amount Decimal(10, 2),
+    amount Nullable(Decimal(10, 2)),
     currency LowCardinality(String) DEFAULT 'usd',
     billing_info String DEFAULT '{}',
     webhook_source LowCardinality(String),

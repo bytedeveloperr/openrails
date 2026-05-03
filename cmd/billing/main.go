@@ -206,19 +206,30 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 			switch {
 			case err == nil:
-				log.Warn("Background workers exited without error; continuing without workers")
+				log.Warn("Background workers exited without error; shutting down HTTP servers")
 			case err == context.Canceled:
 				// Normal shutdown path.
 			default:
-				log.WithError(err).Error("Background workers stopped unexpectedly; continuing without workers")
+				log.WithError(err).Error("Background workers stopped unexpectedly; shutting down HTTP servers")
 			}
 		}()
 	}
 
-	// Wait for interrupt signal to gracefully shutdown the server.
-	// If workers stop unexpectedly, keep serving HTTP (especially useful in dev/zero-config mode).
-	<-sigChan
-	log.Info("Shutdown signal received, shutting down server...")
+	// Wait for interrupt signal or worker termination. With --start-workers, HTTP
+	// must not continue serving webhook/async billing APIs after workers stop.
+	workerStopped := false
+	if workerDone != nil {
+		select {
+		case <-sigChan:
+			log.Info("Shutdown signal received, shutting down server...")
+		case <-workerDone:
+			workerStopped = true
+			log.Error("Background workers stopped; shutting down server...")
+		}
+	} else {
+		<-sigChan
+		log.Info("Shutdown signal received, shutting down server...")
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -250,6 +261,9 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	if p := workerErr.Load(); p != nil && *p != nil && *p != context.Canceled {
 		return *p
+	}
+	if workerStopped {
+		return fmt.Errorf("background workers stopped")
 	}
 
 	log.Info("Billing service shutdown complete")

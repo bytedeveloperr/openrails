@@ -57,6 +57,8 @@ func (r *SubscriptionRepo) Update(ctx context.Context, s *models.Subscription) e
 	s.UpdatedAt = time.Now()
 	res, err := r.db.GetDB().NewUpdate().Model(s).
 		Column(
+			"price_id",
+			"product_id",
 			"status",
 			"started_at",
 			"ended_at",
